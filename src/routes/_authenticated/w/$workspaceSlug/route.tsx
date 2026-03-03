@@ -1,0 +1,208 @@
+import { useState } from "react"
+import {
+  createFileRoute,
+  Outlet,
+  Link,
+  useNavigate,
+} from "@tanstack/react-router"
+import { useLiveQuery, eq } from "@tanstack/react-db"
+import { authClient } from "@/lib/auth-client"
+import { trpc } from "@/lib/trpc-client"
+import { workspaceCollection, projectCollection } from "@/lib/collections"
+import { CreateProjectDialog } from "@/components/create-project-dialog"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupAction,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Separator } from "@/components/ui/separator"
+import {
+  FolderKanban,
+  LayoutList,
+  LogOut,
+  ChevronsUpDown,
+  Plus,
+} from "lucide-react"
+
+export const Route = createFileRoute(
+  `/_authenticated/w/$workspaceSlug`
+)({
+  beforeLoad: async () => {
+    await trpc.workspaces.ensureDefault.mutate()
+  },
+  component: WorkspaceLayout,
+})
+
+function WorkspaceLayout() {
+  const { workspaceSlug } = Route.useParams()
+  const { data: session } = authClient.useSession()
+  const navigate = useNavigate()
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
+
+  const { data: workspaces } = useLiveQuery((q) =>
+    q
+      .from({ workspaces: workspaceCollection })
+      .where(({ workspaces }) => eq(workspaces.slug, workspaceSlug))
+  )
+  const workspace = workspaces?.[0]
+
+  const { data: projects } = useLiveQuery(
+    (q) =>
+      workspace
+        ? q
+            .from({ projects: projectCollection })
+            .where(({ projects }) =>
+              eq(projects.workspaceId, workspace.id)
+            )
+            .orderBy(({ projects }) => projects.sortOrder)
+        : undefined,
+    [workspace?.id]
+  )
+
+  const handleSignOut = async () => {
+    await authClient.signOut()
+    navigate({ to: `/auth/login` })
+  }
+
+  const userInitials = session?.user?.name
+    ? session.user.name
+        .split(` `)
+        .map((n: string) => n[0])
+        .join(``)
+        .toUpperCase()
+        .slice(0, 2)
+    : `?`
+
+  return (
+    <SidebarProvider>
+      <Sidebar>
+        <SidebarHeader className="p-4">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold">
+              {workspace?.name?.[0]?.toUpperCase() ?? workspaceSlug[0]?.toUpperCase() ?? `E`}
+            </div>
+            <span className="text-sm font-semibold truncate">
+              {workspace?.name ?? workspaceSlug}
+            </span>
+          </div>
+        </SidebarHeader>
+
+        <Separator />
+
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>Projects</SidebarGroupLabel>
+            <SidebarGroupAction onClick={() => setCreateProjectOpen(true)} title="Create project">
+              <Plus className="h-4 w-4" />
+            </SidebarGroupAction>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {(!projects || projects.length === 0) ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton disabled>
+                      <FolderKanban className="h-4 w-4" />
+                      <span className="text-muted-foreground">
+                        No projects yet
+                      </span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ) : (
+                  projects.map((project) => (
+                    <SidebarMenuItem key={project.id}>
+                      <SidebarMenuButton asChild>
+                        <Link
+                          to="/w/$workspaceSlug/projects/$projectSlug"
+                          params={{ workspaceSlug, projectSlug: project.slug }}
+                        >
+                          <div
+                            className="h-3 w-3 rounded-full shrink-0"
+                            style={{ backgroundColor: project.color }}
+                          />
+                          <span>{project.name}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarGroup>
+            <SidebarGroupLabel>Views</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton disabled>
+                    <LayoutList className="h-4 w-4" />
+                    <span className="text-muted-foreground">
+                      No views yet
+                    </span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+
+        <SidebarFooter>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton className="w-full">
+                <Avatar className="h-6 w-6">
+                  <AvatarFallback className="text-xs">
+                    {userInitials}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="truncate text-sm">
+                  {session?.user?.email ?? `Loading...`}
+                </span>
+                <ChevronsUpDown className="ml-auto h-4 w-4" />
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuItem onClick={handleSignOut}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarFooter>
+      </Sidebar>
+
+      <main className="flex-1 flex flex-col min-h-screen">
+        <header className="flex items-center gap-2 border-b px-4 h-12">
+          <SidebarTrigger />
+        </header>
+        <div className="flex-1">
+          <Outlet />
+        </div>
+      </main>
+
+      {workspace && (
+        <CreateProjectDialog
+          open={createProjectOpen}
+          onOpenChange={setCreateProjectOpen}
+          workspaceId={workspace.id}
+        />
+      )}
+    </SidebarProvider>
+  )
+}

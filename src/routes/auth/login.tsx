@@ -1,0 +1,111 @@
+import * as React from "react"
+import { createFileRoute, Link } from "@tanstack/react-router"
+import { authClient } from "@/lib/auth-client"
+import { useState } from "react"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
+export const Route = createFileRoute(`/auth/login`)({
+  component: LoginPage,
+  ssr: false,
+})
+
+function LoginPage() {
+  const [email, setEmail] = useState(``)
+  const [password, setPassword] = useState(``)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState(``)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(``)
+
+    try {
+      const { error } = await authClient.signIn.email(
+        { email, password },
+        {
+          onSuccess: async () => {
+            await authClient.getSession()
+            window.location.href = `/`
+          },
+        }
+      )
+
+      if (error) {
+        setError(error.message || `Authentication failed`)
+      }
+    } catch {
+      setError(`An unexpected error occurred`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Sign in</CardTitle>
+          <CardDescription>
+            Enter your email and password to continue
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+              />
+            </div>
+
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? `Signing in...` : `Sign in`}
+            </Button>
+          </form>
+
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Don&apos;t have an account?{` `}
+            <Link
+              to="/auth/register"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Register
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

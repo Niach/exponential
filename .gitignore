@@ -1,0 +1,14 @@
+node_modules
+.DS_Store
+.idea
+dist
+dist-ssr
+*.local
+count.txt
+.env
+.nitro
+.tanstack
+.output
+.vinxi
+count.txt
+Caddyfile
