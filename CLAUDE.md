@@ -12,23 +12,23 @@ Real-time issue tracker.
 - **UI**: shadcn/ui on Tailwind v4 (OKLCH zinc palette, dark theme forced via `html.dark`)
 - **Date Picker**: `react-day-picker` + `date-fns` via shadcn `Calendar` component
 - **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, MinIO:9000/9001
-- **Package Manager**: pnpm
+- **Package Manager**: bun
 
 ## Commands
 
 ```bash
-pnpm dev                    # Start dev server (localhost:5173)
+bun dev                    # Start dev server (localhost:5173)
 docker compose up           # Start Postgres + Electric + MinIO
 docker compose down         # Stop infrastructure
 docker compose down -v      # Stop + wipe volumes
-pnpm drizzle-kit generate   # Generate migrations from schema changes
-pnpm drizzle-kit migrate    # Apply migrations
-pnpm build                  # Production build
-pnpm lint                   # ESLint fix
-pnpm format                 # Prettier format
+bun drizzle-kit generate   # Generate migrations from schema changes
+bun drizzle-kit migrate    # Apply migrations
+bun run build              # Production build
+bun lint                   # ESLint fix
+bun format                 # Prettier format
 ```
 
-After schema changes, always: `pnpm drizzle-kit generate && pnpm drizzle-kit migrate`
+After schema changes, always: `bun drizzle-kit generate && bun drizzle-kit migrate`
 
 Custom SQL triggers must be applied manually after migrations:
 ```bash

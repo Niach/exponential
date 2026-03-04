@@ -8,7 +8,7 @@ You need:
 
 - [Docker](https://www.docker.com)
 - [Caddy](https://caddyserver.com)
-- [Node](https://nodejs.org/en) with [pnpm](https://pnpm.io)
+- [Node](https://nodejs.org/en) with [bun](https://bun.sh)
 
 You can see compatible versions in the `.tool-versions` file.
 
@@ -47,25 +47,25 @@ cp .env.example .env
 Install the dependencies:
 
 ```sh
-pnpm install
+bun install
 ```
 
 Start the backend services (Postgres and Electric) running in the background using Docker:
 
 ```sh
-pnpm backend:up
+bun backend:up
 ```
 
 Apply the database migrations:
 
 ```sh
-pnpm migrate
+bun migrate
 ```
 
 Start the dev server:
 
 ```sh
-pnpm dev
+bun dev
 ```
 
 Open the application on [https://localhost:5173](https://localhost:5173).
@@ -236,10 +236,10 @@ export const updateCategorySchema = createUpdateSchema(categoriesTable)
 
 ```sh
 # Generate migration file
-pnpm migrate:generate
+bun migrate:generate
 
 # Apply migration to database
-pnpm migrate
+bun migrate
 ```
 
 ### 3. Expose an Electric shape route
@@ -399,7 +399,7 @@ This is necessary for HTTP/2 to work [without SSL warnings/errors in the browser
 
 #### How It Works
 
-- Caddy auto-starts via a Vite plugin when you run `pnpm dev`
+- Caddy auto-starts via a Vite plugin when you run `bun dev`
 - The `Caddyfile` is automatically generated with your project name
 - Your app is available at `https://<project-name>.localhost`
 - Direct access to `http://localhost:5173` still works but will be slower for Electric shapes
@@ -422,7 +422,7 @@ If Caddy fails to start:
    ```
 
 3. **Verify Caddyfile was generated:**
-   Look for a `Caddyfile` in your project root after running `pnpm dev`
+   Look for a `Caddyfile` in your project root after running `bun dev`
 
 4. **Stop conflicting Caddy instances:**
 
@@ -468,7 +468,7 @@ caddy start
 To build this application for production:
 
 ```bash
-pnpm build
+bun run build
 ```
 
 ### Production Deployment Checklist
