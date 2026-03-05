@@ -23,6 +23,22 @@ export const Route = createRootRoute({
       {
         title: `Exponential`,
       },
+      {
+        name: `theme-color`,
+        content: `#09090b`,
+      },
+      {
+        name: `description`,
+        content: `Real-time issue tracker`,
+      },
+      {
+        name: `apple-mobile-web-app-capable`,
+        content: `yes`,
+      },
+      {
+        name: `apple-mobile-web-app-status-bar-style`,
+        content: `black-translucent`,
+      },
     ],
     links: [
       {
@@ -42,16 +58,44 @@ export const Route = createRootRoute({
         rel: `stylesheet`,
         href: appCss,
       },
+      {
+        rel: `manifest`,
+        href: `/manifest.json`,
+      },
+      {
+        rel: `icon`,
+        type: `image/svg+xml`,
+        href: `/logo-dark.svg`,
+      },
+      {
+        rel: `icon`,
+        sizes: `any`,
+        href: `/favicon.ico`,
+      },
+      {
+        rel: `apple-touch-icon`,
+        href: `/apple-touch-icon.png`,
+      },
     ],
   }),
   shellComponent: RootDocument,
-  component: () => (
+  component: RootComponent,
+})
+
+function RootComponent() {
+  React.useEffect(() => {
+    if (`serviceWorker` in navigator) {
+      navigator.serviceWorker.register(`/sw.js`)
+    }
+  }, [])
+
+  return (
     <TooltipProvider>
       <Outlet />
       <TanStackRouterDevtools />
     </TooltipProvider>
-  ),
-})
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (

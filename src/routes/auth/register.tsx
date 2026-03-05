@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ExponentialLogo } from "@/components/exponential-logo"
 
 export const Route = createFileRoute(`/auth/register`)({
   component: RegisterPage,
@@ -56,7 +57,12 @@ function RegisterPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-sm">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="flex items-center justify-center gap-2">
+          <ExponentialLogo variant="light" size={32} />
+          <span className="text-xl font-semibold">Exponential</span>
+        </div>
+      <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Create an account</CardTitle>
           <CardDescription>Enter your details to get started</CardDescription>
@@ -119,6 +125,7 @@ function RegisterPage() {
           </p>
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }

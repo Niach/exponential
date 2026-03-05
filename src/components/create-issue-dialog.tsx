@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { MarkdownEditor, type MarkdownEditorRef } from "@/components/markdown-editor"
 import { Label } from "@/components/ui/label"
 import {
   DropdownMenu,
@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import { trpc } from "@/lib/trpc-client"
 import {
   statuses,
@@ -65,6 +65,7 @@ export function CreateIssueDialog({
   const [createMore, setCreateMore] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<MarkdownEditorRef>(null)
 
   useEffect(() => {
     if (open) {
@@ -75,6 +76,7 @@ export function CreateIssueDialog({
   const resetFields = () => {
     setTitle(``)
     setDescription(``)
+    editorRef.current?.setMarkdown(``)
     setStatus(defaultStatus ?? `backlog`)
     setPriority(`none`)
     setAssigneeId(null)
@@ -166,15 +168,15 @@ export function CreateIssueDialog({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Issue title"
             autoFocus
-            className="bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
+            className="bg-transparent dark:bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
           />
 
           {/* Description */}
-          <Textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+          <MarkdownEditor
+            ref={editorRef}
+            markdown={description}
+            onChange={setDescription}
             placeholder="Add description..."
-            className="bg-transparent border-none shadow-none resize-none min-h-[60px] px-5 py-1 focus-visible:ring-0 text-sm placeholder:text-muted-foreground/50"
           />
 
           {/* Toolbar */}
@@ -283,11 +285,11 @@ export function CreateIssueDialog({
             </Button>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <Checkbox
+                <Switch
                   id="create-more"
+                  size="sm"
                   checked={createMore}
                   onCheckedChange={(checked) => setCreateMore(checked === true)}
-                  className="h-3.5 w-3.5"
                 />
                 <Label
                   htmlFor="create-more"

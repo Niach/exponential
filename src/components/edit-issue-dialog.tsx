@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { MarkdownEditor, type MarkdownEditorRef } from "@/components/markdown-editor"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +53,7 @@ export function EditIssueDialog({
   issueLabelIds,
   users,
 }: EditIssueDialogProps) {
+  const editorRef = useRef<MarkdownEditorRef>(null)
   const [title, setTitle] = useState(issue.title)
   const [description, setDescription] = useState(
     issue.description &&
@@ -65,13 +66,14 @@ export function EditIssueDialog({
   // Reset local state when issue changes
   useEffect(() => {
     setTitle(issue.title)
-    setDescription(
+    const newDescription =
       issue.description &&
-        typeof issue.description === `object` &&
-        `text` in (issue.description as Record<string, unknown>)
+      typeof issue.description === `object` &&
+      `text` in (issue.description as Record<string, unknown>)
         ? ((issue.description as Record<string, unknown>).text as string)
         : ``
-    )
+    setDescription(newDescription)
+    editorRef.current?.setMarkdown(newDescription)
   }, [issue.id, issue.title, issue.description])
 
   const handleTitleBlur = async () => {
@@ -180,16 +182,16 @@ export function EditIssueDialog({
           onChange={(e) => setTitle(e.target.value)}
           onBlur={handleTitleBlur}
           placeholder="Issue title"
-          className="bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
+          className="bg-transparent dark:bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
         />
 
         {/* Description */}
-        <Textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
+        <MarkdownEditor
+          ref={editorRef}
+          markdown={description}
+          onChange={setDescription}
           onBlur={handleDescriptionBlur}
           placeholder="Add description..."
-          className="bg-transparent border-none shadow-none resize-none min-h-[60px] px-5 py-1 focus-visible:ring-0 text-sm placeholder:text-muted-foreground/50"
         />
 
         {/* Toolbar */}
