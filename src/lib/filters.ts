@@ -43,10 +43,7 @@ export function matchesFilters(
   issueLabelIds: string[],
   filters: IssueFilters
 ): boolean {
-  if (
-    filters.statuses.length > 0 &&
-    !filters.statuses.includes(issue.status)
-  )
+  if (filters.statuses.length > 0 && !filters.statuses.includes(issue.status))
     return false
   if (
     filters.priorities.length > 0 &&
@@ -63,7 +60,9 @@ export function matchesFilters(
 
 export function activeFilterCount(filters: IssueFilters): number {
   return (
-    filters.statuses.length + filters.priorities.length + filters.labelIds.length
+    filters.statuses.length +
+    filters.priorities.length +
+    filters.labelIds.length
   )
 }
 

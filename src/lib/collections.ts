@@ -3,10 +3,13 @@ import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
   selectWorkspaceSchema,
+  selectWorkspaceMemberSchema,
+  selectWorkspaceInviteSchema,
   selectProjectSchema,
   selectIssueSchema,
   selectLabelSchema,
   selectIssueLabelSchema,
+  selectUserSchema,
 } from "@/db/schema"
 
 const baseUrl =
@@ -15,6 +18,7 @@ const baseUrl =
     : `http://localhost:5173`
 
 const shapeParser = {
+  timestamp: (date: string) => new Date(date),
   timestamptz: (date: string) => new Date(date),
 }
 
@@ -29,6 +33,19 @@ export const workspaceCollection = createCollection(
       columnMapper,
     },
     schema: selectWorkspaceSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const workspaceMemberCollection = createCollection(
+  electricCollectionOptions({
+    id: `workspace_members`,
+    shapeOptions: {
+      url: new URL(`/api/shapes/workspace-members`, baseUrl).toString(),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectWorkspaceMemberSchema,
     getKey: (item) => item.id,
   })
 )
@@ -82,5 +99,31 @@ export const issueLabelCollection = createCollection(
     },
     schema: selectIssueLabelSchema,
     getKey: (item) => `${item.issueId}:${item.labelId}`,
+  })
+)
+
+export const workspaceInviteCollection = createCollection(
+  electricCollectionOptions({
+    id: `workspace_invites`,
+    shapeOptions: {
+      url: new URL(`/api/shapes/workspace-invites`, baseUrl).toString(),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectWorkspaceInviteSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const userCollection = createCollection(
+  electricCollectionOptions({
+    id: `users`,
+    shapeOptions: {
+      url: new URL(`/api/shapes/users`, baseUrl).toString(),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectUserSchema,
+    getKey: (item) => item.id,
   })
 )

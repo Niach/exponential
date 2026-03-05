@@ -1,5 +1,9 @@
 import { useState } from "react"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Command,
   CommandEmpty,
@@ -77,10 +81,7 @@ export function IssueFilterPopover({
       </PopoverTrigger>
       <PopoverContent className="w-[220px] p-0" align="start">
         {view === `categories` && (
-          <CategoriesView
-            filters={filters}
-            onNavigate={setView}
-          />
+          <CategoriesView filters={filters} onNavigate={setView} />
         )}
         {view === `status` && (
           <StatusView
@@ -118,7 +119,11 @@ function CategoriesView({
 }) {
   const categories = [
     { key: `status` as View, label: `Status`, count: filters.statuses.length },
-    { key: `priority` as View, label: `Priority`, count: filters.priorities.length },
+    {
+      key: `priority` as View,
+      label: `Priority`,
+      count: filters.priorities.length,
+    },
     { key: `labels` as View, label: `Labels`, count: filters.labelIds.length },
   ]
 

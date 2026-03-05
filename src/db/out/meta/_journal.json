@@ -15,6 +15,13 @@
       "when": 1772573416734,
       "tag": "0001_perpetual_true_believers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772657523092,
+      "tag": "0002_freezing_bill_hollister",
+      "breakpoints": true
     }
   ]
 }

@@ -1,33 +1,68 @@
+import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
-import { workspaces } from "@/db/schema"
+import { workspaces, workspaceMembers } from "@/db/schema"
 import { eq } from "drizzle-orm"
+import { randomBytes } from "crypto"
 
 export const workspacesRouter = router({
   ensureDefault: authedProcedure.mutation(async ({ ctx }) => {
+    const userId = ctx.session.user.id
     const userName = ctx.session.user.name || `My`
 
     return await db.transaction(async (tx) => {
-      const existing = await tx
-        .select()
-        .from(workspaces)
-        .where(eq(workspaces.slug, `default`))
+      // Check if user has any workspace memberships
+      const memberships = await tx
+        .select({ workspaceId: workspaceMembers.workspaceId })
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.userId, userId))
         .limit(1)
 
-      if (existing.length > 0) {
-        return { workspace: existing[0], txId: 0 }
+      if (memberships.length > 0) {
+        const [workspace] = await tx
+          .select()
+          .from(workspaces)
+          .where(eq(workspaces.id, memberships[0].workspaceId))
+          .limit(1)
+        return { workspace, txId: 0 }
       }
 
+      // Create a new workspace with unique slug
+      const slug = `ws-${randomBytes(4).toString(`hex`)}`
       const txId = await generateTxId(tx)
       const [workspace] = await tx
         .insert(workspaces)
         .values({
           name: `${userName}'s Workspace`,
-          slug: `default`,
+          slug,
         })
         .returning()
+
+      // Add user as owner
+      await tx.insert(workspaceMembers).values({
+        workspaceId: workspace.id,
+        userId,
+        role: `owner`,
+      })
 
       return { workspace, txId }
     })
   }),
+
+  update: authedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string().min(1).max(255).optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { id, ...updates } = input
+      const [workspace] = await db
+        .update(workspaces)
+        .set(updates)
+        .where(eq(workspaces.id, id))
+        .returning()
+      return { workspace }
+    }),
 })

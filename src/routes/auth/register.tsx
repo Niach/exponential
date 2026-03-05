@@ -16,9 +16,13 @@ import { Label } from "@/components/ui/label"
 export const Route = createFileRoute(`/auth/register`)({
   component: RegisterPage,
   ssr: false,
+  validateSearch: (search: Record<string, unknown>) => ({
+    redirect: (search.redirect as string) || undefined,
+  }),
 })
 
 function RegisterPage() {
+  const { redirect: redirectTo } = Route.useSearch()
   const [name, setName] = useState(``)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
@@ -35,7 +39,7 @@ function RegisterPage() {
         { name, email, password },
         {
           onSuccess: () => {
-            window.location.href = `/`
+            window.location.href = redirectTo || `/`
           },
         }
       )
@@ -55,9 +59,7 @@ function RegisterPage() {
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Create an account</CardTitle>
-          <CardDescription>
-            Enter your details to get started
-          </CardDescription>
+          <CardDescription>Enter your details to get started</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -98,9 +100,7 @@ function RegisterPage() {
               />
             </div>
 
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? `Creating account...` : `Create account`}
@@ -111,6 +111,7 @@ function RegisterPage() {
             Already have an account?{` `}
             <Link
               to="/auth/login"
+              search={{ redirect: redirectTo }}
               className="text-primary underline-offset-4 hover:underline"
             >
               Sign in

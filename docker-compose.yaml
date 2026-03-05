@@ -41,6 +41,19 @@ services:
       - minio_data:/data
     command: server /data --console-address ":9001"
 
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - 3000:3000
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   postgres_data:
   minio_data:
+  caddy_data:
+  caddy_config:

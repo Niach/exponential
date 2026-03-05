@@ -11,7 +11,7 @@ Real-time issue tracker.
 - **API**: tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync)
 - **UI**: shadcn/ui on Tailwind v4 (OKLCH zinc palette, dark theme forced via `html.dark`)
 - **Date Picker**: `react-day-picker` + `date-fns` via shadcn `Calendar` component
-- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, MinIO:9000/9001
+- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, MinIO:9000/9001, Caddy:3000 (HTTP/2 reverse proxy)
 - **Package Manager**: bun
 
 ## Commands
@@ -31,6 +31,7 @@ bun format                 # Prettier format
 After schema changes, always: `bun drizzle-kit generate && bun drizzle-kit migrate`
 
 Custom SQL triggers must be applied manually after migrations:
+
 ```bash
 docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_issue_number_trigger.sql
 ```
@@ -101,6 +102,7 @@ src/
 ## Database
 
 ### Key Conventions
+
 - Better Auth user IDs are `text` (not UUID) — all FKs to users must be `text` type
 - All app tables use UUID PKs via `gen_random_uuid()`
 - All tables have `created_at` / `updated_at` timestamps (with timezone)
@@ -109,45 +111,56 @@ src/
 - Due date uses `date` type (no time component)
 
 ### Tables
+
 `workspaces`, `projects`, `issues`, `labels`, `issue_labels`, `issue_relations`, `comments`, `attachments`, `views`, `push_subscriptions`, `notifications` + Better Auth tables (users, sessions, accounts, verifications)
 
 ### Key Issue Fields
+
 `id`, `projectId`, `number`, `identifier`, `title`, `description` (jsonb), `status`, `priority`, `assigneeId`, `creatorId`, `dueDate`, `sortOrder`, `completedAt`, `archivedAt`, `createdAt`, `updatedAt`
 
 ### Enums
+
 `issue_status` (backlog/todo/in_progress/done/cancelled), `issue_priority` (none/urgent/high/medium/low), `issue_relation_type`, `notification_type`
 
 ### Custom Triggers (0001_issue_number_trigger.sql)
+
 - `generate_issue_number()` — auto-increments `number` per project, sets `identifier` as `{prefix}-{number}`
 - `update_updated_at()` — auto-updates `updated_at` on all tables
 
 ## Patterns
 
 ### Electric Shape Proxies
+
 Each synced table gets a shape proxy in `src/routes/api/shapes/`. The proxy authenticates the request, then forwards to Electric. Client collections in `src/lib/collections.ts` point to these proxy URLs. Current proxies: workspaces, projects, issues, labels, issue-labels.
 
 ### Electric Collections
+
 All collections in `src/lib/collections.ts` use `columnMapper: snakeCamelMapper()` from `@electric-sql/client` to map Postgres `snake_case` columns to JS `camelCase`. Without this, `useLiveQuery` `where` filters silently fail. Use `undefined` (not `false`) to skip a query; use `and()`/`or()` from `@tanstack/react-db` instead of JS `&&`/`||`.
 
 ### Auth Guard
+
 `_authenticated.tsx` uses `beforeLoad` with `throw redirect()` to gate routes. Session is cached in `authStateCollection` (local-only collection) to avoid re-fetching on every navigation.
 
 ### tRPC + Electric Sync
+
 Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID so the client can wait for Electric to sync the write before updating the UI. Routers are modular in `src/lib/trpc/` and combined in `api/trpc/$.ts` as `appRouter`.
 
 ### Issue List UX
+
 - Issues are displayed in a CSS grid layout: `grid-cols-[24px_72px_24px_1fr_auto]` (priority, identifier, status, title, labels+due date)
 - Rows are clickable to open the edit dialog; priority/status dropdowns use `stopPropagation` to prevent row click
 - Empty status groups are hidden from the list
 - Due dates display with a `CalendarDays` icon on the right side of rows
 
 ### Issue Filtering
+
 - `src/lib/filters.ts` defines `IssueFilters` (statuses, priorities, labelIds), tab presets (all/active/backlog), and `matchesFilters()`
 - `IssueFilterBar` provides tab navigation and a filter popover button
 - `IssueFilterPopover` offers multi-category drill-down filtering (status, priority, labels)
 - `ActiveFilterPills` shows removable pills for active filters below the filter bar
 
 ### Edit Issue Dialog
+
 - Opens on row click, receives live `issue` prop from Electric (stays fresh without refetching)
 - Title and description use local state, save on blur if changed
 - Status, priority, labels, and due date mutate immediately via tRPC
@@ -155,11 +168,13 @@ Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID s
 - `completedAt` is auto-managed by the update mutation based on status changes
 
 ### Create Issue Dialog
+
 - Supports title, description, status, priority, labels, and due date
 - "Create more" checkbox keeps the dialog open and resets fields after creation
 - Due date uses shadcn `Calendar` in a `Popover`
 
 ### UI Conventions
+
 - All UI elements must use shadcn/ui components — no raw HTML `<input>`, `<button>`, `<textarea>`, `<label>` elements
 - Borderless inputs inside dialogs: use `Input`/`Textarea` with `border-none shadow-none focus-visible:ring-0`
 - Icon-only triggers in dropdowns: use `Button variant="ghost"` with `h-5 w-5 p-0`

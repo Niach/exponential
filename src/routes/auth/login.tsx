@@ -16,9 +16,13 @@ import { Label } from "@/components/ui/label"
 export const Route = createFileRoute(`/auth/login`)({
   component: LoginPage,
   ssr: false,
+  validateSearch: (search: Record<string, unknown>) => ({
+    redirect: (search.redirect as string) || undefined,
+  }),
 })
 
 function LoginPage() {
+  const { redirect: redirectTo } = Route.useSearch()
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
@@ -35,7 +39,7 @@ function LoginPage() {
         {
           onSuccess: async () => {
             await authClient.getSession()
-            window.location.href = `/`
+            window.location.href = redirectTo || `/`
           },
         }
       )
@@ -86,9 +90,7 @@ function LoginPage() {
               />
             </div>
 
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? `Signing in...` : `Sign in`}
@@ -99,6 +101,7 @@ function LoginPage() {
             Don&apos;t have an account?{` `}
             <Link
               to="/auth/register"
+              search={{ redirect: redirectTo }}
               className="text-primary underline-offset-4 hover:underline"
             >
               Register

@@ -15,10 +15,25 @@ import {
 import { trpc } from "@/lib/trpc-client"
 
 export const priorities = [
-  { value: `none`, label: `No priority`, icon: Minus, color: `text-muted-foreground` },
-  { value: `urgent`, label: `Urgent`, icon: AlertTriangle, color: `text-red-500` },
+  {
+    value: `none`,
+    label: `No priority`,
+    icon: Minus,
+    color: `text-muted-foreground`,
+  },
+  {
+    value: `urgent`,
+    label: `Urgent`,
+    icon: AlertTriangle,
+    color: `text-red-500`,
+  },
   { value: `high`, label: `High`, icon: SignalHigh, color: `text-orange-500` },
-  { value: `medium`, label: `Medium`, icon: SignalMedium, color: `text-yellow-500` },
+  {
+    value: `medium`,
+    label: `Medium`,
+    icon: SignalMedium,
+    color: `text-yellow-500`,
+  },
   { value: `low`, label: `Low`, icon: SignalLow, color: `text-blue-500` },
 ] as const
 
@@ -28,7 +43,13 @@ export function getPriorityConfig(priority: string) {
   return priorities.find((p) => p.value === priority) ?? priorities[0]
 }
 
-export function PriorityIcon({ priority, className }: { priority: string; className?: string }) {
+export function PriorityIcon({
+  priority,
+  className,
+}: {
+  priority: string
+  className?: string
+}) {
   const config = getPriorityConfig(priority)
   const Icon = config.icon
   return <Icon className={`h-4 w-4 ${config.color} ${className ?? ``}`} />
@@ -45,7 +66,10 @@ export function PriorityDropdown({
   const Icon = config.icon
 
   const handleSelect = async (newPriority: string) => {
-    await trpc.issues.update.mutate({ id: issueId, priority: newPriority as IssuePriority })
+    await trpc.issues.update.mutate({
+      id: issueId,
+      priority: newPriority as IssuePriority,
+    })
   }
 
   return (

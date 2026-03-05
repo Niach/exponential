@@ -5,21 +5,30 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
-import {
-  CircleDashed,
-  Circle,
-  Timer,
-  CircleCheck,
-  CircleX,
-} from "lucide-react"
+import { CircleDashed, Circle, Timer, CircleCheck, CircleX } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 
 export const statuses = [
-  { value: `backlog`, label: `Backlog`, icon: CircleDashed, color: `text-muted-foreground` },
+  {
+    value: `backlog`,
+    label: `Backlog`,
+    icon: CircleDashed,
+    color: `text-muted-foreground`,
+  },
   { value: `todo`, label: `Todo`, icon: Circle, color: `text-foreground` },
-  { value: `in_progress`, label: `In Progress`, icon: Timer, color: `text-yellow-500` },
+  {
+    value: `in_progress`,
+    label: `In Progress`,
+    icon: Timer,
+    color: `text-yellow-500`,
+  },
   { value: `done`, label: `Done`, icon: CircleCheck, color: `text-green-500` },
-  { value: `cancelled`, label: `Cancelled`, icon: CircleX, color: `text-muted-foreground` },
+  {
+    value: `cancelled`,
+    label: `Cancelled`,
+    icon: CircleX,
+    color: `text-muted-foreground`,
+  },
 ] as const
 
 export type IssueStatus = (typeof statuses)[number][`value`]
@@ -28,7 +37,13 @@ export function getStatusConfig(status: string) {
   return statuses.find((s) => s.value === status) ?? statuses[0]
 }
 
-export function StatusIcon({ status, className }: { status: string; className?: string }) {
+export function StatusIcon({
+  status,
+  className,
+}: {
+  status: string
+  className?: string
+}) {
   const config = getStatusConfig(status)
   const Icon = config.icon
   return <Icon className={`h-4 w-4 ${config.color} ${className ?? ``}`} />
@@ -45,7 +60,10 @@ export function StatusDropdown({
   const Icon = config.icon
 
   const handleSelect = async (newStatus: string) => {
-    await trpc.issues.update.mutate({ id: issueId, status: newStatus as IssueStatus })
+    await trpc.issues.update.mutate({
+      id: issueId,
+      status: newStatus as IssueStatus,
+    })
   }
 
   return (

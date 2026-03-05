@@ -77,9 +77,7 @@ function ProjectPage() {
 
   const { data: issueLabelsData } = useLiveQuery(
     (q) =>
-      project
-        ? q.from({ issueLabels: issueLabelCollection })
-        : undefined,
+      project ? q.from({ issueLabels: issueLabelCollection }) : undefined,
     [project?.id]
   )
 
@@ -152,7 +150,9 @@ function ProjectPage() {
 
   if (!project) {
     return (
-      <div className="text-muted-foreground text-sm p-6">Loading project...</div>
+      <div className="text-muted-foreground text-sm p-6">
+        Loading project...
+      </div>
     )
   }
 
@@ -187,7 +187,9 @@ function ProjectPage() {
       {editingIssue && (
         <EditIssueDialog
           open={!!editingIssue}
-          onOpenChange={(open) => { if (!open) setEditingIssueId(null) }}
+          onOpenChange={(open) => {
+            if (!open) setEditingIssueId(null)
+          }}
           issue={editingIssue}
           projectPrefix={project.prefix}
           projectColor={project.color}

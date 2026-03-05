@@ -22,8 +22,9 @@ import { z } from "zod"
 export * from "./auth-schema"
 import { users } from "./auth-schema"
 
-const { createInsertSchema, createSelectSchema } =
-  createSchemaFactory({ zodInstance: z })
+const { createInsertSchema, createSelectSchema } = createSchemaFactory({
+  zodInstance: z,
+})
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -53,7 +54,6 @@ export const issueRelationTypeEnum = pgEnum(`issue_relation_type`, [
   `is_duplicated_by`,
 ])
 
-
 export const notificationTypeEnum = pgEnum(`notification_type`, [
   `issue_assigned`,
   `issue_comment`,
@@ -61,12 +61,19 @@ export const notificationTypeEnum = pgEnum(`notification_type`, [
   `issue_mention`,
 ])
 
+export const workspaceMemberRoleEnum = pgEnum(`workspace_member_role`, [
+  `owner`,
+  `member`,
+])
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const uuidPk = () =>
-  uuid().primaryKey().default(sql`gen_random_uuid()`)
+  uuid()
+    .primaryKey()
+    .default(sql`gen_random_uuid()`)
 
 const timestamps = {
   createdAt: timestamp(`created_at`, { withTimezone: true })
@@ -86,6 +93,40 @@ export const workspaces = pgTable(`workspaces`, {
   name: varchar({ length: 255 }).notNull(),
   slug: varchar({ length: 255 }).notNull().unique(),
   iconUrl: text(`icon_url`),
+  ...timestamps,
+})
+
+export const workspaceMembers = pgTable(
+  `workspace_members`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    role: workspaceMemberRoleEnum().notNull().default(`member`),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.workspaceId, table.userId),
+    index(`idx_workspace_members_user`).on(table.userId),
+  ]
+)
+
+export const workspaceInvites = pgTable(`workspace_invites`, {
+  id: uuidPk(),
+  workspaceId: uuid(`workspace_id`)
+    .notNull()
+    .references(() => workspaces.id, { onDelete: `cascade` }),
+  invitedById: text(`invited_by_id`)
+    .notNull()
+    .references(() => users.id, { onDelete: `cascade` }),
+  role: workspaceMemberRoleEnum().notNull().default(`member`),
+  token: varchar({ length: 255 }).notNull().unique(),
+  acceptedAt: timestamp(`accepted_at`, { withTimezone: true }),
+  expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
   ...timestamps,
 })
 
@@ -179,9 +220,7 @@ export const issueRelations = pgTable(
     type: issueRelationTypeEnum().notNull(),
     ...timestamps,
   },
-  (table) => [
-    unique().on(table.issueId, table.relatedIssueId, table.type),
-  ]
+  (table) => [unique().on(table.issueId, table.relatedIssueId, table.type)]
 )
 
 export const comments = pgTable(
@@ -234,13 +273,16 @@ export const views = pgTable(`views`, {
     .references(() => users.id, { onDelete: `cascade` }),
   name: varchar({ length: 255 }).notNull(),
   icon: varchar({ length: 50 }),
-  filters: jsonb().notNull().default(sql`'[]'::jsonb`),
-  sortBy: jsonb(`sort_by`).notNull().default(sql`'[]'::jsonb`),
+  filters: jsonb()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  sortBy: jsonb(`sort_by`)
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   isShared: boolean(`is_shared`).notNull().default(false),
   sortOrder: doublePrecision(`sort_order`).notNull().default(0),
   ...timestamps,
 })
-
 
 export const pushSubscriptions = pgTable(`push_subscriptions`, {
   id: uuidPk(),
@@ -287,6 +329,9 @@ export const createWorkspaceSchema = createInsertSchema(workspaces).omit({
   updatedAt: true,
 })
 
+export const selectWorkspaceMemberSchema = createSelectSchema(workspaceMembers)
+export const selectWorkspaceInviteSchema = createSelectSchema(workspaceInvites)
+
 export const selectProjectSchema = createSelectSchema(projects)
 export const createProjectSchema = createInsertSchema(projects).omit({
   id: true,
@@ -312,6 +357,8 @@ export const createLabelSchema = createInsertSchema(labels).omit({
 
 export const selectIssueLabelSchema = createSelectSchema(issueLabels)
 
+export const selectUserSchema = createSelectSchema(users)
+
 export const selectCommentSchema = createSelectSchema(comments)
 export const createCommentSchema = createInsertSchema(comments).omit({
   id: true,
@@ -326,7 +373,6 @@ export const createViewSchema = createInsertSchema(views).omit({
   updatedAt: true,
 })
 
-
 export const selectNotificationSchema = createSelectSchema(notifications)
 
 // ---------------------------------------------------------------------------
@@ -334,6 +380,8 @@ export const selectNotificationSchema = createSelectSchema(notifications)
 // ---------------------------------------------------------------------------
 
 export type Workspace = z.infer<typeof selectWorkspaceSchema>
+export type WorkspaceMember = z.infer<typeof selectWorkspaceMemberSchema>
+export type WorkspaceInvite = z.infer<typeof selectWorkspaceInviteSchema>
 export type Project = z.infer<typeof selectProjectSchema>
 export type Issue = z.infer<typeof selectIssueSchema>
 export type Label = z.infer<typeof selectLabelSchema>

@@ -3,12 +3,17 @@ import {
   createFileRoute,
   Outlet,
   Link,
+  redirect,
   useNavigate,
 } from "@tanstack/react-router"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { authClient } from "@/lib/auth-client"
 import { trpc } from "@/lib/trpc-client"
-import { workspaceCollection, projectCollection } from "@/lib/collections"
+import {
+  workspaceCollection,
+  workspaceMemberCollection,
+  projectCollection,
+} from "@/lib/collections"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import {
   Sidebar,
@@ -29,6 +34,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -39,13 +45,19 @@ import {
   LogOut,
   ChevronsUpDown,
   Plus,
+  Settings,
+  Check,
 } from "lucide-react"
 
-export const Route = createFileRoute(
-  `/_authenticated/w/$workspaceSlug`
-)({
-  beforeLoad: async () => {
-    await trpc.workspaces.ensureDefault.mutate()
+export const Route = createFileRoute(`/_authenticated/w/$workspaceSlug`)({
+  beforeLoad: async ({ params }) => {
+    const { workspace } = await trpc.workspaces.ensureDefault.mutate()
+    if (params.workspaceSlug === `default` && workspace.slug !== `default`) {
+      throw redirect({
+        to: `/w/$workspaceSlug`,
+        params: { workspaceSlug: workspace.slug },
+      })
+    }
   },
   component: WorkspaceLayout,
 })
@@ -56,21 +68,33 @@ function WorkspaceLayout() {
   const navigate = useNavigate()
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
 
-  const { data: workspaces } = useLiveQuery((q) =>
-    q
-      .from({ workspaces: workspaceCollection })
-      .where(({ workspaces }) => eq(workspaces.slug, workspaceSlug))
+  const { data: allWorkspaces } = useLiveQuery((q) =>
+    q.from({ workspaces: workspaceCollection })
   )
-  const workspace = workspaces?.[0]
+
+  const { data: memberships } = useLiveQuery(
+    (q) =>
+      session?.user?.id
+        ? q
+            .from({ members: workspaceMemberCollection })
+            .where(({ members }) => eq(members.userId, session.user.id))
+        : undefined,
+    [session?.user?.id]
+  )
+
+  const workspace = allWorkspaces?.find((w) => w.slug === workspaceSlug)
+
+  // Build list of workspaces the user is a member of
+  const myWorkspaces = (memberships ?? [])
+    .map((m) => allWorkspaces?.find((w) => w.id === m.workspaceId))
+    .filter(Boolean)
 
   const { data: projects } = useLiveQuery(
     (q) =>
       workspace
         ? q
             .from({ projects: projectCollection })
-            .where(({ projects }) =>
-              eq(projects.workspaceId, workspace.id)
-            )
+            .where(({ projects }) => eq(projects.workspaceId, workspace.id))
             .orderBy(({ projects }) => projects.sortOrder)
         : undefined,
     [workspace?.id]
@@ -93,15 +117,55 @@ function WorkspaceLayout() {
   return (
     <SidebarProvider>
       <Sidebar>
-        <SidebarHeader className="p-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold">
-              {workspace?.name?.[0]?.toUpperCase() ?? workspaceSlug[0]?.toUpperCase() ?? `E`}
-            </div>
-            <span className="text-sm font-semibold truncate">
-              {workspace?.name ?? workspaceSlug}
-            </span>
-          </div>
+        <SidebarHeader className="p-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton className="w-full h-10">
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
+                  {workspace?.name?.[0]?.toUpperCase() ??
+                    workspaceSlug[0]?.toUpperCase() ??
+                    `E`}
+                </div>
+                <span className="text-sm font-semibold truncate">
+                  {workspace?.name ?? workspaceSlug}
+                </span>
+                <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0" />
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              {myWorkspaces.map((ws) => (
+                <DropdownMenuItem
+                  key={ws.id}
+                  onClick={() =>
+                    navigate({
+                      to: `/w/$workspaceSlug`,
+                      params: { workspaceSlug: ws.slug },
+                    })
+                  }
+                >
+                  <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[10px] font-bold shrink-0">
+                    {ws.name[0]?.toUpperCase()}
+                  </div>
+                  <span className="truncate">{ws.name}</span>
+                  {ws.slug === workspaceSlug && (
+                    <Check className="ml-auto h-4 w-4" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() =>
+                  navigate({
+                    to: `/w/$workspaceSlug/settings`,
+                    params: { workspaceSlug },
+                  })
+                }
+              >
+                <Settings className="h-4 w-4" />
+                Workspace settings
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </SidebarHeader>
 
         <Separator />
@@ -109,12 +173,15 @@ function WorkspaceLayout() {
         <SidebarContent>
           <SidebarGroup>
             <SidebarGroupLabel>Projects</SidebarGroupLabel>
-            <SidebarGroupAction onClick={() => setCreateProjectOpen(true)} title="Create project">
+            <SidebarGroupAction
+              onClick={() => setCreateProjectOpen(true)}
+              title="Create project"
+            >
               <Plus className="h-4 w-4" />
             </SidebarGroupAction>
             <SidebarGroupContent>
               <SidebarMenu>
-                {(!projects || projects.length === 0) ? (
+                {!projects || projects.length === 0 ? (
                   <SidebarMenuItem>
                     <SidebarMenuButton disabled>
                       <FolderKanban className="h-4 w-4" />
@@ -152,9 +219,7 @@ function WorkspaceLayout() {
                 <SidebarMenuItem>
                   <SidebarMenuButton disabled>
                     <LayoutList className="h-4 w-4" />
-                    <span className="text-muted-foreground">
-                      No views yet
-                    </span>
+                    <span className="text-muted-foreground">No views yet</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>

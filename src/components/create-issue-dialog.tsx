@@ -12,17 +12,25 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Checkbox } from "@/components/ui/checkbox"
 import { trpc } from "@/lib/trpc-client"
-import { statuses, StatusIcon, getStatusConfig } from "@/components/status-dropdown"
-import { priorities, PriorityIcon, getPriorityConfig } from "@/components/priority-dropdown"
+import {
+  statuses,
+  StatusIcon,
+  getStatusConfig,
+} from "@/components/status-dropdown"
+import {
+  priorities,
+  PriorityIcon,
+  getPriorityConfig,
+} from "@/components/priority-dropdown"
 import { LabelPicker } from "@/components/label-picker"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { ChevronRight, X, Paperclip, CalendarDays } from "lucide-react"
-
-function formatDate(date: Date | string): string {
-  const d = typeof date === `string` ? new Date(date) : date
-  return d.toLocaleDateString(`en-US`, { month: `short`, day: `numeric` })
-}
+import { formatDate } from "@/lib/utils"
 
 interface CreateIssueDialogProps {
   open: boolean
@@ -77,9 +85,16 @@ export function CreateIssueDialog({
       await trpc.issues.create.mutate({
         projectId,
         title: title.trim(),
-        status: status as `backlog` | `todo` | `in_progress` | `done` | `cancelled`,
+        status: status as
+          | `backlog`
+          | `todo`
+          | `in_progress`
+          | `done`
+          | `cancelled`,
         priority: priority as `none` | `urgent` | `high` | `medium` | `low`,
-        description: description.trim() ? { text: description.trim() } : undefined,
+        description: description.trim()
+          ? { text: description.trim() }
+          : undefined,
         dueDate: dueDate ? dueDate.toISOString().split(`T`)[0] : undefined,
         labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
       })
@@ -108,7 +123,10 @@ export function CreateIssueDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="sm:max-w-[640px] p-0 gap-0">
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-[640px] p-0 gap-0"
+      >
         <form onSubmit={handleSubmit}>
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-2">
@@ -157,7 +175,11 @@ export function CreateIssueDialog({
             {/* Status picker */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="xs" className="text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground"
+                >
                   <StatusIcon status={status} className="!h-3 !w-3" />
                   {statusConfig.label}
                 </Button>
@@ -166,7 +188,10 @@ export function CreateIssueDialog({
                 {statuses.map((s) => {
                   const SIcon = s.icon
                   return (
-                    <DropdownMenuItem key={s.value} onClick={() => setStatus(s.value)}>
+                    <DropdownMenuItem
+                      key={s.value}
+                      onClick={() => setStatus(s.value)}
+                    >
                       <SIcon className={`mr-2 h-4 w-4 ${s.color}`} />
                       {s.label}
                     </DropdownMenuItem>
@@ -178,7 +203,11 @@ export function CreateIssueDialog({
             {/* Priority picker */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="xs" className="text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground"
+                >
                   <PriorityIcon priority={priority} className="!h-3 !w-3" />
                   {priorityConfig.label}
                 </Button>
@@ -187,7 +216,10 @@ export function CreateIssueDialog({
                 {priorities.map((p) => {
                   const PIcon = p.icon
                   return (
-                    <DropdownMenuItem key={p.value} onClick={() => setPriority(p.value)}>
+                    <DropdownMenuItem
+                      key={p.value}
+                      onClick={() => setPriority(p.value)}
+                    >
                       <PIcon className={`mr-2 h-4 w-4 ${p.color}`} />
                       {p.label}
                     </DropdownMenuItem>
@@ -206,7 +238,11 @@ export function CreateIssueDialog({
             {/* Due date picker */}
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="xs" className="text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground"
+                >
                   <CalendarDays className="size-3" />
                   {dueDate ? formatDate(dueDate) : `Due date`}
                 </Button>
@@ -223,7 +259,12 @@ export function CreateIssueDialog({
 
           {/* Footer */}
           <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-            <Button variant="ghost" size="icon-xs" className="text-muted-foreground" type="button">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              type="button"
+            >
               <Paperclip className="size-3" />
             </Button>
             <div className="flex items-center gap-3">
@@ -234,7 +275,10 @@ export function CreateIssueDialog({
                   onCheckedChange={(checked) => setCreateMore(checked === true)}
                   className="h-3.5 w-3.5"
                 />
-                <Label htmlFor="create-more" className="text-xs text-muted-foreground cursor-pointer select-none">
+                <Label
+                  htmlFor="create-more"
+                  className="text-xs text-muted-foreground cursor-pointer select-none"
+                >
                   Create more
                 </Label>
               </div>

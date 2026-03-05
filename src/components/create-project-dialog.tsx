@@ -115,7 +115,10 @@ export function CreateProjectDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || !prefix.trim() || submitting}>
+            <Button
+              type="submit"
+              disabled={!name.trim() || !prefix.trim() || submitting}
+            >
               {submitting ? `Creating...` : `Create project`}
             </Button>
           </DialogFooter>

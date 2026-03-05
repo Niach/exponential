@@ -6,7 +6,7 @@ import {
   buildWhereClause,
 } from "@/lib/workspace-membership"
 
-export const Route = createFileRoute(`/api/shapes/projects`)({
+export const Route = createFileRoute(`/api/shapes/workspace-members`)({
   server: {
     handlers: {
       GET: async ({ request }) => {
@@ -19,7 +19,7 @@ export const Route = createFileRoute(`/api/shapes/projects`)({
 
         const workspaceIds = await getUserWorkspaceIds(session.user.id)
         const originUrl = prepareElectricUrl(request.url)
-        originUrl.searchParams.set(`table`, `projects`)
+        originUrl.searchParams.set(`table`, `workspace_members`)
         originUrl.searchParams.set(
           `where`,
           buildWhereClause(`workspace_id`, workspaceIds)

@@ -15,6 +15,8 @@ export const auth = betterAuth({
     disableSignUp: process.env.NODE_ENV === `production`,
     minPasswordLength: process.env.NODE_ENV === `production` ? 8 : 1,
   },
-  trustedOrigins: (process.env.BETTER_AUTH_TRUSTED_ORIGINS || ``).split(`,`).filter(Boolean),
+  trustedOrigins: (process.env.BETTER_AUTH_TRUSTED_ORIGINS || ``)
+    .split(`,`)
+    .filter(Boolean),
   plugins: [tanstackStartCookies()],
 })

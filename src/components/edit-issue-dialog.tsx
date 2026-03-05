@@ -9,19 +9,27 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { trpc } from "@/lib/trpc-client"
-import { statuses, StatusIcon, getStatusConfig } from "@/components/status-dropdown"
-import { priorities, PriorityIcon, getPriorityConfig } from "@/components/priority-dropdown"
+import {
+  statuses,
+  StatusIcon,
+  getStatusConfig,
+} from "@/components/status-dropdown"
+import {
+  priorities,
+  PriorityIcon,
+  getPriorityConfig,
+} from "@/components/priority-dropdown"
 import { LabelPicker } from "@/components/label-picker"
 import { ChevronRight, X, Paperclip, CalendarDays } from "lucide-react"
 import type { Issue } from "@/db/schema"
-
-function formatDate(date: Date | string): string {
-  const d = typeof date === `string` ? new Date(date) : date
-  return d.toLocaleDateString(`en-US`, { month: `short`, day: `numeric` })
-}
+import { formatDate } from "@/lib/utils"
 
 interface EditIssueDialogProps {
   open: boolean
@@ -44,7 +52,9 @@ export function EditIssueDialog({
 }: EditIssueDialogProps) {
   const [title, setTitle] = useState(issue.title)
   const [description, setDescription] = useState(
-    issue.description && typeof issue.description === `object` && `text` in (issue.description as Record<string, unknown>)
+    issue.description &&
+      typeof issue.description === `object` &&
+      `text` in (issue.description as Record<string, unknown>)
       ? ((issue.description as Record<string, unknown>).text as string)
       : ``
   )
@@ -53,7 +63,9 @@ export function EditIssueDialog({
   useEffect(() => {
     setTitle(issue.title)
     setDescription(
-      issue.description && typeof issue.description === `object` && `text` in (issue.description as Record<string, unknown>)
+      issue.description &&
+        typeof issue.description === `object` &&
+        `text` in (issue.description as Record<string, unknown>)
         ? ((issue.description as Record<string, unknown>).text as string)
         : ``
     )
@@ -69,7 +81,9 @@ export function EditIssueDialog({
   const handleDescriptionBlur = async () => {
     const trimmed = description.trim()
     const currentText =
-      issue.description && typeof issue.description === `object` && `text` in (issue.description as Record<string, unknown>)
+      issue.description &&
+      typeof issue.description === `object` &&
+      `text` in (issue.description as Record<string, unknown>)
         ? ((issue.description as Record<string, unknown>).text as string)
         : ``
     if (trimmed !== currentText) {
@@ -83,7 +97,12 @@ export function EditIssueDialog({
   const handleStatusChange = async (newStatus: string) => {
     await trpc.issues.update.mutate({
       id: issue.id,
-      status: newStatus as `backlog` | `todo` | `in_progress` | `done` | `cancelled`,
+      status: newStatus as
+        | `backlog`
+        | `todo`
+        | `in_progress`
+        | `done`
+        | `cancelled`,
     })
   }
 
@@ -111,11 +130,16 @@ export function EditIssueDialog({
 
   const statusConfig = getStatusConfig(issue.status)
   const priorityConfig = getPriorityConfig(issue.priority)
-  const dueDateValue = issue.dueDate ? new Date(issue.dueDate + `T00:00:00`) : undefined
+  const dueDateValue = issue.dueDate
+    ? new Date(issue.dueDate + `T00:00:00`)
+    : undefined
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="sm:max-w-[640px] p-0 gap-0">
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-[640px] p-0 gap-0"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -163,7 +187,11 @@ export function EditIssueDialog({
           {/* Status picker */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="xs" className="text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-muted-foreground"
+              >
                 <StatusIcon status={issue.status} className="!h-3 !w-3" />
                 {statusConfig.label}
               </Button>
@@ -172,7 +200,10 @@ export function EditIssueDialog({
               {statuses.map((s) => {
                 const SIcon = s.icon
                 return (
-                  <DropdownMenuItem key={s.value} onClick={() => handleStatusChange(s.value)}>
+                  <DropdownMenuItem
+                    key={s.value}
+                    onClick={() => handleStatusChange(s.value)}
+                  >
                     <SIcon className={`mr-2 h-4 w-4 ${s.color}`} />
                     {s.label}
                   </DropdownMenuItem>
@@ -184,7 +215,11 @@ export function EditIssueDialog({
           {/* Priority picker */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="xs" className="text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-muted-foreground"
+              >
                 <PriorityIcon priority={issue.priority} className="!h-3 !w-3" />
                 {priorityConfig.label}
               </Button>
@@ -193,7 +228,10 @@ export function EditIssueDialog({
               {priorities.map((p) => {
                 const PIcon = p.icon
                 return (
-                  <DropdownMenuItem key={p.value} onClick={() => handlePriorityChange(p.value)}>
+                  <DropdownMenuItem
+                    key={p.value}
+                    onClick={() => handlePriorityChange(p.value)}
+                  >
                     <PIcon className={`mr-2 h-4 w-4 ${p.color}`} />
                     {p.label}
                   </DropdownMenuItem>
@@ -212,7 +250,11 @@ export function EditIssueDialog({
           {/* Due date picker */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="xs" className="text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-muted-foreground"
+              >
                 <CalendarDays className="size-3" />
                 {dueDateValue ? formatDate(dueDateValue) : `Due date`}
               </Button>
@@ -229,7 +271,12 @@ export function EditIssueDialog({
 
         {/* Footer */}
         <div className="flex items-center px-4 py-3 border-t border-border">
-          <Button variant="ghost" size="icon-xs" className="text-muted-foreground" type="button">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
+            type="button"
+          >
             <Paperclip className="size-3" />
           </Button>
         </div>

@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { auth } from "@/lib/auth"
+import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
 import {
-  prepareElectricUrl,
-  proxyElectricRequest,
-} from "@/lib/electric-proxy"
+  getUserWorkspaceIds,
+  buildWhereClause,
+} from "@/lib/workspace-membership"
 
 export const Route = createFileRoute(`/api/shapes/workspaces`)({
   server: {
@@ -16,8 +17,13 @@ export const Route = createFileRoute(`/api/shapes/workspaces`)({
           return new Response(`Unauthorized`, { status: 401 })
         }
 
+        const workspaceIds = await getUserWorkspaceIds(session.user.id)
         const originUrl = prepareElectricUrl(request.url)
         originUrl.searchParams.set(`table`, `workspaces`)
+        originUrl.searchParams.set(
+          `where`,
+          buildWhereClause(`id`, workspaceIds)
+        )
 
         return proxyElectricRequest(originUrl)
       },

@@ -1,8 +1,9 @@
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
-import { issues, issueLabels } from "@/db/schema"
+import { issues, issueLabels, projects } from "@/db/schema"
 import { eq } from "drizzle-orm"
+import { assertWorkspaceMember } from "@/lib/workspace-membership"
 
 const issueStatusValues = [
   `backlog`,
@@ -12,13 +13,7 @@ const issueStatusValues = [
   `cancelled`,
 ] as const
 
-const issuePriorityValues = [
-  `none`,
-  `urgent`,
-  `high`,
-  `medium`,
-  `low`,
-] as const
+const issuePriorityValues = [`none`, `urgent`, `high`, `medium`, `low`] as const
 
 export const issuesRouter = router({
   create: authedProcedure
@@ -35,6 +30,16 @@ export const issuesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Look up project's workspace and check membership
+      const [project] = await db
+        .select({ workspaceId: projects.workspaceId })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1)
+      if (project) {
+        await assertWorkspaceMember(ctx.session.user.id, project.workspaceId)
+      }
+
       return await db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
@@ -76,8 +81,25 @@ export const issuesRouter = router({
         dueDate: z.string().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
+
+      // Look up issue's project workspace and check membership
+      const [existingIssue] = await db
+        .select({ projectId: issues.projectId })
+        .from(issues)
+        .where(eq(issues.id, id))
+        .limit(1)
+      if (existingIssue) {
+        const [project] = await db
+          .select({ workspaceId: projects.workspaceId })
+          .from(projects)
+          .where(eq(projects.id, existingIssue.projectId))
+          .limit(1)
+        if (project) {
+          await assertWorkspaceMember(ctx.session.user.id, project.workspaceId)
+        }
+      }
 
       // Auto-manage completedAt based on status
       const setValues: Record<string, unknown> = { ...updates }

@@ -17,6 +17,11 @@ const config = defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  server: {
+    port: 5173,
+    host: true,
+    allowedHosts: [`localhost`],
+  },
   optimizeDeps: {
     exclude: [`@tanstack/start-server-core`],
   },

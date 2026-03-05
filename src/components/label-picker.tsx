@@ -1,7 +1,11 @@
 import { useState } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { labelCollection } from "@/lib/collections"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Command,
   CommandEmpty,
@@ -120,7 +124,10 @@ export function LabelPicker({
                       onSelect={() => onToggle(label.id)}
                       className="flex items-center gap-2"
                     >
-                      <Checkbox checked={isSelected} className="pointer-events-none" />
+                      <Checkbox
+                        checked={isSelected}
+                        className="pointer-events-none"
+                      />
                       <div
                         className="h-2.5 w-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: label.color }}
@@ -168,7 +175,9 @@ export function LabelPicker({
               }}
             />
             <div>
-              <span className="text-xs text-muted-foreground mb-1.5 block">Color</span>
+              <span className="text-xs text-muted-foreground mb-1.5 block">
+                Color
+              </span>
               <div className="flex flex-wrap gap-1.5">
                 {LABEL_COLORS.map((color) => (
                   <button

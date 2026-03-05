@@ -3,6 +3,7 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { projects } from "@/db/schema"
 import { eq } from "drizzle-orm"
+import { assertWorkspaceMember } from "@/lib/workspace-membership"
 
 function slugify(name: string): string {
   return name
@@ -21,10 +22,14 @@ export const projectsRouter = router({
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
         prefix: z.string().min(1).max(10),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        color: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/)
+          .optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
       return await db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [project] = await tx
@@ -47,7 +52,10 @@ export const projectsRouter = router({
       z.object({
         id: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        color: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/)
+          .optional(),
         archivedAt: z.string().datetime().nullable().optional(),
       })
     )
