@@ -2,6 +2,7 @@ CREATE TYPE "public"."issue_priority" AS ENUM('none', 'urgent', 'high', 'medium'
 CREATE TYPE "public"."issue_relation_type" AS ENUM('blocks', 'is_blocked_by', 'relates_to', 'duplicates', 'is_duplicated_by');--> statement-breakpoint
 CREATE TYPE "public"."issue_status" AS ENUM('backlog', 'todo', 'in_progress', 'done', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."notification_type" AS ENUM('issue_assigned', 'issue_comment', 'issue_status_changed', 'issue_mention');--> statement-breakpoint
+CREATE TYPE "public"."workspace_member_role" AS ENUM('owner', 'member');--> statement-breakpoint
 CREATE TABLE "attachments" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"issue_id" uuid NOT NULL,
@@ -94,7 +95,8 @@ CREATE TABLE "projects" (
 	"sort_order" double precision DEFAULT 0 NOT NULL,
 	"archived_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "projects_workspace_id_slug_unique" UNIQUE("workspace_id","slug")
 );
 --> statement-breakpoint
 CREATE TABLE "push_subscriptions" (
@@ -120,6 +122,29 @@ CREATE TABLE "views" (
 	"sort_order" double precision DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "workspace_invites" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"invited_by_id" text NOT NULL,
+	"role" "workspace_member_role" DEFAULT 'member' NOT NULL,
+	"token" varchar(255) NOT NULL,
+	"accepted_at" timestamp with time zone,
+	"expires_at" timestamp with time zone NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "workspace_invites_token_unique" UNIQUE("token")
+);
+--> statement-breakpoint
+CREATE TABLE "workspace_members" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"user_id" text NOT NULL,
+	"role" "workspace_member_role" DEFAULT 'member' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "workspace_members_workspace_id_user_id_unique" UNIQUE("workspace_id","user_id")
 );
 --> statement-breakpoint
 CREATE TABLE "workspaces" (
@@ -199,6 +224,10 @@ ALTER TABLE "projects" ADD CONSTRAINT "projects_workspace_id_workspaces_id_fk" F
 ALTER TABLE "push_subscriptions" ADD CONSTRAINT "push_subscriptions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "views" ADD CONSTRAINT "views_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "views" ADD CONSTRAINT "views_creator_id_users_id_fk" FOREIGN KEY ("creator_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "workspace_invites" ADD CONSTRAINT "workspace_invites_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "workspace_invites" ADD CONSTRAINT "workspace_invites_invited_by_id_users_id_fk" FOREIGN KEY ("invited_by_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "accounts" ADD CONSTRAINT "accounts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_attachments_issue" ON "attachments" USING btree ("issue_id");--> statement-breakpoint
@@ -207,4 +236,5 @@ CREATE INDEX "idx_issue_labels_label" ON "issue_labels" USING btree ("label_id")
 CREATE INDEX "idx_issues_project_status" ON "issues" USING btree ("project_id","status");--> statement-breakpoint
 CREATE INDEX "idx_issues_assignee" ON "issues" USING btree ("assignee_id");--> statement-breakpoint
 CREATE INDEX "idx_issues_due_date" ON "issues" USING btree ("due_date");--> statement-breakpoint
-CREATE INDEX "idx_notifications_user_unread" ON "notifications" USING btree ("user_id","read_at");
+CREATE INDEX "idx_notifications_user_unread" ON "notifications" USING btree ("user_id","read_at");--> statement-breakpoint
+CREATE INDEX "idx_workspace_members_user" ON "workspace_members" USING btree ("user_id");

@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1772571443393,
-      "tag": "0000_next_pretty_boy",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1772573416734,
-      "tag": "0001_perpetual_true_believers",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1772657523092,
-      "tag": "0002_freezing_bill_hollister",
+      "when": 1772675639700,
+      "tag": "0000_tricky_yellow_claw",
       "breakpoints": true
     }
   ]

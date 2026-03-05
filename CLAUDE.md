@@ -33,7 +33,7 @@ After schema changes, always: `bun drizzle-kit generate && bun drizzle-kit migra
 Custom SQL triggers must be applied manually after migrations:
 
 ```bash
-docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_issue_number_trigger.sql
+docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
 ```
 
 ## Project Structure
@@ -122,7 +122,7 @@ src/
 
 `issue_status` (backlog/todo/in_progress/done/cancelled), `issue_priority` (none/urgent/high/medium/low), `issue_relation_type`, `notification_type`
 
-### Custom Triggers (0001_issue_number_trigger.sql)
+### Custom Triggers (0001_triggers.sql)
 
 - `generate_issue_number()` — auto-increments `number` per project, sets `identifier` as `{prefix}-{number}`
 - `update_updated_at()` — auto-updates `updated_at` on all tables
