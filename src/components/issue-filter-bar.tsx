@@ -52,17 +52,17 @@ export function IssueFilterBar({
           </Button>
         </div>
       </div>
-      <div className="flex items-center gap-4 border-b border-border">
+      <div className="flex items-center gap-1">
         {tabs.map((tab) => (
           <Button
             key={tab.id}
             variant="ghost"
             size="sm"
             onClick={() => handleTabClick(tab.id)}
-            className={`rounded-none pb-2 h-auto px-0 ${
+            className={`rounded-full h-7 px-3 text-xs ${
               activeTab === tab.id
-                ? `border-b-2 border-foreground text-foreground font-medium`
-                : `border-b-2 border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent`
+                ? `bg-accent text-foreground font-medium`
+                : `text-muted-foreground hover:text-foreground`
             }`}
           >
             {tab.label}

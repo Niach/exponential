@@ -29,7 +29,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
+import { AssigneePicker } from "@/components/assignee-picker"
 import { ChevronRight, X, Paperclip, CalendarDays } from "lucide-react"
+import type { User } from "@/db/schema"
 import { formatDate } from "@/lib/utils"
 
 interface CreateIssueDialogProps {
@@ -40,6 +42,7 @@ interface CreateIssueDialogProps {
   projectColor: string
   workspaceId: string
   defaultStatus?: string
+  users: User[]
 }
 
 export function CreateIssueDialog({
@@ -50,12 +53,14 @@ export function CreateIssueDialog({
   projectColor,
   workspaceId,
   defaultStatus,
+  users,
 }: CreateIssueDialogProps) {
   const [title, setTitle] = useState(``)
   const [description, setDescription] = useState(``)
   const [status, setStatus] = useState(defaultStatus ?? `backlog`)
   const [priority, setPriority] = useState(`none`)
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
+  const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [dueDate, setDueDate] = useState<Date | undefined>()
   const [createMore, setCreateMore] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -72,6 +77,7 @@ export function CreateIssueDialog({
     setDescription(``)
     setStatus(defaultStatus ?? `backlog`)
     setPriority(`none`)
+    setAssigneeId(null)
     setSelectedLabelIds([])
     setDueDate(undefined)
   }
@@ -92,6 +98,7 @@ export function CreateIssueDialog({
           | `done`
           | `cancelled`,
         priority: priority as `none` | `urgent` | `high` | `medium` | `low`,
+        assigneeId: assigneeId ?? undefined,
         description: description.trim()
           ? { text: description.trim() }
           : undefined,
@@ -227,6 +234,13 @@ export function CreateIssueDialog({
                 })}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Assignee picker */}
+            <AssigneePicker
+              users={users}
+              selectedUserId={assigneeId}
+              onSelect={setAssigneeId}
+            />
 
             {/* Label picker */}
             <LabelPicker

@@ -27,8 +27,9 @@ import {
   getPriorityConfig,
 } from "@/components/priority-dropdown"
 import { LabelPicker } from "@/components/label-picker"
+import { AssigneePicker } from "@/components/assignee-picker"
 import { ChevronRight, X, Paperclip, CalendarDays } from "lucide-react"
-import type { Issue } from "@/db/schema"
+import type { Issue, User } from "@/db/schema"
 import { formatDate } from "@/lib/utils"
 
 interface EditIssueDialogProps {
@@ -39,6 +40,7 @@ interface EditIssueDialogProps {
   projectColor: string
   workspaceId: string
   issueLabelIds: string[]
+  users: User[]
 }
 
 export function EditIssueDialog({
@@ -49,6 +51,7 @@ export function EditIssueDialog({
   projectColor,
   workspaceId,
   issueLabelIds,
+  users,
 }: EditIssueDialogProps) {
   const [title, setTitle] = useState(issue.title)
   const [description, setDescription] = useState(
@@ -119,6 +122,13 @@ export function EditIssueDialog({
     } else {
       await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
     }
+  }
+
+  const handleAssigneeChange = async (userId: string | null) => {
+    await trpc.issues.update.mutate({
+      id: issue.id,
+      assigneeId: userId,
+    })
   }
 
   const handleDueDateSelect = async (date: Date | undefined) => {
@@ -239,6 +249,13 @@ export function EditIssueDialog({
               })}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Assignee picker */}
+          <AssigneePicker
+            users={users}
+            selectedUserId={issue.assigneeId}
+            onSelect={handleAssigneeChange}
+          />
 
           {/* Label picker */}
           <LabelPicker

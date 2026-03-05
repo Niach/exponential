@@ -1,11 +1,20 @@
 import { useState } from "react"
-import type { Issue, Label } from "@/db/schema"
+import type { Issue, Label, User } from "@/db/schema"
 import { StatusDropdown, getStatusConfig } from "@/components/status-dropdown"
 import { PriorityDropdown } from "@/components/priority-dropdown"
+import { AssigneeDropdown } from "@/components/assignee-dropdown"
+import { DueDateDropdown } from "@/components/due-date-dropdown"
 import { Button } from "@/components/ui/button"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
-import { Plus, CalendarDays, ChevronRight } from "lucide-react"
-import { formatDate } from "@/lib/utils"
+import { Plus, ChevronRight } from "lucide-react"
+
+const statusHeaderBg: Record<string, string> = {
+  backlog: `rgba(113, 113, 122, 0.08)`,
+  todo: `rgba(212, 212, 216, 0.08)`,
+  in_progress: `rgba(234, 179, 8, 0.10)`,
+  done: `rgba(34, 197, 94, 0.10)`,
+  cancelled: `rgba(113, 113, 122, 0.08)`,
+}
 
 interface IssueGroup {
   status: string
@@ -15,6 +24,7 @@ interface IssueGroup {
 interface IssueListProps {
   groups: IssueGroup[]
   issueLabelMap: Map<string, Label[]>
+  userMap: Map<string, User>
   onNewIssue: (status?: string) => void
   onIssueClick: (issue: Issue) => void
 }
@@ -22,6 +32,7 @@ interface IssueListProps {
 export function IssueList({
   groups,
   issueLabelMap,
+  userMap,
   onNewIssue,
   onIssueClick,
 }: IssueListProps) {
@@ -29,6 +40,7 @@ export function IssueList({
     new Set()
   )
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
+  const users = Array.from(userMap.values())
 
   const toggleGroup = (status: string) => {
     setCollapsedGroups((prev) => {
@@ -57,6 +69,7 @@ export function IssueList({
         const config = getStatusConfig(group.status)
         const Icon = config.icon
         const isOpen = !collapsedGroups.has(group.status)
+        const headerBg = statusHeaderBg[group.status] ?? `rgba(113, 113, 122, 0.08)`
         return (
           <CollapsiblePrimitive.Root
             key={group.status}
@@ -64,7 +77,10 @@ export function IssueList({
             onOpenChange={() => toggleGroup(group.status)}
           >
             {/* Group header */}
-            <div className="group sticky top-0 z-10 flex items-center justify-between bg-background px-6 py-1.5 border-b border-border/50">
+            <div
+              className="group sticky top-0 z-10 flex items-center justify-between pl-3 pr-6 py-1.5 border-b border-border/50"
+              style={{ backgroundColor: headerBg }}
+            >
               <div className="flex items-center gap-1.5">
                 <CollapsiblePrimitive.Trigger asChild>
                   <Button
@@ -102,7 +118,7 @@ export function IssueList({
                 return (
                   <div
                     key={issue.id}
-                    className="grid grid-cols-[24px_72px_24px_1fr_auto] items-center h-[34px] px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
+                    className="grid grid-cols-[24px_72px_24px_1fr_auto_28px_72px] items-center h-[34px] px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
                     onClick={() => onIssueClick(issue)}
                   >
                     <div
@@ -142,12 +158,26 @@ export function IssueList({
                           {label.name}
                         </span>
                       ))}
-                      {issue.dueDate && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground ml-1">
-                          <CalendarDays className="size-3" />
-                          {formatDate(issue.dueDate)}
-                        </span>
-                      )}
+                    </div>
+                    <div
+                      className="flex items-center justify-center"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <AssigneeDropdown
+                        issueId={issue.id}
+                        assigneeId={issue.assigneeId}
+                        users={users}
+                        userMap={userMap}
+                      />
+                    </div>
+                    <div
+                      className="flex items-center justify-end"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <DueDateDropdown
+                        issueId={issue.id}
+                        dueDate={issue.dueDate}
+                      />
                     </div>
                   </div>
                 )

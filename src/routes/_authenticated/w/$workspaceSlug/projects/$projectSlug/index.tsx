@@ -7,12 +7,13 @@ import {
   issueCollection,
   labelCollection,
   issueLabelCollection,
+  userCollection,
 } from "@/lib/collections"
 import { IssueList } from "@/components/issue-list"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { EditIssueDialog } from "@/components/edit-issue-dialog"
-import type { Issue, Label, IssueLabel } from "@/db/schema"
+import type { Issue, Label, IssueLabel, User } from "@/db/schema"
 import type { IssueFilters } from "@/lib/filters"
 import { emptyFilters, matchesFilters } from "@/lib/filters"
 
@@ -80,6 +81,22 @@ function ProjectPage() {
       project ? q.from({ issueLabels: issueLabelCollection }) : undefined,
     [project?.id]
   )
+
+  const { data: usersData } = useLiveQuery((q) =>
+    q.from({ users: userCollection })
+  )
+
+  // Build a map of userId -> User
+  const userMap = useMemo(() => {
+    const map = new Map<string, User>()
+    if (!usersData) return map
+    for (const user of usersData as User[]) {
+      map.set(user.id, user)
+    }
+    return map
+  }, [usersData])
+
+  const users = useMemo(() => Array.from(userMap.values()), [userMap])
 
   // Build a map of issueId -> Label[]
   const issueLabelMap = useMemo(() => {
@@ -169,6 +186,7 @@ function ProjectPage() {
         <IssueList
           groups={visibleGroups}
           issueLabelMap={issueLabelMap}
+          userMap={userMap}
           onNewIssue={handleNewIssue}
           onIssueClick={(issue) => setEditingIssueId(issue.id)}
         />
@@ -182,6 +200,7 @@ function ProjectPage() {
         projectColor={project.color}
         workspaceId={workspace!.id}
         defaultStatus={defaultStatus}
+        users={users}
       />
 
       {editingIssue && (
@@ -195,6 +214,7 @@ function ProjectPage() {
           projectColor={project.color}
           workspaceId={workspace!.id}
           issueLabelIds={editingIssueLabelIds}
+          users={users}
         />
       )}
     </div>

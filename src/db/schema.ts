@@ -389,4 +389,5 @@ export type IssueLabel = z.infer<typeof selectIssueLabelSchema>
 export type Comment = z.infer<typeof selectCommentSchema>
 export type View = z.infer<typeof selectViewSchema>
 
+export type User = z.infer<typeof selectUserSchema>
 export type Notification = z.infer<typeof selectNotificationSchema>
