@@ -6,14 +6,8 @@ import {
   redirect,
   useNavigate,
 } from "@tanstack/react-router"
-import { useLiveQuery, eq } from "@tanstack/react-db"
 import { authClient } from "@/lib/auth-client"
 import { trpc } from "@/lib/trpc-client"
-import {
-  workspaceCollection,
-  workspaceMemberCollection,
-  projectCollection,
-} from "@/lib/collections"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import {
   Sidebar,
@@ -48,6 +42,12 @@ import {
   Settings,
   Check,
 } from "lucide-react"
+import {
+  useWorkspaceBySlug,
+  useWorkspaceMemberships,
+  useWorkspaceProjects,
+} from "@/hooks/use-workspace-data"
+import { getInitials } from "@/lib/utils"
 
 export const Route = createFileRoute(`/_authenticated/w/$workspaceSlug`)({
   beforeLoad: async ({ params }) => {
@@ -67,52 +67,19 @@ function WorkspaceLayout() {
   const { data: session } = authClient.useSession()
   const navigate = useNavigate()
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
-
-  const { data: allWorkspaces } = useLiveQuery((q) =>
-    q.from({ workspaces: workspaceCollection })
-  )
-
-  const { data: memberships } = useLiveQuery(
-    (q) =>
-      session?.user?.id
-        ? q
-            .from({ members: workspaceMemberCollection })
-            .where(({ members }) => eq(members.userId, session.user.id))
-        : undefined,
-    [session?.user?.id]
-  )
-
-  const workspace = allWorkspaces?.find((w) => w.slug === workspaceSlug)
-
-  // Build list of workspaces the user is a member of
-  const myWorkspaces = (memberships ?? [])
-    .map((m) => allWorkspaces?.find((w) => w.id === m.workspaceId))
-    .filter(Boolean)
-
-  const { data: projects } = useLiveQuery(
-    (q) =>
-      workspace
-        ? q
-            .from({ projects: projectCollection })
-            .where(({ projects }) => eq(projects.workspaceId, workspace.id))
-            .orderBy(({ projects }) => projects.sortOrder)
-        : undefined,
-    [workspace?.id]
-  )
+  const workspace = useWorkspaceBySlug(workspaceSlug)
+  const projects = useWorkspaceProjects(workspace?.id)
+  const { myWorkspaces } = useWorkspaceMemberships(session?.user?.id)
 
   const handleSignOut = async () => {
     await authClient.signOut()
-    navigate({ to: `/auth/login` })
+    navigate({
+      to: `/auth/login`,
+      search: { redirect: undefined },
+    })
   }
 
-  const userInitials = session?.user?.name
-    ? session.user.name
-        .split(` `)
-        .map((n: string) => n[0])
-        .join(``)
-        .toUpperCase()
-        .slice(0, 2)
-    : `?`
+  const userInitials = session?.user?.name ? getInitials(session.user.name) : `?`
 
   return (
     <SidebarProvider>

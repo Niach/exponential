@@ -38,7 +38,11 @@ function InviteAcceptPage() {
     trpc.workspaceInvites.getByToken
       .query({ token })
       .then(({ invite }) => {
-        setInvite(invite)
+        setInvite({
+          ...invite,
+          acceptedAt: invite.acceptedAt ? new Date(invite.acceptedAt) : null,
+          expiresAt: new Date(invite.expiresAt),
+        })
         setLoading(false)
       })
       .catch((err) => {

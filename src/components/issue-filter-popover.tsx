@@ -15,11 +15,13 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { ListFilter, ChevronRight, ArrowLeft } from "lucide-react"
-import { statuses, StatusIcon } from "@/components/status-dropdown"
-import { priorities, PriorityIcon } from "@/components/priority-dropdown"
+import { statuses } from "@/components/status-dropdown"
+import { priorities } from "@/components/priority-dropdown"
+import { IssueOptionFilterView } from "@/components/issue-option-filter-view"
 import type { IssueFilters } from "@/lib/filters"
 import { activeFilterCount } from "@/lib/filters"
 import type { Label } from "@/db/schema"
+import type { IssuePriority, IssueStatus } from "@/lib/domain"
 
 type View = `categories` | `status` | `priority` | `labels`
 
@@ -39,14 +41,14 @@ export function IssueFilterPopover({
 
   const count = activeFilterCount(filters)
 
-  const toggleStatus = (value: string) => {
+  const toggleStatus = (value: IssueStatus) => {
     const next = filters.statuses.includes(value)
       ? filters.statuses.filter((s) => s !== value)
       : [...filters.statuses, value]
     onFiltersChange({ ...filters, statuses: next })
   }
 
-  const togglePriority = (value: string) => {
+  const togglePriority = (value: IssuePriority) => {
     const next = filters.priorities.includes(value)
       ? filters.priorities.filter((p) => p !== value)
       : [...filters.priorities, value]
@@ -84,14 +86,18 @@ export function IssueFilterPopover({
           <CategoriesView filters={filters} onNavigate={setView} />
         )}
         {view === `status` && (
-          <StatusView
+          <IssueOptionFilterView
+            title="Status"
+            options={statuses}
             selected={filters.statuses}
             onToggle={toggleStatus}
             onBack={() => setView(`categories`)}
           />
         )}
         {view === `priority` && (
-          <PriorityView
+          <IssueOptionFilterView
+            title="Priority"
+            options={priorities}
             selected={filters.priorities}
             onToggle={togglePriority}
             onBack={() => setView(`categories`)}
@@ -146,80 +152,6 @@ function CategoriesView({
                 )}
                 <ChevronRight className="size-3.5 text-muted-foreground" />
               </span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </Command>
-  )
-}
-
-function StatusView({
-  selected,
-  onToggle,
-  onBack,
-}: {
-  selected: string[]
-  onToggle: (value: string) => void
-  onBack: () => void
-}) {
-  return (
-    <Command>
-      <CommandList>
-        <CommandGroup>
-          <CommandItem onSelect={onBack} className="flex items-center gap-2">
-            <ArrowLeft className="size-3.5" />
-            <span className="font-medium">Status</span>
-          </CommandItem>
-          {statuses.map((s) => (
-            <CommandItem
-              key={s.value}
-              onSelect={() => onToggle(s.value)}
-              className="flex items-center gap-2"
-            >
-              <Checkbox
-                checked={selected.includes(s.value)}
-                className="pointer-events-none"
-              />
-              <StatusIcon status={s.value} className="!h-3.5 !w-3.5" />
-              <span className="text-sm">{s.label}</span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </Command>
-  )
-}
-
-function PriorityView({
-  selected,
-  onToggle,
-  onBack,
-}: {
-  selected: string[]
-  onToggle: (value: string) => void
-  onBack: () => void
-}) {
-  return (
-    <Command>
-      <CommandList>
-        <CommandGroup>
-          <CommandItem onSelect={onBack} className="flex items-center gap-2">
-            <ArrowLeft className="size-3.5" />
-            <span className="font-medium">Priority</span>
-          </CommandItem>
-          {priorities.map((p) => (
-            <CommandItem
-              key={p.value}
-              onSelect={() => onToggle(p.value)}
-              className="flex items-center gap-2"
-            >
-              <Checkbox
-                checked={selected.includes(p.value)}
-                className="pointer-events-none"
-              />
-              <PriorityIcon priority={p.value} className="!h-3.5 !w-3.5" />
-              <span className="text-sm">{p.label}</span>
             </CommandItem>
           ))}
         </CommandGroup>

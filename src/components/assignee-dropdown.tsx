@@ -21,15 +21,7 @@ import { Button } from "@/components/ui/button"
 import { User as UserIcon, X } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import type { User } from "@/db/schema"
-
-function getInitials(name: string) {
-  return name
-    .split(` `)
-    .map((n) => n[0])
-    .join(``)
-    .toUpperCase()
-    .slice(0, 2)
-}
+import { getInitials } from "@/lib/utils"
 
 interface AssigneeDropdownProps {
   issueId: string

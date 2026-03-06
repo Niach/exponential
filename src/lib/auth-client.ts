@@ -5,10 +5,42 @@ import {
 } from "@tanstack/react-db"
 import { z } from "zod"
 
-const authStateSchema = z.object({
+export const authClient = createAuthClient({
+  baseURL:
+    typeof window !== `undefined`
+      ? window.location.origin
+      : undefined,
+})
+
+type SessionData = NonNullable<
+  Awaited<ReturnType<typeof authClient.getSession>>[`data`]
+>
+
+type AuthCacheEntry = {
+  id: string
+  session: SessionData[`session`] | null
+  user: SessionData[`user`] | null
+}
+
+const authSessionSchema = z
+  .object({
+    id: z.string(),
+    expiresAt: z.date(),
+  })
+  .passthrough()
+
+const authUserSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    email: z.string(),
+  })
+  .passthrough()
+
+const authStateSchema: z.ZodType<AuthCacheEntry> = z.object({
   id: z.string(),
-  session: z.any().nullable(),
-  user: z.any().nullable(),
+  session: authSessionSchema.nullable(),
+  user: authUserSchema.nullable(),
 })
 
 export const authStateCollection = createCollection(
@@ -18,10 +50,3 @@ export const authStateCollection = createCollection(
     schema: authStateSchema,
   })
 )
-
-export const authClient = createAuthClient({
-  baseURL:
-    typeof window !== `undefined`
-      ? window.location.origin // Always use current domain in browser
-      : undefined, // Let better-auth handle server-side baseURL detection
-})

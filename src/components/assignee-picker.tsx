@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { User as UserIcon, X } from "lucide-react"
 import type { User } from "@/db/schema"
+import { getInitials } from "@/lib/utils"
 
 interface AssigneePickerProps {
   users: User[]
@@ -51,14 +52,9 @@ export function AssigneePicker({
                     alt={selectedUser.name}
                   />
                 )}
-                <AvatarFallback className="text-[8px]">
-                  {selectedUser.name
-                    .split(` `)
-                    .map((n) => n[0])
-                    .join(``)
-                    .toUpperCase()
-                    .slice(0, 2)}
-                </AvatarFallback>
+                  <AvatarFallback className="text-[8px]">
+                    {getInitials(selectedUser.name)}
+                  </AvatarFallback>
               </Avatar>
               <span className="max-w-[100px] truncate">
                 {selectedUser.name}
@@ -106,12 +102,7 @@ export function AssigneePicker({
                       <AvatarImage src={user.image} alt={user.name} />
                     )}
                     <AvatarFallback className="text-[9px]">
-                      {user.name
-                        .split(` `)
-                        .map((n) => n[0])
-                        .join(``)
-                        .toUpperCase()
-                        .slice(0, 2)}
+                      {getInitials(user.name)}
                     </AvatarFallback>
                   </Avatar>
                   <span className="truncate text-sm">{user.name}</span>

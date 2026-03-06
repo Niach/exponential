@@ -15,9 +15,18 @@ import {
   boolean,
   date,
 } from "drizzle-orm/pg-core"
-import { sql } from "drizzle-orm"
+import { sql, type InferSelectModel } from "drizzle-orm"
 import { createSchemaFactory } from "drizzle-zod"
 import { z } from "zod"
+import {
+  issueDescriptionSchema,
+  issuePrioritySchema,
+  issuePriorityValues,
+  issueStatusSchema,
+  issueStatusValues,
+  workspaceRoleSchema,
+  workspaceRoleValues,
+} from "@/lib/domain"
 
 export * from "./auth-schema"
 import { users } from "./auth-schema"
@@ -30,21 +39,9 @@ const { createInsertSchema, createSelectSchema } = createSchemaFactory({
 // Enums
 // ---------------------------------------------------------------------------
 
-export const issueStatusEnum = pgEnum(`issue_status`, [
-  `backlog`,
-  `todo`,
-  `in_progress`,
-  `done`,
-  `cancelled`,
-])
+export const issueStatusEnum = pgEnum(`issue_status`, issueStatusValues)
 
-export const issuePriorityEnum = pgEnum(`issue_priority`, [
-  `none`,
-  `urgent`,
-  `high`,
-  `medium`,
-  `low`,
-])
+export const issuePriorityEnum = pgEnum(`issue_priority`, issuePriorityValues)
 
 export const issueRelationTypeEnum = pgEnum(`issue_relation_type`, [
   `blocks`,
@@ -61,10 +58,10 @@ export const notificationTypeEnum = pgEnum(`notification_type`, [
   `issue_mention`,
 ])
 
-export const workspaceMemberRoleEnum = pgEnum(`workspace_member_role`, [
-  `owner`,
-  `member`,
-])
+export const workspaceMemberRoleEnum = pgEnum(
+  `workspace_member_role`,
+  workspaceRoleValues
+)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -329,8 +326,12 @@ export const createWorkspaceSchema = createInsertSchema(workspaces).omit({
   updatedAt: true,
 })
 
-export const selectWorkspaceMemberSchema = createSelectSchema(workspaceMembers)
-export const selectWorkspaceInviteSchema = createSelectSchema(workspaceInvites)
+export const selectWorkspaceMemberSchema = createSelectSchema(workspaceMembers, {
+  role: workspaceRoleSchema,
+})
+export const selectWorkspaceInviteSchema = createSelectSchema(workspaceInvites, {
+  role: workspaceRoleSchema,
+})
 
 export const selectProjectSchema = createSelectSchema(projects)
 export const createProjectSchema = createInsertSchema(projects).omit({
@@ -339,7 +340,11 @@ export const createProjectSchema = createInsertSchema(projects).omit({
   updatedAt: true,
 })
 
-export const selectIssueSchema = createSelectSchema(issues)
+export const selectIssueSchema = createSelectSchema(issues, {
+  description: issueDescriptionSchema.nullable(),
+  priority: issuePrioritySchema,
+  status: issueStatusSchema,
+})
 export const createIssueSchema = createInsertSchema(issues).omit({
   id: true,
   number: true,
@@ -379,15 +384,15 @@ export const selectNotificationSchema = createSelectSchema(notifications)
 // Types
 // ---------------------------------------------------------------------------
 
-export type Workspace = z.infer<typeof selectWorkspaceSchema>
-export type WorkspaceMember = z.infer<typeof selectWorkspaceMemberSchema>
-export type WorkspaceInvite = z.infer<typeof selectWorkspaceInviteSchema>
-export type Project = z.infer<typeof selectProjectSchema>
-export type Issue = z.infer<typeof selectIssueSchema>
-export type Label = z.infer<typeof selectLabelSchema>
-export type IssueLabel = z.infer<typeof selectIssueLabelSchema>
-export type Comment = z.infer<typeof selectCommentSchema>
-export type View = z.infer<typeof selectViewSchema>
+export type Workspace = InferSelectModel<typeof workspaces>
+export type WorkspaceMember = InferSelectModel<typeof workspaceMembers>
+export type WorkspaceInvite = InferSelectModel<typeof workspaceInvites>
+export type Project = InferSelectModel<typeof projects>
+export type Issue = InferSelectModel<typeof issues>
+export type Label = InferSelectModel<typeof labels>
+export type IssueLabel = InferSelectModel<typeof issueLabels>
+export type Comment = InferSelectModel<typeof comments>
+export type View = InferSelectModel<typeof views>
 
-export type User = z.infer<typeof selectUserSchema>
-export type Notification = z.infer<typeof selectNotificationSchema>
+export type User = InferSelectModel<typeof users>
+export type Notification = InferSelectModel<typeof notifications>

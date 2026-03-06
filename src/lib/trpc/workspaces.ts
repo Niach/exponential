@@ -1,16 +1,16 @@
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { db } from "@/db/connection"
 import { workspaces, workspaceMembers } from "@/db/schema"
 import { eq } from "drizzle-orm"
 import { randomBytes } from "crypto"
+import { assertWorkspaceOwner } from "@/lib/workspace-membership"
 
 export const workspacesRouter = router({
   ensureDefault: authedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.session.user.id
     const userName = ctx.session.user.name || `My`
 
-    return await db.transaction(async (tx) => {
+    return await ctx.db.transaction(async (tx) => {
       // Check if user has any workspace memberships
       const memberships = await tx
         .select({ workspaceId: workspaceMembers.workspaceId })
@@ -56,9 +56,11 @@ export const workspacesRouter = router({
         name: z.string().min(1).max(255).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
-      const [workspace] = await db
+      await assertWorkspaceOwner(ctx.session.user.id, id)
+
+      const [workspace] = await ctx.db
         .update(workspaces)
         .set(updates)
         .where(eq(workspaces.id, id))

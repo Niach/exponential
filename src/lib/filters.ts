@@ -1,8 +1,9 @@
 import type { Issue } from "@/db/schema"
+import type { IssuePriority, IssueStatus } from "@/lib/domain"
 
 export interface IssueFilters {
-  statuses: string[]
-  priorities: string[]
+  statuses: IssueStatus[]
+  priorities: IssuePriority[]
   labelIds: string[]
 }
 
@@ -14,13 +15,13 @@ export const emptyFilters: IssueFilters = {
 
 export type TabPreset = `all` | `active` | `backlog`
 
-export const tabPresetStatuses: Record<TabPreset, string[]> = {
+export const tabPresetStatuses: Record<TabPreset, IssueStatus[]> = {
   all: [],
   active: [`in_progress`, `todo`],
   backlog: [`backlog`],
 }
 
-export function deriveActiveTab(statuses: string[]): TabPreset {
+export function deriveActiveTab(statuses: IssueStatus[]): TabPreset {
   if (statuses.length === 0) return `all`
   const sorted = [...statuses].sort()
   const activeSorted = [...tabPresetStatuses.active].sort()

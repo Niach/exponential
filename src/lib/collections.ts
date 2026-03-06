@@ -2,14 +2,14 @@ import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
-  selectWorkspaceSchema,
-  selectWorkspaceMemberSchema,
-  selectWorkspaceInviteSchema,
-  selectProjectSchema,
+  selectIssueLabelSchema,
   selectIssueSchema,
   selectLabelSchema,
-  selectIssueLabelSchema,
+  selectProjectSchema,
   selectUserSchema,
+  selectWorkspaceInviteSchema,
+  selectWorkspaceMemberSchema,
+  selectWorkspaceSchema,
 } from "@/db/schema"
 
 const baseUrl =
@@ -24,11 +24,15 @@ const shapeParser = {
 
 const columnMapper = snakeCamelMapper()
 
+function getShapeUrl(path: string) {
+  return new URL(path, baseUrl).toString()
+}
+
 export const workspaceCollection = createCollection(
   electricCollectionOptions({
     id: `workspaces`,
     shapeOptions: {
-      url: new URL(`/api/shapes/workspaces`, baseUrl).toString(),
+      url: getShapeUrl(`/api/shapes/workspaces`),
       parser: shapeParser,
       columnMapper,
     },
@@ -41,7 +45,7 @@ export const workspaceMemberCollection = createCollection(
   electricCollectionOptions({
     id: `workspace_members`,
     shapeOptions: {
-      url: new URL(`/api/shapes/workspace-members`, baseUrl).toString(),
+      url: getShapeUrl(`/api/shapes/workspace-members`),
       parser: shapeParser,
       columnMapper,
     },
@@ -54,7 +58,7 @@ export const projectCollection = createCollection(
   electricCollectionOptions({
     id: `projects`,
     shapeOptions: {
-      url: new URL(`/api/shapes/projects`, baseUrl).toString(),
+      url: getShapeUrl(`/api/shapes/projects`),
       parser: shapeParser,
       columnMapper,
     },
@@ -67,7 +71,7 @@ export const issueCollection = createCollection(
   electricCollectionOptions({
     id: `issues`,
     shapeOptions: {
-      url: new URL(`/api/shapes/issues`, baseUrl).toString(),
+      url: getShapeUrl(`/api/shapes/issues`),
       parser: shapeParser,
       columnMapper,
     },
@@ -80,7 +84,7 @@ export const labelCollection = createCollection(
   electricCollectionOptions({
     id: `labels`,
     shapeOptions: {
-      url: new URL(`/api/shapes/labels`, baseUrl).toString(),
+      url: getShapeUrl(`/api/shapes/labels`),
       parser: shapeParser,
       columnMapper,
     },
@@ -93,8 +97,7 @@ export const issueLabelCollection = createCollection(
   electricCollectionOptions({
     id: `issue_labels`,
     shapeOptions: {
-      url: new URL(`/api/shapes/issue-labels`, baseUrl).toString(),
-      parser: shapeParser,
+      url: getShapeUrl(`/api/shapes/issue-labels`),
       columnMapper,
     },
     schema: selectIssueLabelSchema,
@@ -106,7 +109,7 @@ export const workspaceInviteCollection = createCollection(
   electricCollectionOptions({
     id: `workspace_invites`,
     shapeOptions: {
-      url: new URL(`/api/shapes/workspace-invites`, baseUrl).toString(),
+      url: getShapeUrl(`/api/shapes/workspace-invites`),
       parser: shapeParser,
       columnMapper,
     },
@@ -119,7 +122,7 @@ export const userCollection = createCollection(
   electricCollectionOptions({
     id: `users`,
     shapeOptions: {
-      url: new URL(`/api/shapes/users`, baseUrl).toString(),
+      url: getShapeUrl(`/api/shapes/users`),
       parser: shapeParser,
       columnMapper,
     },

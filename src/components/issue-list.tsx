@@ -7,8 +7,9 @@ import { DueDateDropdown } from "@/components/due-date-dropdown"
 import { Button } from "@/components/ui/button"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import { Plus, ChevronRight } from "lucide-react"
+import type { IssueStatus } from "@/lib/domain"
 
-const statusHeaderBg: Record<string, string> = {
+const statusHeaderBg: Record<IssueStatus, string> = {
   backlog: `rgba(113, 113, 122, 0.08)`,
   todo: `rgba(212, 212, 216, 0.08)`,
   in_progress: `rgba(234, 179, 8, 0.10)`,
@@ -17,7 +18,7 @@ const statusHeaderBg: Record<string, string> = {
 }
 
 interface IssueGroup {
-  status: string
+  status: IssueStatus
   issues: Issue[]
 }
 
@@ -25,7 +26,7 @@ interface IssueListProps {
   groups: IssueGroup[]
   issueLabelMap: Map<string, Label[]>
   userMap: Map<string, User>
-  onNewIssue: (status?: string) => void
+  onNewIssue: (status?: IssueStatus) => void
   onIssueClick: (issue: Issue) => void
 }
 
@@ -42,7 +43,7 @@ export function IssueList({
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
   const users = Array.from(userMap.values())
 
-  const toggleGroup = (status: string) => {
+  const toggleGroup = (status: IssueStatus) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev)
       if (next.has(status)) {

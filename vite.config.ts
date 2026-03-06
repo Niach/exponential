@@ -28,6 +28,10 @@ const config = defineConfig({
   ssr: {
     noExternal: [`zod`, `drizzle-orm`],
   },
+  test: {
+    environment: `jsdom`,
+    globals: true,
+  },
 })
 
 export default config

@@ -1,10 +1,9 @@
 import { useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { useLiveQuery, eq } from "@tanstack/react-db"
 import {
-  workspaceCollection,
-  projectCollection,
-} from "@/lib/collections"
+  useWorkspaceBySlug,
+  useWorkspaceProjects,
+} from "@/hooks/use-workspace-data"
 
 export const Route = createFileRoute(`/_authenticated/w/$workspaceSlug/`)({
   component: WorkspaceIndexPage,
@@ -13,23 +12,8 @@ export const Route = createFileRoute(`/_authenticated/w/$workspaceSlug/`)({
 function WorkspaceIndexPage() {
   const { workspaceSlug } = Route.useParams()
   const navigate = useNavigate()
-
-  const { data: allWorkspaces } = useLiveQuery((q) =>
-    q.from({ workspaces: workspaceCollection })
-  )
-
-  const workspace = allWorkspaces?.find((w) => w.slug === workspaceSlug)
-
-  const { data: projects } = useLiveQuery(
-    (q) =>
-      workspace
-        ? q
-            .from({ projects: projectCollection })
-            .where(({ projects }) => eq(projects.workspaceId, workspace.id))
-            .orderBy(({ projects }) => projects.sortOrder)
-        : undefined,
-    [workspace?.id]
-  )
+  const workspace = useWorkspaceBySlug(workspaceSlug)
+  const projects = useWorkspaceProjects(workspace?.id)
 
   useEffect(() => {
     if (projects && projects.length > 0) {

@@ -1,9 +1,12 @@
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { db } from "@/db/connection"
 import { projects } from "@/db/schema"
 import { eq } from "drizzle-orm"
-import { assertWorkspaceMember } from "@/lib/workspace-membership"
+import {
+  assertProjectMember,
+  assertWorkspaceMember,
+  assertWorkspaceOwner,
+} from "@/lib/workspace-membership"
 
 function slugify(name: string): string {
   return name
@@ -30,7 +33,8 @@ export const projectsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
-      return await db.transaction(async (tx) => {
+
+      return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [project] = await tx
           .insert(projects)
@@ -56,12 +60,24 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        archivedAt: z.string().datetime().nullable().optional(),
+        archivedAt: z
+          .string()
+          .datetime()
+          .transform((value) => new Date(value))
+          .nullable()
+          .optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
-      const [project] = await db
+
+      const projectRecord = await assertProjectMember(ctx.session.user.id, id)
+
+      if (Object.hasOwn(updates, `archivedAt`)) {
+        await assertWorkspaceOwner(ctx.session.user.id, projectRecord.workspaceId)
+      }
+
+      const [project] = await ctx.db
         .update(projects)
         .set(updates)
         .where(eq(projects.id, id))

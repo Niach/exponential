@@ -1,51 +1,28 @@
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
-import { CircleDashed, Circle, Timer, CircleCheck, CircleX } from "lucide-react"
+import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { trpc } from "@/lib/trpc-client"
+import {
+  getIssueStatusConfig,
+  issueStatusOptions,
+  type IssueStatus,
+} from "@/lib/domain"
 
-export const statuses = [
-  {
-    value: `backlog`,
-    label: `Backlog`,
-    icon: CircleDashed,
-    color: `text-muted-foreground`,
-  },
-  { value: `todo`, label: `Todo`, icon: Circle, color: `text-foreground` },
-  {
-    value: `in_progress`,
-    label: `In Progress`,
-    icon: Timer,
-    color: `text-yellow-500`,
-  },
-  { value: `done`, label: `Done`, icon: CircleCheck, color: `text-green-500` },
-  {
-    value: `cancelled`,
-    label: `Cancelled`,
-    icon: CircleX,
-    color: `text-muted-foreground`,
-  },
-] as const
+export const statuses = issueStatusOptions
 
-export type IssueStatus = (typeof statuses)[number][`value`]
-
-export function getStatusConfig(status: string) {
-  return statuses.find((s) => s.value === status) ?? statuses[0]
+export function getStatusConfig(status: IssueStatus | string) {
+  return getIssueStatusConfig(status)
 }
 
 export function StatusIcon({
   status,
   className,
 }: {
-  status: string
   className?: string
+  status: IssueStatus | string
 }) {
   const config = getStatusConfig(status)
   const Icon = config.icon
+
   return <Icon className={`h-4 w-4 ${config.color} ${className ?? ``}`} />
 }
 
@@ -54,39 +31,27 @@ export function StatusDropdown({
   status,
 }: {
   issueId: string
-  status: string
+  status: IssueStatus
 }) {
-  const config = getStatusConfig(status)
-  const Icon = config.icon
-
-  const handleSelect = async (newStatus: string) => {
-    await trpc.issues.update.mutate({
-      id: issueId,
-      status: newStatus as IssueStatus,
-    })
-  }
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-5 w-5 p-0">
-          <Icon className={`h-3.5 w-3.5 ${config.color}`} />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {statuses.map((s) => {
-          const SIcon = s.icon
-          return (
-            <DropdownMenuItem
-              key={s.value}
-              onClick={() => handleSelect(s.value)}
-            >
-              <SIcon className={`mr-2 h-4 w-4 ${s.color}`} />
-              {s.label}
-            </DropdownMenuItem>
-          )
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <OptionDropdownMenu
+      value={status}
+      options={statuses}
+      onSelect={async (nextStatus) => {
+        await trpc.issues.update.mutate({
+          id: issueId,
+          status: nextStatus,
+        })
+      }}
+      renderTrigger={(selected) => {
+        const Icon = selected.icon
+
+        return (
+          <Button variant="ghost" className="h-5 w-5 p-0">
+            <Icon className={`h-3.5 w-3.5 ${selected.color}`} />
+          </Button>
+        )
+      }}
+    />
   )
 }

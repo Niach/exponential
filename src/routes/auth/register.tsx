@@ -2,17 +2,10 @@ import * as React from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth-client"
 import { useState } from "react"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ExponentialLogo } from "@/components/exponential-logo"
+import { AuthFormShell } from "@/components/auth-form-shell"
 
 export const Route = createFileRoute(`/auth/register`)({
   component: RegisterPage,
@@ -56,18 +49,22 @@ function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="flex items-center justify-center gap-2">
-          <ExponentialLogo variant="light" size={32} />
-          <span className="text-xl font-semibold">Exponential</span>
-        </div>
-      <Card>
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Create an account</CardTitle>
-          <CardDescription>Enter your details to get started</CardDescription>
-        </CardHeader>
-        <CardContent>
+    <AuthFormShell
+      title="Create an account"
+      description="Enter your details to get started"
+      footer={
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          Already have an account?{` `}
+          <Link
+            to="/auth/login"
+            search={{ redirect: redirectTo }}
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            Sign in
+          </Link>
+        </p>
+      }
+    >
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
@@ -112,20 +109,6 @@ function RegisterPage() {
               {isLoading ? `Creating account...` : `Create account`}
             </Button>
           </form>
-
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            Already have an account?{` `}
-            <Link
-              to="/auth/login"
-              search={{ redirect: redirectTo }}
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              Sign in
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-      </div>
-    </div>
+    </AuthFormShell>
   )
 }

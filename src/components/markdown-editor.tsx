@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { useEditor, EditorContent } from "@tiptap/react"
+import { type Editor, useEditor, EditorContent } from "@tiptap/react"
 import { StarterKit } from "@tiptap/starter-kit"
 import { Underline } from "@tiptap/extension-underline"
 import { Link } from "@tiptap/extension-link"
@@ -41,7 +41,30 @@ interface MarkdownEditorProps {
   autoFocus?: boolean
 }
 
-function BubbleToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+type MarkdownEditorInstance = Editor & {
+  storage: Editor[`storage`] & {
+    markdown: {
+      getMarkdown: () => string
+    }
+  }
+}
+
+function hasMarkdownStorage(
+  editor: Editor | null
+): editor is MarkdownEditorInstance {
+  return Boolean(
+    editor &&
+      `markdown` in editor.storage &&
+      typeof (editor.storage as MarkdownEditorInstance[`storage`]).markdown
+        .getMarkdown === `function`
+  )
+}
+
+function getEditorMarkdown(editor: Editor | null) {
+  return hasMarkdownStorage(editor) ? editor.storage.markdown.getMarkdown() : ``
+}
+
+function BubbleToolbar({ editor }: { editor: Editor | null }) {
   const toolbarRef = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [position, setPosition] = useState({ top: 0, left: 0 })
@@ -240,8 +263,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       content: markdown,
       immediatelyRender: false,
       onUpdate: ({ editor: e }) => {
-        const md = e.storage.markdown.getMarkdown()
-        onChangeRef.current(md)
+        onChangeRef.current(getEditorMarkdown(e))
       },
       onBlur: () => {
         onBlur?.()
@@ -264,7 +286,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         editor?.commands.setContent(md)
       },
       getMarkdown: () => {
-        return editor?.storage.markdown.getMarkdown() ?? ``
+        return getEditorMarkdown(editor)
       },
     }))
 

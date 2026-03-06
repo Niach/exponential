@@ -1,19 +1,17 @@
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { db } from "@/db/connection"
-import { issues, issueLabels, projects } from "@/db/schema"
+import { issues, issueLabels } from "@/db/schema"
 import { eq } from "drizzle-orm"
-import { assertWorkspaceMember } from "@/lib/workspace-membership"
-
-const issueStatusValues = [
-  `backlog`,
-  `todo`,
-  `in_progress`,
-  `done`,
-  `cancelled`,
-] as const
-
-const issuePriorityValues = [`none`, `urgent`, `high`, `medium`, `low`] as const
+import {
+  assertProjectMember,
+  getIssueWorkspaceContext,
+} from "@/lib/workspace-membership"
+import {
+  dateOnlySchema,
+  issueDescriptionSchema,
+  issuePrioritySchema,
+  issueStatusSchema,
+} from "@/lib/domain"
 
 export const issuesRouter = router({
   create: authedProcedure
@@ -21,26 +19,18 @@ export const issuesRouter = router({
       z.object({
         projectId: z.string().uuid(),
         title: z.string().min(1).max(500),
-        status: z.enum(issueStatusValues).optional(),
-        priority: z.enum(issuePriorityValues).optional(),
+        status: issueStatusSchema.optional(),
+        priority: issuePrioritySchema.optional(),
         assigneeId: z.string().nullable().optional(),
-        description: z.any().optional(),
-        dueDate: z.string().nullable().optional(),
+        description: issueDescriptionSchema.optional(),
+        dueDate: dateOnlySchema.nullable().optional(),
         labelIds: z.array(z.string().uuid()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Look up project's workspace and check membership
-      const [project] = await db
-        .select({ workspaceId: projects.workspaceId })
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
-        .limit(1)
-      if (project) {
-        await assertWorkspaceMember(ctx.session.user.id, project.workspaceId)
-      }
+      await assertProjectMember(ctx.session.user.id, input.projectId)
 
-      return await db.transaction(async (tx) => {
+      return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
           .insert(issues)
@@ -74,42 +64,28 @@ export const issuesRouter = router({
       z.object({
         id: z.string().uuid(),
         title: z.string().min(1).max(500).optional(),
-        status: z.enum(issueStatusValues).optional(),
-        priority: z.enum(issuePriorityValues).optional(),
+        status: issueStatusSchema.optional(),
+        priority: issuePrioritySchema.optional(),
         assigneeId: z.string().nullable().optional(),
-        description: z.any().optional(),
-        dueDate: z.string().nullable().optional(),
+        description: issueDescriptionSchema.nullable().optional(),
+        dueDate: dateOnlySchema.nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      // Look up issue's project workspace and check membership
-      const [existingIssue] = await db
-        .select({ projectId: issues.projectId })
-        .from(issues)
-        .where(eq(issues.id, id))
-        .limit(1)
-      if (existingIssue) {
-        const [project] = await db
-          .select({ workspaceId: projects.workspaceId })
-          .from(projects)
-          .where(eq(projects.id, existingIssue.projectId))
-          .limit(1)
-        if (project) {
-          await assertWorkspaceMember(ctx.session.user.id, project.workspaceId)
-        }
-      }
+      const issueContext = await getIssueWorkspaceContext(id)
+      await assertProjectMember(ctx.session.user.id, issueContext.projectId)
 
-      // Auto-manage completedAt based on status
       const setValues: Record<string, unknown> = { ...updates }
+
       if (updates.status === `done` || updates.status === `cancelled`) {
         setValues.completedAt = new Date()
       } else if (updates.status) {
         setValues.completedAt = null
       }
 
-      const [issue] = await db
+      const [issue] = await ctx.db
         .update(issues)
         .set(setValues)
         .where(eq(issues.id, id))

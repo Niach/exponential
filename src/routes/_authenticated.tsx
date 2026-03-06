@@ -13,7 +13,10 @@ export const Route = createFileRoute(`/_authenticated`)({
     const result = await authClient.getSession()
 
     if (!result.data?.session) {
-      throw redirect({ to: `/auth/login` })
+      throw redirect({
+        to: `/auth/login`,
+        search: { redirect: undefined },
+      })
     }
 
     authStateCollection.insert({
