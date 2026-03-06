@@ -1,11 +1,15 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
-import { db } from "@/db/connection"
-import { issues, labels, projects, workspaceMembers } from "@/db/schema"
+import { attachments, issues, labels, projects, workspaceMembers } from "@/db/schema"
 import type { WorkspaceMember } from "@/db/schema"
 import type { WorkspaceRole } from "@/lib/domain"
 
 type WorkspaceMemberRecord = Pick<WorkspaceMember, `role` | `userId` | `workspaceId`>
+
+async function getDb() {
+  const { db } = await import(`@/db/connection`)
+  return db
+}
 
 export function assertWorkspaceAccess(
   member: WorkspaceMemberRecord | undefined,
@@ -46,6 +50,7 @@ export function assertMatchingWorkspaceIds(
 }
 
 export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
+  const db = await getDb()
   const rows = await db
     .select({ workspaceId: workspaceMembers.workspaceId })
     .from(workspaceMembers)
@@ -61,6 +66,7 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
     return []
   }
 
+  const db = await getDb()
   const rows = await db
     .select({ id: projects.id })
     .from(projects)
@@ -76,6 +82,7 @@ export async function getUserLabelIds(userId: string): Promise<string[]> {
     return []
   }
 
+  const db = await getDb()
   const rows = await db
     .select({ id: labels.id })
     .from(labels)
@@ -91,6 +98,7 @@ export async function getUserIdsInWorkspaces(userId: string): Promise<string[]> 
     return []
   }
 
+  const db = await getDb()
   const rows = await db
     .select({ userId: workspaceMembers.userId })
     .from(workspaceMembers)
@@ -112,6 +120,7 @@ export async function getWorkspaceMember(
   userId: string,
   workspaceId: string
 ) {
+  const db = await getDb()
   const [member] = await db
     .select({
       userId: workspaceMembers.userId,
@@ -145,6 +154,7 @@ export async function assertWorkspaceOwner(userId: string, workspaceId: string) 
 }
 
 export async function getProjectWorkspaceId(projectId: string) {
+  const db = await getDb()
   const [project] = await db
     .select({
       id: projects.id,
@@ -175,6 +185,7 @@ export async function assertProjectMember(
 }
 
 export async function getIssueWorkspaceContext(issueId: string) {
+  const db = await getDb()
   const [issueContext] = await db
     .select({
       issueId: issues.id,
@@ -196,11 +207,40 @@ export async function getIssueWorkspaceContext(issueId: string) {
   return issueContext
 }
 
+export async function getAttachmentWorkspaceContext(attachmentId: string) {
+  const db = await getDb()
+  const [attachmentContext] = await db
+    .select({
+      attachmentId: attachments.id,
+      issueId: attachments.issueId,
+      storageKey: attachments.storageKey,
+      workspaceId: projects.workspaceId,
+      contentType: attachments.contentType,
+      filename: attachments.filename,
+      sizeBytes: attachments.sizeBytes,
+    })
+    .from(attachments)
+    .innerJoin(issues, eq(attachments.issueId, issues.id))
+    .innerJoin(projects, eq(issues.projectId, projects.id))
+    .where(eq(attachments.id, attachmentId))
+    .limit(1)
+
+  if (!attachmentContext) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Attachment not found`,
+    })
+  }
+
+  return attachmentContext
+}
+
 export async function assertIssueLabelWorkspaceMatch(
   userId: string,
   issueId: string,
   labelId: string
 ) {
+  const db = await getDb()
   const [label] = await db
     .select({
       id: labels.id,

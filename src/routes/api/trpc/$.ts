@@ -32,6 +32,7 @@ const serve = ({ request }: { request: Request }) => {
     router: appRouter,
     createContext: async () => ({
       db,
+      request,
       session: await auth.api.getSession({ headers: request.headers }),
     }),
   })

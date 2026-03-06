@@ -27,13 +27,24 @@ import {
   Heading2,
   Heading3,
 } from "lucide-react"
+import { MarkdownImage } from "@/lib/markdown-image"
+
+export interface MarkdownEditorImageUploadConfig {
+  disabledReason?: string
+  enabled: boolean
+  onFiles: (files: File[]) => Promise<void>
+  uploading?: boolean
+}
 
 export interface MarkdownEditorRef {
+  focus: () => void
   setMarkdown: (md: string) => void
   getMarkdown: () => string
+  insertImage: (image: { alt?: string; src: string }) => void
 }
 
 interface MarkdownEditorProps {
+  imageUpload?: MarkdownEditorImageUploadConfig
   markdown: string
   onChange: (markdown: string) => void
   onBlur?: () => void
@@ -62,6 +73,12 @@ function hasMarkdownStorage(
 
 function getEditorMarkdown(editor: Editor | null) {
   return hasMarkdownStorage(editor) ? editor.storage.markdown.getMarkdown() : ``
+}
+
+function getImageFiles(fileList: FileList | null | undefined) {
+  return Array.from(fileList ?? []).filter((file) =>
+    file.type.startsWith(`image/`)
+  )
 }
 
 function BubbleToolbar({ editor }: { editor: Editor | null }) {
@@ -237,9 +254,11 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
 }
 
 export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
-  ({ markdown, onChange, onBlur, placeholder, autoFocus }, ref) => {
+  ({ markdown, onChange, onBlur, placeholder, autoFocus, imageUpload }, ref) => {
     const onChangeRef = useRef(onChange)
     onChangeRef.current = onChange
+    const imageUploadRef = useRef(imageUpload)
+    imageUploadRef.current = imageUpload
 
     const editor = useEditor({
       extensions: [
@@ -251,6 +270,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
           openOnClick: false,
           HTMLAttributes: { class: `editor-link` },
         }),
+        MarkdownImage,
         Placeholder.configure({
           placeholder: placeholder ?? `Add description...`,
         }),
@@ -278,15 +298,43 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
             return true
           },
         },
+        handlePaste: (_view, event) => {
+          const files = getImageFiles(event.clipboardData?.files)
+
+          if (files.length === 0 || !imageUploadRef.current) {
+            return false
+          }
+
+          event.preventDefault()
+          void imageUploadRef.current.onFiles(files)
+          return true
+        },
+        handleDrop: (_view, event) => {
+          const files = getImageFiles(event.dataTransfer?.files)
+
+          if (files.length === 0 || !imageUploadRef.current) {
+            return false
+          }
+
+          event.preventDefault()
+          void imageUploadRef.current.onFiles(files)
+          return true
+        },
       },
     })
 
     useImperativeHandle(ref, () => ({
+      focus: () => {
+        editor?.commands.focus(`end`)
+      },
       setMarkdown: (md: string) => {
         editor?.commands.setContent(md)
       },
       getMarkdown: () => {
         return getEditorMarkdown(editor)
+      },
+      insertImage: ({ alt, src }) => {
+        editor?.chain().focus().setImage({ alt, src }).run()
       },
     }))
 

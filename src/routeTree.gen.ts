@@ -24,8 +24,10 @@ import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
 import { Route as AuthenticatedWWorkspaceSlugRouteRouteImport } from './routes/_authenticated/w/$workspaceSlug/route'
 import { Route as AuthenticatedWWorkspaceSlugIndexRouteImport } from './routes/_authenticated/w/$workspaceSlug/index'
+import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as AuthenticatedWWorkspaceSlugSettingsIndexRouteImport } from './routes/_authenticated/w/$workspaceSlug/settings/index'
 import { Route as AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/_authenticated/w/$workspaceSlug/projects/$projectSlug/index'
 
@@ -105,6 +107,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAttachmentsAttachmentIdRoute =
+  ApiAttachmentsAttachmentIdRouteImport.update({
+    id: '/api/attachments/$attachmentId',
+    path: '/api/attachments/$attachmentId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedWWorkspaceSlugRouteRoute =
   AuthenticatedWWorkspaceSlugRouteRouteImport.update({
     id: '/w/$workspaceSlug',
@@ -117,6 +125,11 @@ const AuthenticatedWWorkspaceSlugIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedWWorkspaceSlugRouteRoute,
   } as any)
+const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
+  id: '/api/issues/$issueId/images',
+  path: '/api/issues/$issueId/images',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedWWorkspaceSlugSettingsIndexRoute =
   AuthenticatedWWorkspaceSlugSettingsIndexRouteImport.update({
     id: '/settings/',
@@ -136,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
+  '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
@@ -146,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/': typeof AuthenticatedWWorkspaceSlugIndexRoute
   '/w/$workspaceSlug/settings/': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute
@@ -155,6 +170,7 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
@@ -165,6 +181,7 @@ export interface FileRoutesByTo {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugIndexRoute
   '/w/$workspaceSlug/settings': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute
@@ -177,6 +194,7 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
   '/_authenticated/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
+  '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
@@ -187,6 +205,7 @@ export interface FileRoutesById {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/_authenticated/w/$workspaceSlug/': typeof AuthenticatedWWorkspaceSlugIndexRoute
   '/_authenticated/w/$workspaceSlug/settings/': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
   '/_authenticated/w/$workspaceSlug/projects/$projectSlug/': typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute
@@ -199,6 +218,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/invite/$token'
     | '/w/$workspaceSlug'
+    | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
@@ -209,6 +229,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
@@ -218,6 +239,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
+    | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
@@ -228,6 +250,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug'
     | '/w/$workspaceSlug/settings'
     | '/w/$workspaceSlug/projects/$projectSlug'
@@ -239,6 +262,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/invite/$token'
     | '/_authenticated/w/$workspaceSlug'
+    | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
@@ -249,6 +273,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/api/issues/$issueId/images'
     | '/_authenticated/w/$workspaceSlug/'
     | '/_authenticated/w/$workspaceSlug/settings/'
     | '/_authenticated/w/$workspaceSlug/projects/$projectSlug/'
@@ -260,6 +285,7 @@ export interface RootRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   InviteTokenRoute: typeof InviteTokenRoute
+  ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
@@ -270,6 +296,7 @@ export interface RootRouteChildren {
   ApiShapesWorkspaceMembersRoute: typeof ApiShapesWorkspaceMembersRoute
   ApiShapesWorkspacesRoute: typeof ApiShapesWorkspacesRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
+  ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -379,6 +406,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/attachments/$attachmentId': {
+      id: '/api/attachments/$attachmentId'
+      path: '/api/attachments/$attachmentId'
+      fullPath: '/api/attachments/$attachmentId'
+      preLoaderRoute: typeof ApiAttachmentsAttachmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/w/$workspaceSlug': {
       id: '/_authenticated/w/$workspaceSlug'
       path: '/w/$workspaceSlug'
@@ -392,6 +426,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/w/$workspaceSlug/'
       preLoaderRoute: typeof AuthenticatedWWorkspaceSlugIndexRouteImport
       parentRoute: typeof AuthenticatedWWorkspaceSlugRouteRoute
+    }
+    '/api/issues/$issueId/images': {
+      id: '/api/issues/$issueId/images'
+      path: '/api/issues/$issueId/images'
+      fullPath: '/api/issues/$issueId/images'
+      preLoaderRoute: typeof ApiIssuesIssueIdImagesRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/w/$workspaceSlug/settings/': {
       id: '/_authenticated/w/$workspaceSlug/settings/'
@@ -450,6 +491,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   InviteTokenRoute: InviteTokenRoute,
+  ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
@@ -460,6 +502,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesWorkspaceMembersRoute: ApiShapesWorkspaceMembersRoute,
   ApiShapesWorkspacesRoute: ApiShapesWorkspacesRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
+  ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

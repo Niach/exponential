@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
   getIssueDescriptionText,
+  normalizeIssueDescriptionText,
 } from "@/lib/domain"
 import {
   IssueEditorAttachmentButton,
@@ -33,15 +34,24 @@ export function EditIssueDialog({
   workspaceId,
 }: EditIssueDialogProps) {
   const editorRef = useRef<MarkdownEditorRef>(null)
+  const descriptionRef = useRef(getIssueDescriptionText(issue.description))
+  const lastSavedDescriptionRef = useRef(getIssueDescriptionText(issue.description))
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
   const [title, setTitle] = useState(issue.title)
   const [description, setDescription] = useState(
     getIssueDescriptionText(issue.description)
   )
+  const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
+  const [activeUploadCount, setActiveUploadCount] = useState(0)
 
   useEffect(() => {
     const nextDescription = getIssueDescriptionText(issue.description)
     setTitle(issue.title)
     setDescription(nextDescription)
+    descriptionRef.current = nextDescription
+    lastSavedDescriptionRef.current = normalizeIssueDescriptionText(nextDescription)
+    setAttachmentStatus(null)
     editorRef.current?.setMarkdown(nextDescription)
   }, [issue.description, issue.id, issue.title])
 
@@ -54,23 +64,137 @@ export function EditIssueDialog({
   }
 
   const handleDescriptionBlur = async () => {
-    const trimmed = description.trim()
-    const currentText = getIssueDescriptionText(issue.description)
+    try {
+      await queueDescriptionSave(descriptionRef.current)
+    } catch {
+      return
+    }
+  }
 
-    if (trimmed !== currentText) {
+  const queueDescriptionSave = async (nextDescription: string) => {
+    const normalizedDescription = normalizeIssueDescriptionText(nextDescription)
+
+    if (normalizedDescription === lastSavedDescriptionRef.current) {
+      await saveQueueRef.current
+      return
+    }
+
+    const saveTask = async () => {
       await trpc.issues.update.mutate({
         id: issue.id,
-        description: trimmed ? { text: trimmed } : null,
+        description: normalizedDescription ? { text: normalizedDescription } : null,
       })
+
+      lastSavedDescriptionRef.current = normalizedDescription
+    }
+
+    const queuedSave = saveQueueRef.current.then(saveTask, saveTask)
+    saveQueueRef.current = queuedSave.catch(() => undefined)
+
+    try {
+      await queuedSave
+      setAttachmentStatus(null)
+    } catch (error) {
+      setAttachmentStatus(
+        error instanceof Error ? error.message : `Failed to save description`
+      )
+      throw error
+    }
+  }
+
+  const setDescriptionValue = (nextDescription: string) => {
+    descriptionRef.current = nextDescription
+    setDescription(nextDescription)
+  }
+
+  const uploadImageFile = async (file: File) => {
+    const formData = new FormData()
+    formData.append(`file`, file)
+
+    const response = await fetch(`/api/issues/${issue.id}/images`, {
+      method: `POST`,
+      body: formData,
+      credentials: `same-origin`,
+    })
+
+    const result = (await response.json()) as
+      | { error?: string }
+      | { url: string }
+
+    if (!response.ok || !(`url` in result)) {
+      const message =
+        `error` in result && typeof result.error === `string`
+          ? result.error
+          : `Failed to upload image`
+
+      throw new Error(message)
+    }
+
+    return result.url
+  }
+
+  const enqueueUploadTask = async (task: () => Promise<void>) => {
+    setActiveUploadCount((current) => current + 1)
+
+    const queuedTask = uploadQueueRef.current.then(task, task)
+    uploadQueueRef.current = queuedTask.catch(() => undefined)
+
+    try {
+      await queuedTask
+    } finally {
+      setActiveUploadCount((current) => current - 1)
+    }
+  }
+
+  const handleImageFiles = async (files: File[]) => {
+    setAttachmentStatus(null)
+
+    try {
+      await enqueueUploadTask(async () => {
+        for (const file of files) {
+          const url = await uploadImageFile(file)
+          editorRef.current?.insertImage({
+            alt: file.name,
+            src: url,
+          })
+
+          const nextDescription =
+            editorRef.current?.getMarkdown() ?? descriptionRef.current
+          setDescriptionValue(nextDescription)
+          await queueDescriptionSave(nextDescription)
+        }
+      })
+    } catch (error) {
+      setAttachmentStatus(
+        error instanceof Error ? error.message : `Failed to upload image`
+      )
     }
   }
 
   const dueDate = issue.dueDate ? new Date(issue.dueDate + `T00:00:00`) : undefined
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      onOpenChange(true)
+      return
+    }
+
+    void (async () => {
+      try {
+        await uploadQueueRef.current
+        await queueDescriptionSave(descriptionRef.current)
+        await saveQueueRef.current
+        onOpenChange(false)
+      } catch {
+        editorRef.current?.focus()
+      }
+    })()
+  }
+
   return (
     <IssueEditorDialogShell
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       projectPrefix={projectPrefix}
       projectColor={projectColor}
       headerContent={<span className="text-sm font-mono">{issue.identifier}</span>}
@@ -81,9 +205,14 @@ export function EditIssueDialog({
       }}
       description={description}
       editorRef={editorRef}
-      onDescriptionChange={setDescription}
+      onDescriptionChange={setDescriptionValue}
       onDescriptionBlur={() => {
         void handleDescriptionBlur()
+      }}
+      imageUpload={{
+        enabled: true,
+        uploading: activeUploadCount > 0,
+        onFiles: handleImageFiles,
       }}
       status={issue.status}
       onStatusChange={async (status) => {
@@ -132,7 +261,15 @@ export function EditIssueDialog({
       }}
       footer={
         <div className="flex items-center px-4 py-3 border-t border-border">
-          <IssueEditorAttachmentButton />
+          <div className="flex items-center gap-3">
+            <IssueEditorAttachmentButton
+              onFiles={handleImageFiles}
+              uploading={activeUploadCount > 0}
+            />
+            {attachmentStatus ? (
+              <span className="text-xs text-destructive">{attachmentStatus}</span>
+            ) : null}
+          </div>
         </div>
       }
     />

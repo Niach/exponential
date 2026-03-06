@@ -45,9 +45,11 @@ export function CreateIssueDialog({
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [dueDate, setDueDate] = useState<Date | undefined>()
   const [createMore, setCreateMore] = useState(false)
+  const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const editorRef = useRef<MarkdownEditorRef>(null)
   const titleRef = useRef<HTMLInputElement>(null)
+  const createDisabledReason = `Create the issue first to add images`
 
   useEffect(() => {
     if (open) {
@@ -58,6 +60,7 @@ export function CreateIssueDialog({
   const resetFields = () => {
     setTitle(``)
     setDescription(``)
+    setAttachmentStatus(null)
     editorRef.current?.setMarkdown(``)
     setStatus(defaultStatus ?? `backlog`)
     setPriority(`none`)
@@ -123,6 +126,13 @@ export function CreateIssueDialog({
         description={description}
         editorRef={editorRef}
         onDescriptionChange={setDescription}
+        imageUpload={{
+          enabled: false,
+          disabledReason: createDisabledReason,
+          onFiles: async () => {
+            setAttachmentStatus(createDisabledReason)
+          },
+        }}
         status={status}
         onStatusChange={setStatus}
         priority={priority}
@@ -137,7 +147,15 @@ export function CreateIssueDialog({
         onDueDateSelect={setDueDate}
         footer={
           <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-            <IssueEditorAttachmentButton />
+            <div className="flex items-center gap-3">
+              <IssueEditorAttachmentButton
+                disabled
+                disabledReason={createDisabledReason}
+              />
+              {attachmentStatus ? (
+                <span className="text-xs text-destructive">{attachmentStatus}</span>
+              ) : null}
+            </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Switch

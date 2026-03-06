@@ -151,10 +151,14 @@ export function getIssueDescriptionText(description: unknown): string {
   return parsed.success ? parsed.data.text : ``
 }
 
+export function normalizeIssueDescriptionText(text: string) {
+  return text.trim()
+}
+
 export function toIssueDescription(
   text: string
 ): IssueDescription | null {
-  const trimmed = text.trim()
+  const trimmed = normalizeIssueDescriptionText(text)
   return trimmed ? { text: trimmed } : null
 }
 

@@ -217,6 +217,16 @@
   margin: 0.5rem 0;
 }
 
+.tiptap-content img,
+.tiptap-content .editor-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin: 0.75rem 0;
+  border: 1px solid oklch(1 0 0 / 10%);
+}
+
 .tiptap-content s {
   text-decoration: line-through;
   opacity: 0.6;

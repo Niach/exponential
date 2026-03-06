@@ -1,17 +1,23 @@
+import { useRef } from "react"
 import type { ReactNode, Ref } from "react"
-import { CalendarDays, ChevronRight, Paperclip, X } from "lucide-react"
+import { CalendarDays, ChevronRight, LoaderCircle, Paperclip, X } from "lucide-react"
 import type { User } from "@/db/schema"
 import type {
   IssuePriority,
   IssueStatus,
 } from "@/lib/domain"
+import { acceptedImageContentTypes } from "@/lib/issue-attachments"
 import { formatDate } from "@/lib/utils"
 import { priorities, PriorityIcon } from "@/components/priority-dropdown"
 import { statuses, StatusIcon } from "@/components/status-dropdown"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { AssigneePicker } from "@/components/assignee-picker"
 import { LabelPicker } from "@/components/label-picker"
-import { MarkdownEditor, type MarkdownEditorRef } from "@/components/markdown-editor"
+import {
+  MarkdownEditor,
+  type MarkdownEditorImageUploadConfig,
+  type MarkdownEditorRef,
+} from "@/components/markdown-editor"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -21,6 +27,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface IssueEditorDialogShellProps {
   assigneeId: string | null
@@ -30,6 +41,7 @@ interface IssueEditorDialogShellProps {
   editorRef?: Ref<MarkdownEditorRef>
   footer: ReactNode
   headerContent: ReactNode
+  imageUpload?: MarkdownEditorImageUploadConfig
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
@@ -60,6 +72,7 @@ export function IssueEditorDialogShell({
   editorRef,
   footer,
   headerContent,
+  imageUpload,
   onAssigneeChange,
   onDescriptionBlur,
   onDescriptionChange,
@@ -127,6 +140,7 @@ export function IssueEditorDialogShell({
           onChange={onDescriptionChange}
           onBlur={onDescriptionBlur}
           placeholder="Add description..."
+          imageUpload={imageUpload}
         />
 
         <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
@@ -191,15 +205,69 @@ export function IssueEditorDialogShell({
   )
 }
 
-export function IssueEditorAttachmentButton() {
+interface IssueEditorAttachmentButtonProps {
+  disabled?: boolean
+  disabledReason?: string
+  onFiles?: (files: File[]) => void | Promise<void>
+  uploading?: boolean
+}
+
+export function IssueEditorAttachmentButton({
+  disabled,
+  disabledReason,
+  onFiles,
+  uploading,
+}: IssueEditorAttachmentButtonProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const isDisabled = disabled || !onFiles
+
+  const button = (
+    <>
+      <Input
+        ref={inputRef}
+        type="file"
+        accept={acceptedImageContentTypes.join(`,`)}
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? [])
+
+          if (files.length > 0 && onFiles) {
+            void onFiles(files)
+          }
+
+          event.target.value = ``
+        }}
+      />
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground"
+        type="button"
+        aria-label="Add image"
+        disabled={isDisabled || uploading}
+        onClick={() => {
+          inputRef.current?.click()
+        }}
+      >
+        {uploading ? (
+          <LoaderCircle className="size-3 animate-spin" />
+        ) : (
+          <Paperclip className="size-3" />
+        )}
+      </Button>
+    </>
+  )
+
+  if (!disabledReason) {
+    return button
+  }
+
   return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      className="text-muted-foreground"
-      type="button"
-    >
-      <Paperclip className="size-3" />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span>{button}</span>
+      </TooltipTrigger>
+      <TooltipContent>{disabledReason}</TooltipContent>
+    </Tooltip>
   )
 }

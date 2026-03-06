@@ -6,6 +6,7 @@ import { sql } from "drizzle-orm"
 export type Context = {
   session: Awaited<ReturnType<typeof auth.api.getSession>>
   db: typeof db
+  request: Request
 }
 
 const t = initTRPC.context<Context>().create()

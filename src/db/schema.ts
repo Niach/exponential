@@ -371,6 +371,8 @@ export const createCommentSchema = createInsertSchema(comments).omit({
   updatedAt: true,
 })
 
+export const selectAttachmentSchema = createSelectSchema(attachments)
+
 export const selectViewSchema = createSelectSchema(views)
 export const createViewSchema = createInsertSchema(views).omit({
   id: true,
@@ -392,6 +394,7 @@ export type Issue = InferSelectModel<typeof issues>
 export type Label = InferSelectModel<typeof labels>
 export type IssueLabel = InferSelectModel<typeof issueLabels>
 export type Comment = InferSelectModel<typeof comments>
+export type Attachment = InferSelectModel<typeof attachments>
 export type View = InferSelectModel<typeof views>
 
 export type User = InferSelectModel<typeof users>

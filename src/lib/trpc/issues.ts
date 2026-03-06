@@ -1,17 +1,25 @@
+import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { issues, issueLabels } from "@/db/schema"
-import { eq } from "drizzle-orm"
+import { attachments, issues, issueLabels } from "@/db/schema"
+import { and, eq, inArray } from "drizzle-orm"
 import {
   assertProjectMember,
   getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
 import {
   dateOnlySchema,
+  getIssueDescriptionText,
   issueDescriptionSchema,
   issuePrioritySchema,
   issueStatusSchema,
 } from "@/lib/domain"
+import {
+  extractAttachmentIdsFromDescription,
+  getRemovedAttachmentIds,
+  hasMarkdownImages,
+} from "@/lib/issue-attachments"
+import { deleteObject } from "@/lib/storage"
 
 export const issuesRouter = router({
   create: authedProcedure
@@ -29,6 +37,13 @@ export const issuesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertProjectMember(ctx.session.user.id, input.projectId)
+
+      if (input.description && hasMarkdownImages(input.description.text)) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Images can only be added after the issue is created`,
+        })
+      }
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -77,19 +92,128 @@ export const issuesRouter = router({
       const issueContext = await getIssueWorkspaceContext(id)
       await assertProjectMember(ctx.session.user.id, issueContext.projectId)
 
-      const setValues: Record<string, unknown> = { ...updates }
+      const deletedStorageKeys: string[] = []
 
-      if (updates.status === `done` || updates.status === `cancelled`) {
-        setValues.completedAt = new Date()
-      } else if (updates.status) {
-        setValues.completedAt = null
+      const { issue } = await ctx.db.transaction(async (tx) => {
+        const [currentIssue] = await tx
+          .select({
+            description: issues.description,
+          })
+          .from(issues)
+          .where(eq(issues.id, id))
+          .limit(1)
+
+        if (!currentIssue) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Issue not found`,
+          })
+        }
+
+        const setValues: Record<string, unknown> = { ...updates }
+
+        if (updates.status === `done` || updates.status === `cancelled`) {
+          setValues.completedAt = new Date()
+        } else if (updates.status) {
+          setValues.completedAt = null
+        }
+
+        if (updates.description !== undefined) {
+          const nextText = getIssueDescriptionText(updates.description)
+          const previousText = getIssueDescriptionText(currentIssue.description)
+          const { attachmentIds, invalidUrls } = extractAttachmentIdsFromDescription(
+            nextText,
+            ctx.request.url
+          )
+
+          if (invalidUrls.length > 0) {
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: `Issue descriptions can only reference uploaded issue images`,
+            })
+          }
+
+          if (attachmentIds.length > 0) {
+            const referencedAttachments = await tx
+              .select({
+                id: attachments.id,
+                issueId: attachments.issueId,
+              })
+              .from(attachments)
+              .where(inArray(attachments.id, attachmentIds))
+
+            const allAttachmentsBelongToIssue =
+              referencedAttachments.length === attachmentIds.length &&
+              referencedAttachments.every((attachment) => attachment.issueId === id)
+
+            if (!allAttachmentsBelongToIssue) {
+              throw new TRPCError({
+                code: `BAD_REQUEST`,
+                message: `Issue descriptions can only reference images uploaded to this issue`,
+              })
+            }
+          }
+
+          const removedAttachmentIds = getRemovedAttachmentIds(
+            previousText,
+            nextText,
+            ctx.request.url
+          )
+
+          if (removedAttachmentIds.length > 0) {
+            const removedAttachments = await tx
+              .select({
+                id: attachments.id,
+                storageKey: attachments.storageKey,
+              })
+              .from(attachments)
+              .where(
+                and(
+                  eq(attachments.issueId, id),
+                  inArray(attachments.id, removedAttachmentIds)
+                )
+              )
+
+            if (removedAttachments.length > 0) {
+              deletedStorageKeys.push(
+                ...removedAttachments.map((attachment) => attachment.storageKey)
+              )
+
+              await tx
+                .delete(attachments)
+                .where(
+                  and(
+                    eq(attachments.issueId, id),
+                    inArray(
+                      attachments.id,
+                      removedAttachments.map((attachment) => attachment.id)
+                    )
+                  )
+                )
+            }
+          }
+        }
+
+        const [issue] = await tx
+          .update(issues)
+          .set(setValues)
+          .where(eq(issues.id, id))
+          .returning()
+
+        return { issue }
+      })
+
+      if (deletedStorageKeys.length > 0) {
+        await Promise.allSettled(
+          deletedStorageKeys.map(async (storageKey) => {
+            try {
+              await deleteObject(storageKey)
+            } catch (error) {
+              console.error(`Failed to delete attachment object`, error)
+            }
+          })
+        )
       }
-
-      const [issue] = await ctx.db
-        .update(issues)
-        .set(setValues)
-        .where(eq(issues.id, id))
-        .returning()
 
       return { issue }
     }),
