@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { CalendarDays } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { formatDate } from "@/lib/utils"
+import { formatDateForMutation } from "@/lib/domain"
 
 interface DueDateDropdownProps {
   issueId: string
@@ -20,7 +21,7 @@ export function DueDateDropdown({ issueId, dueDate }: DueDateDropdownProps) {
   const handleSelect = async (date: Date | undefined) => {
     await trpc.issues.update.mutate({
       id: issueId,
-      dueDate: date ? date.toISOString().split(`T`)[0] : null,
+      dueDate: formatDateForMutation(date),
     })
   }
 

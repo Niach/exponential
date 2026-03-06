@@ -183,6 +183,7 @@ export function LabelPicker({
                   <button
                     key={color}
                     type="button"
+                    aria-label={`Select label color ${color}`}
                     className={`h-5 w-5 rounded-full transition-all ${
                       newColor === color
                         ? `ring-2 ring-offset-2 ring-offset-background ring-foreground`

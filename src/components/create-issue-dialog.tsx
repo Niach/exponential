@@ -112,6 +112,49 @@ export function CreateIssueDialog({
   }
 
   return (
+<<<<<<< ours
+    <IssueEditorDialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      projectPrefix={projectPrefix}
+      projectColor={projectColor}
+      dialogTestId="issue-editor-create"
+      formProps={{ onSubmit: handleSubmit }}
+      headerContent={<span className="text-sm">New issue</span>}
+      title={title}
+      titleRef={titleRef}
+      autoFocus
+      onTitleChange={setTitle}
+      description={description}
+      editorRef={editorRef}
+      onDescriptionChange={setDescription}
+      status={status}
+      onStatusChange={setStatus}
+      priority={priority}
+      onPriorityChange={setPriority}
+      workspaceId={workspaceId}
+      selectedLabelIds={selectedLabelIds}
+      onToggleLabel={handleToggleLabel}
+      users={users}
+      assigneeId={assigneeId}
+      onAssigneeChange={setAssigneeId}
+      dueDate={dueDate}
+      onDueDateSelect={setDueDate}
+      footer={
+        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+          <IssueEditorAttachmentButton />
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="create-more"
+                size="sm"
+                checked={createMore}
+                onCheckedChange={(checked) => setCreateMore(checked === true)}
+              />
+              <Label
+                htmlFor="create-more"
+                className="text-xs text-muted-foreground cursor-pointer select-none"
+=======
     <form onSubmit={handleSubmit}>
       <IssueEditorDialogShell
         open={open}
@@ -175,13 +218,21 @@ export function CreateIssueDialog({
                 type="submit"
                 disabled={!title.trim() || submitting}
                 className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-50 h-7"
+>>>>>>> theirs
               >
-                {submitting ? `Creating...` : `Create issue`}
-              </Button>
+                Create more
+              </Label>
             </div>
+            <Button
+              type="submit"
+              disabled={!title.trim() || submitting}
+              className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-50 h-7"
+            >
+              {submitting ? `Creating...` : `Create issue`}
+            </Button>
           </div>
-        }
-      />
-    </form>
+        </div>
+      }
+    />
   )
 }

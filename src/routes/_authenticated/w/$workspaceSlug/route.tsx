@@ -87,7 +87,10 @@ function WorkspaceLayout() {
         <SidebarHeader className="p-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <SidebarMenuButton className="w-full h-10">
+              <SidebarMenuButton
+                className="w-full h-10"
+                aria-label="Workspace switcher"
+              >
                 <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
                   {workspace?.name?.[0]?.toUpperCase() ??
                     workspaceSlug[0]?.toUpperCase() ??
@@ -143,6 +146,7 @@ function WorkspaceLayout() {
             <SidebarGroupAction
               onClick={() => setCreateProjectOpen(true)}
               title="Create project"
+              aria-label="Create project"
             >
               <Plus className="h-4 w-4" />
             </SidebarGroupAction>
@@ -197,7 +201,7 @@ function WorkspaceLayout() {
         <SidebarFooter>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <SidebarMenuButton className="w-full">
+              <SidebarMenuButton className="w-full" aria-label="User menu">
                 <Avatar className="h-6 w-6">
                   <AvatarFallback className="text-xs">
                     {userInitials}

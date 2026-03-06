@@ -32,7 +32,8 @@ function RegisterPage() {
       const { error } = await authClient.signUp.email(
         { name, email, password },
         {
-          onSuccess: () => {
+          onSuccess: async () => {
+            await authClient.getSession()
             window.location.href = redirectTo || `/`
           },
         }

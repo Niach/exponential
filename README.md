@@ -109,12 +109,43 @@ bun typecheck
 bun run test
 ```
 
+### End-to-end tests
+
+Playwright covers the critical flows for auth, workspace bootstrap, project creation,
+issue creation and editing, and invite acceptance.
+
+Before running the e2e suite:
+
+```sh
+bun backend:up
+bun migrate
+```
+
+The suite targets the local HTTP/2 proxy at `https://localhost:3000`, so keep the
+Caddy container from `docker-compose.yaml` running while Playwright starts the app
+server on port `5173`.
+
+If your local database is fresh, apply the custom issue trigger once:
+
+```sh
+docker exec -i exponential-postgres-1 \
+  psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
+```
+
+Install the Playwright browser and run the suite:
+
+```sh
+bunx playwright install chromium
+bun run test:e2e
+```
+
 Current tests cover:
 
 - workspace authorization and scoping helpers
 - project board filtering and grouping helpers
 - shape route handler behavior
 - shared issue editor shell wiring
+- end-to-end critical product flows with Playwright
 
 ## Notes
 

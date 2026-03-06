@@ -1,5 +1,9 @@
 import { useRef } from "react"
-import type { ReactNode, Ref } from "react"
+import type {
+  ComponentPropsWithoutRef,
+  ReactNode,
+  Ref,
+} from "react"
 import { CalendarDays, ChevronRight, LoaderCircle, Paperclip, X } from "lucide-react"
 import type { User } from "@/db/schema"
 import type {
@@ -37,9 +41,11 @@ interface IssueEditorDialogShellProps {
   assigneeId: string | null
   autoFocus?: boolean
   description: string
+  dialogTestId?: string
   dueDate: Date | undefined
   editorRef?: Ref<MarkdownEditorRef>
   footer: ReactNode
+  formProps?: ComponentPropsWithoutRef<`form`>
   headerContent: ReactNode
   imageUpload?: MarkdownEditorImageUploadConfig
   onAssigneeChange: (userId: string | null) => void | Promise<void>
@@ -68,9 +74,11 @@ export function IssueEditorDialogShell({
   assigneeId,
   autoFocus,
   description,
+  dialogTestId,
   dueDate,
   editorRef,
   footer,
+  formProps,
   headerContent,
   imageUpload,
   onAssigneeChange,
@@ -94,112 +102,125 @@ export function IssueEditorDialogShell({
   users,
   workspaceId,
 }: IssueEditorDialogShellProps) {
+  const content = (
+    <>
+      <div className="flex items-center justify-between px-5 pt-4 pb-2">
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <div className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
+            <div
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: projectColor }}
+            />
+            {projectPrefix}
+          </div>
+          <ChevronRight className="h-3 w-3" />
+          {headerContent}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Close dialog"
+          className="text-muted-foreground"
+          onClick={() => onOpenChange(false)}
+        >
+          <X className="size-3" />
+        </Button>
+      </div>
+
+      <Input
+        ref={titleRef}
+        value={title}
+        onBlur={onTitleBlur}
+        onChange={(event) => onTitleChange(event.target.value)}
+        placeholder="Issue title"
+        autoFocus={autoFocus}
+        className="bg-transparent dark:bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
+      />
+
+      <MarkdownEditor
+        ref={editorRef}
+        markdown={description}
+        onChange={onDescriptionChange}
+        onBlur={onDescriptionBlur}
+        placeholder="Add description..."
+        imageUpload={imageUpload}
+      />
+
+      <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
+        <OptionDropdownMenu
+          value={status}
+          options={statuses}
+          onSelect={onStatusChange}
+          renderTrigger={(selected) => (
+            <Button variant="ghost" size="xs" className="text-muted-foreground">
+              <StatusIcon status={selected.value} className="!h-3 !w-3" />
+              {selected.label}
+            </Button>
+          )}
+        />
+
+        <OptionDropdownMenu
+          value={priority}
+          options={priorities}
+          onSelect={onPriorityChange}
+          renderTrigger={(selected) => (
+            <Button variant="ghost" size="xs" className="text-muted-foreground">
+              <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
+              {selected.label}
+            </Button>
+          )}
+        />
+
+        <AssigneePicker
+          users={users}
+          selectedUserId={assigneeId}
+          onSelect={onAssigneeChange}
+        />
+
+        <LabelPicker
+          workspaceId={workspaceId}
+          selectedLabelIds={selectedLabelIds}
+          onToggle={onToggleLabel}
+        />
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="xs" className="text-muted-foreground">
+              <CalendarDays className="size-3" />
+              {dueDate ? formatDate(dueDate) : `Due date`}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={dueDate}
+              onSelect={(date) => {
+                void onDueDateSelect(date)
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      {footer}
+    </>
+  )
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
         className="sm:max-w-[640px] p-0 gap-0"
+        data-testid={dialogTestId}
       >
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <div className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
-              <div
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: projectColor }}
-              />
-              {projectPrefix}
-            </div>
-            <ChevronRight className="h-3 w-3" />
-            {headerContent}
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Close dialog"
-            className="text-muted-foreground"
-            onClick={() => onOpenChange(false)}
-          >
-            <X className="size-3" />
-          </Button>
-        </div>
-
-        <Input
-          ref={titleRef}
-          value={title}
-          onBlur={onTitleBlur}
-          onChange={(event) => onTitleChange(event.target.value)}
-          placeholder="Issue title"
-          autoFocus={autoFocus}
-          className="bg-transparent dark:bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
-        />
-
-        <MarkdownEditor
-          ref={editorRef}
-          markdown={description}
-          onChange={onDescriptionChange}
-          onBlur={onDescriptionBlur}
-          placeholder="Add description..."
-          imageUpload={imageUpload}
-        />
-
-        <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
-          <OptionDropdownMenu
-            value={status}
-            options={statuses}
-            onSelect={onStatusChange}
-            renderTrigger={(selected) => (
-              <Button variant="ghost" size="xs" className="text-muted-foreground">
-                <StatusIcon status={selected.value} className="!h-3 !w-3" />
-                {selected.label}
-              </Button>
-            )}
-          />
-
-          <OptionDropdownMenu
-            value={priority}
-            options={priorities}
-            onSelect={onPriorityChange}
-            renderTrigger={(selected) => (
-              <Button variant="ghost" size="xs" className="text-muted-foreground">
-                <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
-                {selected.label}
-              </Button>
-            )}
-          />
-
-          <AssigneePicker
-            users={users}
-            selectedUserId={assigneeId}
-            onSelect={onAssigneeChange}
-          />
-
-          <LabelPicker
-            workspaceId={workspaceId}
-            selectedLabelIds={selectedLabelIds}
-            onToggle={onToggleLabel}
-          />
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="xs" className="text-muted-foreground">
-                <CalendarDays className="size-3" />
-                {dueDate ? formatDate(dueDate) : `Due date`}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={dueDate}
-                onSelect={(date) => {
-                  void onDueDateSelect(date)
-                }}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        {footer}
+        {formProps ? (
+          <form {...formProps} className="contents">
+            {content}
+          </form>
+        ) : (
+          content
+        )}
       </DialogContent>
     </Dialog>
   )

@@ -291,6 +291,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       editorProps: {
         attributes: {
           class: `tiptap-content`,
+          "aria-label": `Issue description`,
         },
         handleDOMEvents: {
           contextmenu: (_view, event) => {

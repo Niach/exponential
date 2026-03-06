@@ -83,6 +83,13 @@ export const Route = createRootRoute({
 })
 
 function RootComponent() {
+  const disableRouterDevtools =
+    import.meta.env.VITE_DISABLE_ROUTER_DEVTOOLS === `1` ||
+    (typeof navigator !== `undefined` && navigator.webdriver) ||
+    (typeof process !== `undefined` &&
+      process.env?.DISABLE_ROUTER_DEVTOOLS === `1`)
+  const showRouterDevtools = !disableRouterDevtools
+
   React.useEffect(() => {
     if (`serviceWorker` in navigator) {
       navigator.serviceWorker.register(`/sw.js`)
@@ -92,7 +99,7 @@ function RootComponent() {
   return (
     <TooltipProvider>
       <Outlet />
-      <TanStackRouterDevtools />
+      {showRouterDevtools && <TanStackRouterDevtools />}
     </TooltipProvider>
   )
 }

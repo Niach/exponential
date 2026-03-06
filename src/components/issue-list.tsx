@@ -76,6 +76,7 @@ export function IssueList({
             key={group.status}
             open={isOpen}
             onOpenChange={() => toggleGroup(group.status)}
+            data-testid={`issue-group-${group.status}`}
           >
             {/* Group header */}
             <div
@@ -121,6 +122,7 @@ export function IssueList({
                     key={issue.id}
                     className="grid grid-cols-[24px_72px_24px_1fr_auto_28px_72px] items-center h-[34px] px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
                     onClick={() => onIssueClick(issue)}
+                    data-testid={`issue-row-${issue.identifier}`}
                   >
                     <div
                       className="flex items-center justify-center"

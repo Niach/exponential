@@ -65,12 +65,18 @@ export function WorkspaceInviteSection({
       <CardContent className="space-y-4">
         {inviteUrl && (
           <div className="flex items-center gap-2">
-            <Input value={inviteUrl} readOnly className="text-xs font-mono" />
+            <Input
+              value={inviteUrl}
+              readOnly
+              className="text-xs font-mono"
+              data-testid="invite-url-input"
+            />
             <Button
               variant="outline"
               size="icon"
               onClick={handleCopy}
               className="shrink-0"
+              aria-label="Copy invite URL"
             >
               {copied ? (
                 <Check className="h-4 w-4" />
@@ -109,6 +115,7 @@ export function WorkspaceInviteSection({
                   size="icon"
                   className="h-7 w-7"
                   onClick={() => handleRevoke(invite.id)}
+                  aria-label={`Revoke invite ${invite.id}`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>

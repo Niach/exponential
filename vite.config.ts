@@ -1,4 +1,4 @@
-import { defineConfig } from "vite"
+import { defineConfig, type PluginOption } from "vite"
 import { devtools } from "@tanstack/devtools-vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
@@ -6,17 +6,19 @@ import viteTsConfigPaths from "vite-tsconfig-paths"
 import tailwindcss from "@tailwindcss/vite"
 import { nitro } from "nitro/vite"
 
+const plugins: PluginOption[] = [
+  ...(process.env.DISABLE_TANSTACK_DEVTOOLS === `1` ? [] : [devtools()]),
+  nitro(),
+  viteTsConfigPaths({
+    projects: [`./tsconfig.json`],
+  }),
+  tailwindcss(),
+  tanstackStart(),
+  viteReact(),
+]
+
 const config = defineConfig({
-  plugins: [
-    devtools(),
-    nitro(),
-    viteTsConfigPaths({
-      projects: [`./tsconfig.json`],
-    }),
-    tailwindcss(),
-    tanstackStart(),
-    viteReact(),
-  ],
+  plugins,
   server: {
     port: 5173,
     host: true,

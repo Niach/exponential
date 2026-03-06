@@ -197,6 +197,7 @@ export function EditIssueDialog({
       onOpenChange={handleOpenChange}
       projectPrefix={projectPrefix}
       projectColor={projectColor}
+      dialogTestId="issue-editor-edit"
       headerContent={<span className="text-sm font-mono">{issue.identifier}</span>}
       title={title}
       onTitleChange={setTitle}
