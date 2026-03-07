@@ -4,6 +4,7 @@ import { StatusDropdown, getStatusConfig } from "@/components/status-dropdown"
 import { PriorityDropdown } from "@/components/priority-dropdown"
 import { AssigneeDropdown } from "@/components/assignee-dropdown"
 import { DueDateDropdown } from "@/components/due-date-dropdown"
+import { IssueRowContextMenu } from "@/components/issue-row-context-menu"
 import { Button } from "@/components/ui/button"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import { Plus, ChevronRight } from "lucide-react"
@@ -25,6 +26,8 @@ interface IssueGroup {
 interface IssueListProps {
   groups: IssueGroup[]
   issueLabelMap: Map<string, Label[]>
+  labels: Label[]
+  users: User[]
   userMap: Map<string, User>
   onNewIssue: (status?: IssueStatus) => void
   onIssueClick: (issue: Issue) => void
@@ -33,6 +36,8 @@ interface IssueListProps {
 export function IssueList({
   groups,
   issueLabelMap,
+  labels,
+  users,
   userMap,
   onNewIssue,
   onIssueClick,
@@ -41,7 +46,6 @@ export function IssueList({
     new Set()
   )
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
-  const users = Array.from(userMap.values())
 
   const toggleGroup = (status: IssueStatus) => {
     setCollapsedGroups((prev) => {
@@ -118,71 +122,80 @@ export function IssueList({
               {group.issues.map((issue) => {
                 const issueLabels = issueLabelMap.get(issue.id) ?? []
                 return (
-                  <div
+                  <IssueRowContextMenu
                     key={issue.id}
-                    className="grid grid-cols-[24px_72px_24px_1fr_auto_28px_72px] items-center h-[34px] px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
-                    onClick={() => onIssueClick(issue)}
-                    data-testid={`issue-row-${issue.identifier}`}
+                    issue={issue}
+                    issueLabels={issueLabels}
+                    labels={labels}
+                    users={users}
+                    userMap={userMap}
+                    onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
-                      className="flex items-center justify-center"
-                      onClick={(e) => e.stopPropagation()}
+                      className="grid grid-cols-[24px_72px_24px_1fr_auto_28px_72px] items-center h-[34px] px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
+                      onClick={() => onIssueClick(issue)}
+                      data-testid={`issue-row-${issue.identifier}`}
                     >
-                      <PriorityDropdown
-                        issueId={issue.id}
-                        priority={issue.priority}
-                      />
+                      <div
+                        className="flex items-center justify-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <PriorityDropdown
+                          issueId={issue.id}
+                          priority={issue.priority}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground font-mono truncate">
+                        {issue.identifier}
+                      </span>
+                      <div
+                        className="flex items-center justify-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <StatusDropdown
+                          issueId={issue.id}
+                          status={issue.status}
+                        />
+                      </div>
+                      <span className="text-sm truncate ml-2">
+                        {issue.title}
+                      </span>
+                      <div className="flex items-center gap-1.5 ml-4 shrink-0">
+                        {issueLabels.map((label) => (
+                          <span
+                            key={label.id}
+                            className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-[11px] text-muted-foreground"
+                          >
+                            <div
+                              className="h-1.5 w-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: label.color }}
+                            />
+                            {label.name}
+                          </span>
+                        ))}
+                      </div>
+                      <div
+                        className="flex items-center justify-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <AssigneeDropdown
+                          issueId={issue.id}
+                          assigneeId={issue.assigneeId}
+                          users={users}
+                          userMap={userMap}
+                        />
+                      </div>
+                      <div
+                        className="flex items-center justify-end"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <DueDateDropdown
+                          issueId={issue.id}
+                          dueDate={issue.dueDate}
+                        />
+                      </div>
                     </div>
-                    <span className="text-xs text-muted-foreground font-mono truncate">
-                      {issue.identifier}
-                    </span>
-                    <div
-                      className="flex items-center justify-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <StatusDropdown
-                        issueId={issue.id}
-                        status={issue.status}
-                      />
-                    </div>
-                    <span className="text-sm truncate ml-2">
-                      {issue.title}
-                    </span>
-                    <div className="flex items-center gap-1.5 ml-4 shrink-0">
-                      {issueLabels.map((label) => (
-                        <span
-                          key={label.id}
-                          className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-[11px] text-muted-foreground"
-                        >
-                          <div
-                            className="h-1.5 w-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: label.color }}
-                          />
-                          {label.name}
-                        </span>
-                      ))}
-                    </div>
-                    <div
-                      className="flex items-center justify-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <AssigneeDropdown
-                        issueId={issue.id}
-                        assigneeId={issue.assigneeId}
-                        users={users}
-                        userMap={userMap}
-                      />
-                    </div>
-                    <div
-                      className="flex items-center justify-end"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <DueDateDropdown
-                        issueId={issue.id}
-                        dueDate={issue.dueDate}
-                      />
-                    </div>
-                  </div>
+                  </IssueRowContextMenu>
                 )
               })}
             </CollapsiblePrimitive.Content>

@@ -65,6 +65,8 @@ function ProjectPage() {
         <IssueList
           groups={visibleGroups}
           issueLabelMap={issueLabelMap}
+          labels={labelList}
+          users={users}
           userMap={userMap}
           onNewIssue={handleNewIssue}
           onIssueClick={(issue) => setEditingIssueId(issue.id)}
