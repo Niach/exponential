@@ -28,6 +28,7 @@ import {
   Heading3,
 } from "lucide-react"
 import { MarkdownImage } from "@/lib/markdown-image"
+import { cn } from "@/lib/utils"
 
 export interface MarkdownEditorImageUploadConfig {
   disabledReason?: string
@@ -44,6 +45,7 @@ export interface MarkdownEditorRef {
 }
 
 interface MarkdownEditorProps {
+  editable?: boolean
   imageUpload?: MarkdownEditorImageUploadConfig
   markdown: string
   onChange: (markdown: string) => void
@@ -254,7 +256,10 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
 }
 
 export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
-  ({ markdown, onChange, onBlur, placeholder, autoFocus, imageUpload }, ref) => {
+  (
+    { markdown, onChange, onBlur, placeholder, autoFocus, imageUpload, editable = true },
+    ref
+  ) => {
     const onChangeRef = useRef(onChange)
     onChangeRef.current = onChange
     const imageUploadRef = useRef(imageUpload)
@@ -281,6 +286,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         }),
       ],
       content: markdown,
+      editable,
       immediatelyRender: false,
       onUpdate: ({ editor: e }) => {
         onChangeRef.current(getEditorMarkdown(e))
@@ -290,8 +296,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       },
       editorProps: {
         attributes: {
-          class: `tiptap-content`,
+          class: cn(`tiptap-content`, !editable && `cursor-default`),
           "aria-label": `Issue description`,
+          "aria-readonly": String(!editable),
         },
         handleDOMEvents: {
           contextmenu: (_view, event) => {
@@ -302,7 +309,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         handlePaste: (_view, event) => {
           const files = getImageFiles(event.clipboardData?.files)
 
-          if (files.length === 0 || !imageUploadRef.current) {
+          if (!editable || files.length === 0 || !imageUploadRef.current) {
             return false
           }
 
@@ -313,7 +320,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         handleDrop: (_view, event) => {
           const files = getImageFiles(event.dataTransfer?.files)
 
-          if (files.length === 0 || !imageUploadRef.current) {
+          if (!editable || files.length === 0 || !imageUploadRef.current) {
             return false
           }
 
@@ -345,9 +352,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       }
     }, [autoFocus, editor])
 
+    useEffect(() => {
+      editor?.setEditable(editable)
+    }, [editable, editor])
+
     return (
       <div className="tiptap-wrapper">
-        <BubbleToolbar editor={editor} />
+        {editable ? <BubbleToolbar editor={editor} /> : null}
         <EditorContent editor={editor} />
       </div>
     )

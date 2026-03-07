@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
+  collectMarkdownImageUrls,
+  extractMarkdownImageOccurrences,
   extractAttachmentIdsFromDescription,
   extractMarkdownImageUrls,
   getRemovedAttachmentIds,
   hasMarkdownImages,
+  removeMarkdownImageByOccurrence,
+  removeMarkdownImagesByUrl,
+  replaceMarkdownImageUrls,
 } from "@/lib/issue-attachments"
 
 describe(`issue attachment helpers`, () => {
@@ -13,6 +18,47 @@ describe(`issue attachment helpers`, () => {
         `Before ![one](/api/attachments/11111111-1111-1111-1111-111111111111) after`
       )
     ).toEqual([`/api/attachments/11111111-1111-1111-1111-111111111111`])
+  })
+
+  it(`collects markdown image urls in first-occurrence order`, () => {
+    expect(
+      collectMarkdownImageUrls(
+        [
+          `![one](blob:one)`,
+          `![two](blob:two)`,
+          `![one-again](blob:one)`,
+        ].join(`\n`)
+      )
+    ).toEqual([`blob:one`, `blob:two`])
+  })
+
+  it(`extracts ordered markdown image occurrences with duplicate urls`, () => {
+    expect(
+      extractMarkdownImageOccurrences(
+        [
+          `Before`,
+          `![first](blob:shared)`,
+          `![second](blob:shared)`,
+          `![third](blob:other)`,
+        ].join(`\n`)
+      )
+    ).toEqual([
+      expect.objectContaining({
+        alt: `first`,
+        occurrenceIndex: 0,
+        url: `blob:shared`,
+      }),
+      expect.objectContaining({
+        alt: `second`,
+        occurrenceIndex: 1,
+        url: `blob:shared`,
+      }),
+      expect.objectContaining({
+        alt: `third`,
+        occurrenceIndex: 2,
+        url: `blob:other`,
+      }),
+    ])
   })
 
   it(`accepts relative and same-origin attachment urls`, () => {
@@ -56,6 +102,51 @@ describe(`issue attachment helpers`, () => {
         `https://app.test/api/trpc`
       )
     ).toEqual([`11111111-1111-1111-1111-111111111111`])
+  })
+
+  it(`removes only selected markdown image urls`, () => {
+    expect(
+      removeMarkdownImagesByUrl(
+        [
+          `Before text`,
+          `![draft](blob:draft-image)`,
+          `![kept](https://cdn.example.com/keep.png)`,
+          `After text`,
+        ].join(`\n`),
+        [`blob:draft-image`]
+      )
+    ).toBe([`Before text`, ``, `![kept](https://cdn.example.com/keep.png)`, `After text`].join(`\n`))
+  })
+
+  it(`removes only the targeted markdown image occurrence`, () => {
+    expect(
+      removeMarkdownImageByOccurrence(
+        [
+          `Before text`,
+          `![first](blob:shared)`,
+          `![second](blob:shared)`,
+          `After text`,
+        ].join(`\n`),
+        0
+      )
+    ).toBe([`Before text`, ``, `![second](blob:shared)`, `After text`].join(`\n`))
+  })
+
+  it(`replaces only selected markdown image urls`, () => {
+    expect(
+      replaceMarkdownImageUrls(
+        [
+          `![draft](blob:draft-image)`,
+          `![kept](https://cdn.example.com/keep.png)`,
+        ].join(`\n`),
+        new Map([[`blob:draft-image`, `/api/attachments/33333333-3333-3333-3333-333333333333`]])
+      )
+    ).toBe(
+      [
+        `![draft](/api/attachments/33333333-3333-3333-3333-333333333333)`,
+        `![kept](https://cdn.example.com/keep.png)`,
+      ].join(`\n`)
+    )
   })
 
   it(`detects markdown images`, () => {

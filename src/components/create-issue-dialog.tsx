@@ -5,16 +5,38 @@ import { Button } from "@/components/ui/button"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
+  normalizeIssueDescriptionText,
   toIssueDescription,
   type IssuePriority,
   type IssueStatus,
 } from "@/lib/domain"
+import {
+  extractMarkdownImageOccurrences,
+  collectMarkdownImageUrls,
+  removeMarkdownImageByOccurrence,
+  removeMarkdownImagesByUrl,
+  replaceMarkdownImageUrls,
+} from "@/lib/issue-attachments"
+import { uploadIssueImageFile } from "@/lib/issue-image-upload"
 import type { User } from "@/db/schema"
 import {
-  IssueEditorAttachmentButton,
   IssueEditorDialogShell,
 } from "@/components/issue-editor-dialog-shell"
+import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
 import type { MarkdownEditorRef } from "@/components/markdown-editor"
+
+type CreateIssueSubmitPhase =
+  | `idle`
+  | `creating`
+  | `uploading`
+  | `created_with_image_errors`
+
+interface DraftImage {
+  alt: string
+  file: File
+  id: string
+  objectUrl: string
+}
 
 interface CreateIssueDialogProps {
   defaultStatus?: IssueStatus
@@ -25,6 +47,25 @@ interface CreateIssueDialogProps {
   projectPrefix: string
   users: User[]
   workspaceId: string
+}
+
+function revokeDraftImages(images: DraftImage[]) {
+  for (const image of images) {
+    URL.revokeObjectURL(image.objectUrl)
+  }
+}
+
+function buildPostCreateImageErrorMessage(
+  issueIdentifier: string,
+  failedImageCount?: number
+) {
+  if (typeof failedImageCount === `number` && failedImageCount > 0) {
+    return `Created ${issueIdentifier}, but ${failedImageCount} ${
+      failedImageCount === 1 ? `image` : `images`
+    } failed to upload. Reopen the issue later to retry failed images.`
+  }
+
+  return `Created ${issueIdentifier}, but the image uploads could not be finalized cleanly. Reopen the issue later to retry them.`
 }
 
 export function CreateIssueDialog({
@@ -46,10 +87,16 @@ export function CreateIssueDialog({
   const [dueDate, setDueDate] = useState<Date | undefined>()
   const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const [draftImages, setDraftImages] = useState<DraftImage[]>([])
+  const [submitPhase, setSubmitPhase] = useState<CreateIssueSubmitPhase>(`idle`)
   const editorRef = useRef<MarkdownEditorRef>(null)
   const titleRef = useRef<HTMLInputElement>(null)
-  const createDisabledReason = `Create the issue first to add images`
+  const descriptionRef = useRef(``)
+  const draftImagesRef = useRef<DraftImage[]>([])
+
+  useEffect(() => {
+    draftImagesRef.current = draftImages
+  }, [draftImages])
 
   useEffect(() => {
     if (open) {
@@ -57,50 +104,51 @@ export function CreateIssueDialog({
     }
   }, [defaultStatus, open])
 
+  useEffect(() => {
+    return () => {
+      revokeDraftImages(draftImagesRef.current)
+    }
+  }, [])
+
+  const setDescriptionValue = (nextDescription: string) => {
+    descriptionRef.current = nextDescription
+    setDescription(nextDescription)
+    setDraftImages((previous) => {
+      const referencedUrls = new Set(collectMarkdownImageUrls(nextDescription))
+      const nextDraftImages: DraftImage[] = []
+
+      for (const draftImage of previous) {
+        if (referencedUrls.has(draftImage.objectUrl)) {
+          nextDraftImages.push(draftImage)
+          continue
+        }
+
+        URL.revokeObjectURL(draftImage.objectUrl)
+      }
+
+      draftImagesRef.current = nextDraftImages
+      return nextDraftImages.length === previous.length ? previous : nextDraftImages
+    })
+  }
+
+  const clearDraftImages = () => {
+    revokeDraftImages(draftImagesRef.current)
+    draftImagesRef.current = []
+    setDraftImages([])
+  }
+
   const resetFields = () => {
+    clearDraftImages()
     setTitle(``)
-    setDescription(``)
+    setDescriptionValue(``)
     setAttachmentStatus(null)
+    setSubmitPhase(`idle`)
     editorRef.current?.setMarkdown(``)
     setStatus(defaultStatus ?? `backlog`)
     setPriority(`none`)
     setAssigneeId(null)
     setSelectedLabelIds([])
     setDueDate(undefined)
-  }
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-
-    if (!title.trim()) {
-      return
-    }
-
-    setSubmitting(true)
-
-    try {
-      await trpc.issues.create.mutate({
-        projectId,
-        title: title.trim(),
-        status,
-        priority,
-        assigneeId: assigneeId ?? undefined,
-        description: toIssueDescription(description) ?? undefined,
-        dueDate: formatDateForMutation(dueDate) ?? undefined,
-        labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
-      })
-
-      if (createMore) {
-        resetFields()
-        titleRef.current?.focus()
-        return
-      }
-
-      resetFields()
-      onOpenChange(false)
-    } finally {
-      setSubmitting(false)
-    }
   }
 
   const handleToggleLabel = (labelId: string) => {
@@ -111,11 +159,181 @@ export function CreateIssueDialog({
     )
   }
 
+  const getReferencedDraftImages = (markdown: string) => {
+    const draftImagesByUrl = new Map(
+      draftImagesRef.current.map((draftImage) => [draftImage.objectUrl, draftImage])
+    )
+
+    return collectMarkdownImageUrls(markdown)
+      .map((url) => draftImagesByUrl.get(url))
+      .filter((draftImage): draftImage is DraftImage => draftImage !== undefined)
+  }
+
+  const handleImageFiles = async (files: File[]) => {
+    if (submitPhase !== `idle`) {
+      return
+    }
+
+    setAttachmentStatus(null)
+
+    const nextDraftImages = files.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      objectUrl: URL.createObjectURL(file),
+      alt: file.name,
+    }))
+
+    setDraftImages((previous) => {
+      const updatedDraftImages = [...previous, ...nextDraftImages]
+      draftImagesRef.current = updatedDraftImages
+      return updatedDraftImages
+    })
+
+    for (const draftImage of nextDraftImages) {
+      editorRef.current?.insertImage({
+        alt: draftImage.alt,
+        src: draftImage.objectUrl,
+      })
+    }
+
+    const nextDescription =
+      editorRef.current?.getMarkdown() ?? descriptionRef.current
+    setDescriptionValue(nextDescription)
+  }
+
+  const handleClose = () => {
+    resetFields()
+    onOpenChange(false)
+  }
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      onOpenChange(true)
+      return
+    }
+
+    if (submitPhase === `creating` || submitPhase === `uploading`) {
+      return
+    }
+
+    handleClose()
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+
+    if (!title.trim() || submitPhase !== `idle`) {
+      return
+    }
+
+    setAttachmentStatus(null)
+    setSubmitPhase(`creating`)
+
+    try {
+      const currentDescription = descriptionRef.current
+      const referencedDraftImages = getReferencedDraftImages(currentDescription)
+      const referencedDraftUrls = referencedDraftImages.map(
+        (draftImage) => draftImage.objectUrl
+      )
+      const strippedDescription = removeMarkdownImagesByUrl(
+        currentDescription,
+        referencedDraftUrls
+      )
+
+      const { issue } = await trpc.issues.create.mutate({
+        projectId,
+        title: title.trim(),
+        status,
+        priority,
+        assigneeId: assigneeId ?? undefined,
+        description: toIssueDescription(strippedDescription) ?? undefined,
+        dueDate: formatDateForMutation(dueDate) ?? undefined,
+        labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
+      })
+
+      const uploadedImageUrls = new Map<string, string>()
+      const failedDraftUrls = new Set<string>()
+      setSubmitPhase(`uploading`)
+
+      for (const draftImage of referencedDraftImages) {
+        try {
+          const uploadedImage = await uploadIssueImageFile(issue.id, draftImage.file)
+          uploadedImageUrls.set(draftImage.objectUrl, uploadedImage.url)
+        } catch {
+          failedDraftUrls.add(draftImage.objectUrl)
+        }
+      }
+
+      const finalDescription = replaceMarkdownImageUrls(
+        removeMarkdownImagesByUrl(currentDescription, failedDraftUrls),
+        uploadedImageUrls
+      )
+
+      editorRef.current?.setMarkdown(finalDescription)
+      setDescriptionValue(finalDescription)
+
+      const normalizedStrippedDescription =
+        normalizeIssueDescriptionText(strippedDescription)
+      const normalizedFinalDescription =
+        normalizeIssueDescriptionText(finalDescription)
+
+      try {
+        if (normalizedFinalDescription !== normalizedStrippedDescription) {
+          await trpc.issues.update.mutate({
+            id: issue.id,
+            description: toIssueDescription(finalDescription) ?? null,
+          })
+        }
+      } catch {
+        setAttachmentStatus(buildPostCreateImageErrorMessage(issue.identifier))
+        setSubmitPhase(`created_with_image_errors`)
+        return
+      }
+
+      if (failedDraftUrls.size > 0) {
+        setAttachmentStatus(
+          buildPostCreateImageErrorMessage(issue.identifier, failedDraftUrls.size)
+        )
+        setSubmitPhase(`created_with_image_errors`)
+        return
+      }
+
+      if (createMore) {
+        resetFields()
+        titleRef.current?.focus()
+        return
+      }
+
+      resetFields()
+      onOpenChange(false)
+    } catch (error) {
+      setAttachmentStatus(
+        error instanceof Error ? error.message : `Failed to create issue`
+      )
+      setSubmitPhase(`idle`)
+    }
+  }
+
+  const dialogDisabled = submitPhase !== `idle`
+  const closeDisabled =
+    submitPhase === `creating` || submitPhase === `uploading`
+  const imageOccurrences = extractMarkdownImageOccurrences(description)
+
+  const handleRemoveImageOccurrence = (occurrenceIndex: number) => {
+    const nextDescription = removeMarkdownImageByOccurrence(
+      descriptionRef.current,
+      occurrenceIndex
+    )
+
+    editorRef.current?.setMarkdown(nextDescription)
+    setDescriptionValue(nextDescription)
+    setAttachmentStatus(null)
+  }
+
   return (
-<<<<<<< ours
     <IssueEditorDialogShell
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       projectPrefix={projectPrefix}
       projectColor={projectColor}
       dialogTestId="issue-editor-create"
@@ -124,10 +342,17 @@ export function CreateIssueDialog({
       title={title}
       titleRef={titleRef}
       autoFocus
+      disabled={dialogDisabled}
+      closeDisabled={closeDisabled}
       onTitleChange={setTitle}
       description={description}
       editorRef={editorRef}
-      onDescriptionChange={setDescription}
+      onDescriptionChange={setDescriptionValue}
+      imageUpload={{
+        enabled: true,
+        uploading: submitPhase === `uploading`,
+        onFiles: handleImageFiles,
+      }}
       status={status}
       onStatusChange={setStatus}
       priority={priority}
@@ -141,63 +366,24 @@ export function CreateIssueDialog({
       dueDate={dueDate}
       onDueDateSelect={setDueDate}
       footer={
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-          <IssueEditorAttachmentButton />
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="create-more"
-                size="sm"
-                checked={createMore}
-                onCheckedChange={(checked) => setCreateMore(checked === true)}
-              />
-              <Label
-                htmlFor="create-more"
-                className="text-xs text-muted-foreground cursor-pointer select-none"
-=======
-    <form onSubmit={handleSubmit}>
-      <IssueEditorDialogShell
-        open={open}
-        onOpenChange={onOpenChange}
-        projectPrefix={projectPrefix}
-        projectColor={projectColor}
-        headerContent={<span className="text-sm">New issue</span>}
-        title={title}
-        titleRef={titleRef}
-        autoFocus
-        onTitleChange={setTitle}
-        description={description}
-        editorRef={editorRef}
-        onDescriptionChange={setDescription}
-        imageUpload={{
-          enabled: false,
-          disabledReason: createDisabledReason,
-          onFiles: async () => {
-            setAttachmentStatus(createDisabledReason)
-          },
-        }}
-        status={status}
-        onStatusChange={setStatus}
-        priority={priority}
-        onPriorityChange={setPriority}
-        workspaceId={workspaceId}
-        selectedLabelIds={selectedLabelIds}
-        onToggleLabel={handleToggleLabel}
-        users={users}
-        assigneeId={assigneeId}
-        onAssigneeChange={setAssigneeId}
-        dueDate={dueDate}
-        onDueDateSelect={setDueDate}
-        footer={
+        submitPhase === `created_with_image_errors` ? (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
+            <span className="text-xs text-destructive">{attachmentStatus}</span>
+            <Button type="button" variant="outline" size="xs" onClick={handleClose}>
+              Close
+            </Button>
+          </div>
+        ) : (
           <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-            <div className="flex items-center gap-3">
-              <IssueEditorAttachmentButton
-                disabled
-                disabledReason={createDisabledReason}
+            <div className="min-w-0 flex-1">
+              <IssueEditorAttachmentRail
+                attachmentStatus={attachmentStatus}
+                images={imageOccurrences}
+                onFiles={handleImageFiles}
+                onRemove={handleRemoveImageOccurrence}
+                uploading={submitPhase === `uploading`}
+                disabled={closeDisabled}
               />
-              {attachmentStatus ? (
-                <span className="text-xs text-destructive">{attachmentStatus}</span>
-              ) : null}
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
@@ -205,6 +391,7 @@ export function CreateIssueDialog({
                   id="create-more"
                   size="sm"
                   checked={createMore}
+                  disabled={closeDisabled}
                   onCheckedChange={(checked) => setCreateMore(checked === true)}
                 />
                 <Label
@@ -216,22 +403,18 @@ export function CreateIssueDialog({
               </div>
               <Button
                 type="submit"
-                disabled={!title.trim() || submitting}
+                disabled={!title.trim() || closeDisabled}
                 className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-50 h-7"
->>>>>>> theirs
               >
-                Create more
-              </Label>
+                {submitPhase === `uploading`
+                  ? `Uploading images...`
+                  : submitPhase === `creating`
+                    ? `Creating...`
+                    : `Create issue`}
+              </Button>
             </div>
-            <Button
-              type="submit"
-              disabled={!title.trim() || submitting}
-              className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-50 h-7"
-            >
-              {submitting ? `Creating...` : `Create issue`}
-            </Button>
           </div>
-        </div>
+        )
       }
     />
   )

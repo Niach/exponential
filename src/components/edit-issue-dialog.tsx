@@ -7,9 +7,14 @@ import {
   normalizeIssueDescriptionText,
 } from "@/lib/domain"
 import {
-  IssueEditorAttachmentButton,
+  extractMarkdownImageOccurrences,
+  removeMarkdownImageByOccurrence,
+} from "@/lib/issue-attachments"
+import { uploadIssueImageFile } from "@/lib/issue-image-upload"
+import {
   IssueEditorDialogShell,
 } from "@/components/issue-editor-dialog-shell"
+import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
 import type { MarkdownEditorRef } from "@/components/markdown-editor"
 
 interface EditIssueDialogProps {
@@ -107,32 +112,6 @@ export function EditIssueDialog({
     setDescription(nextDescription)
   }
 
-  const uploadImageFile = async (file: File) => {
-    const formData = new FormData()
-    formData.append(`file`, file)
-
-    const response = await fetch(`/api/issues/${issue.id}/images`, {
-      method: `POST`,
-      body: formData,
-      credentials: `same-origin`,
-    })
-
-    const result = (await response.json()) as
-      | { error?: string }
-      | { url: string }
-
-    if (!response.ok || !(`url` in result)) {
-      const message =
-        `error` in result && typeof result.error === `string`
-          ? result.error
-          : `Failed to upload image`
-
-      throw new Error(message)
-    }
-
-    return result.url
-  }
-
   const enqueueUploadTask = async (task: () => Promise<void>) => {
     setActiveUploadCount((current) => current + 1)
 
@@ -152,7 +131,7 @@ export function EditIssueDialog({
     try {
       await enqueueUploadTask(async () => {
         for (const file of files) {
-          const url = await uploadImageFile(file)
+          const { url } = await uploadIssueImageFile(issue.id, file)
           editorRef.current?.insertImage({
             alt: file.name,
             src: url,
@@ -172,6 +151,18 @@ export function EditIssueDialog({
   }
 
   const dueDate = issue.dueDate ? new Date(issue.dueDate + `T00:00:00`) : undefined
+  const imageOccurrences = extractMarkdownImageOccurrences(description)
+
+  const handleRemoveImageOccurrence = (occurrenceIndex: number) => {
+    const nextDescription = removeMarkdownImageByOccurrence(
+      descriptionRef.current,
+      occurrenceIndex
+    )
+
+    editorRef.current?.setMarkdown(nextDescription)
+    setDescriptionValue(nextDescription)
+    setAttachmentStatus(null)
+  }
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
@@ -262,15 +253,14 @@ export function EditIssueDialog({
       }}
       footer={
         <div className="flex items-center px-4 py-3 border-t border-border">
-          <div className="flex items-center gap-3">
-            <IssueEditorAttachmentButton
-              onFiles={handleImageFiles}
-              uploading={activeUploadCount > 0}
-            />
-            {attachmentStatus ? (
-              <span className="text-xs text-destructive">{attachmentStatus}</span>
-            ) : null}
-          </div>
+          <IssueEditorAttachmentRail
+            attachmentStatus={attachmentStatus}
+            images={imageOccurrences}
+            onFiles={handleImageFiles}
+            onRemove={handleRemoveImageOccurrence}
+            uploading={activeUploadCount > 0}
+            disabled={activeUploadCount > 0}
+          />
         </div>
       }
     />

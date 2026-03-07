@@ -227,6 +227,97 @@
   border: 1px solid oklch(1 0 0 / 10%);
 }
 
+.tiptap-content .editor-image-node {
+  position: relative;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.75rem 0;
+  line-height: 0;
+  isolation: isolate;
+}
+
+.tiptap-content .editor-image-node .editor-image {
+  margin: 0;
+}
+
+.tiptap-content .editor-image-node.is-selected .editor-image {
+  box-shadow:
+    0 0 0 1px oklch(0.985 0 0 / 0.28),
+    0 0 0 4px oklch(0.68 0.12 238 / 0.16);
+}
+
+.editor-image-remove {
+  appearance: none;
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid oklch(1 0 0 / 0.1);
+  border-radius: 9999px;
+  padding: 0;
+  background: linear-gradient(
+    180deg,
+    oklch(0.24 0 0 / 0.92),
+    oklch(0.16 0 0 / 0.96)
+  );
+  color: oklch(0.92 0 0 / 0.85);
+  line-height: 0;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-select: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    0 6px 18px -8px oklch(0 0 0 / 0.42),
+    inset 0 1px 0 oklch(1 0 0 / 0.08);
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  transform: translateY(-4px) scale(0.96);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.editor-image-remove > svg {
+  display: block;
+}
+
+.editor-image-node:hover .editor-image-remove,
+.editor-image-node.is-selected .editor-image-remove,
+.editor-image-node:focus-within .editor-image-remove {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.editor-image-remove:hover {
+  color: oklch(0.985 0 0);
+  background: linear-gradient(
+    180deg,
+    oklch(0.3 0 0 / 0.95),
+    oklch(0.19 0 0 / 0.98)
+  );
+  border-color: oklch(1 0 0 / 0.16);
+}
+
+.editor-image-remove:focus-visible {
+  outline: none;
+  box-shadow:
+    0 6px 18px -8px oklch(0 0 0 / 0.42),
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    0 0 0 2px oklch(0.68 0.12 238 / 0.3);
+}
+
 .tiptap-content s {
   text-decoration: line-through;
   opacity: 0.6;

@@ -36,12 +36,14 @@ const LABEL_COLORS = [
 ]
 
 interface LabelPickerProps {
+  disabled?: boolean
   workspaceId: string
   selectedLabelIds: string[]
   onToggle: (labelId: string) => void
 }
 
 export function LabelPicker({
+  disabled,
   workspaceId,
   selectedLabelIds,
   onToggle,
@@ -87,8 +89,12 @@ export function LabelPicker({
 
   return (
     <Popover
-      open={open}
+      open={disabled ? false : open}
       onOpenChange={(o) => {
+        if (disabled) {
+          return
+        }
+
         setOpen(o)
         if (!o) {
           setView(`list`)
@@ -97,7 +103,12 @@ export function LabelPicker({
       }}
     >
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="xs" className="text-muted-foreground">
+        <Button
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground"
+          disabled={disabled}
+        >
           <Tag className="size-3" />
           {selectedLabels.length > 0 ? (
             <span className="max-w-[120px] truncate">

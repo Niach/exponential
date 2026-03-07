@@ -23,12 +23,14 @@ import type { User } from "@/db/schema"
 import { getInitials } from "@/lib/utils"
 
 interface AssigneePickerProps {
+  disabled?: boolean
   users: User[]
   selectedUserId: string | null
   onSelect: (userId: string | null) => void
 }
 
 export function AssigneePicker({
+  disabled,
   users,
   selectedUserId,
   onSelect,
@@ -40,9 +42,23 @@ export function AssigneePicker({
     : undefined
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={disabled ? false : open}
+      onOpenChange={(nextOpen) => {
+        if (disabled) {
+          return
+        }
+
+        setOpen(nextOpen)
+      }}
+    >
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="xs" className="text-muted-foreground">
+        <Button
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground"
+          disabled={disabled}
+        >
           {selectedUser ? (
             <>
               <Avatar className="size-4">

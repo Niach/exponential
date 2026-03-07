@@ -1,7 +1,7 @@
 const attachmentPathPattern =
   /^\/api\/attachments\/(?<attachmentId>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
-const markdownImagePattern = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+const markdownImagePattern = /!\[([^\]]*)]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
 
 export const acceptedImageContentTypes = [
   `image/png`,
@@ -12,6 +12,15 @@ export const acceptedImageContentTypes = [
 ] as const
 
 export const maxImageUploadBytes = 10 * 1024 * 1024
+
+export interface MarkdownImageOccurrence {
+  alt: string
+  end: number
+  occurrenceIndex: number
+  start: number
+  markdown: string
+  url: string
+}
 
 export function buildAttachmentUrl(attachmentId: string) {
   return `/api/attachments/${attachmentId}`
@@ -42,8 +51,106 @@ export function isAcceptedImageContentType(contentType: string) {
   )
 }
 
+export function extractMarkdownImageOccurrences(
+  text: string
+): MarkdownImageOccurrence[] {
+  return [...text.matchAll(markdownImagePattern)].map((match, occurrenceIndex) => {
+    const start = match.index ?? 0
+
+    return {
+      alt: match[1] ?? ``,
+      end: start + match[0].length,
+      occurrenceIndex,
+      start,
+      markdown: match[0],
+      url: match[2] ?? ``,
+    }
+  })
+}
+
 export function extractMarkdownImageUrls(text: string) {
-  return [...text.matchAll(markdownImagePattern)].map((match) => match[1] ?? ``)
+  return extractMarkdownImageOccurrences(text).map((match) => match.url)
+}
+
+export function collectMarkdownImageUrls(text: string) {
+  const seenUrls = new Set<string>()
+  const orderedUrls: string[] = []
+
+  for (const url of extractMarkdownImageUrls(text)) {
+    if (seenUrls.has(url)) {
+      continue
+    }
+
+    seenUrls.add(url)
+    orderedUrls.push(url)
+  }
+
+  return orderedUrls
+}
+
+function updateMarkdownImages(
+  text: string,
+  transform: (match: MarkdownImageOccurrence) => string | undefined
+) {
+  let result = ``
+  let lastIndex = 0
+
+  for (const match of extractMarkdownImageOccurrences(text)) {
+    result += text.slice(lastIndex, match.start)
+    result += transform(match) ?? match.markdown
+    lastIndex = match.end
+  }
+
+  result += text.slice(lastIndex)
+  return result
+}
+
+export function removeMarkdownImagesByUrl(
+  text: string,
+  urls: Iterable<string>
+) {
+  const urlSet = new Set(urls)
+
+  if (urlSet.size === 0) {
+    return text
+  }
+
+  return updateMarkdownImages(text, (match) =>
+    urlSet.has(match.url) ? `` : undefined
+  )
+}
+
+export function removeMarkdownImageByOccurrence(
+  text: string,
+  occurrenceIndex: number
+) {
+  return updateMarkdownImages(text, (match) =>
+    match.occurrenceIndex === occurrenceIndex ? `` : undefined
+  )
+}
+
+export function replaceMarkdownImageUrls(
+  text: string,
+  replacements: Map<string, string> | Record<string, string>
+) {
+  const replacementMap =
+    replacements instanceof Map
+      ? replacements
+      : new Map(Object.entries(replacements))
+
+  if (replacementMap.size === 0) {
+    return text
+  }
+
+  return updateMarkdownImages(text, (match) => {
+    const nextUrl = replacementMap.get(match.url)
+
+    if (!nextUrl) {
+      return undefined
+    }
+
+    return match.markdown.replace(match.url, nextUrl)
+  })
 }
 
 function getAttachmentIdFromParsedUrl(url: URL) {

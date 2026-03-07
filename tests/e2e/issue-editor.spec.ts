@@ -3,6 +3,10 @@ import { registerUser } from "./helpers/auth"
 import { expect, test, type AppFixture } from "./fixtures"
 
 const SELECT_ALL_SHORTCUT = process.platform === `darwin` ? `Meta+A` : `Control+A`
+const PNG_BUFFER = Buffer.from(
+  `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==`,
+  `base64`
+)
 
 async function createProject(page: Page, app: AppFixture) {
   await page.getByLabel(`Create project`).click()
@@ -31,6 +35,17 @@ async function selectDueDate(page: Page, dialog: Locator, dataDay: string) {
   await page.locator(`[data-slot="calendar"] [data-day="${dataDay}"]`).last().click()
   await dialog.getByPlaceholder(`Issue title`).click()
   await expect(calendar).toBeHidden()
+}
+
+async function attachImage(page: Page, dialog: Locator, filename = `draft-image.png`) {
+  const fileChooserPromise = page.waitForEvent(`filechooser`)
+  await dialog.getByLabel(`Add image`).click()
+  const fileChooser = await fileChooserPromise
+  await fileChooser.setFiles({
+    name: filename,
+    mimeType: `image/png`,
+    buffer: PNG_BUFFER,
+  })
 }
 
 test(`creates and edits an issue through the shared issue editor`, async ({
@@ -151,4 +166,129 @@ test(`creates and edits an issue through the shared issue editor`, async ({
   await expect(
     page.locator(`[data-testid="issue-group-done"] [data-testid="issue-row-${identifier}"]`)
   ).toBeVisible()
+})
+
+test(`uploads create-time images, shows them in the footer rail, and removes them from the footer rail`, async ({
+  app,
+  page,
+}) => {
+  await registerUser(page, app.owner)
+  await createProject(page, app)
+
+  await expect(page).toHaveURL(new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`))
+
+  await page.getByRole(`button`, { name: `New Issue` }).click()
+
+  const createDialog = page.locator(`[data-testid="issue-editor-create"]`)
+  await expect(createDialog).toBeVisible()
+
+  await createDialog.getByPlaceholder(`Issue title`).fill(app.issueTitle)
+  await replaceIssueDescription(page, createDialog, app.issueDescription)
+  await attachImage(page, createDialog)
+
+  const draftImage = createDialog.locator(`img.editor-image`)
+  await expect(draftImage).toHaveCount(1)
+  await expect(draftImage).toHaveAttribute(`src`, /^blob:/)
+  await expect(createDialog.getByTestId(`issue-attachment-rail`)).toContainText(
+    `draft-image.png`
+  )
+  await expect(createDialog.getByTestId(`issue-attachment-rail`)).toContainText(`1 image`)
+
+  await createDialog.getByRole(`button`, { name: `Create issue` }).click()
+  await expect(createDialog).toBeHidden()
+
+  await page.reload()
+  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+
+  const createdRow = page
+    .locator(`[data-testid^="issue-row-"]`)
+    .filter({ hasText: app.issueTitle })
+
+  await expect(createdRow).toHaveCount(1)
+  await createdRow.click()
+
+  const editDialog = page.locator(`[data-testid="issue-editor-edit"]`)
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.getByLabel(`Issue description`)).toContainText(
+    app.issueDescription
+  )
+  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(
+    `draft-image.png`
+  )
+  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(`1 image`)
+  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(1)
+  await expect(editDialog.locator(`img.editor-image`)).toHaveAttribute(
+    `src`,
+    /\/api\/attachments\//
+  )
+
+  await editDialog
+    .getByRole(`button`, { name: `Remove attachment draft-image.png` })
+    .click()
+  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
+  await expect(
+    editDialog.getByRole(`button`, { name: `Remove attachment draft-image.png` })
+  ).toHaveCount(0)
+  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(`0 images`)
+
+  await editDialog.getByRole(`button`, { name: `Close dialog` }).click()
+  await expect(editDialog).toBeHidden()
+  await page.reload()
+  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+
+  await createdRow.click()
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
+  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(`0 images`)
+})
+
+test(`removes uploaded images from the inline hover control`, async ({
+  app,
+  page,
+}) => {
+  await registerUser(page, app.owner)
+  await createProject(page, app)
+
+  await expect(page).toHaveURL(new RegExp(`/w/[^/]+/projects/${app.projectSlug}/?$`))
+
+  await page.getByRole(`button`, { name: `New Issue` }).click()
+
+  const createDialog = page.locator(`[data-testid="issue-editor-create"]`)
+  await expect(createDialog).toBeVisible()
+
+  await createDialog.getByPlaceholder(`Issue title`).fill(app.issueTitle)
+  await replaceIssueDescription(page, createDialog, app.issueDescription)
+  await attachImage(page, createDialog)
+  await createDialog.getByRole(`button`, { name: `Create issue` }).click()
+  await expect(createDialog).toBeHidden()
+
+  await page.reload()
+  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+
+  const createdRow = page
+    .locator(`[data-testid^="issue-row-"]`)
+    .filter({ hasText: app.issueTitle })
+
+  await expect(createdRow).toHaveCount(1)
+  await createdRow.click()
+
+  const editDialog = page.locator(`[data-testid="issue-editor-edit"]`)
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(1)
+
+  const imageNode = editDialog.locator(`.editor-image-node`).first()
+  await imageNode.hover()
+  await imageNode.getByRole(`button`, { name: `Remove image draft-image.png` }).click()
+
+  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
+  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(`0 images`)
+
+  await editDialog.getByRole(`button`, { name: `Close dialog` }).click()
+  await expect(editDialog).toBeHidden()
+  await page.reload()
+  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+
+  await createdRow.click()
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
 })

@@ -40,7 +40,9 @@ import {
 interface IssueEditorDialogShellProps {
   assigneeId: string | null
   autoFocus?: boolean
+  closeDisabled?: boolean
   description: string
+  disabled?: boolean
   dialogTestId?: string
   dueDate: Date | undefined
   editorRef?: Ref<MarkdownEditorRef>
@@ -73,7 +75,9 @@ interface IssueEditorDialogShellProps {
 export function IssueEditorDialogShell({
   assigneeId,
   autoFocus,
+  closeDisabled,
   description,
+  disabled,
   dialogTestId,
   dueDate,
   editorRef,
@@ -102,6 +106,8 @@ export function IssueEditorDialogShell({
   users,
   workspaceId,
 }: IssueEditorDialogShellProps) {
+  const closeBlocked = closeDisabled === true
+
   const content = (
     <>
       <div className="flex items-center justify-between px-5 pt-4 pb-2">
@@ -122,6 +128,7 @@ export function IssueEditorDialogShell({
           size="icon-xs"
           aria-label="Close dialog"
           className="text-muted-foreground"
+          disabled={closeBlocked}
           onClick={() => onOpenChange(false)}
         >
           <X className="size-3" />
@@ -135,12 +142,14 @@ export function IssueEditorDialogShell({
         onChange={(event) => onTitleChange(event.target.value)}
         placeholder="Issue title"
         autoFocus={autoFocus}
+        disabled={disabled}
         className="bg-transparent dark:bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
       />
 
       <MarkdownEditor
         ref={editorRef}
         markdown={description}
+        editable={!disabled}
         onChange={onDescriptionChange}
         onBlur={onDescriptionBlur}
         placeholder="Add description..."
@@ -150,10 +159,16 @@ export function IssueEditorDialogShell({
       <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
         <OptionDropdownMenu
           value={status}
+          disabled={disabled}
           options={statuses}
           onSelect={onStatusChange}
           renderTrigger={(selected) => (
-            <Button variant="ghost" size="xs" className="text-muted-foreground">
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              disabled={disabled}
+            >
               <StatusIcon status={selected.value} className="!h-3 !w-3" />
               {selected.label}
             </Button>
@@ -162,10 +177,16 @@ export function IssueEditorDialogShell({
 
         <OptionDropdownMenu
           value={priority}
+          disabled={disabled}
           options={priorities}
           onSelect={onPriorityChange}
           renderTrigger={(selected) => (
-            <Button variant="ghost" size="xs" className="text-muted-foreground">
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              disabled={disabled}
+            >
               <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
               {selected.label}
             </Button>
@@ -173,12 +194,14 @@ export function IssueEditorDialogShell({
         />
 
         <AssigneePicker
+          disabled={disabled}
           users={users}
           selectedUserId={assigneeId}
           onSelect={onAssigneeChange}
         />
 
         <LabelPicker
+          disabled={disabled}
           workspaceId={workspaceId}
           selectedLabelIds={selectedLabelIds}
           onToggle={onToggleLabel}
@@ -186,7 +209,12 @@ export function IssueEditorDialogShell({
 
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="xs" className="text-muted-foreground">
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              disabled={disabled}
+            >
               <CalendarDays className="size-3" />
               {dueDate ? formatDate(dueDate) : `Due date`}
             </Button>
@@ -208,11 +236,30 @@ export function IssueEditorDialogShell({
   )
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && closeBlocked) {
+          return
+        }
+
+        onOpenChange(nextOpen)
+      }}
+    >
       <DialogContent
         showCloseButton={false}
         className="sm:max-w-[640px] p-0 gap-0"
         data-testid={dialogTestId}
+        onEscapeKeyDown={(event) => {
+          if (closeBlocked) {
+            event.preventDefault()
+          }
+        }}
+        onInteractOutside={(event) => {
+          if (closeBlocked) {
+            event.preventDefault()
+          }
+        }}
       >
         {formProps ? (
           <form {...formProps} className="contents">
@@ -249,6 +296,7 @@ export function IssueEditorAttachmentButton({
         type="file"
         accept={acceptedImageContentTypes.join(`,`)}
         className="hidden"
+        disabled={isDisabled || uploading}
         onChange={(event) => {
           const files = Array.from(event.target.files ?? [])
 
