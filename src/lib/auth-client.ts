@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react"
+import { genericOAuthClient } from "better-auth/client/plugins"
 import {
   createCollection,
   localOnlyCollectionOptions,
@@ -10,6 +11,7 @@ export const authClient = createAuthClient({
     typeof window !== `undefined`
       ? window.location.origin
       : undefined,
+  plugins: [genericOAuthClient()],
 })
 
 type SessionData = NonNullable<

@@ -1,6 +1,7 @@
 import * as React from "react"
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, redirect } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth-client"
+import { getAuthConfig } from "@/lib/auth-config"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +11,17 @@ import { AuthFormShell } from "@/components/auth-form-shell"
 export const Route = createFileRoute(`/auth/register`)({
   component: RegisterPage,
   ssr: false,
+  loader: async ({ location }) => {
+    const config = await getAuthConfig()
+    if (!config.passwordEnabled) {
+      const searchParams = new URLSearchParams(location.search as unknown as string)
+      throw redirect({
+        to: `/auth/login`,
+        search: { redirect: searchParams.get(`redirect`) || undefined },
+      })
+    }
+    return config
+  },
   validateSearch: (search: Record<string, unknown>) => ({
     redirect: (search.redirect as string) || undefined,
   }),
@@ -17,10 +29,12 @@ export const Route = createFileRoute(`/auth/register`)({
 
 function RegisterPage() {
   const { redirect: redirectTo } = Route.useSearch()
+  const { oidcEnabled, oidcProviderId } = Route.useLoaderData()
   const [name, setName] = useState(``)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
+  const [isOidcLoading, setIsOidcLoading] = useState(false)
   const [error, setError] = useState(``)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,6 +63,21 @@ function RegisterPage() {
     }
   }
 
+  const handleOidcSignIn = async () => {
+    setIsOidcLoading(true)
+    setError(``)
+
+    try {
+      await authClient.signIn.oauth2({
+        providerId: oidcProviderId,
+        callbackURL: redirectTo || `/`,
+      })
+    } catch {
+      setError(`An unexpected error occurred`)
+      setIsOidcLoading(false)
+    }
+  }
+
   return (
     <AuthFormShell
       title="Create an account"
@@ -66,50 +95,75 @@ function RegisterPage() {
         </p>
       }
     >
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                type="text"
-                autoComplete="name"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-              />
-            </div>
-
-            {error && <p className="text-sm text-destructive">{error}</p>}
-
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? `Creating account...` : `Create account`}
+      <div className="space-y-4">
+        {oidcEnabled && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={isOidcLoading}
+              onClick={handleOidcSignIn}
+            >
+              {isOidcLoading ? `Redirecting...` : `Sign up with Authentik`}
             </Button>
-          </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">or</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              type="text"
+              autoComplete="name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+            />
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? `Creating account...` : `Create account`}
+          </Button>
+        </form>
+      </div>
     </AuthFormShell>
   )
 }

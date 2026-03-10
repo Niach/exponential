@@ -7,7 +7,7 @@ Real-time issue tracker.
 - **Framework**: TanStack Start (React 19, TanStack Router, TanStack React DB)
 - **Database**: PostgreSQL 17 via Drizzle ORM (`snake_case` casing)
 - **Real-time**: ElectricSQL (shape proxy pattern via `@tanstack/electric-db-collection`)
-- **Auth**: Better Auth (email/password, session-based, `tanstackStartCookies` plugin)
+- **Auth**: Better Auth (email/password + OIDC via `genericOAuth` plugin, session-based, `tanstackStartCookies` plugin)
 - **API**: tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync)
 - **UI**: shadcn/ui on Tailwind v4 (OKLCH zinc palette, dark theme forced via `html.dark`)
 - **Date Picker**: `react-day-picker` + `date-fns` via shadcn `Calendar` component
@@ -62,8 +62,9 @@ src/
 ├── hooks/
 │   └── use-mobile.ts            # useIsMobile() — detects mobile breakpoint (768px)
 ├── lib/
-│   ├── auth.ts                  # Better Auth server config
-│   ├── auth-client.ts           # Better Auth client + authStateCollection (local-only session cache)
+│   ├── auth.ts                  # Better Auth server config (genericOAuth plugin for OIDC)
+│   ├── auth-client.ts           # Better Auth client + authStateCollection (genericOAuthClient plugin)
+│   ├── auth-config.ts           # Server function exposing auth settings to client
 │   ├── collections.ts           # Electric collection definitions (all use snakeCamelMapper)
 │   ├── electric-proxy.ts        # Shape proxy helpers (prepareElectricUrl, proxyElectricRequest)
 │   ├── filters.ts               # Issue filter types, tab presets, matchesFilters(), activeFilterCount()
@@ -190,6 +191,12 @@ ELECTRIC_URL                  # Electric service URL (http://localhost:30000)
 MINIO_ENDPOINT                # MinIO URL (http://localhost:9000)
 MINIO_ACCESS_KEY              # MinIO access key
 MINIO_SECRET_KEY              # MinIO secret key
+AUTH_OIDC_ENABLED             # Enable OIDC login (default: false)
+AUTH_PASSWORD_ENABLED         # Enable email/password login (default: true)
+OIDC_CLIENT_ID                # OAuth2 client ID
+OIDC_CLIENT_SECRET            # OAuth2 client secret
+OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
+OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
 ```
 
 ## Style Conventions
