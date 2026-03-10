@@ -8,7 +8,7 @@ import {
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
-import appCss from "../styles.css?url"
+import "../styles.css?url"
 
 export const Route = createRootRoute({
   head: () => ({
@@ -53,10 +53,6 @@ export const Route = createRootRoute({
       {
         rel: `stylesheet`,
         href: `https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap`,
-      },
-      {
-        rel: `stylesheet`,
-        href: appCss,
       },
       {
         rel: `manifest`,
