@@ -33,6 +33,13 @@ export const auth = betterAuth({
                 clientSecret: process.env.OIDC_CLIENT_SECRET!,
                 discoveryUrl: process.env.OIDC_DISCOVERY_URL!,
                 scopes: [`openid`, `profile`, `email`],
+                mapProfileToUser: (profile) => ({
+                  name:
+                    profile.name ||
+                    profile.preferred_username ||
+                    profile.nickname ||
+                    profile.email,
+                }),
               },
             ],
           }),
