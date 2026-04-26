@@ -331,4 +331,51 @@ export const issuesRouter = router({
 
       return { issue }
     }),
+
+  delete: authedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const issueContext = await getIssueWorkspaceContext(input.id)
+      await assertProjectMember(ctx.session.user.id, issueContext.projectId)
+
+      const storageKeys: Array<string> = []
+
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+
+        const attachmentRows = await tx
+          .select({ storageKey: attachments.storageKey })
+          .from(attachments)
+          .where(eq(attachments.issueId, input.id))
+        storageKeys.push(...attachmentRows.map((row) => row.storageKey))
+
+        const deleted = await tx
+          .delete(issues)
+          .where(eq(issues.id, input.id))
+          .returning({ id: issues.id })
+
+        if (deleted.length === 0) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Issue not found`,
+          })
+        }
+
+        return { txId, id: deleted[0].id }
+      })
+
+      if (storageKeys.length > 0) {
+        await Promise.allSettled(
+          storageKeys.map(async (storageKey) => {
+            try {
+              await deleteObject(storageKey)
+            } catch (error) {
+              console.error(`Failed to delete attachment object`, error)
+            }
+          })
+        )
+      }
+
+      return result
+    }),
 })

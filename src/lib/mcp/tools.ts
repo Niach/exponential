@@ -433,6 +433,23 @@ export function registerExponentialTools(
     }
   )
 
+  server.registerTool(
+    `exponential_issues_delete`,
+    {
+      title: `Delete issue`,
+      description: `Permanently delete an issue. Cascades to its labels, attachments, comments, and relations. Attachment storage objects are also removed.`,
+      inputSchema: { id: z.string().uuid() },
+    },
+    async (input) => {
+      try {
+        await caller(user, request).issues.delete(input)
+        return ok({ ok: true, id: input.id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // -----------------------------------------------------------------------
   // Labels
   // -----------------------------------------------------------------------

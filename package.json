@@ -1,7 +1,7 @@
 {
   "name": "exponential",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "engines": {
     "node": ">=20.19.0 || >=22.12.0"
