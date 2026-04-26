@@ -13,7 +13,7 @@ export const issueLabelsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertIssueLabelWorkspaceMatch(
+      const { label } = await assertIssueLabelWorkspaceMatch(
         ctx.session.user.id,
         input.issueId,
         input.labelId
@@ -26,6 +26,7 @@ export const issueLabelsRouter = router({
           .values({
             issueId: input.issueId,
             labelId: input.labelId,
+            workspaceId: label!.workspaceId,
           })
           .onConflictDoNothing()
 

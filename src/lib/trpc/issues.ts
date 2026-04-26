@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, issues, issueLabels } from "@/db/schema"
+import { attachments, issues, issueLabels, labels } from "@/db/schema"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import {
   assertProjectMember,
@@ -58,7 +58,10 @@ export const issuesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectMember(ctx.session.user.id, input.projectId)
+      const project = await assertProjectMember(
+        ctx.session.user.id,
+        input.projectId
+      )
 
       assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
 
@@ -88,10 +91,26 @@ export const issuesRouter = router({
           .returning()
 
         if (input.labelIds && input.labelIds.length > 0) {
+          const labelRows = await tx
+            .select({ id: labels.id, workspaceId: labels.workspaceId })
+            .from(labels)
+            .where(inArray(labels.id, input.labelIds))
+
+          const wrongWorkspace = labelRows.find(
+            (label) => label.workspaceId !== project.workspaceId
+          )
+          if (wrongWorkspace || labelRows.length !== input.labelIds.length) {
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: `Labels must belong to the same workspace as the project`,
+            })
+          }
+
           await tx.insert(issueLabels).values(
             input.labelIds.map((labelId) => ({
               issueId: issue.id,
               labelId,
+              workspaceId: project.workspaceId,
             }))
           )
         }
@@ -288,8 +307,8 @@ export const issuesRouter = router({
             .returning({ id: issues.id })
 
           await tx.execute(sql`
-            INSERT INTO ${issueLabels} (issue_id, label_id)
-            SELECT ${clonedIssue.id}::uuid, label_id
+            INSERT INTO ${issueLabels} (issue_id, label_id, workspace_id)
+            SELECT ${clonedIssue.id}::uuid, label_id, workspace_id
             FROM ${issueLabels}
             WHERE issue_id = ${id}::uuid
           `)

@@ -44,17 +44,3 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER generate_issue_number BEFORE INSERT ON issues FOR EACH ROW EXECUTE FUNCTION generate_issue_number();
-
--- 3. Auto-populate workspace_id on issue_labels from the referenced label.
--- Keeps the denormalized column consistent so the Electric shape filter
--- on issue_labels can be workspace-scoped (stable) instead of label-scoped
--- (rewritten on every label add → 409 churn → cascading 502s upstream).
-CREATE OR REPLACE FUNCTION populate_issue_label_workspace_id()
-RETURNS TRIGGER AS $$
-BEGIN
-  SELECT workspace_id INTO NEW.workspace_id FROM labels WHERE id = NEW.label_id;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER populate_issue_label_workspace_id BEFORE INSERT ON issue_labels FOR EACH ROW EXECUTE FUNCTION populate_issue_label_workspace_id();
