@@ -4,8 +4,17 @@ import { matchesFilters } from "@/lib/filters"
 import {
   formatDateForMutation,
   issueStatusOrder,
+  type IssuePriority,
   type IssueStatus,
 } from "@/lib/domain"
+
+const priorityRank: Record<IssuePriority, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  none: 4,
+}
 
 function isIssueOverdue(issue: Issue, today: string) {
   return (
@@ -23,6 +32,11 @@ function compareIssuesForGroup(today: string) {
 
     if (aOverdue !== bOverdue) {
       return aOverdue ? -1 : 1
+    }
+
+    const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority]
+    if (priorityDiff !== 0) {
+      return priorityDiff
     }
 
     if (a.dueDate !== null && b.dueDate !== null) {

@@ -97,6 +97,46 @@ describe(`project-board helpers`, () => {
     ])
   })
 
+  it(`sorts issues by priority within a status, overdues first`, () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+
+    const overdueLow = makeIssue({
+      id: `overdue-low`,
+      status: `todo`,
+      priority: `low`,
+      dueDate: yesterday,
+    })
+    const urgentNoDue = makeIssue({
+      id: `urgent-nodue`,
+      status: `todo`,
+      priority: `urgent`,
+    })
+    const mediumToday = makeIssue({
+      id: `medium-today`,
+      status: `todo`,
+      priority: `medium`,
+      dueDate: today,
+    })
+    const noPriority = makeIssue({
+      id: `none`,
+      status: `todo`,
+      priority: `none`,
+    })
+
+    const groups = buildVisibleIssueGroups(
+      [noPriority, mediumToday, urgentNoDue, overdueLow],
+      []
+    )
+
+    expect(groups).toEqual([
+      {
+        status: `todo`,
+        issues: [overdueLow, urgentNoDue, mediumToday, noPriority],
+      },
+    ])
+  })
+
   it(`derives the editing issue and selected labels`, () => {
     const issues = [makeIssue({ id: `issue-1` }), makeIssue({ id: `issue-2` })]
     const issueLabels = [
