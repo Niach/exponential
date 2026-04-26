@@ -51,6 +51,7 @@ function makeIssueLabel(overrides: Partial<IssueLabel>): IssueLabel {
   return {
     issueId: `issue-1`,
     labelId: `label-1`,
+    workspaceId: `workspace-1`,
     ...overrides,
   }
 }

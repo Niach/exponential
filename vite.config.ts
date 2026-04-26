@@ -8,7 +8,9 @@ import { nitro } from "nitro/vite"
 
 const plugins: PluginOption[] = [
   ...(process.env.DISABLE_TANSTACK_DEVTOOLS === `1` ? [] : [devtools()]),
-  nitro(),
+  // Custom server entry adds Bun.serve idleTimeout: 255 (default is 10s,
+  // which kills Electric long-poll connections mid-flight). See src/server-bun.ts.
+  nitro({ entry: `./src/server-bun.ts` }),
   viteTsConfigPaths({
     projects: [`./tsconfig.json`],
   }),
