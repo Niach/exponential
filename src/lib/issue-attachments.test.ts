@@ -23,11 +23,9 @@ describe(`issue attachment helpers`, () => {
   it(`collects markdown image urls in first-occurrence order`, () => {
     expect(
       collectMarkdownImageUrls(
-        [
-          `![one](blob:one)`,
-          `![two](blob:two)`,
-          `![one-again](blob:one)`,
-        ].join(`\n`)
+        [`![one](blob:one)`, `![two](blob:two)`, `![one-again](blob:one)`].join(
+          `\n`
+        )
       )
     ).toEqual([`blob:one`, `blob:two`])
   })
@@ -115,7 +113,14 @@ describe(`issue attachment helpers`, () => {
         ].join(`\n`),
         [`blob:draft-image`]
       )
-    ).toBe([`Before text`, ``, `![kept](https://cdn.example.com/keep.png)`, `After text`].join(`\n`))
+    ).toBe(
+      [
+        `Before text`,
+        ``,
+        `![kept](https://cdn.example.com/keep.png)`,
+        `After text`,
+      ].join(`\n`)
+    )
   })
 
   it(`removes only the targeted markdown image occurrence`, () => {
@@ -129,7 +134,9 @@ describe(`issue attachment helpers`, () => {
         ].join(`\n`),
         0
       )
-    ).toBe([`Before text`, ``, `![second](blob:shared)`, `After text`].join(`\n`))
+    ).toBe(
+      [`Before text`, ``, `![second](blob:shared)`, `After text`].join(`\n`)
+    )
   })
 
   it(`replaces only selected markdown image urls`, () => {
@@ -139,7 +146,12 @@ describe(`issue attachment helpers`, () => {
           `![draft](blob:draft-image)`,
           `![kept](https://cdn.example.com/keep.png)`,
         ].join(`\n`),
-        new Map([[`blob:draft-image`, `/api/attachments/33333333-3333-3333-3333-333333333333`]])
+        new Map([
+          [
+            `blob:draft-image`,
+            `/api/attachments/33333333-3333-3333-3333-333333333333`,
+          ],
+        ])
       )
     ).toBe(
       [
@@ -152,7 +164,9 @@ describe(`issue attachment helpers`, () => {
   it(`detects markdown images`, () => {
     expect(hasMarkdownImages(`Plain text`)).toBe(false)
     expect(
-      hasMarkdownImages(`![image](/api/attachments/11111111-1111-1111-1111-111111111111)`)
+      hasMarkdownImages(
+        `![image](/api/attachments/11111111-1111-1111-1111-111111111111)`
+      )
     ).toBe(true)
   })
 })

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Repeat } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
@@ -11,6 +13,10 @@ import {
   type IssueStatus,
 } from "@/lib/domain"
 import {
+  RecurrenceEditor,
+  type RecurrenceValue,
+} from "@/components/recurrence-editor"
+import {
   extractMarkdownImageOccurrences,
   collectMarkdownImageUrls,
   removeMarkdownImageByOccurrence,
@@ -19,9 +25,7 @@ import {
 } from "@/lib/issue-attachments"
 import { uploadIssueImageFile } from "@/lib/issue-image-upload"
 import type { User } from "@/db/schema"
-import {
-  IssueEditorDialogShell,
-} from "@/components/issue-editor-dialog-shell"
+import { IssueEditorDialogShell } from "@/components/issue-editor-dialog-shell"
 import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
 import type { MarkdownEditorRef } from "@/components/markdown-editor"
 
@@ -85,6 +89,7 @@ export function CreateIssueDialog({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [dueDate, setDueDate] = useState<Date | undefined>()
+  const [recurrence, setRecurrence] = useState<RecurrenceValue | null>(null)
   const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [draftImages, setDraftImages] = useState<DraftImage[]>([])
@@ -127,7 +132,9 @@ export function CreateIssueDialog({
       }
 
       draftImagesRef.current = nextDraftImages
-      return nextDraftImages.length === previous.length ? previous : nextDraftImages
+      return nextDraftImages.length === previous.length
+        ? previous
+        : nextDraftImages
     })
   }
 
@@ -149,6 +156,9 @@ export function CreateIssueDialog({
     setAssigneeId(null)
     setSelectedLabelIds([])
     setDueDate(undefined)
+    setRecurrence((previous) =>
+      previous ? { ...previous, firstDue: new Date() } : null
+    )
   }
 
   const handleToggleLabel = (labelId: string) => {
@@ -161,12 +171,17 @@ export function CreateIssueDialog({
 
   const getReferencedDraftImages = (markdown: string) => {
     const draftImagesByUrl = new Map(
-      draftImagesRef.current.map((draftImage) => [draftImage.objectUrl, draftImage])
+      draftImagesRef.current.map((draftImage) => [
+        draftImage.objectUrl,
+        draftImage,
+      ])
     )
 
     return collectMarkdownImageUrls(markdown)
       .map((url) => draftImagesByUrl.get(url))
-      .filter((draftImage): draftImage is DraftImage => draftImage !== undefined)
+      .filter(
+        (draftImage): draftImage is DraftImage => draftImage !== undefined
+      )
   }
 
   const handleImageFiles = async (files: File[]) => {
@@ -243,12 +258,16 @@ export function CreateIssueDialog({
       const { issue } = await trpc.issues.create.mutate({
         projectId,
         title: title.trim(),
-        status,
+        status: recurrence ? `todo` : status,
         priority,
         assigneeId: assigneeId ?? undefined,
         description: toIssueDescription(strippedDescription) ?? undefined,
-        dueDate: formatDateForMutation(dueDate) ?? undefined,
+        dueDate: recurrence
+          ? (formatDateForMutation(recurrence.firstDue) ?? undefined)
+          : (formatDateForMutation(dueDate) ?? undefined),
         labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
+        recurrenceInterval: recurrence?.interval,
+        recurrenceUnit: recurrence?.unit,
       })
 
       const uploadedImageUrls = new Map<string, string>()
@@ -257,7 +276,10 @@ export function CreateIssueDialog({
 
       for (const draftImage of referencedDraftImages) {
         try {
-          const uploadedImage = await uploadIssueImageFile(issue.id, draftImage.file)
+          const uploadedImage = await uploadIssueImageFile(
+            issue.id,
+            draftImage.file
+          )
           uploadedImageUrls.set(draftImage.objectUrl, uploadedImage.url)
         } catch {
           failedDraftUrls.add(draftImage.objectUrl)
@@ -292,7 +314,10 @@ export function CreateIssueDialog({
 
       if (failedDraftUrls.size > 0) {
         setAttachmentStatus(
-          buildPostCreateImageErrorMessage(issue.identifier, failedDraftUrls.size)
+          buildPostCreateImageErrorMessage(
+            issue.identifier,
+            failedDraftUrls.size
+          )
         )
         setSubmitPhase(`created_with_image_errors`)
         return
@@ -318,6 +343,63 @@ export function CreateIssueDialog({
   const closeDisabled =
     submitPhase === `creating` || submitPhase === `uploading`
   const imageOccurrences = extractMarkdownImageOccurrences(description)
+
+  const enableRecurrence = () => {
+    setRecurrence({
+      firstDue: dueDate ?? new Date(),
+      interval: 1,
+      unit: `week`,
+    })
+  }
+
+  const overflowMenuItems = (
+    <DropdownMenuItem
+      disabled={recurrence !== null}
+      onSelect={(event) => {
+        event.preventDefault()
+        enableRecurrence()
+      }}
+    >
+      <Repeat className="mr-2 h-4 w-4 text-muted-foreground" />
+      Make recurring…
+    </DropdownMenuItem>
+  )
+
+  const recurringFooter = recurrence ? (
+    <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
+      <RecurrenceEditor
+        value={recurrence}
+        disabled={closeDisabled}
+        onChange={setRecurrence}
+      />
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Switch
+            id="create-more"
+            size="sm"
+            checked={createMore}
+            disabled={closeDisabled}
+            onCheckedChange={(checked) => setCreateMore(checked === true)}
+          />
+          <Label
+            htmlFor="create-more"
+            className="text-xs text-muted-foreground cursor-pointer select-none"
+          >
+            Create more
+          </Label>
+        </div>
+        <Button
+          type="submit"
+          disabled={!title.trim() || !recurrence.firstDue || closeDisabled}
+          className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-50 h-7"
+        >
+          {submitPhase === `creating`
+            ? `Creating...`
+            : `Create recurring issue`}
+        </Button>
+      </div>
+    </div>
+  ) : null
 
   const handleRemoveImageOccurrence = (occurrenceIndex: number) => {
     const nextDescription = removeMarkdownImageByOccurrence(
@@ -365,11 +447,20 @@ export function CreateIssueDialog({
       onAssigneeChange={setAssigneeId}
       dueDate={dueDate}
       onDueDateSelect={setDueDate}
+      hideDueDateChip={recurrence !== null}
+      overflowMenuItems={overflowMenuItems}
       footer={
-        submitPhase === `created_with_image_errors` ? (
+        recurringFooter ? (
+          recurringFooter
+        ) : submitPhase === `created_with_image_errors` ? (
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border">
             <span className="text-xs text-destructive">{attachmentStatus}</span>
-            <Button type="button" variant="outline" size="xs" onClick={handleClose}>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={handleClose}
+            >
               Close
             </Button>
           </div>

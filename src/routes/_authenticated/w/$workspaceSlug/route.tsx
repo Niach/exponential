@@ -79,7 +79,9 @@ function WorkspaceLayout() {
     })
   }
 
-  const userInitials = session?.user?.name ? getInitials(session.user.name) : `?`
+  const userInitials = session?.user?.name
+    ? getInitials(session.user.name)
+    : `?`
 
   return (
     <SidebarProvider>

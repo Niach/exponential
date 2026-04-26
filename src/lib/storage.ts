@@ -42,7 +42,9 @@ async function createBucketIfMissing() {
       error instanceof S3ServiceException &&
       [404, 301, 400].includes(error.$metadata.httpStatusCode ?? 0)
     ) {
-      await storageClient.send(new CreateBucketCommand({ Bucket: storageBucket }))
+      await storageClient.send(
+        new CreateBucketCommand({ Bucket: storageBucket })
+      )
       return
     }
 
@@ -73,7 +75,9 @@ export async function uploadObject(options: {
   )
 }
 
-export async function getObject(key: string): Promise<GetObjectCommandOutput | null> {
+export async function getObject(
+  key: string
+): Promise<GetObjectCommandOutput | null> {
   await ensureBucketReady()
 
   try {

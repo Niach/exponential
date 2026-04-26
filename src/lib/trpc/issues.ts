@@ -2,24 +2,44 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issues, issueLabels } from "@/db/schema"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import {
   assertProjectMember,
   getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
 import {
+  addRecurrence,
   dateOnlySchema,
+  formatDateForMutation,
   getIssueDescriptionText,
   issueDescriptionSchema,
   issuePrioritySchema,
   issueStatusSchema,
+  recurrenceIntervalSchema,
+  recurrenceUnitSchema,
 } from "@/lib/domain"
 import {
   extractAttachmentIdsFromDescription,
   getRemovedAttachmentIds,
   hasMarkdownImages,
+  stripMarkdownImages,
 } from "@/lib/issue-attachments"
 import { deleteObject } from "@/lib/storage"
+
+function assertRecurrencePair(
+  interval: number | null | undefined,
+  unit: string | null | undefined
+) {
+  const intervalSet = interval !== null && interval !== undefined
+  const unitSet = unit !== null && unit !== undefined
+
+  if (intervalSet !== unitSet) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Recurrence interval and unit must be set together`,
+    })
+  }
+}
 
 export const issuesRouter = router({
   create: authedProcedure
@@ -33,10 +53,14 @@ export const issuesRouter = router({
         description: issueDescriptionSchema.optional(),
         dueDate: dateOnlySchema.nullable().optional(),
         labelIds: z.array(z.string().uuid()).optional(),
+        recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
+        recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertProjectMember(ctx.session.user.id, input.projectId)
+
+      assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
 
       if (input.description && hasMarkdownImages(input.description.text)) {
         throw new TRPCError({
@@ -57,6 +81,8 @@ export const issuesRouter = router({
             assigneeId: input.assigneeId ?? null,
             description: input.description ?? null,
             dueDate: input.dueDate ?? null,
+            recurrenceInterval: input.recurrenceInterval ?? null,
+            recurrenceUnit: input.recurrenceUnit ?? null,
             creatorId: ctx.session.user.id,
           })
           .returning()
@@ -84,6 +110,8 @@ export const issuesRouter = router({
         assigneeId: z.string().nullable().optional(),
         description: issueDescriptionSchema.nullable().optional(),
         dueDate: dateOnlySchema.nullable().optional(),
+        recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
+        recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -92,12 +120,26 @@ export const issuesRouter = router({
       const issueContext = await getIssueWorkspaceContext(id)
       await assertProjectMember(ctx.session.user.id, issueContext.projectId)
 
+      if (
+        updates.recurrenceInterval !== undefined ||
+        updates.recurrenceUnit !== undefined
+      ) {
+        assertRecurrencePair(updates.recurrenceInterval, updates.recurrenceUnit)
+      }
+
       const deletedStorageKeys: string[] = []
 
       const { issue } = await ctx.db.transaction(async (tx) => {
         const [currentIssue] = await tx
           .select({
             description: issues.description,
+            status: issues.status,
+            projectId: issues.projectId,
+            title: issues.title,
+            priority: issues.priority,
+            assigneeId: issues.assigneeId,
+            recurrenceInterval: issues.recurrenceInterval,
+            recurrenceUnit: issues.recurrenceUnit,
           })
           .from(issues)
           .where(eq(issues.id, id))
@@ -121,10 +163,8 @@ export const issuesRouter = router({
         if (updates.description !== undefined) {
           const nextText = getIssueDescriptionText(updates.description)
           const previousText = getIssueDescriptionText(currentIssue.description)
-          const { attachmentIds, invalidUrls } = extractAttachmentIdsFromDescription(
-            nextText,
-            ctx.request.url
-          )
+          const { attachmentIds, invalidUrls } =
+            extractAttachmentIdsFromDescription(nextText, ctx.request.url)
 
           if (invalidUrls.length > 0) {
             throw new TRPCError({
@@ -144,7 +184,9 @@ export const issuesRouter = router({
 
             const allAttachmentsBelongToIssue =
               referencedAttachments.length === attachmentIds.length &&
-              referencedAttachments.every((attachment) => attachment.issueId === id)
+              referencedAttachments.every(
+                (attachment) => attachment.issueId === id
+              )
 
             if (!allAttachmentsBelongToIssue) {
               throw new TRPCError({
@@ -179,17 +221,15 @@ export const issuesRouter = router({
                 ...removedAttachments.map((attachment) => attachment.storageKey)
               )
 
-              await tx
-                .delete(attachments)
-                .where(
-                  and(
-                    eq(attachments.issueId, id),
-                    inArray(
-                      attachments.id,
-                      removedAttachments.map((attachment) => attachment.id)
-                    )
+              await tx.delete(attachments).where(
+                and(
+                  eq(attachments.issueId, id),
+                  inArray(
+                    attachments.id,
+                    removedAttachments.map((attachment) => attachment.id)
                   )
                 )
+              )
             }
           }
         }
@@ -199,6 +239,61 @@ export const issuesRouter = router({
           .set(setValues)
           .where(eq(issues.id, id))
           .returning()
+
+        const transitionedToDone =
+          updates.status === `done` && currentIssue.status !== `done`
+        const nextRecurrenceInterval =
+          updates.recurrenceInterval !== undefined
+            ? updates.recurrenceInterval
+            : currentIssue.recurrenceInterval
+        const nextRecurrenceUnit =
+          updates.recurrenceUnit !== undefined
+            ? updates.recurrenceUnit
+            : currentIssue.recurrenceUnit
+
+        if (
+          transitionedToDone &&
+          nextRecurrenceInterval !== null &&
+          nextRecurrenceUnit !== null
+        ) {
+          const nextDueDate = formatDateForMutation(
+            addRecurrence(
+              new Date(),
+              nextRecurrenceInterval,
+              nextRecurrenceUnit
+            )
+          )
+
+          const sourceDescriptionText = getIssueDescriptionText(
+            currentIssue.description
+          )
+          const clonedDescription = sourceDescriptionText
+            ? { text: stripMarkdownImages(sourceDescriptionText) }
+            : null
+
+          const [clonedIssue] = await tx
+            .insert(issues)
+            .values({
+              projectId: currentIssue.projectId,
+              title: currentIssue.title,
+              priority: currentIssue.priority,
+              assigneeId: currentIssue.assigneeId,
+              description: clonedDescription,
+              status: `todo`,
+              dueDate: nextDueDate,
+              recurrenceInterval: nextRecurrenceInterval,
+              recurrenceUnit: nextRecurrenceUnit,
+              creatorId: ctx.session.user.id,
+            })
+            .returning({ id: issues.id })
+
+          await tx.execute(sql`
+            INSERT INTO ${issueLabels} (issue_id, label_id)
+            SELECT ${clonedIssue.id}::uuid, label_id
+            FROM ${issueLabels}
+            WHERE issue_id = ${id}::uuid
+          `)
+        }
 
         return { issue }
       })

@@ -1,15 +1,15 @@
 import { useRef } from "react"
-import type {
-  ComponentPropsWithoutRef,
-  ReactNode,
-  Ref,
-} from "react"
-import { CalendarDays, ChevronRight, LoaderCircle, Paperclip, X } from "lucide-react"
+import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react"
+import {
+  CalendarDays,
+  ChevronRight,
+  LoaderCircle,
+  MoreHorizontal,
+  Paperclip,
+  X,
+} from "lucide-react"
 import type { User } from "@/db/schema"
-import type {
-  IssuePriority,
-  IssueStatus,
-} from "@/lib/domain"
+import type { IssuePriority, IssueStatus } from "@/lib/domain"
 import { acceptedImageContentTypes } from "@/lib/issue-attachments"
 import { formatDate } from "@/lib/utils"
 import { priorities, PriorityIcon } from "@/components/priority-dropdown"
@@ -25,6 +25,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -49,7 +54,10 @@ interface IssueEditorDialogShellProps {
   footer: ReactNode
   formProps?: ComponentPropsWithoutRef<`form`>
   headerContent: ReactNode
+  chipRowExtras?: ReactNode
+  hideDueDateChip?: boolean
   imageUpload?: MarkdownEditorImageUploadConfig
+  overflowMenuItems?: ReactNode
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
@@ -81,10 +89,13 @@ export function IssueEditorDialogShell({
   dialogTestId,
   dueDate,
   editorRef,
+  chipRowExtras,
   footer,
   formProps,
   headerContent,
+  hideDueDateChip,
   imageUpload,
+  overflowMenuItems,
   onAssigneeChange,
   onDescriptionBlur,
   onDescriptionChange,
@@ -207,28 +218,52 @@ export function IssueEditorDialogShell({
           onToggle={onToggleLabel}
         />
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              disabled={disabled}
-            >
-              <CalendarDays className="size-3" />
-              {dueDate ? formatDate(dueDate) : `Due date`}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={dueDate}
-              onSelect={(date) => {
-                void onDueDateSelect(date)
-              }}
-            />
-          </PopoverContent>
-        </Popover>
+        {!hideDueDateChip && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-muted-foreground"
+                disabled={disabled}
+              >
+                <CalendarDays className="size-3" />
+                {dueDate ? formatDate(dueDate) : `Due date`}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={dueDate}
+                onSelect={(date) => {
+                  void onDueDateSelect(date)
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
+
+        {chipRowExtras}
+
+        {overflowMenuItems && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="More options"
+                disabled={disabled}
+                className="text-muted-foreground"
+              >
+                <MoreHorizontal className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {overflowMenuItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {footer}

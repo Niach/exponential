@@ -1,7 +1,4 @@
-import {
-  addDays,
-  startOfDay,
-} from "date-fns"
+import { addDays, startOfDay } from "date-fns"
 import { formatDateForMutation } from "@/lib/domain"
 
 export interface DueDatePreset {

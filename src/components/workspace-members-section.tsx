@@ -117,14 +117,18 @@ export function WorkspaceMembersSection({
                         {isOwner && !isSelf && (
                           <>
                             <DropdownMenuItem
-                              onClick={() => handleUpdateRole(member.id, `owner`)}
+                              onClick={() =>
+                                handleUpdateRole(member.id, `owner`)
+                              }
                               disabled={member.role === `owner`}
                             >
                               <Crown className="mr-2 h-4 w-4" />
                               Make owner
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => handleUpdateRole(member.id, `member`)}
+                              onClick={() =>
+                                handleUpdateRole(member.id, `member`)
+                              }
                               disabled={member.role === `member`}
                             >
                               <Shield className="mr-2 h-4 w-4" />

@@ -24,7 +24,8 @@ export function OptionDropdownMenu<TValue extends string>({
   renderTrigger,
   value,
 }: OptionDropdownMenuProps<TValue>) {
-  const selected = options.find((option) => option.value === value) ?? options[0]
+  const selected =
+    options.find((option) => option.value === value) ?? options[0]
 
   if (disabled) {
     return <>{renderTrigger(selected)}</>
@@ -32,7 +33,9 @@ export function OptionDropdownMenu<TValue extends string>({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>{renderTrigger(selected)}</DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild>
+        {renderTrigger(selected)}
+      </DropdownMenuTrigger>
       <DropdownMenuContent align={align}>
         {options.map((option) => {
           const Icon = option.icon

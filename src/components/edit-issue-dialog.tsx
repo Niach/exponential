@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react"
+import { Repeat } from "lucide-react"
 import type { Issue, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
+  formatRecurrence,
   getIssueDescriptionText,
   normalizeIssueDescriptionText,
 } from "@/lib/domain"
@@ -11,10 +13,19 @@ import {
   removeMarkdownImageByOccurrence,
 } from "@/lib/issue-attachments"
 import { uploadIssueImageFile } from "@/lib/issue-image-upload"
+import { Button } from "@/components/ui/button"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
-  IssueEditorDialogShell,
-} from "@/components/issue-editor-dialog-shell"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { IssueEditorDialogShell } from "@/components/issue-editor-dialog-shell"
 import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
+import {
+  RecurrenceEditor,
+  type RecurrenceValue,
+} from "@/components/recurrence-editor"
 import type { MarkdownEditorRef } from "@/components/markdown-editor"
 
 interface EditIssueDialogProps {
@@ -40,7 +51,9 @@ export function EditIssueDialog({
 }: EditIssueDialogProps) {
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
-  const lastSavedDescriptionRef = useRef(getIssueDescriptionText(issue.description))
+  const lastSavedDescriptionRef = useRef(
+    getIssueDescriptionText(issue.description)
+  )
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
   const [title, setTitle] = useState(issue.title)
@@ -55,7 +68,8 @@ export function EditIssueDialog({
     setTitle(issue.title)
     setDescription(nextDescription)
     descriptionRef.current = nextDescription
-    lastSavedDescriptionRef.current = normalizeIssueDescriptionText(nextDescription)
+    lastSavedDescriptionRef.current =
+      normalizeIssueDescriptionText(nextDescription)
     setAttachmentStatus(null)
     editorRef.current?.setMarkdown(nextDescription)
   }, [issue.description, issue.id, issue.title])
@@ -87,7 +101,9 @@ export function EditIssueDialog({
     const saveTask = async () => {
       await trpc.issues.update.mutate({
         id: issue.id,
-        description: normalizedDescription ? { text: normalizedDescription } : null,
+        description: normalizedDescription
+          ? { text: normalizedDescription }
+          : null,
       })
 
       lastSavedDescriptionRef.current = normalizedDescription
@@ -150,8 +166,90 @@ export function EditIssueDialog({
     }
   }
 
-  const dueDate = issue.dueDate ? new Date(issue.dueDate + `T00:00:00`) : undefined
+  const dueDate = issue.dueDate
+    ? new Date(issue.dueDate + `T00:00:00`)
+    : undefined
   const imageOccurrences = extractMarkdownImageOccurrences(description)
+
+  const isRecurring =
+    issue.recurrenceInterval !== null && issue.recurrenceUnit !== null
+
+  const handleRecurrenceChange = async (next: RecurrenceValue | null) => {
+    if (!next) {
+      await trpc.issues.update.mutate({
+        id: issue.id,
+        recurrenceInterval: null,
+        recurrenceUnit: null,
+      })
+      return
+    }
+
+    await trpc.issues.update.mutate({
+      id: issue.id,
+      recurrenceInterval: next.interval,
+      recurrenceUnit: next.unit,
+      dueDate: formatDateForMutation(next.firstDue),
+    })
+  }
+
+  const recurrenceChip = isRecurring ? (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground"
+        >
+          <Repeat className="size-3" />
+          {formatRecurrence(issue.recurrenceInterval!, issue.recurrenceUnit!)}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-3">
+        <RecurrenceEditor
+          value={{
+            firstDue: dueDate,
+            interval: issue.recurrenceInterval!,
+            unit: issue.recurrenceUnit!,
+          }}
+          onChange={(next) => {
+            void handleRecurrenceChange(next)
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  ) : null
+
+  const overflowMenuItems = (
+    <>
+      {!isRecurring && (
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            void handleRecurrenceChange({
+              firstDue: dueDate ?? new Date(),
+              interval: 1,
+              unit: `week`,
+            })
+          }}
+        >
+          <Repeat className="mr-2 h-4 w-4 text-muted-foreground" />
+          Make recurring…
+        </DropdownMenuItem>
+      )}
+      {isRecurring && (
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            void handleRecurrenceChange(null)
+          }}
+        >
+          <Repeat className="mr-2 h-4 w-4 text-muted-foreground" />
+          Stop recurring
+        </DropdownMenuItem>
+      )}
+    </>
+  )
 
   const handleRemoveImageOccurrence = (occurrenceIndex: number) => {
     const nextDescription = removeMarkdownImageByOccurrence(
@@ -189,7 +287,9 @@ export function EditIssueDialog({
       projectPrefix={projectPrefix}
       projectColor={projectColor}
       dialogTestId="issue-editor-edit"
-      headerContent={<span className="text-sm font-mono">{issue.identifier}</span>}
+      headerContent={
+        <span className="text-sm font-mono">{issue.identifier}</span>
+      }
       title={title}
       onTitleChange={setTitle}
       onTitleBlur={() => {
@@ -251,6 +351,8 @@ export function EditIssueDialog({
           dueDate: formatDateForMutation(date),
         })
       }}
+      chipRowExtras={recurrenceChip}
+      overflowMenuItems={overflowMenuItems}
       footer={
         <div className="flex items-center px-4 py-3 border-t border-border">
           <IssueEditorAttachmentRail

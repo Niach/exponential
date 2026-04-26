@@ -24,6 +24,8 @@ import {
   issuePriorityValues,
   issueStatusSchema,
   issueStatusValues,
+  recurrenceUnitSchema,
+  recurrenceUnitValues,
   workspaceRoleSchema,
   workspaceRoleValues,
 } from "@/lib/domain"
@@ -61,6 +63,11 @@ export const notificationTypeEnum = pgEnum(`notification_type`, [
 export const workspaceMemberRoleEnum = pgEnum(
   `workspace_member_role`,
   workspaceRoleValues
+)
+
+export const recurrenceUnitEnum = pgEnum(
+  `recurrence_unit`,
+  recurrenceUnitValues
 )
 
 // ---------------------------------------------------------------------------
@@ -168,6 +175,8 @@ export const issues = pgTable(
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
+    recurrenceInterval: integer(`recurrence_interval`),
+    recurrenceUnit: recurrenceUnitEnum(`recurrence_unit`),
     ...timestamps,
   },
   (table) => [
@@ -326,12 +335,18 @@ export const createWorkspaceSchema = createInsertSchema(workspaces).omit({
   updatedAt: true,
 })
 
-export const selectWorkspaceMemberSchema = createSelectSchema(workspaceMembers, {
-  role: workspaceRoleSchema,
-})
-export const selectWorkspaceInviteSchema = createSelectSchema(workspaceInvites, {
-  role: workspaceRoleSchema,
-})
+export const selectWorkspaceMemberSchema = createSelectSchema(
+  workspaceMembers,
+  {
+    role: workspaceRoleSchema,
+  }
+)
+export const selectWorkspaceInviteSchema = createSelectSchema(
+  workspaceInvites,
+  {
+    role: workspaceRoleSchema,
+  }
+)
 
 export const selectProjectSchema = createSelectSchema(projects)
 export const createProjectSchema = createInsertSchema(projects).omit({
@@ -344,6 +359,7 @@ export const selectIssueSchema = createSelectSchema(issues, {
   description: issueDescriptionSchema.nullable(),
   priority: issuePrioritySchema,
   status: issueStatusSchema,
+  recurrenceUnit: recurrenceUnitSchema.nullable(),
 })
 export const createIssueSchema = createInsertSchema(issues).omit({
   id: true,

@@ -11,6 +11,7 @@ import {
   SignalMedium,
   Timer,
 } from "lucide-react"
+import { addDays, addMonths, addWeeks } from "date-fns"
 import { z } from "zod"
 
 export const issueStatusValues = [
@@ -31,13 +32,18 @@ export const issuePriorityValues = [
 
 export const workspaceRoleValues = [`owner`, `member`] as const
 
+export const recurrenceUnitValues = [`day`, `week`, `month`] as const
+
 export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
 export type WorkspaceRole = (typeof workspaceRoleValues)[number]
+export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const workspaceRoleSchema = z.enum(workspaceRoleValues)
+export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
+export const recurrenceIntervalSchema = z.number().int().min(1).max(999)
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 export const issueDescriptionSchema = z.object({
@@ -132,10 +138,7 @@ function getOptionConfig<TValue extends string>(
   value: TValue | string,
   fallback: IssueOption<TValue>
 ): IssueOption<TValue> {
-  return (
-    options.find((option) => option.value === value) ??
-    fallback
-  )
+  return options.find((option) => option.value === value) ?? fallback
 }
 
 export function getIssueStatusConfig(status: IssueStatus | string) {
@@ -143,7 +146,11 @@ export function getIssueStatusConfig(status: IssueStatus | string) {
 }
 
 export function getIssuePriorityConfig(priority: IssuePriority | string) {
-  return getOptionConfig(issuePriorityOptions, priority, issuePriorityOptions[0])
+  return getOptionConfig(
+    issuePriorityOptions,
+    priority,
+    issuePriorityOptions[0]
+  )
 }
 
 export function getIssueDescriptionText(description: unknown): string {
@@ -155,11 +162,29 @@ export function normalizeIssueDescriptionText(text: string) {
   return text.trim()
 }
 
-export function toIssueDescription(
-  text: string
-): IssueDescription | null {
+export function toIssueDescription(text: string): IssueDescription | null {
   const trimmed = normalizeIssueDescriptionText(text)
   return trimmed ? { text: trimmed } : null
+}
+
+export function addRecurrence(
+  date: Date,
+  interval: number,
+  unit: RecurrenceUnit
+): Date {
+  switch (unit) {
+    case `day`:
+      return addDays(date, interval)
+    case `week`:
+      return addWeeks(date, interval)
+    case `month`:
+      return addMonths(date, interval)
+  }
+}
+
+export function formatRecurrence(interval: number, unit: RecurrenceUnit) {
+  const noun = interval === 1 ? unit : `${unit}s`
+  return interval === 1 ? `Every ${noun}` : `Every ${interval} ${noun}`
 }
 
 export function formatDateForMutation(date: Date | null | undefined) {

@@ -42,7 +42,7 @@ export function useWorkspaceProjects(workspaceId?: string) {
     [workspaceId]
   )
 
-  return ((data ?? []) as Project[])
+  return (data ?? []) as Project[]
 }
 
 export function useWorkspaceMemberships(userId?: string) {
@@ -67,7 +67,9 @@ export function useWorkspaceMemberships(userId?: string) {
 
     return memberships
       .map((membership) =>
-        allWorkspaces.find((workspace) => workspace.id === membership.workspaceId)
+        allWorkspaces.find(
+          (workspace) => workspace.id === membership.workspaceId
+        )
       )
       .filter(isDefined)
   }, [allWorkspaces, memberships])
@@ -125,5 +127,5 @@ export function useWorkspaceInvites(workspaceId?: string) {
     [workspaceId]
   )
 
-  return ((data ?? []) as WorkspaceInvite[])
+  return (data ?? []) as WorkspaceInvite[]
 }

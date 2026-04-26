@@ -15,7 +15,8 @@ function MarkdownImageNodeView({
 }: ReactNodeViewProps) {
   const alt = typeof node.attrs.alt === `string` ? node.attrs.alt : ``
   const src = typeof node.attrs.src === `string` ? node.attrs.src : ``
-  const title = typeof node.attrs.title === `string` ? node.attrs.title : undefined
+  const title =
+    typeof node.attrs.title === `string` ? node.attrs.title : undefined
   const imageLabel = alt || `attachment`
 
   return (

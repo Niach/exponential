@@ -84,7 +84,11 @@ function buildDueDate(): DueDateFixture {
   }
 }
 
-function buildUser(role: `owner` | `member`, emailPrefix: string, namespace: string) {
+function buildUser(
+  role: `owner` | `member`,
+  emailPrefix: string,
+  namespace: string
+) {
   const name = `${role === `owner` ? `Owner` : `Member`} ${namespace}`
 
   return {

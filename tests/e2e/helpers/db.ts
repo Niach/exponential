@@ -75,7 +75,9 @@ export async function cleanupNamespace(emailPrefix: string) {
     .from(workspaceMembers)
     .where(inArray(workspaceMembers.userId, userIds))
 
-  const workspaceIds = [...new Set(memberships.map((membership) => membership.workspaceId))]
+  const workspaceIds = [
+    ...new Set(memberships.map((membership) => membership.workspaceId)),
+  ]
 
   if (workspaceIds.length > 0) {
     await db.delete(workspaces).where(inArray(workspaces.id, workspaceIds))

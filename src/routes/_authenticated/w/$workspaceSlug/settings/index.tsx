@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth-client"
-import { useWorkspaceBySlug, useWorkspaceUsers } from "@/hooks/use-workspace-data"
+import {
+  useWorkspaceBySlug,
+  useWorkspaceUsers,
+} from "@/hooks/use-workspace-data"
 import { WorkspaceInviteSection } from "@/components/workspace-invite-section"
 import { WorkspaceMembersSection } from "@/components/workspace-members-section"
 import { Separator } from "@/components/ui/separator"
@@ -17,7 +20,9 @@ function WorkspaceSettings() {
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const { members, userMap } = useWorkspaceUsers(workspace?.id)
 
-  const currentMember = members.find((member) => member.userId === session?.user?.id)
+  const currentMember = members.find(
+    (member) => member.userId === session?.user?.id
+  )
   const isOwner = currentMember?.role === `owner`
 
   return (
@@ -31,7 +36,9 @@ function WorkspaceSettings() {
 
       <Separator />
 
-      {workspace && isOwner && <WorkspaceInviteSection workspaceId={workspace.id} />}
+      {workspace && isOwner && (
+        <WorkspaceInviteSection workspaceId={workspace.id} />
+      )}
 
       <WorkspaceMembersSection
         members={members}

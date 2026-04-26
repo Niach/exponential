@@ -28,10 +28,7 @@ export function DueDateDropdown({ issueId, dueDate }: DueDateDropdownProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          className="h-5 w-full p-0 justify-end gap-1"
-        >
+        <Button variant="ghost" className="h-5 w-full p-0 justify-end gap-1">
           <CalendarDays
             className={`size-3 shrink-0 ${dueDate ? `text-muted-foreground` : `text-muted-foreground/30`}`}
           />
@@ -43,11 +40,7 @@ export function DueDateDropdown({ issueId, dueDate }: DueDateDropdownProps) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="end">
-        <Calendar
-          mode="single"
-          selected={dateValue}
-          onSelect={handleSelect}
-        />
+        <Calendar mode="single" selected={dateValue} onSelect={handleSelect} />
       </PopoverContent>
     </Popover>
   )

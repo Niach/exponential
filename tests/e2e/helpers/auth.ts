@@ -26,7 +26,9 @@ export async function registerUser(
   }
 
   await expect(
-    page.locator(`[data-slot="card-title"]`).filter({ hasText: `Create an account` })
+    page
+      .locator(`[data-slot="card-title"]`)
+      .filter({ hasText: `Create an account` })
   ).toBeVisible()
 
   await page.getByLabel(`Name`).fill(user.name)

@@ -12,11 +12,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { User as UserIcon, X } from "lucide-react"
 import type { User } from "@/db/schema"
@@ -68,9 +64,9 @@ export function AssigneePicker({
                     alt={selectedUser.name}
                   />
                 )}
-                  <AvatarFallback className="text-[8px]">
-                    {getInitials(selectedUser.name)}
-                  </AvatarFallback>
+                <AvatarFallback className="text-[8px]">
+                  {getInitials(selectedUser.name)}
+                </AvatarFallback>
               </Avatar>
               <span className="max-w-[100px] truncate">
                 {selectedUser.name}

@@ -74,7 +74,10 @@ export const projectsRouter = router({
       const projectRecord = await assertProjectMember(ctx.session.user.id, id)
 
       if (Object.hasOwn(updates, `archivedAt`)) {
-        await assertWorkspaceOwner(ctx.session.user.id, projectRecord.workspaceId)
+        await assertWorkspaceOwner(
+          ctx.session.user.id,
+          projectRecord.workspaceId
+        )
       }
 
       const [project] = await ctx.db

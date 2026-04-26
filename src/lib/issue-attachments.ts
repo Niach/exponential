@@ -54,18 +54,20 @@ export function isAcceptedImageContentType(contentType: string) {
 export function extractMarkdownImageOccurrences(
   text: string
 ): MarkdownImageOccurrence[] {
-  return [...text.matchAll(markdownImagePattern)].map((match, occurrenceIndex) => {
-    const start = match.index ?? 0
+  return [...text.matchAll(markdownImagePattern)].map(
+    (match, occurrenceIndex) => {
+      const start = match.index ?? 0
 
-    return {
-      alt: match[1] ?? ``,
-      end: start + match[0].length,
-      occurrenceIndex,
-      start,
-      markdown: match[0],
-      url: match[2] ?? ``,
+      return {
+        alt: match[1] ?? ``,
+        end: start + match[0].length,
+        occurrenceIndex,
+        start,
+        markdown: match[0],
+        url: match[2] ?? ``,
+      }
     }
-  })
+  )
 }
 
 export function extractMarkdownImageUrls(text: string) {
@@ -162,7 +164,10 @@ export function getAttachmentIdFromUrl(value: string, origin: string) {
   try {
     const url = new URL(value, origin)
 
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) && url.origin !== new URL(origin).origin) {
+    if (
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(value) &&
+      url.origin !== new URL(origin).origin
+    ) {
       return null
     }
 
@@ -172,7 +177,10 @@ export function getAttachmentIdFromUrl(value: string, origin: string) {
   }
 }
 
-export function extractAttachmentIdsFromDescription(text: string, origin: string) {
+export function extractAttachmentIdsFromDescription(
+  text: string,
+  origin: string
+) {
   const attachmentIds = new Set<string>()
   const invalidUrls = new Set<string>()
 
@@ -195,6 +203,10 @@ export function extractAttachmentIdsFromDescription(text: string, origin: string
 
 export function hasMarkdownImages(text: string) {
   return extractMarkdownImageUrls(text).length > 0
+}
+
+export function stripMarkdownImages(text: string) {
+  return updateMarkdownImages(text, () => ``)
 }
 
 export function getRemovedAttachmentIds(

@@ -1,10 +1,19 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
-import { attachments, issues, labels, projects, workspaceMembers } from "@/db/schema"
+import {
+  attachments,
+  issues,
+  labels,
+  projects,
+  workspaceMembers,
+} from "@/db/schema"
 import type { WorkspaceMember } from "@/db/schema"
 import type { WorkspaceRole } from "@/lib/domain"
 
-type WorkspaceMemberRecord = Pick<WorkspaceMember, `role` | `userId` | `workspaceId`>
+type WorkspaceMemberRecord = Pick<
+  WorkspaceMember,
+  `role` | `userId` | `workspaceId`
+>
 
 async function getDb() {
   const { db } = await import(`@/db/connection`)
@@ -91,7 +100,9 @@ export async function getUserLabelIds(userId: string): Promise<string[]> {
   return rows.map((row) => row.id)
 }
 
-export async function getUserIdsInWorkspaces(userId: string): Promise<string[]> {
+export async function getUserIdsInWorkspaces(
+  userId: string
+): Promise<string[]> {
   const workspaceIds = await getUserWorkspaceIds(userId)
 
   if (workspaceIds.length === 0) {
@@ -116,10 +127,7 @@ export function buildWhereClause(column: string, ids: string[]): string {
   return `"${column}" IN (${escapedIds})`
 }
 
-export async function getWorkspaceMember(
-  userId: string,
-  workspaceId: string
-) {
+export async function getWorkspaceMember(userId: string, workspaceId: string) {
   const db = await getDb()
   const [member] = await db
     .select({
@@ -149,7 +157,10 @@ export async function assertWorkspaceMember(
   return member
 }
 
-export async function assertWorkspaceOwner(userId: string, workspaceId: string) {
+export async function assertWorkspaceOwner(
+  userId: string,
+  workspaceId: string
+) {
   return assertWorkspaceMember(userId, workspaceId, [`owner`])
 }
 

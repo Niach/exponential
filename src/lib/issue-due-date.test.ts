@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  formatDueDateMenuMeta,
-  getDueDatePresets,
-} from "@/lib/issue-due-date"
+import { formatDueDateMenuMeta, getDueDatePresets } from "@/lib/issue-due-date"
 import { formatDateForMutation } from "@/lib/domain"
 
 describe(`issue-due-date`, () => {

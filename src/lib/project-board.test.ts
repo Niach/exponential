@@ -24,6 +24,8 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     number: 1,
     priority: `none`,
     projectId: `project-1`,
+    recurrenceInterval: null,
+    recurrenceUnit: null,
     sortOrder: 0,
     status: `backlog`,
     title: `Issue`,
@@ -60,15 +62,21 @@ describe(`project-board helpers`, () => {
       makeIssue({ id: `issue-2`, status: `done`, title: `Fixed` }),
     ]
     const labels = [makeLabel({ id: `label-1`, name: `Bug` })]
-    const issueLabels = [makeIssueLabel({ issueId: `issue-1`, labelId: `label-1` })]
+    const issueLabels = [
+      makeIssueLabel({ issueId: `issue-1`, labelId: `label-1` }),
+    ]
     const issueLabelIdsMap = buildIssueLabelIdsMap(issueLabels)
     const filters = {
       ...emptyFilters,
       labelIds: [`label-1`],
     }
 
-    expect(buildIssueLabelMap(issueLabels, labels).get(`issue-1`)).toEqual(labels)
-    expect(buildFilteredIssues(issues, issueLabelIdsMap, filters)).toEqual([issues[0]])
+    expect(buildIssueLabelMap(issueLabels, labels).get(`issue-1`)).toEqual(
+      labels
+    )
+    expect(buildFilteredIssues(issues, issueLabelIdsMap, filters)).toEqual([
+      issues[0],
+    ])
   })
 
   it(`builds visible groups in status order`, () => {

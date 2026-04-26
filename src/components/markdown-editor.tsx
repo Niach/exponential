@@ -67,9 +67,9 @@ function hasMarkdownStorage(
 ): editor is MarkdownEditorInstance {
   return Boolean(
     editor &&
-      `markdown` in editor.storage &&
-      typeof (editor.storage as MarkdownEditorInstance[`storage`]).markdown
-        .getMarkdown === `function`
+    `markdown` in editor.storage &&
+    typeof (editor.storage as MarkdownEditorInstance[`storage`]).markdown
+      .getMarkdown === `function`
   )
 }
 
@@ -145,7 +145,12 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
     }
     const url = window.prompt(`URL`)
     if (url) {
-      editor.chain().focus().extendMarkRange(`link`).setLink({ href: url }).run()
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange(`link`)
+        .setLink({ href: url })
+        .run()
     }
   }, [editor])
 
@@ -224,7 +229,12 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
         `Code`
       )}
       <div className="bubble-separator" />
-      {btn(editor.isActive(`link`), toggleLink, <LinkIcon className="size-3.5" />, `Link`)}
+      {btn(
+        editor.isActive(`link`),
+        toggleLink,
+        <LinkIcon className="size-3.5" />,
+        `Link`
+      )}
       {btn(
         editor.isActive(`blockquote`),
         () => editor.chain().focus().toggleBlockquote().run(),
@@ -255,9 +265,20 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
   )
 }
 
-export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
+export const MarkdownEditor = forwardRef<
+  MarkdownEditorRef,
+  MarkdownEditorProps
+>(
   (
-    { markdown, onChange, onBlur, placeholder, autoFocus, imageUpload, editable = true },
+    {
+      markdown,
+      onChange,
+      onBlur,
+      placeholder,
+      autoFocus,
+      imageUpload,
+      editable = true,
+    },
     ref
   ) => {
     const onChangeRef = useRef(onChange)

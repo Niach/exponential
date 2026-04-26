@@ -37,9 +37,13 @@ vi.mock(`@/components/ui/context-menu`, () => ({
   ContextMenuContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-  ContextMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ContextMenuLabel: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   ContextMenuSeparator: () => <hr />,
-  ContextMenuSub: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ContextMenuSub: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   ContextMenuSubContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
@@ -49,7 +53,9 @@ vi.mock(`@/components/ui/context-menu`, () => ({
   ContextMenuShortcut: ({ children }: { children: ReactNode }) => (
     <span>{children}</span>
   ),
-  ContextMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ContextMenuGroup: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   ContextMenuRadioGroup: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
@@ -77,7 +83,10 @@ vi.mock(`@/components/ui/context-menu`, () => ({
     children: ReactNode
     onSelect?: (event: Event) => void
   }) => (
-    <button type="button" onClick={() => onSelect?.({ preventDefault() {} } as Event)}>
+    <button
+      type="button"
+      onClick={() => onSelect?.({ preventDefault() {} } as Event)}
+    >
       {children}
     </button>
   ),
@@ -88,7 +97,10 @@ vi.mock(`@/components/ui/context-menu`, () => ({
     children: ReactNode
     onSelect?: (event: Event) => void
   }) => (
-    <button type="button" onClick={() => onSelect?.({ preventDefault() {} } as Event)}>
+    <button
+      type="button"
+      onClick={() => onSelect?.({ preventDefault() {} } as Event)}
+    >
       {children}
     </button>
   ),
@@ -110,6 +122,8 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
     sortOrder: 0,
     completedAt: null,
     archivedAt: null,
+    recurrenceInterval: null,
+    recurrenceUnit: null,
     createdAt: new Date(`2026-03-07T09:00:00Z`),
     updatedAt: new Date(`2026-03-07T09:00:00Z`),
     ...overrides,

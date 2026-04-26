@@ -1,6 +1,6 @@
 {
-  "id": "0e3714ca-67e4-4b8b-b793-ad27daaa19bc",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "790c7699-806c-492d-885c-18f2e3cd7006",
+  "prevId": "0e3714ca-67e4-4b8b-b793-ad27daaa19bc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -459,6 +459,19 @@
         "archived_at": {
           "name": "archived_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recurrence_interval": {
+          "name": "recurrence_interval",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recurrence_unit": {
+          "name": "recurrence_unit",
+          "type": "recurrence_unit",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false
         },
@@ -1596,6 +1609,11 @@
         "issue_status_changed",
         "issue_mention"
       ]
+    },
+    "public.recurrence_unit": {
+      "name": "recurrence_unit",
+      "schema": "public",
+      "values": ["day", "week", "month"]
     },
     "public.workspace_member_role": {
       "name": "workspace_member_role",

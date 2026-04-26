@@ -7,7 +7,7 @@ import { DueDateDropdown } from "@/components/due-date-dropdown"
 import { IssueRowContextMenu } from "@/components/issue-row-context-menu"
 import { Button } from "@/components/ui/button"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
-import { Plus, ChevronRight } from "lucide-react"
+import { Plus, ChevronRight, Repeat } from "lucide-react"
 import type { IssueStatus } from "@/lib/domain"
 
 const statusHeaderBg: Record<IssueStatus, string> = {
@@ -42,9 +42,7 @@ export function IssueList({
   onNewIssue,
   onIssueClick,
 }: IssueListProps) {
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
-    new Set()
-  )
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
 
   const toggleGroup = (status: IssueStatus) => {
@@ -74,7 +72,8 @@ export function IssueList({
         const config = getStatusConfig(group.status)
         const Icon = config.icon
         const isOpen = !collapsedGroups.has(group.status)
-        const headerBg = statusHeaderBg[group.status] ?? `rgba(113, 113, 122, 0.08)`
+        const headerBg =
+          statusHeaderBg[group.status] ?? `rgba(113, 113, 122, 0.08)`
         return (
           <CollapsiblePrimitive.Root
             key={group.status}
@@ -157,8 +156,14 @@ export function IssueList({
                           status={issue.status}
                         />
                       </div>
-                      <span className="text-sm truncate ml-2">
-                        {issue.title}
+                      <span className="flex items-center gap-1.5 text-sm truncate ml-2 min-w-0">
+                        {issue.recurrenceInterval !== null && (
+                          <Repeat
+                            className="size-3 shrink-0 text-muted-foreground"
+                            aria-label="Recurring"
+                          />
+                        )}
+                        <span className="truncate">{issue.title}</span>
                       </span>
                       <div className="flex items-center gap-1.5 ml-4 shrink-0">
                         {issueLabels.map((label) => (

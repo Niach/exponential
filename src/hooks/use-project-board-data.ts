@@ -7,7 +7,10 @@ import {
   labelCollection,
   projectCollection,
 } from "@/lib/collections"
-import { useWorkspaceBySlug, useWorkspaceUsers } from "@/hooks/use-workspace-data"
+import {
+  useWorkspaceBySlug,
+  useWorkspaceUsers,
+} from "@/hooks/use-workspace-data"
 import type { IssueFilters } from "@/lib/filters"
 import {
   buildFilteredIssues,
@@ -71,7 +74,8 @@ export function useProjectBoardData({
   )
 
   const { data: issueLabels } = useLiveQuery(
-    (query) => (project ? query.from({ issueLabels: issueLabelCollection }) : undefined),
+    (query) =>
+      project ? query.from({ issueLabels: issueLabelCollection }) : undefined,
     [project?.id]
   )
 
@@ -84,11 +88,18 @@ export function useProjectBoardData({
   return useMemo(() => {
     const issueLabelIdsMap = buildIssueLabelIdsMap(issueLabelList)
     const issueLabelMap = buildIssueLabelMap(issueLabelList, labelList)
-    const filteredIssues = buildFilteredIssues(issueList, issueLabelIdsMap, filters)
+    const filteredIssues = buildFilteredIssues(
+      issueList,
+      issueLabelIdsMap,
+      filters
+    )
 
     return {
       editingIssue: getEditingIssue(issueList, editingIssueId),
-      editingIssueLabelIds: getEditingIssueLabelIds(issueLabelList, editingIssueId),
+      editingIssueLabelIds: getEditingIssueLabelIds(
+        issueLabelList,
+        editingIssueId
+      ),
       issueLabelMap,
       labelList,
       project,
@@ -97,5 +108,15 @@ export function useProjectBoardData({
       visibleGroups: buildVisibleIssueGroups(filteredIssues, filters.statuses),
       workspace,
     }
-  }, [editingIssueId, filters, issueLabelList, issueList, labelList, project, userMap, users, workspace])
+  }, [
+    editingIssueId,
+    filters,
+    issueLabelList,
+    issueList,
+    labelList,
+    project,
+    userMap,
+    users,
+    workspace,
+  ])
 }

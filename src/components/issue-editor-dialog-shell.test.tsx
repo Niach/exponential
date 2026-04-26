@@ -21,11 +21,7 @@ vi.mock(`@/components/ui/popover`, () => ({
 }))
 
 vi.mock(`@/components/ui/calendar`, () => ({
-  Calendar: ({
-    onSelect,
-  }: {
-    onSelect: (date: Date | undefined) => void
-  }) => (
+  Calendar: ({ onSelect }: { onSelect: (date: Date | undefined) => void }) => (
     <button type="button" onClick={() => onSelect(new Date(`2026-03-06`))}>
       Pick date
     </button>
@@ -57,7 +53,11 @@ vi.mock(`@/components/markdown-editor`, () => ({
 }))
 
 vi.mock(`@/components/assignee-picker`, () => ({
-  AssigneePicker: ({ onSelect }: { onSelect: (userId: string | null) => void }) => (
+  AssigneePicker: ({
+    onSelect,
+  }: {
+    onSelect: (userId: string | null) => void
+  }) => (
     <button type="button" onClick={() => onSelect(`user-2`)}>
       Pick assignee
     </button>
@@ -84,7 +84,10 @@ vi.mock(`@/components/option-dropdown-menu`, () => ({
   }) => (
     <div>
       {renderTrigger(options[0])}
-      <button type="button" onClick={() => onSelect(options[1]?.value ?? options[0].value)}>
+      <button
+        type="button"
+        onClick={() => onSelect(options[1]?.value ?? options[0].value)}
+      >
         Select {options[0].label}
       </button>
     </div>

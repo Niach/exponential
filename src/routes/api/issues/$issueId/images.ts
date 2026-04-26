@@ -92,7 +92,10 @@ async function uploadIssueImage({
     try {
       await deleteObject(storageKey)
     } catch (deleteError) {
-      console.error(`Failed to rollback uploaded attachment object`, deleteError)
+      console.error(
+        `Failed to rollback uploaded attachment object`,
+        deleteError
+      )
     }
 
     throw error

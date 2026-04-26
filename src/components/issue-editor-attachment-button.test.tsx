@@ -16,7 +16,9 @@ vi.mock(`@/components/ui/tooltip`, () => ({
 describe(`IssueEditorAttachmentButton`, () => {
   it(`forwards selected files to the upload handler`, () => {
     const onFiles = vi.fn()
-    const { container } = render(<IssueEditorAttachmentButton onFiles={onFiles} />)
+    const { container } = render(
+      <IssueEditorAttachmentButton onFiles={onFiles} />
+    )
 
     const input = container.querySelector(`input[type="file"]`)
 
@@ -44,6 +46,8 @@ describe(`IssueEditorAttachmentButton`, () => {
       />
     )
 
-    expect(screen.getByLabelText(`Add image`).getAttribute(`disabled`)).not.toBeNull()
+    expect(
+      screen.getByLabelText(`Add image`).getAttribute(`disabled`)
+    ).not.toBeNull()
   })
 })

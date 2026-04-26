@@ -1,15 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-const {
-  getSession,
-  prepareElectricUrl,
-  proxyElectricRequest,
-} = vi.hoisted(() => ({
-  getSession: vi.fn(),
-  prepareElectricUrl: vi.fn(),
-  proxyElectricRequest: vi.fn(),
-}))
+const { getSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
+  () => ({
+    getSession: vi.fn(),
+    prepareElectricUrl: vi.fn(),
+    proxyElectricRequest: vi.fn(),
+  })
+)
 
 vi.mock(`@/lib/auth`, () => ({
   auth: {
@@ -66,7 +64,9 @@ describe(`shape route handler`, () => {
     })
 
     expect(originUrl.searchParams.get(`table`)).toBe(`users`)
-    expect(originUrl.searchParams.get(`where`)).toBe(`"id" IN ('user-1','user-2')`)
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"id" IN ('user-1','user-2')`
+    )
     expect(proxyElectricRequest).toHaveBeenCalledWith(originUrl)
   })
 })

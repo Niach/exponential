@@ -35,9 +35,9 @@ describe(`workspace membership helpers`, () => {
   })
 
   it(`rejects issue and label pairs from different workspaces`, () => {
-    expect(() => assertMatchingWorkspaceIds(`workspace-1`, `workspace-2`)).toThrow(
-      `Issue and label must belong to the same workspace`
-    )
+    expect(() =>
+      assertMatchingWorkspaceIds(`workspace-1`, `workspace-2`)
+    ).toThrow(`Issue and label must belong to the same workspace`)
   })
 
   it(`builds a safe where clause for scoped ids`, () => {

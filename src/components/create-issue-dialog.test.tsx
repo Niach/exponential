@@ -231,7 +231,8 @@ describe(`CreateIssueDialog`, () => {
 
     await waitFor(() => {
       expect(
-        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement).value
+        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
+          .value
       ).toBe(`Intro paragraph\n![draft.png](blob:mock-image-1)`)
     })
     expect(screen.getByTestId(`issue-attachment-rail`)).toBeTruthy()
@@ -307,7 +308,8 @@ describe(`CreateIssueDialog`, () => {
 
     await waitFor(() => {
       expect(
-        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement).value
+        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
+          .value
       ).toBe(`Intro paragraph\n![draft.png](blob:mock-image-1)`)
     })
 
@@ -317,7 +319,8 @@ describe(`CreateIssueDialog`, () => {
 
     await waitFor(() => {
       expect(
-        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement).value
+        (screen.getByLabelText(`Issue description`) as HTMLTextAreaElement)
+          .value
       ).toBe(`Intro paragraph\n`)
     })
 
