@@ -24,7 +24,7 @@ import {
 } from "@/components/markdown-editor"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -121,6 +121,9 @@ export function IssueEditorDialogShell({
 
   const content = (
     <>
+      <DialogTitle className="sr-only">
+        {title || `Issue ${projectPrefix}`}
+      </DialogTitle>
       <div className="flex items-center justify-between px-5 pt-4 pb-2">
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <div className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
@@ -285,6 +288,7 @@ export function IssueEditorDialogShell({
         showCloseButton={false}
         className="sm:max-w-[40rem] p-0 gap-0"
         data-testid={dialogTestId}
+        aria-describedby={undefined}
         onEscapeKeyDown={(event) => {
           if (closeBlocked) {
             event.preventDefault()

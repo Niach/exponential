@@ -63,6 +63,11 @@ export function EditIssueDialog({
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
 
+  // Reset local form state only when the dialog is opened for a different
+  // issue. We deliberately do NOT depend on `issue.title` / `issue.description`:
+  // Electric hands back new object references on every sync, so depending on
+  // them would re-run this effect on unrelated syncs and blow away whatever
+  // the user has typed before they blur the field.
   useEffect(() => {
     const nextDescription = getIssueDescriptionText(issue.description)
     setTitle(issue.title)
@@ -72,7 +77,7 @@ export function EditIssueDialog({
       normalizeIssueDescriptionText(nextDescription)
     setAttachmentStatus(null)
     editorRef.current?.setMarkdown(nextDescription)
-  }, [issue.description, issue.id, issue.title])
+  }, [issue.id])
 
   const handleTitleBlur = async () => {
     const trimmed = title.trim()
