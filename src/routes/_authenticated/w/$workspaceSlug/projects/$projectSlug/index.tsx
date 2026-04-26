@@ -86,6 +86,11 @@ function ProjectPage() {
 
       {editingIssue && (
         <EditIssueDialog
+          // key forces a fresh component tree (and fresh local state)
+          // whenever the dialog is opened for a different issue, so there
+          // is no chance of stale title/description state from a previous
+          // issue leaking into the next one.
+          key={editingIssue.id}
           open
           onOpenChange={(open) => {
             if (!open) {

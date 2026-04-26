@@ -276,6 +276,7 @@ export function EditIssueDialog({
     void (async () => {
       try {
         await uploadQueueRef.current
+        await handleTitleBlur()
         await queueDescriptionSave(descriptionRef.current)
         await saveQueueRef.current
         onOpenChange(false)
