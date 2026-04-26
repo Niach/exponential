@@ -131,7 +131,7 @@ export function IssueList({
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
-                      className="grid grid-cols-[24px_72px_24px_1fr_auto_28px_72px] items-center h-[34px] px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
+                      className="grid grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem] items-center h-10 px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
                       onClick={() => onIssueClick(issue)}
                       data-testid={`issue-row-${issue.identifier}`}
                     >
@@ -169,7 +169,7 @@ export function IssueList({
                         {issueLabels.map((label) => (
                           <span
                             key={label.id}
-                            className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-[11px] text-muted-foreground"
+                            className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-xs text-muted-foreground"
                           >
                             <div
                               className="h-1.5 w-1.5 rounded-full shrink-0"

@@ -49,7 +49,7 @@ export function AssigneeDropdown({
               {assignee.image && (
                 <AvatarImage src={assignee.image} alt={assignee.name} />
               )}
-              <AvatarFallback className="text-[10px]">
+              <AvatarFallback className="text-[0.625rem]">
                 {getInitials(assignee.name)}
               </AvatarFallback>
             </Avatar>
@@ -60,7 +60,7 @@ export function AssigneeDropdown({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[220px] p-0" align="end">
+      <PopoverContent className="w-[14rem] p-0" align="end">
         <Command>
           <CommandInput placeholder="Search people..." />
           <CommandList>
@@ -87,7 +87,7 @@ export function AssigneeDropdown({
                     {user.image && (
                       <AvatarImage src={user.image} alt={user.name} />
                     )}
-                    <AvatarFallback className="text-[9px]">
+                    <AvatarFallback className="text-[0.5625rem]">
                       {getInitials(user.name)}
                     </AvatarFallback>
                   </Avatar>

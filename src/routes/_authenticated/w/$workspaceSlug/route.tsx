@@ -115,7 +115,7 @@ function WorkspaceLayout() {
                     })
                   }
                 >
-                  <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[10px] font-bold shrink-0">
+                  <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[0.625rem] font-bold shrink-0">
                     {ws.name[0]?.toUpperCase()}
                   </div>
                   <span className="truncate">{ws.name}</span>

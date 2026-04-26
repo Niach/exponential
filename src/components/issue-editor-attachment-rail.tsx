@@ -44,7 +44,7 @@ export function IssueEditorAttachmentRail({
       />
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
         {attachmentStatus ? (
-          <span className="min-w-0 truncate text-[11px] text-destructive">
+          <span className="min-w-0 truncate text-xs text-destructive">
             {attachmentStatus}
           </span>
         ) : (
@@ -67,7 +67,7 @@ export function IssueEditorAttachmentRail({
                       alt=""
                       className="h-7 w-7 shrink-0 rounded-[6px] border border-white/10 object-cover"
                     />
-                    <span className="max-w-24 truncate text-[11px] text-foreground/88">
+                    <span className="max-w-24 truncate text-xs text-foreground/88">
                       {label}
                     </span>
                     {removable ? (
@@ -84,7 +84,7 @@ export function IssueEditorAttachmentRail({
                 )
               })}
             </div>
-            <span className="shrink-0 text-[11px] text-muted-foreground">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {uploading ? `Uploading...` : imageCountLabel}
             </span>
           </>

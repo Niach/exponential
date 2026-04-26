@@ -126,13 +126,13 @@ export function IssueRowContextMenu({
       ?.label ?? `Priority`
   const labelsLabel =
     issueLabels.length > 0 ? `${issueLabels.length} selected` : `None`
-  const topLevelValueClass = `w-[92px] shrink-0 text-right normal-case tracking-normal truncate`
+  const topLevelValueClass = `w-[5.75rem] shrink-0 text-right normal-case tracking-normal truncate`
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent
-        className="w-[280px] rounded-xl border-border/60 bg-popover/95 p-1.5 shadow-2xl supports-[backdrop-filter]:bg-popover/90"
+        className="w-[17.5rem] rounded-xl border-border/60 bg-popover/95 p-1.5 shadow-2xl supports-[backdrop-filter]:bg-popover/90"
         collisionPadding={12}
       >
         <ContextMenuLabel className="rounded-lg bg-accent/40 px-3 py-2.5">
@@ -189,7 +189,7 @@ export function IssueRowContextMenu({
               {statusLabel}
             </ContextMenuShortcut>
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-[220px]">
+          <ContextMenuSubContent className="w-[14rem]">
             <ContextMenuRadioGroup value={issue.status}>
               {issueStatusOptions.map((option) => {
                 const Icon = option.icon
@@ -219,7 +219,7 @@ export function IssueRowContextMenu({
               {selectedAssignee?.name ?? `Unassigned`}
             </ContextMenuShortcut>
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-[240px]">
+          <ContextMenuSubContent className="w-[15rem]">
             <ContextMenuRadioGroup value={issue.assigneeId ?? `__unassigned__`}>
               <ContextMenuRadioItem
                 value="__unassigned__"
@@ -248,7 +248,7 @@ export function IssueRowContextMenu({
                       {user.image && (
                         <AvatarImage src={user.image} alt={user.name} />
                       )}
-                      <AvatarFallback className="text-[9px]">
+                      <AvatarFallback className="text-[0.5625rem]">
                         {getInitials(user.name)}
                       </AvatarFallback>
                     </Avatar>
@@ -268,7 +268,7 @@ export function IssueRowContextMenu({
               {priorityLabel}
             </ContextMenuShortcut>
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-[220px]">
+          <ContextMenuSubContent className="w-[14rem]">
             <ContextMenuRadioGroup value={issue.priority}>
               {issuePriorityOptions.map((option) => {
                 const Icon = option.icon
@@ -298,7 +298,7 @@ export function IssueRowContextMenu({
               {labelsLabel}
             </ContextMenuShortcut>
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-[240px]">
+          <ContextMenuSubContent className="w-[15rem]">
             {labels.length === 0 ? (
               <ContextMenuItem disabled inset>
                 No labels yet
@@ -334,7 +334,7 @@ export function IssueRowContextMenu({
               {dueDateLabel}
             </ContextMenuShortcut>
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-[248px] p-1">
+          <ContextMenuSubContent className="w-[15.5rem] p-1">
             {dueDatePresets.map((preset) => (
               <ContextMenuItem
                 className="gap-3"
@@ -347,7 +347,7 @@ export function IssueRowContextMenu({
                   active={matchesDueDateValue(preset.date, issue.dueDate)}
                 />
                 <span>{preset.label}</span>
-                <ContextMenuShortcut className="min-w-[82px] text-right normal-case tracking-normal tabular-nums">
+                <ContextMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal tabular-nums">
                   {formatDueDateMenuMeta(preset.date)}
                 </ContextMenuShortcut>
               </ContextMenuItem>
@@ -364,7 +364,7 @@ export function IssueRowContextMenu({
                 >
                   <DueDatePresetIndicator active={false} muted />
                   Clear due date
-                  <ContextMenuShortcut className="min-w-[82px] text-right normal-case tracking-normal">
+                  <ContextMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal">
                     Remove
                   </ContextMenuShortcut>
                 </ContextMenuItem>

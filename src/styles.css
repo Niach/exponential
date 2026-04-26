@@ -4,6 +4,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
+html {
+  font-size: 1.15625rem;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -134,7 +138,7 @@
   font-size: 0.875rem;
   line-height: 1.625;
   padding: 0.25rem 1.25rem;
-  min-height: 60px;
+  min-height: 3.5rem;
   outline: none;
   color: oklch(0.985 0 0);
 }

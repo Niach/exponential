@@ -283,7 +283,7 @@ export function IssueEditorDialogShell({
     >
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-[640px] p-0 gap-0"
+        className="sm:max-w-[40rem] p-0 gap-0"
         data-testid={dialogTestId}
         onEscapeKeyDown={(event) => {
           if (closeBlocked) {

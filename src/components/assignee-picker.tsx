@@ -64,11 +64,11 @@ export function AssigneePicker({
                     alt={selectedUser.name}
                   />
                 )}
-                <AvatarFallback className="text-[8px]">
+                <AvatarFallback className="text-[0.5rem]">
                   {getInitials(selectedUser.name)}
                 </AvatarFallback>
               </Avatar>
-              <span className="max-w-[100px] truncate">
+              <span className="max-w-[6.25rem] truncate">
                 {selectedUser.name}
               </span>
             </>
@@ -80,7 +80,7 @@ export function AssigneePicker({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[220px] p-0" align="start">
+      <PopoverContent className="w-[14rem] p-0" align="start">
         <Command>
           <CommandInput placeholder="Search people..." />
           <CommandList>
@@ -113,7 +113,7 @@ export function AssigneePicker({
                     {user.image && (
                       <AvatarImage src={user.image} alt={user.name} />
                     )}
-                    <AvatarFallback className="text-[9px]">
+                    <AvatarFallback className="text-[0.5625rem]">
                       {getInitials(user.name)}
                     </AvatarFallback>
                   </Avatar>

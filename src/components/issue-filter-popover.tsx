@@ -75,13 +75,13 @@ export function IssueFilterPopover({
           <ListFilter className="size-3" />
           Filter
           {count > 0 && (
-            <span className="ml-1 rounded-full bg-indigo-500/20 text-indigo-400 px-1.5 text-[10px] font-medium">
+            <span className="ml-1 rounded-full bg-indigo-500/20 text-indigo-400 px-1.5 text-[0.625rem] font-medium">
               {count}
             </span>
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[220px] p-0" align="start">
+      <PopoverContent className="w-[14rem] p-0" align="start">
         {view === `categories` && (
           <CategoriesView filters={filters} onNavigate={setView} />
         )}
@@ -146,7 +146,7 @@ function CategoriesView({
               <span>{cat.label}</span>
               <span className="flex items-center gap-1">
                 {cat.count > 0 && (
-                  <span className="rounded-full bg-indigo-500/20 text-indigo-400 px-1.5 text-[10px] font-medium">
+                  <span className="rounded-full bg-indigo-500/20 text-indigo-400 px-1.5 text-[0.625rem] font-medium">
                     {cat.count}
                   </span>
                 )}

@@ -111,7 +111,7 @@ export function LabelPicker({
         >
           <Tag className="size-3" />
           {selectedLabels.length > 0 ? (
-            <span className="max-w-[120px] truncate">
+            <span className="max-w-[7.5rem] truncate">
               {selectedLabels.map((l: Label) => l.name).join(`, `)}
             </span>
           ) : (
@@ -119,7 +119,7 @@ export function LabelPicker({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[220px] p-0" align="start">
+      <PopoverContent className="w-[14rem] p-0" align="start">
         {view === `list` ? (
           <Command>
             <CommandInput placeholder="Filter labels..." />
