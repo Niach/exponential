@@ -1,7 +1,7 @@
 {
   "name": "exponential",
   "private": true,
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "engines": {
     "node": ">=20.19.0 || >=22.12.0"
@@ -12,7 +12,7 @@
     "backend:down": "docker compose down",
     "backend:clear": "docker compose down -v",
     "start": "node .output/server/index.mjs",
-    "build": "vite build",
+    "build": "vite build && node scripts/patch-server.mjs",
     "migrate": "drizzle-kit migrate",
     "migrate:generate": "drizzle-kit generate",
     "psql": "dotenvx run -- sh -c 'psql \"$DATABASE_URL\"'",
