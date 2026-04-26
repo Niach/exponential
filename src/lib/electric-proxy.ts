@@ -40,18 +40,47 @@ export function prepareElectricUrl(requestUrl: string): URL {
 }
 
 /**
- * Proxies a request to Electric SQL and returns the response
- * @param originUrl - The prepared Electric SQL URL
- * @returns The proxied response
+ * Proxies a request to Electric SQL and returns the response.
+ *
+ * Buffers the upstream body fully before responding so the Bun server can
+ * send a properly-framed HTTP/1.1 response with a known content-length —
+ * streaming `response.body` directly produced chunked-encoding tails that
+ * Traefik logged as `EOF` → 502. Forwarding the inbound AbortSignal cancels
+ * the upstream when the browser hangs up (very common: the Electric client
+ * cancels long-polls every time a shape handle is invalidated).
  */
-export async function proxyElectricRequest(originUrl: URL): Promise<Response> {
-  const response = await fetch(originUrl)
+export async function proxyElectricRequest(
+  originUrl: URL,
+  signal?: AbortSignal
+): Promise<Response> {
+  let response: Response
+  try {
+    response = await fetch(originUrl, { signal })
+  } catch (error) {
+    if (signal?.aborted || (error instanceof Error && error.name === `AbortError`)) {
+      // Client hung up before upstream responded — nothing to send back.
+      return new Response(null, { status: 499, statusText: `Client Closed Request` })
+    }
+    return new Response(`Upstream fetch failed`, { status: 502 })
+  }
+
+  let body: ArrayBuffer
+  try {
+    body = await response.arrayBuffer()
+  } catch (error) {
+    if (signal?.aborted || (error instanceof Error && error.name === `AbortError`)) {
+      return new Response(null, { status: 499, statusText: `Client Closed Request` })
+    }
+    return new Response(`Upstream body read failed`, { status: 502 })
+  }
+
   const headers = new Headers(response.headers)
   headers.delete(`content-encoding`)
   headers.delete(`content-length`)
+  headers.delete(`transfer-encoding`)
   headers.set(`vary`, `cookie`)
 
-  return new Response(response.body, {
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,

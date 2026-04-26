@@ -28,6 +28,6 @@ export function createShapeRouteHandler({
       originUrl.searchParams.set(`where`, where)
     }
 
-    return proxyElectricRequest(originUrl)
+    return proxyElectricRequest(originUrl, request.signal)
   }
 }

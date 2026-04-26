@@ -5,6 +5,7 @@ import {
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
 import { WorkspaceInviteSection } from "@/components/workspace-invite-section"
+import { WorkspaceLabelsSection } from "@/components/workspace-labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace-members-section"
 import { Separator } from "@/components/ui/separator"
 
@@ -30,7 +31,7 @@ function WorkspaceSettings() {
       <div>
         <h1 className="text-2xl font-bold">Workspace Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Manage members and invites for {workspace?.name}
+          Manage members, invites, and labels for {workspace?.name}
         </p>
       </div>
 
@@ -46,6 +47,10 @@ function WorkspaceSettings() {
         currentUserId={session?.user?.id}
         isOwner={isOwner}
       />
+
+      <Separator />
+
+      {workspace && <WorkspaceLabelsSection workspaceId={workspace.id} />}
     </div>
   )
 }

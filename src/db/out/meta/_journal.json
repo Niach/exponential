@@ -15,6 +15,13 @@
       "when": 1777197535278,
       "tag": "0001_married_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777229021637,
+      "tag": "0002_chief_harry_osborn",
+      "breakpoints": true
     }
   ]
 }

@@ -206,10 +206,14 @@ export const issueLabels = pgTable(
     labelId: uuid(`label_id`)
       .notNull()
       .references(() => labels.id, { onDelete: `cascade` }),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
   },
   (table) => [
     primaryKey({ columns: [table.issueId, table.labelId] }),
     index(`idx_issue_labels_label`).on(table.labelId),
+    index(`idx_issue_labels_workspace`).on(table.workspaceId),
   ]
 )
 

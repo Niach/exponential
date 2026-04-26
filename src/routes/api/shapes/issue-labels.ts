@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { getUserLabelIds, buildWhereClause } from "@/lib/workspace-membership"
+import {
+  getUserWorkspaceIds,
+  buildWhereClause,
+} from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 export const Route = createFileRoute(`/api/shapes/issue-labels`)({
@@ -8,8 +11,8 @@ export const Route = createFileRoute(`/api/shapes/issue-labels`)({
       GET: createShapeRouteHandler({
         table: `issue_labels`,
         getWhere: async (userId) => {
-          const labelIds = await getUserLabelIds(userId)
-          return buildWhereClause(`label_id`, labelIds)
+          const workspaceIds = await getUserWorkspaceIds(userId)
+          return buildWhereClause(`workspace_id`, workspaceIds)
         },
       }),
     },

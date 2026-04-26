@@ -73,11 +73,12 @@ export function LabelPicker({
     if (!newName.trim() || creating) return
     setCreating(true)
     try {
-      const { label } = await trpc.labels.create.mutate({
+      const { txId, label } = await trpc.labels.create.mutate({
         workspaceId,
         name: newName.trim(),
         color: newColor,
       })
+      await labelCollection.utils.awaitTxId(txId)
       onToggle(label.id)
       setNewName(``)
       setNewColor(LABEL_COLORS[Math.floor(Math.random() * LABEL_COLORS.length)])

@@ -84,22 +84,6 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
   return rows.map((row) => row.id)
 }
 
-export async function getUserLabelIds(userId: string): Promise<string[]> {
-  const workspaceIds = await getUserWorkspaceIds(userId)
-
-  if (workspaceIds.length === 0) {
-    return []
-  }
-
-  const db = await getDb()
-  const rows = await db
-    .select({ id: labels.id })
-    .from(labels)
-    .where(inArray(labels.workspaceId, workspaceIds))
-
-  return rows.map((row) => row.id)
-}
-
 export async function getUserIdsInWorkspaces(
   userId: string
 ): Promise<string[]> {

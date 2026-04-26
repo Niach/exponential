@@ -59,14 +59,13 @@ describe(`shape route handler`, () => {
       getWhere: async () => `"id" IN ('user-1','user-2')`,
     })
 
-    await handler({
-      request: new Request(`https://example.com/api/shapes/users`),
-    })
+    const request = new Request(`https://example.com/api/shapes/users`)
+    await handler({ request })
 
     expect(originUrl.searchParams.get(`table`)).toBe(`users`)
     expect(originUrl.searchParams.get(`where`)).toBe(
       `"id" IN ('user-1','user-2')`
     )
-    expect(proxyElectricRequest).toHaveBeenCalledWith(originUrl)
+    expect(proxyElectricRequest).toHaveBeenCalledWith(originUrl, request.signal)
   })
 })
