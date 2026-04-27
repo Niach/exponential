@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { TimeInput } from "@/components/time-input"
 import {
   Popover,
   PopoverContent,
@@ -255,23 +256,19 @@ export function IssueEditorDialogShell({
               {dueDate && (
                 <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
                   <span>Time</span>
-                  <Input
-                    type="time"
-                    value={dueTime?.slice(0, 5) ?? ``}
-                    onChange={(e) => {
-                      void onDueTimeChange(e.target.value || null)
-                    }}
-                    className="h-7 w-24 text-xs"
+                  <TimeInput
+                    value={dueTime}
+                    onChange={(t) => void onDueTimeChange(t)}
+                    className="h-7 w-20 text-xs tabular-nums"
+                    ariaLabel="Start time"
                   />
                   <span>–</span>
-                  <Input
-                    type="time"
-                    value={endTime?.slice(0, 5) ?? ``}
-                    onChange={(e) => {
-                      void onEndTimeChange(e.target.value || null)
-                    }}
+                  <TimeInput
+                    value={endTime}
+                    onChange={(t) => void onEndTimeChange(t)}
                     disabled={!dueTime}
-                    className="h-7 w-24 text-xs"
+                    className="h-7 w-20 text-xs tabular-nums"
+                    ariaLabel="End time"
                   />
                   {(dueTime || endTime) && (
                     <Button
