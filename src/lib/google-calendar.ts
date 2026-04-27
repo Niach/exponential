@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm"
-import { google, type calendar_v3 } from "googleapis"
+import { calendar, type calendar_v3 } from "@googleapis/calendar"
+import { OAuth2Client } from "google-auth-library"
 import { db } from "@/db/connection"
 import { accounts, issues, type Issue } from "@/db/schema"
 import { auth } from "@/lib/auth"
@@ -34,9 +35,9 @@ async function getCalendarClient(
 
   if (!accessToken) return null
 
-  const oauth = new google.auth.OAuth2()
+  const oauth = new OAuth2Client()
   oauth.setCredentials({ access_token: accessToken })
-  return google.calendar({ version: `v3`, auth: oauth })
+  return calendar({ version: `v3`, auth: oauth })
 }
 
 function buildEventBody(issue: Issue): calendar_v3.Schema$Event {
