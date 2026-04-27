@@ -83,7 +83,7 @@ export function IssueList({
           >
             {/* Group header */}
             <div
-              className="group sticky top-0 z-10 flex items-center justify-between pl-3 pr-6 py-1.5 border-b border-border/50"
+              className="group sticky top-0 z-10 flex items-center justify-between pl-3 pr-3 md:pr-6 py-1.5 border-b border-border/50"
               style={{ backgroundColor: headerBg }}
             >
               <div className="flex items-center gap-1.5">
@@ -106,7 +106,7 @@ export function IssueList({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
+                className="text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 md:hover:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation()
                   onNewIssue(group.status)
@@ -131,7 +131,7 @@ export function IssueList({
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
-                      className="grid grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem] items-center h-10 px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
+                      className="grid grid-cols-[1.25rem_1.25rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem] items-center h-12 md:h-10 px-3 md:px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
                       onClick={() => onIssueClick(issue)}
                       data-testid={`issue-row-${issue.identifier}`}
                     >
@@ -144,7 +144,7 @@ export function IssueList({
                           priority={issue.priority}
                         />
                       </div>
-                      <span className="text-xs text-muted-foreground font-mono truncate">
+                      <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate">
                         {issue.identifier}
                       </span>
                       <div
@@ -165,7 +165,7 @@ export function IssueList({
                         )}
                         <span className="truncate">{issue.title}</span>
                       </span>
-                      <div className="flex items-center gap-1.5 ml-4 shrink-0">
+                      <div className="hidden md:flex items-center gap-1.5 ml-4 shrink-0">
                         {issueLabels.map((label) => (
                           <span
                             key={label.id}
@@ -180,7 +180,7 @@ export function IssueList({
                         ))}
                       </div>
                       <div
-                        className="flex items-center justify-center"
+                        className="hidden md:flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <AssigneeDropdown

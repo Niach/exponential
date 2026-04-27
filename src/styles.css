@@ -8,6 +8,12 @@ html {
   font-size: 1.15625rem;
 }
 
+@media (max-width: 767px) {
+  html {
+    font-size: 1rem;
+  }
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

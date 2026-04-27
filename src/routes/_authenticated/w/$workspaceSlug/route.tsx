@@ -5,6 +5,7 @@ import {
   Link,
   redirect,
   useNavigate,
+  useParams,
 } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth-client"
 import { trpc } from "@/lib/trpc-client"
@@ -43,6 +44,8 @@ import {
   Check,
   Plug,
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import type { Project } from "@/db/schema"
 import {
   useWorkspaceBySlug,
   useWorkspaceMemberships,
@@ -234,9 +237,7 @@ function WorkspaceLayout() {
       </Sidebar>
 
       <main className="flex-1 flex flex-col min-h-screen">
-        <header className="flex items-center gap-2 border-b px-4 h-12">
-          <SidebarTrigger />
-        </header>
+        <MobileTopbar workspaceSlug={workspaceSlug} projects={projects} />
         <div className="flex-1">
           <Outlet />
         </div>
@@ -250,5 +251,50 @@ function WorkspaceLayout() {
         />
       )}
     </SidebarProvider>
+  )
+}
+
+function MobileTopbar({
+  workspaceSlug,
+  projects,
+}: {
+  workspaceSlug: string
+  projects: Project[]
+}) {
+  const params = useParams({ strict: false }) as { projectSlug?: string }
+  const activeProject = params.projectSlug
+    ? projects.find((p) => p.slug === params.projectSlug)
+    : undefined
+
+  return (
+    <header className="flex items-center gap-2 border-b px-3 md:px-4 h-12">
+      <SidebarTrigger />
+      {activeProject && (
+        <div className="flex items-center gap-1.5 text-sm font-medium truncate min-w-0 md:hidden">
+          <span
+            className="h-2.5 w-2.5 rounded-full shrink-0"
+            style={{ backgroundColor: activeProject.color }}
+          />
+          <span className="truncate">{activeProject.name}</span>
+        </div>
+      )}
+      {activeProject && (
+        <Button
+          asChild
+          size="icon-xs"
+          variant="ghost"
+          className="ml-auto text-muted-foreground md:hidden"
+        >
+          <Link
+            to="/w/$workspaceSlug/projects/$projectSlug"
+            params={{ workspaceSlug, projectSlug: activeProject.slug }}
+            search={{ new: 1 }}
+            aria-label="New issue"
+          >
+            <Plus className="size-4" />
+          </Link>
+        </Button>
+      )}
+    </header>
   )
 }

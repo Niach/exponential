@@ -33,10 +33,10 @@ export function IssueFilterBar({
   }
 
   return (
-    <div className="px-6">
+    <div className="px-3 md:px-6">
       <div className="flex items-center justify-between py-3">
-        <h1 className="text-base font-medium">Issues</h1>
-        <div className="flex items-center gap-1">
+        <h1 className="hidden md:block text-base font-medium">Issues</h1>
+        <div className="flex items-center gap-1 ml-auto">
           <IssueFilterPopover
             filters={filters}
             onFiltersChange={onFiltersChange}
@@ -48,18 +48,18 @@ export function IssueFilterBar({
             onClick={onNewIssue}
           >
             <Plus className="size-3" />
-            New Issue
+            <span className="hidden md:inline">New Issue</span>
           </Button>
         </div>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 -mx-3 px-3 md:mx-0 md:px-0 overflow-x-auto">
         {tabs.map((tab) => (
           <Button
             key={tab.id}
             variant="ghost"
             size="sm"
             onClick={() => handleTabClick(tab.id)}
-            className={`rounded-full h-7 px-3 text-xs ${
+            className={`shrink-0 rounded-full h-7 px-3 text-xs ${
               activeTab === tab.id
                 ? `bg-accent text-foreground font-medium`
                 : `text-muted-foreground hover:text-foreground`

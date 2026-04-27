@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { EditIssueDialog } from "@/components/edit-issue-dialog"
@@ -12,13 +12,25 @@ import type { IssueStatus } from "@/lib/domain"
 export const Route = createFileRoute(
   `/_authenticated/w/$workspaceSlug/projects/$projectSlug/`
 )({
+  validateSearch: (search: Record<string, unknown>): { new?: 1 } => ({
+    new: search.new === 1 || search.new === `1` ? 1 : undefined,
+  }),
   component: ProjectPage,
 })
 
 function ProjectPage() {
   const { projectSlug, workspaceSlug } = Route.useParams()
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
   const [createIssueOpen, setCreateIssueOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<IssueStatus | undefined>()
+
+  useEffect(() => {
+    if (search.new === 1) {
+      setCreateIssueOpen(true)
+      void navigate({ search: {}, replace: true })
+    }
+  }, [search.new, navigate])
   const [filters, setFilters] = useState<IssueFilters>(emptyFilters)
   const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
 

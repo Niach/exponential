@@ -426,6 +426,12 @@ export function CreateIssueDialog({
       projectColor={projectColor}
       dialogTestId="issue-editor-create"
       formProps={{ onSubmit: handleSubmit }}
+      primaryAction={{
+        type: `submit`,
+        disabled: !title.trim() || closeDisabled,
+        loading:
+          submitPhase === `creating` || submitPhase === `uploading`,
+      }}
       headerContent={<span className="text-sm">New issue</span>}
       title={title}
       titleRef={titleRef}
