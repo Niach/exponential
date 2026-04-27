@@ -41,12 +41,21 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       trustedProviders: [`google`, `authentik`],
+      // Logged-in user's email (from Authentik) likely differs from their
+      // Google account email — without this, Better Auth refuses to link.
+      allowDifferentEmails: true,
     },
   },
   logger: {
     level: `debug`,
     log: (level, message, ...args) => {
-      console.log(`[better-auth][${level}] ${message}`, ...args)
+      // stderr is unbuffered in Bun; console.log goes to stdout which can
+      // get held in a buffer when not attached to a TTY (e.g. inside docker).
+      const payload =
+        args.length > 0
+          ? `[better-auth][${level}] ${message} ${JSON.stringify(args)}\n`
+          : `[better-auth][${level}] ${message}\n`
+      process.stderr.write(payload)
     },
   },
   plugins: [
