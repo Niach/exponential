@@ -6,15 +6,15 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@app": resolve(__dirname, "../src"),
+      "@app": resolve(__dirname, `../src`),
     },
   },
   build: {
     rollupOptions: {
       input: {
-        home: resolve(__dirname, "index.html"),
-        privacy: resolve(__dirname, "privacy/index.html"),
-        terms: resolve(__dirname, "terms/index.html"),
+        home: resolve(__dirname, `index.html`),
+        privacy: resolve(__dirname, `privacy/index.html`),
+        terms: resolve(__dirname, `terms/index.html`),
       },
     },
   },

@@ -7,6 +7,7 @@ import type { Issue, Label, User } from "@/db/schema"
 const mockState = vi.hoisted(() => ({
   addLabelMutate: vi.fn(),
   clipboardWriteText: vi.fn(),
+  deleteMutate: vi.fn(),
   removeLabelMutate: vi.fn(),
   updateMutate: vi.fn(),
 }))
@@ -22,6 +23,9 @@ vi.mock(`@/lib/trpc-client`, () => ({
       },
     },
     issues: {
+      delete: {
+        mutate: mockState.deleteMutate,
+      },
       update: {
         mutate: mockState.updateMutate,
       },
@@ -181,10 +185,12 @@ describe(`IssueRowContextMenu`, () => {
     vi.setSystemTime(new Date(`2026-03-07T09:00:00Z`))
     mockState.addLabelMutate.mockReset()
     mockState.clipboardWriteText.mockReset()
+    mockState.deleteMutate.mockReset()
     mockState.removeLabelMutate.mockReset()
     mockState.updateMutate.mockReset()
     mockState.addLabelMutate.mockResolvedValue({})
     mockState.clipboardWriteText.mockResolvedValue(undefined)
+    mockState.deleteMutate.mockResolvedValue({})
     mockState.removeLabelMutate.mockResolvedValue({})
     mockState.updateMutate.mockResolvedValue({})
 
@@ -286,5 +292,28 @@ describe(`IssueRowContextMenu`, () => {
       issueId: `issue-1`,
       labelId: `label-2`,
     })
+  })
+
+  it(`deletes the issue when confirm delete is selected`, async () => {
+    render(
+      <IssueRowContextMenu
+        issue={buildIssue()}
+        issueLabels={[]}
+        labels={labels}
+        users={users}
+        userMap={new Map(users.map((user) => [user.id, user]))}
+        onOpenIssue={vi.fn()}
+      >
+        <div>Issue row</div>
+      </IssueRowContextMenu>
+    )
+
+    fireEvent.click(screen.getByText(`Confirm delete`))
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mockState.deleteMutate).toHaveBeenCalledTimes(1)
+    expect(mockState.deleteMutate).toHaveBeenCalledWith({ id: `issue-1` })
   })
 })

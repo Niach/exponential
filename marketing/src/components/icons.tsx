@@ -137,7 +137,7 @@ export const ExpLogo = ({
       viewBox="0 0 100 100"
       width={size}
       height={size}
-      style={{ display: "block", ...style }}
+      style={{ display: `block`, ...style }}
     >
       <defs>
         <clipPath id={`${id}-c`}>
@@ -171,7 +171,7 @@ export const ExpLogo = ({
         cx="50"
         cy="50"
         r="50"
-        fill={color || "currentColor"}
+        fill={color || `currentColor`}
         mask={`url(#${id}-m)`}
       />
     </svg>

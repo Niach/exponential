@@ -3,24 +3,24 @@ import { SiteShell } from "./components/SiteShell"
 export function TermsPage() {
   return (
     <SiteShell>
-      <section style={{ padding: "64px 0 96px" }}>
+      <section style={{ padding: `64px 0 96px` }}>
         <div className="shell" style={{ maxWidth: 760 }}>
           <h1
             style={{
               fontSize: 40,
               fontWeight: 600,
-              letterSpacing: "-0.03em",
-              margin: "0 0 8px",
+              letterSpacing: `-0.03em`,
+              margin: `0 0 8px`,
             }}
           >
             Terms of Service
           </h1>
           <p
             style={{
-              fontFamily: "var(--font-mono)",
+              fontFamily: `var(--font-mono)`,
               fontSize: 12,
-              color: "var(--fg-dim)",
-              margin: "0 0 40px",
+              color: `var(--fg-dim)`,
+              margin: `0 0 40px`,
             }}
           >
             Exponential · self-hosted issue tracker · last updated 2026-04-27
@@ -37,7 +37,7 @@ export function TermsPage() {
           <h2 style={h2Style}>License</h2>
           <p style={prose}>
             Exponential is released under the MIT License. The full license
-            text and source are at{" "}
+            text and source are at{` `}
             <a
               href="https://github.com/Niach/exponential"
               style={linkStyle}
@@ -73,10 +73,10 @@ export function TermsPage() {
             Exponential can optionally connect to third-party services such as
             Google Calendar via OAuth, at the user’s explicit choice. Use of
             those services is also governed by the third party’s own terms and
-            policies. See the{" "}
+            policies. See the{` `}
             <a href="/privacy/" style={linkStyle}>
               Privacy Policy
-            </a>{" "}
+            </a>{` `}
             for how Exponential handles data from connected accounts.
           </p>
 
@@ -96,7 +96,7 @@ export function TermsPage() {
 
           <h2 style={h2Style}>Contact</h2>
           <p style={prose}>
-            Questions about these terms:{" "}
+            Questions about these terms:{` `}
             <a href="mailto:danny@straehhuber.com" style={linkStyle}>
               danny@straehhuber.com
             </a>
@@ -111,20 +111,20 @@ export function TermsPage() {
 const prose = {
   fontSize: 15,
   lineHeight: 1.7,
-  color: "var(--fg-muted)",
-  margin: "0 0 18px",
+  color: `var(--fg-muted)`,
+  margin: `0 0 18px`,
 } as const
 
 const h2Style = {
   fontSize: 20,
   fontWeight: 500,
-  letterSpacing: "-0.02em",
-  color: "var(--fg)",
-  margin: "40px 0 12px",
+  letterSpacing: `-0.02em`,
+  color: `var(--fg)`,
+  margin: `40px 0 12px`,
 } as const
 
 const linkStyle = {
-  color: "var(--accent)",
-  textDecoration: "underline",
+  color: `var(--accent)`,
+  textDecoration: `underline`,
   textUnderlineOffset: 3,
 } as const

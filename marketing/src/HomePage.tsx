@@ -74,9 +74,9 @@ export function HomePage() {
       <section
         id="install"
         style={{
-          background: "color-mix(in oklch, var(--bg-elev) 60%, var(--bg))",
-          borderTop: "1px solid var(--border)",
-          borderBottom: "1px solid var(--border)",
+          background: `color-mix(in oklch, var(--bg-elev) 60%, var(--bg))`,
+          borderTop: `1px solid var(--border)`,
+          borderBottom: `1px solid var(--border)`,
         }}
       >
         <div className="shell">
@@ -85,13 +85,13 @@ export function HomePage() {
             <div>
               <h2 className="section-title">Up and running in minutes.</h2>
               <p className="section-sub">
-                The whole stack ships as a docker-compose file. Configure your{" "}
+                The whole stack ships as a docker-compose file. Configure your{` `}
                 <code
                   style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "0.85em",
-                    padding: "2px 8px",
-                    background: "var(--bg-soft)",
+                    fontFamily: `var(--font-mono)`,
+                    fontSize: `0.85em`,
+                    padding: `2px 8px`,
+                    background: `var(--bg-soft)`,
                     borderRadius: 6,
                   }}
                 >
@@ -107,9 +107,9 @@ export function HomePage() {
               <div
                 style={{
                   marginTop: 28,
-                  display: "flex",
+                  display: `flex`,
                   gap: 10,
-                  flexWrap: "wrap",
+                  flexWrap: `wrap`,
                 }}
               >
                 <a

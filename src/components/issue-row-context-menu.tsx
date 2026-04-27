@@ -36,6 +36,7 @@ import {
   ListTodo,
   SquarePen,
   Tag,
+  Trash2,
   UserRound,
   X,
 } from "lucide-react"
@@ -107,6 +108,10 @@ export function IssueRowContextMenu({
       issueId: issue.id,
       labelId,
     })
+  }
+
+  const deleteIssue = async () => {
+    await trpc.issues.delete.mutate({ id: issue.id })
   }
 
   const copyText = async (value: string) => {
@@ -370,6 +375,26 @@ export function IssueRowContextMenu({
                 </ContextMenuItem>
               </>
             )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSeparator />
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className="text-destructive focus:bg-destructive/10 focus:text-destructive data-[state=open]:bg-destructive/10 data-[state=open]:text-destructive [&_svg]:text-destructive!">
+            <Trash2 className="size-4" />
+            Delete issue
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-[14rem]">
+            <ContextMenuItem
+              variant="destructive"
+              onSelect={() => {
+                void deleteIssue()
+              }}
+            >
+              <Trash2 className="size-4" />
+              Confirm delete
+            </ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
       </ContextMenuContent>

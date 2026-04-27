@@ -36,16 +36,16 @@ export function SiteFooter() {
       <div className="shell">
         <div className="foot-bottom">
           <span
-            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+            style={{ display: `inline-flex`, alignItems: `center`, gap: 8 }}
           >
             <ExpLogo size={16} />
             <span>Exponential</span>
           </span>
-          <span style={{ display: "inline-flex", gap: 16 }}>
-            <a href="/privacy/" style={{ color: "inherit" }}>
+          <span style={{ display: `inline-flex`, gap: 16 }}>
+            <a href="/privacy/" style={{ color: `inherit` }}>
               Privacy
             </a>
-            <a href="/terms/" style={{ color: "inherit" }}>
+            <a href="/terms/" style={{ color: `inherit` }}>
               Terms
             </a>
             <span>© 2026 — released under MIT</span>

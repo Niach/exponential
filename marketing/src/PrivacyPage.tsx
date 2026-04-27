@@ -3,24 +3,24 @@ import { SiteShell } from "./components/SiteShell"
 export function PrivacyPage() {
   return (
     <SiteShell>
-      <section style={{ padding: "64px 0 96px" }}>
+      <section style={{ padding: `64px 0 96px` }}>
         <div className="shell" style={{ maxWidth: 760 }}>
           <h1
             style={{
               fontSize: 40,
               fontWeight: 600,
-              letterSpacing: "-0.03em",
-              margin: "0 0 8px",
+              letterSpacing: `-0.03em`,
+              margin: `0 0 8px`,
             }}
           >
             Privacy Policy
           </h1>
           <p
             style={{
-              fontFamily: "var(--font-mono)",
+              fontFamily: `var(--font-mono)`,
               fontSize: 12,
-              color: "var(--fg-dim)",
-              margin: "0 0 40px",
+              color: `var(--fg-dim)`,
+              margin: `0 0 40px`,
             }}
           >
             Exponential · self-hosted issue tracker · last updated 2026-04-27
@@ -38,7 +38,7 @@ export function PrivacyPage() {
           <h2 style={h2Style}>What data the app accesses</h2>
           <p style={prose}>
             When you connect your Google account, the app requests a single
-            Google OAuth scope:{" "}
+            Google OAuth scope:{` `}
             <code style={inlineCode}>
               https://www.googleapis.com/auth/calendar.events
             </code>
@@ -70,11 +70,11 @@ export function PrivacyPage() {
 
           <h2 style={h2Style}>Retention and deletion</h2>
           <p style={prose}>
-            You may revoke the app’s access at any time from{" "}
+            You may revoke the app’s access at any time from{` `}
             <a href="https://myaccount.google.com/permissions" style={linkStyle}>
               Google Account → Third-party access
             </a>
-            , or by clicking “Disconnect” on the{" "}
+            , or by clicking “Disconnect” on the{` `}
             <code style={inlineCode}>/account/integrations</code> page inside
             Exponential. Disconnecting deletes the stored OAuth tokens
             immediately. Calendar events the app previously created remain in
@@ -92,7 +92,7 @@ export function PrivacyPage() {
           <h2 style={h2Style}>Limited Use disclosure</h2>
           <p style={prose}>
             Exponential’s use and transfer of information received from Google
-            APIs adheres to the{" "}
+            APIs adheres to the{` `}
             <a
               href="https://developers.google.com/terms/api-services-user-data-policy"
               style={linkStyle}
@@ -111,7 +111,7 @@ export function PrivacyPage() {
 
           <h2 style={h2Style}>Contact</h2>
           <p style={prose}>
-            Questions about this policy or the app’s data handling:{" "}
+            Questions about this policy or the app’s data handling:{` `}
             <a href="mailto:danny@straehhuber.com" style={linkStyle}>
               danny@straehhuber.com
             </a>
@@ -126,29 +126,29 @@ export function PrivacyPage() {
 const prose = {
   fontSize: 15,
   lineHeight: 1.7,
-  color: "var(--fg-muted)",
-  margin: "0 0 18px",
+  color: `var(--fg-muted)`,
+  margin: `0 0 18px`,
 } as const
 
 const h2Style = {
   fontSize: 20,
   fontWeight: 500,
-  letterSpacing: "-0.02em",
-  color: "var(--fg)",
-  margin: "40px 0 12px",
+  letterSpacing: `-0.02em`,
+  color: `var(--fg)`,
+  margin: `40px 0 12px`,
 } as const
 
 const inlineCode = {
-  fontFamily: "var(--font-mono)",
-  fontSize: "0.85em",
-  padding: "2px 7px",
-  background: "var(--bg-soft)",
+  fontFamily: `var(--font-mono)`,
+  fontSize: `0.85em`,
+  padding: `2px 7px`,
+  background: `var(--bg-soft)`,
   borderRadius: 6,
-  color: "var(--fg)",
+  color: `var(--fg)`,
 } as const
 
 const linkStyle = {
-  color: "var(--accent)",
-  textDecoration: "underline",
+  color: `var(--accent)`,
+  textDecoration: `underline`,
   textUnderlineOffset: 3,
 } as const

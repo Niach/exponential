@@ -9,9 +9,9 @@ export function SectionTag({ num, label }: { num: string; label: string }) {
       <span
         className="num"
         style={{
-          textTransform: "uppercase",
-          letterSpacing: "0.12em",
-          color: "var(--accent)",
+          textTransform: `uppercase`,
+          letterSpacing: `0.12em`,
+          color: `var(--accent)`,
         }}
       >
         {label}
@@ -35,76 +35,76 @@ export function HostTerminal() {
           style={{
             width: 10,
             height: 10,
-            borderRadius: "50%",
-            background: "oklch(0.7 0.2 22)",
+            borderRadius: `50%`,
+            background: `oklch(0.7 0.2 22)`,
           }}
         />
         <span
           style={{
             width: 10,
             height: 10,
-            borderRadius: "50%",
-            background: "oklch(0.78 0.16 75)",
+            borderRadius: `50%`,
+            background: `oklch(0.78 0.16 75)`,
           }}
         />
         <span
           style={{
             width: 10,
             height: 10,
-            borderRadius: "50%",
-            background: "oklch(0.72 0.15 155)",
+            borderRadius: `50%`,
+            background: `oklch(0.72 0.15 155)`,
           }}
         />
         <span style={{ marginLeft: 8 }}>~/exponential — bash</span>
       </div>
       <div className="terminal-body">
         <span className="term-comment"># 1. clone the repo</span>
-        {"\n"}
+        {`\n`}
         <span className="term-prompt">$ </span>
         <span className="term-cmd">
           git clone https://github.com/Niach/exponential
         </span>
-        {"\n"}
+        {`\n`}
         <span className="term-prompt">$ </span>
         <span className="term-cmd">cd exponential</span>
-        {"\n"}
-        {"\n"}
+        {`\n`}
+        {`\n`}
         <span className="term-comment">
           # 2. configure your .env (DB, auth, optional OIDC)
         </span>
-        {"\n"}
+        {`\n`}
         <span className="term-prompt">$ </span>
         <span className="term-cmd">cp .env.example .env</span>
-        {"\n"}
-        {"\n"}
+        {`\n`}
+        {`\n`}
         <span className="term-comment"># 3. bring up the stack</span>
-        {"\n"}
+        {`\n`}
         <span className="term-prompt">$ </span>
         <span className="term-cmd">docker compose up -d</span>
-        {"\n"}
+        {`\n`}
         <span className="term-out">[+] postgres   </span>
         <span className="term-ok">healthy</span>
-        {"\n"}
+        {`\n`}
         <span className="term-out">[+] electric   </span>
         <span className="term-ok">healthy</span>
-        {"\n"}
+        {`\n`}
         <span className="term-out">[+] minio      </span>
         <span className="term-ok">healthy</span>
-        {"\n"}
+        {`\n`}
         <span className="term-out">[+] caddy      </span>
         <span className="term-ok">healthy</span>
-        {"\n"}
-        {"\n"}
+        {`\n`}
+        {`\n`}
         <span className="term-comment">
           # 4. apply migrations and you're up
         </span>
-        {"\n"}
+        {`\n`}
         <span className="term-prompt">$ </span>
         <span className="term-cmd">bun migrate</span>
-        {"\n"}
+        {`\n`}
         <span className="term-out">  Listening on </span>
         <span className="term-ok">https://localhost:3000</span>
-        {"\n"}
+        {`\n`}
         <span className="term-prompt">$ </span>
         {step % 2 === 0 && <span className="cursor-blink" />}
       </div>
@@ -159,7 +159,7 @@ export function RepoCard() {
       <div className="repo-head">
         <IcGithub size={18} />
         <span className="repo-owner">Niach</span>
-        <span style={{ color: "var(--fg-dim)" }}>/</span>
+        <span style={{ color: `var(--fg-dim)` }}>/</span>
         <span className="repo-name">exponential</span>
       </div>
 
@@ -174,7 +174,7 @@ export function RepoCard() {
         style={{
           margin: 0,
           fontSize: 13.5,
-          color: "var(--fg-muted)",
+          color: `var(--fg-muted)`,
           lineHeight: 1.6,
         }}
       >
@@ -190,9 +190,9 @@ export function OssCopy() {
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
+        display: `flex`,
+        flexDirection: `column`,
+        justifyContent: `center`,
         gap: 18,
       }}
     >
@@ -206,7 +206,7 @@ export function OssCopy() {
         The full source lives in one repo under MIT. Audit it, fork it, run it
         untouched on your own metal.
       </p>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ display: `flex`, gap: 10, flexWrap: `wrap` }}>
         <a
           className="btn btn-primary"
           href="https://github.com/Niach/exponential"
@@ -221,7 +221,7 @@ export function OssCopy() {
 export function CopyBlock() {
   const [copied, setCopied] = useState(false)
   const cmd =
-    "git clone https://github.com/Niach/exponential && cd exponential && docker compose up -d"
+    `git clone https://github.com/Niach/exponential && cd exponential && docker compose up -d`
   const onCopy = () => {
     navigator.clipboard?.writeText(cmd)
     setCopied(true)
@@ -231,7 +231,7 @@ export function CopyBlock() {
     <div className="copy-cmd">
       <code>{cmd}</code>
       <button className="copy-btn" onClick={onCopy}>
-        <IcCopy size={12} /> {copied ? "Copied" : "Copy"}
+        <IcCopy size={12} /> {copied ? `Copied` : `Copy`}
       </button>
     </div>
   )

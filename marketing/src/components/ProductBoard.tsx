@@ -22,29 +22,29 @@ import {
   IcViewsEmpty,
 } from "./icons"
 
-type StatusKey = "backlog" | "todo" | "in_progress" | "done" | "cancelled"
-type PriorityKey = "none" | "urgent" | "high" | "medium" | "low"
+type StatusKey = `backlog` | `todo` | `in_progress` | `done` | `cancelled`
+type PriorityKey = `none` | `urgent` | `high` | `medium` | `low`
 
 const STATUS: Record<
   StatusKey,
   { label: string; icon: LucideIcon; color: string }
 > = {
-  backlog: { label: "Backlog", icon: CircleDashed, color: "oklch(0.708 0 0)" },
-  todo: { label: "Todo", icon: Circle, color: "oklch(0.985 0 0)" },
-  in_progress: { label: "In Progress", icon: Timer, color: "oklch(0.795 0.184 86.05)" },
-  done: { label: "Done", icon: CircleCheck, color: "oklch(0.723 0.219 149.58)" },
-  cancelled: { label: "Cancelled", icon: CircleX, color: "oklch(0.708 0 0)" },
+  backlog: { label: `Backlog`, icon: CircleDashed, color: `oklch(0.708 0 0)` },
+  todo: { label: `Todo`, icon: Circle, color: `oklch(0.985 0 0)` },
+  in_progress: { label: `In Progress`, icon: Timer, color: `oklch(0.795 0.184 86.05)` },
+  done: { label: `Done`, icon: CircleCheck, color: `oklch(0.723 0.219 149.58)` },
+  cancelled: { label: `Cancelled`, icon: CircleX, color: `oklch(0.708 0 0)` },
 }
 
 const PRIORITY: Record<
   PriorityKey,
   { label: string; icon: LucideIcon; color: string }
 > = {
-  none: { label: "No priority", icon: Minus, color: "oklch(0.708 0 0)" },
-  urgent: { label: "Urgent", icon: AlertTriangle, color: "oklch(0.637 0.237 25.33)" },
-  high: { label: "High", icon: SignalHigh, color: "oklch(0.705 0.213 47.6)" },
-  medium: { label: "Medium", icon: SignalMedium, color: "oklch(0.795 0.184 86.05)" },
-  low: { label: "Low", icon: SignalLow, color: "oklch(0.623 0.214 259.85)" },
+  none: { label: `No priority`, icon: Minus, color: `oklch(0.708 0 0)` },
+  urgent: { label: `Urgent`, icon: AlertTriangle, color: `oklch(0.637 0.237 25.33)` },
+  high: { label: `High`, icon: SignalHigh, color: `oklch(0.705 0.213 47.6)` },
+  medium: { label: `Medium`, icon: SignalMedium, color: `oklch(0.795 0.184 86.05)` },
+  low: { label: `Low`, icon: SignalLow, color: `oklch(0.623 0.214 259.85)` },
 }
 
 function StatusIcon({ kind, size = 14 }: { kind: StatusKey; size?: number }) {
@@ -71,18 +71,18 @@ type Issue = {
 }
 
 const seedIssues: Issue[] = [
-  { id: "ex24", ident: "EXP-24", title: "Email digest of stale issues", status: "todo", priority: "urgent", labels: [{ name: "feature", color: "oklch(0.72 0.18 145)" }], due: "May 2" },
-  { id: "ex23", ident: "EXP-23", title: "Bulk-edit selected issues", status: "todo", priority: "high", labels: [{ name: "feature", color: "oklch(0.72 0.18 145)" }] },
-  { id: "ex22", ident: "EXP-22", title: "Drag to reorder within a status group", status: "todo", priority: "high", labels: [{ name: "polish", color: "oklch(0.72 0.16 280)" }, { name: "ux", color: "oklch(0.72 0.16 245)" }] },
-  { id: "ex21", ident: "EXP-21", title: "Issue templates per project", status: "todo", priority: "medium", labels: [{ name: "feature", color: "oklch(0.72 0.18 145)" }] },
-  { id: "ex20", ident: "EXP-20", title: "Markdown shortcuts in description editor", status: "todo", priority: "low", labels: [{ name: "editor", color: "oklch(0.72 0.16 280)" }, { name: "polish", color: "oklch(0.72 0.16 245)" }] },
-  { id: "ex19", ident: "EXP-19", title: "GitHub PR linking via commit message", status: "todo", priority: "low", labels: [{ name: "integration", color: "oklch(0.7 0.04 245)" }, { name: "feature", color: "oklch(0.75 0.16 75)" }] },
-  { id: "ex18", ident: "EXP-18", title: "Webhook events for issue mutations", status: "todo", priority: "low", labels: [{ name: "api", color: "oklch(0.7 0.15 320)" }, { name: "integration", color: "oklch(0.72 0.16 245)" }, { name: "feature", color: "oklch(0.75 0.16 75)" }] },
-  { id: "ex17", ident: "EXP-17", title: "Slack notifications for assigned issues", status: "todo", priority: "low", labels: [{ name: "integration", color: "oklch(0.72 0.18 145)" }, { name: "feature", color: "oklch(0.72 0.16 245)" }] },
-  { id: "ex16", ident: "EXP-16", title: "CSV export of filtered views", status: "todo", priority: "none", labels: [{ name: "feature", color: "oklch(0.7 0.15 320)" }, { name: "data", color: "oklch(0.72 0.16 245)" }] },
-  { id: "ex15", ident: "EXP-15", title: "Webhook signing key rotation", status: "todo", priority: "low", labels: [{ name: "api", color: "oklch(0.7 0.15 320)" }, { name: "infra", color: "oklch(0.7 0.04 245)" }] },
-  { id: "ex14", ident: "EXP-14", title: "Saved filter views in the sidebar", status: "todo", priority: "low", labels: [{ name: "feature", color: "oklch(0.75 0.16 75)" }] },
-  { id: "ex13", ident: "EXP-13", title: "Mention users in issue descriptions", status: "todo", priority: "low", labels: [{ name: "editor", color: "oklch(0.72 0.18 145)" }, { name: "feature", color: "oklch(0.72 0.16 245)" }, { name: "ux", color: "oklch(0.75 0.16 75)" }] },
+  { id: `ex24`, ident: `EXP-24`, title: `Email digest of stale issues`, status: `todo`, priority: `urgent`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }], due: `May 2` },
+  { id: `ex23`, ident: `EXP-23`, title: `Bulk-edit selected issues`, status: `todo`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+  { id: `ex22`, ident: `EXP-22`, title: `Drag to reorder within a status group`, status: `todo`, priority: `high`, labels: [{ name: `polish`, color: `oklch(0.72 0.16 280)` }, { name: `ux`, color: `oklch(0.72 0.16 245)` }] },
+  { id: `ex21`, ident: `EXP-21`, title: `Issue templates per project`, status: `todo`, priority: `medium`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+  { id: `ex20`, ident: `EXP-20`, title: `Markdown shortcuts in description editor`, status: `todo`, priority: `low`, labels: [{ name: `editor`, color: `oklch(0.72 0.16 280)` }, { name: `polish`, color: `oklch(0.72 0.16 245)` }] },
+  { id: `ex19`, ident: `EXP-19`, title: `GitHub PR linking via commit message`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.7 0.04 245)` }, { name: `feature`, color: `oklch(0.75 0.16 75)` }] },
+  { id: `ex18`, ident: `EXP-18`, title: `Webhook events for issue mutations`, status: `todo`, priority: `low`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }, { name: `integration`, color: `oklch(0.72 0.16 245)` }, { name: `feature`, color: `oklch(0.75 0.16 75)` }] },
+  { id: `ex17`, ident: `EXP-17`, title: `Slack notifications for assigned issues`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.72 0.18 145)` }, { name: `feature`, color: `oklch(0.72 0.16 245)` }] },
+  { id: `ex16`, ident: `EXP-16`, title: `CSV export of filtered views`, status: `todo`, priority: `none`, labels: [{ name: `feature`, color: `oklch(0.7 0.15 320)` }, { name: `data`, color: `oklch(0.72 0.16 245)` }] },
+  { id: `ex15`, ident: `EXP-15`, title: `Webhook signing key rotation`, status: `todo`, priority: `low`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }, { name: `infra`, color: `oklch(0.7 0.04 245)` }] },
+  { id: `ex14`, ident: `EXP-14`, title: `Saved filter views in the sidebar`, status: `todo`, priority: `low`, labels: [{ name: `feature`, color: `oklch(0.75 0.16 75)` }] },
+  { id: `ex13`, ident: `EXP-13`, title: `Mention users in issue descriptions`, status: `todo`, priority: `low`, labels: [{ name: `editor`, color: `oklch(0.72 0.18 145)` }, { name: `feature`, color: `oklch(0.72 0.16 245)` }, { name: `ux`, color: `oklch(0.75 0.16 75)` }] },
 ]
 
 type Cursor = { visible: boolean; label: string; id: string | null }
@@ -92,7 +92,7 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
   const [flashId, setFlashId] = useState<string | null>(null)
   const [cursor, setCursor] = useState<Cursor>({
     visible: false,
-    label: "danny",
+    label: `danny`,
     id: null,
   })
 
@@ -106,32 +106,32 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
       tick++
       const m = tick % 4
       if (m === 1) {
-        setCursor({ visible: true, label: "danny", id: "ex23" })
+        setCursor({ visible: true, label: `danny`, id: `ex23` })
         setTimeout(() => {
           setIssues((xs) =>
-            xs.map((i) => (i.id === "ex23" ? { ...i, status: "in_progress" } : i))
+            xs.map((i) => (i.id === `ex23` ? { ...i, status: `in_progress` } : i))
           )
-          setFlashId("ex23")
+          setFlashId(`ex23`)
           setTimeout(() => setFlashId(null), 1100)
         }, 700)
         setTimeout(() => setCursor((c) => ({ ...c, visible: false })), 1700)
       } else if (m === 2) {
-        setCursor({ visible: true, label: "niach", id: "ex24" })
+        setCursor({ visible: true, label: `niach`, id: `ex24` })
         setTimeout(() => {
           setIssues((xs) =>
-            xs.map((i) => (i.id === "ex24" ? { ...i, status: "in_progress" } : i))
+            xs.map((i) => (i.id === `ex24` ? { ...i, status: `in_progress` } : i))
           )
-          setFlashId("ex24")
+          setFlashId(`ex24`)
           setTimeout(() => setFlashId(null), 1100)
         }, 700)
         setTimeout(() => setCursor((c) => ({ ...c, visible: false })), 1700)
       } else if (m === 3) {
-        setCursor({ visible: true, label: "danny", id: "ex19" })
+        setCursor({ visible: true, label: `danny`, id: `ex19` })
         setTimeout(() => {
           setIssues((xs) =>
-            xs.map((i) => (i.id === "ex19" ? { ...i, status: "done" } : i))
+            xs.map((i) => (i.id === `ex19` ? { ...i, status: `done` } : i))
           )
-          setFlashId("ex19")
+          setFlashId(`ex19`)
           setTimeout(() => setFlashId(null), 1100)
         }, 700)
         setTimeout(() => setCursor((c) => ({ ...c, visible: false })), 1700)
@@ -144,9 +144,9 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
     return () => clearInterval(id)
   }, [animate])
 
-  const todo = issues.filter((i) => i.status === "todo")
-  const inProgress = issues.filter((i) => i.status === "in_progress")
-  const done = issues.filter((i) => i.status === "done")
+  const todo = issues.filter((i) => i.status === `todo`)
+  const inProgress = issues.filter((i) => i.status === `in_progress`)
+  const done = issues.filter((i) => i.status === `done`)
 
   return (
     <div className="ex-app">
@@ -167,21 +167,21 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
           <div className="ex-side-item is-active">
             <span
               className="ex-proj-dot"
-              style={{ background: "oklch(0.62 0.18 280)" }}
+              style={{ background: `oklch(0.62 0.18 280)` }}
             />
             <span>Exponential</span>
           </div>
           <div className="ex-side-item">
             <span
               className="ex-proj-dot"
-              style={{ background: "oklch(0.7 0.16 145)" }}
+              style={{ background: `oklch(0.7 0.16 145)` }}
             />
             <span>Marketing site</span>
           </div>
           <div className="ex-side-item">
             <span
               className="ex-proj-dot"
-              style={{ background: "oklch(0.72 0.16 60)" }}
+              style={{ background: `oklch(0.72 0.16 60)` }}
             />
             <span>Mobile app</span>
           </div>
@@ -282,7 +282,7 @@ function Group({
   return (
     <>
       <div className="ex-group">
-        <IcChevDown size={12} style={{ color: "var(--ex-fg-dim)" }} />
+        <IcChevDown size={12} style={{ color: `var(--ex-fg-dim)` }} />
         <StatusIcon kind={kind} />
         <span className="ex-group-title">{title}</span>
         <span className="ex-group-count">{count}</span>
@@ -290,7 +290,7 @@ function Group({
       {issues.map((iss) => (
         <div
           key={iss.id}
-          className={`ex-row ${flashId === iss.id ? "is-flashing" : ""}`}
+          className={`ex-row ${flashId === iss.id ? `is-flashing` : ``}`}
         >
           <span className="ex-pri">
             <PriorityIcon kind={iss.priority} size={13} />
@@ -312,7 +312,7 @@ function Group({
           <span className="ex-assignee" title="Danny">
             D
           </span>
-          <span className={`ex-due ${iss.due ? "" : "is-empty"}`}>
+          <span className={`ex-due ${iss.due ? `` : `is-empty`}`}>
             <IcCal size={12} />
             {iss.due && <span>{iss.due}</span>}
           </span>
