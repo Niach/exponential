@@ -9,6 +9,12 @@ import { getIssueDescriptionText } from "@/lib/domain"
 const PROVIDER_ID = `google`
 const CALENDAR_ID = `primary`
 
+/**
+ * Returns a Calendar client, or null if the user has not linked Google.
+ * Throws if the account exists but the access token can't be obtained —
+ * those errors must be surfaced (persisted to the issue) so the user can
+ * see what's wrong instead of the sync silently no-op'ing forever.
+ */
 async function getCalendarClient(
   userId: string
 ): Promise<calendar_v3.Calendar | null> {
@@ -22,18 +28,15 @@ async function getCalendarClient(
 
   if (!account) return null
 
-  let accessToken: string | null = null
-  try {
-    const result = await auth.api.getAccessToken({
-      body: { providerId: PROVIDER_ID, userId },
-    })
-    accessToken = result.accessToken ?? null
-  } catch (error) {
-    console.error(`google-calendar: failed to get access token`, error)
-    return null
+  const result = await auth.api.getAccessToken({
+    body: { providerId: PROVIDER_ID, userId },
+  })
+  const accessToken = result.accessToken ?? null
+  if (!accessToken) {
+    throw new Error(
+      `Better Auth getAccessToken returned no access token (refresh token missing or revoked?)`
+    )
   }
-
-  if (!accessToken) return null
 
   const oauth = new OAuth2Client()
   oauth.setCredentials({ access_token: accessToken })
@@ -162,10 +165,9 @@ export async function syncIssueToCalendar(
   userId: string,
   issue: Issue
 ): Promise<void> {
-  const client = await getCalendarClient(userId)
-  if (!client) return
-
   try {
+    const client = await getCalendarClient(userId)
+    if (!client) return // user not connected — silent skip
     await reconcileIssueEvent(client, issue)
   } catch (error) {
     console.error(`google-calendar: sync failed for issue ${issue.id}`, error)
@@ -177,10 +179,9 @@ export async function deleteCalendarEventForIssue(
   userId: string,
   eventId: string
 ): Promise<void> {
-  const client = await getCalendarClient(userId)
-  if (!client) return
-
   try {
+    const client = await getCalendarClient(userId)
+    if (!client) return
     await client.events.delete({
       calendarId: CALENDAR_ID,
       eventId,
