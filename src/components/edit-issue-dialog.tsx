@@ -355,6 +355,25 @@ export function EditIssueDialog({
         await trpc.issues.update.mutate({
           id: issue.id,
           dueDate: formatDateForMutation(date),
+          // clearing the date also clears any times so we don't end up
+          // with timed events without a date.
+          ...(date ? {} : { dueTime: null, endTime: null }),
+        })
+      }}
+      dueTime={issue.dueTime ?? null}
+      endTime={issue.endTime ?? null}
+      onDueTimeChange={async (time) => {
+        await trpc.issues.update.mutate({
+          id: issue.id,
+          dueTime: time,
+          // dropping start time also drops end time
+          ...(time ? {} : { endTime: null }),
+        })
+      }}
+      onEndTimeChange={async (time) => {
+        await trpc.issues.update.mutate({
+          id: issue.id,
+          endTime: time,
         })
       }}
       chipRowExtras={recurrenceChip}

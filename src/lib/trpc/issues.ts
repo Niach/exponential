@@ -17,6 +17,7 @@ import {
   issueStatusSchema,
   recurrenceIntervalSchema,
   recurrenceUnitSchema,
+  timeOnlySchema,
 } from "@/lib/domain"
 import {
   extractAttachmentIdsFromDescription,
@@ -56,6 +57,8 @@ export const issuesRouter = router({
         assigneeId: z.string().nullable().optional(),
         description: issueDescriptionSchema.optional(),
         dueDate: dateOnlySchema.nullable().optional(),
+        dueTime: timeOnlySchema.nullable().optional(),
+        endTime: timeOnlySchema.nullable().optional(),
         labelIds: z.array(z.string().uuid()).optional(),
         recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
         recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
@@ -88,6 +91,8 @@ export const issuesRouter = router({
             assigneeId: input.assigneeId ?? null,
             description: input.description ?? null,
             dueDate: input.dueDate ?? null,
+            dueTime: input.dueTime ?? null,
+            endTime: input.endTime ?? null,
             recurrenceInterval: input.recurrenceInterval ?? null,
             recurrenceUnit: input.recurrenceUnit ?? null,
             creatorId: ctx.session.user.id,
@@ -139,6 +144,8 @@ export const issuesRouter = router({
         assigneeId: z.string().nullable().optional(),
         description: issueDescriptionSchema.nullable().optional(),
         dueDate: dateOnlySchema.nullable().optional(),
+        dueTime: timeOnlySchema.nullable().optional(),
+        endTime: timeOnlySchema.nullable().optional(),
         recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
         recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
       })

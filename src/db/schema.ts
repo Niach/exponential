@@ -8,6 +8,7 @@ import {
   pgTable,
   primaryKey,
   text,
+  time,
   timestamp,
   unique,
   uuid,
@@ -172,6 +173,8 @@ export const issues = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
     dueDate: date(`due_date`),
+    dueTime: time(`due_time`),
+    endTime: time(`end_time`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),

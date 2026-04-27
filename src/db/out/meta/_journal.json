@@ -36,6 +36,13 @@
       "when": 1777241835467,
       "tag": "0004_fancy_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777305776938,
+      "tag": "0005_regular_lady_vermin",
+      "breakpoints": true
     }
   ]
 }

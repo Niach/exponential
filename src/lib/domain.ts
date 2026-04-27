@@ -45,6 +45,7 @@ export const workspaceRoleSchema = z.enum(workspaceRoleValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const recurrenceIntervalSchema = z.number().int().min(1).max(999)
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+export const timeOnlySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/)
 
 export const issueDescriptionSchema = z.object({
   text: z.string(),

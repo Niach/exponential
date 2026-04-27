@@ -123,6 +123,8 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
     assigneeId: null,
     creatorId: `user-1`,
     dueDate: null,
+    dueTime: null,
+    endTime: null,
     sortOrder: 0,
     completedAt: null,
     archivedAt: null,

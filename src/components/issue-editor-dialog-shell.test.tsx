@@ -128,6 +128,10 @@ describe(`IssueEditorDialogShell`, () => {
         onAssigneeChange={onAssigneeChange}
         dueDate={undefined}
         onDueDateSelect={onDueDateSelect}
+        dueTime={null}
+        endTime={null}
+        onDueTimeChange={vi.fn()}
+        onEndTimeChange={vi.fn()}
         footer={<div>Footer content</div>}
       />
     )

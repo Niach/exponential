@@ -62,6 +62,10 @@ interface IssueEditorDialogShellProps {
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
   onDueDateSelect: (date: Date | undefined) => void | Promise<void>
+  dueTime: string | null
+  endTime: string | null
+  onDueTimeChange: (time: string | null) => void | Promise<void>
+  onEndTimeChange: (time: string | null) => void | Promise<void>
   onOpenChange: (open: boolean) => void
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onStatusChange: (status: IssueStatus) => void | Promise<void>
@@ -100,6 +104,10 @@ export function IssueEditorDialogShell({
   onDescriptionBlur,
   onDescriptionChange,
   onDueDateSelect,
+  dueTime,
+  endTime,
+  onDueTimeChange,
+  onEndTimeChange,
   onOpenChange,
   onPriorityChange,
   onStatusChange,
@@ -231,7 +239,9 @@ export function IssueEditorDialogShell({
                 disabled={disabled}
               >
                 <CalendarDays className="size-3" />
-                {dueDate ? formatDate(dueDate) : `Due date`}
+                {dueDate
+                  ? `${formatDate(dueDate)}${dueTime ? ` · ${dueTime.slice(0, 5)}` : ``}`
+                  : `Due date`}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
@@ -242,6 +252,43 @@ export function IssueEditorDialogShell({
                   void onDueDateSelect(date)
                 }}
               />
+              {dueDate && (
+                <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                  <span>Time</span>
+                  <Input
+                    type="time"
+                    value={dueTime?.slice(0, 5) ?? ``}
+                    onChange={(e) => {
+                      void onDueTimeChange(e.target.value || null)
+                    }}
+                    className="h-7 w-24 text-xs"
+                  />
+                  <span>–</span>
+                  <Input
+                    type="time"
+                    value={endTime?.slice(0, 5) ?? ``}
+                    onChange={(e) => {
+                      void onEndTimeChange(e.target.value || null)
+                    }}
+                    disabled={!dueTime}
+                    className="h-7 w-24 text-xs"
+                  />
+                  {(dueTime || endTime) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="ml-auto h-6 text-xs"
+                      onClick={() => {
+                        void onDueTimeChange(null)
+                        void onEndTimeChange(null)
+                      }}
+                    >
+                      All day
+                    </Button>
+                  )}
+                </div>
+              )}
             </PopoverContent>
           </Popover>
         )}

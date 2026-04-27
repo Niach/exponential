@@ -43,6 +43,21 @@ async function getCalendarClient(
   return calendar({ version: `v3`, auth: oauth })
 }
 
+const CALENDAR_TIME_ZONE = process.env.TZ ?? `Europe/Berlin`
+
+function normalizeTime(value: string): string {
+  // postgres returns "HH:MM:SS"; we accept "HH:MM" too. Strip seconds.
+  return value.length >= 5 ? value.slice(0, 5) : value
+}
+
+function addOneHour(time: string): string {
+  const [h, m] = normalizeTime(time).split(`:`).map(Number)
+  const total = h * 60 + m + 60
+  const nh = String(Math.floor(total / 60) % 24).padStart(2, `0`)
+  const nm = String(total % 60).padStart(2, `0`)
+  return `${nh}:${nm}`
+}
+
 function buildEventBody(issue: Issue): calendar_v3.Schema$Event {
   const descriptionText = getIssueDescriptionText(issue.description)
   const appUrl = process.env.BETTER_AUTH_URL ?? ``
@@ -53,11 +68,34 @@ function buildEventBody(issue: Issue): calendar_v3.Schema$Event {
     lines.push(descriptionText)
   }
 
+  const summary = `[${issue.identifier}] ${issue.title}`
+  const description = lines.join(`\n`)
+  const dueDate = issue.dueDate ?? undefined
+
+  if (issue.dueTime && dueDate) {
+    const startTime = normalizeTime(issue.dueTime)
+    const endTime = issue.endTime
+      ? normalizeTime(issue.endTime)
+      : addOneHour(startTime)
+    return {
+      summary,
+      description,
+      start: {
+        dateTime: `${dueDate}T${startTime}:00`,
+        timeZone: CALENDAR_TIME_ZONE,
+      },
+      end: {
+        dateTime: `${dueDate}T${endTime}:00`,
+        timeZone: CALENDAR_TIME_ZONE,
+      },
+    }
+  }
+
   return {
-    summary: `[${issue.identifier}] ${issue.title}`,
-    description: lines.join(`\n`),
-    start: { date: issue.dueDate ?? undefined },
-    end: { date: issue.dueDate ?? undefined },
+    summary,
+    description,
+    start: { date: dueDate },
+    end: { date: dueDate },
   }
 }
 

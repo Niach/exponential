@@ -19,6 +19,8 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     creatorId: `user-1`,
     description: { text: `Description` },
     dueDate: null,
+    dueTime: null,
+    endTime: null,
     id: `issue-1`,
     identifier: `APP-1`,
     number: 1,

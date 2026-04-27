@@ -89,6 +89,8 @@ export function CreateIssueDialog({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
   const [dueDate, setDueDate] = useState<Date | undefined>()
+  const [dueTime, setDueTime] = useState<string | null>(null)
+  const [endTime, setEndTime] = useState<string | null>(null)
   const [recurrence, setRecurrence] = useState<RecurrenceValue | null>(null)
   const [createMore, setCreateMore] = useState(false)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
@@ -156,6 +158,8 @@ export function CreateIssueDialog({
     setAssigneeId(null)
     setSelectedLabelIds([])
     setDueDate(undefined)
+    setDueTime(null)
+    setEndTime(null)
     setRecurrence((previous) =>
       previous ? { ...previous, firstDue: new Date() } : null
     )
@@ -265,6 +269,8 @@ export function CreateIssueDialog({
         dueDate: recurrence
           ? (formatDateForMutation(recurrence.firstDue) ?? undefined)
           : (formatDateForMutation(dueDate) ?? undefined),
+        dueTime: dueTime ?? undefined,
+        endTime: endTime ?? undefined,
         labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
         recurrenceInterval: recurrence?.interval,
         recurrenceUnit: recurrence?.unit,
@@ -447,6 +453,10 @@ export function CreateIssueDialog({
       onAssigneeChange={setAssigneeId}
       dueDate={dueDate}
       onDueDateSelect={setDueDate}
+      dueTime={dueTime}
+      endTime={endTime}
+      onDueTimeChange={setDueTime}
+      onEndTimeChange={setEndTime}
       hideDueDateChip={recurrence !== null}
       overflowMenuItems={overflowMenuItems}
       footer={

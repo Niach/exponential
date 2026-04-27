@@ -34,12 +34,41 @@ function AccountIntegrations() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [backfillStatus, setBackfillStatus] = useState<string | null>(null)
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const errorParam = params.get(`error`)
+    const backfillParam = params.get(`backfill`)
+    let cleanup = false
+
     if (errorParam) {
       setError(`Connection failed: ${errorParam}`)
       params.delete(`error`)
+      cleanup = true
+    }
+
+    if (backfillParam === `1` && status.connected) {
+      params.delete(`backfill`)
+      cleanup = true
+      setBackfillStatus(`Syncing existing issues to your calendar…`)
+      void trpc.integrations.google.backfill
+        .mutate()
+        .then((res) => {
+          setBackfillStatus(
+            res.scheduled > 0
+              ? `Synced ${res.scheduled} existing issue${res.scheduled === 1 ? `` : `s`} to your calendar.`
+              : `No existing issues with due dates to sync.`
+          )
+        })
+        .catch((err) => {
+          setBackfillStatus(
+            `Backfill failed: ${err instanceof Error ? err.message : String(err)}`
+          )
+        })
+    }
+
+    if (cleanup) {
       const newSearch = params.toString()
       window.history.replaceState(
         {},
@@ -47,7 +76,7 @@ function AccountIntegrations() {
         window.location.pathname + (newSearch ? `?${newSearch}` : ``)
       )
     }
-  }, [])
+  }, [status.connected])
 
   const handleConnect = async () => {
     setBusy(true)
@@ -55,7 +84,7 @@ function AccountIntegrations() {
     try {
       await authClient.linkSocial({
         provider: `google`,
-        callbackURL: `/account/integrations`,
+        callbackURL: `/account/integrations?backfill=1`,
         scopes: [`https://www.googleapis.com/auth/calendar.events`],
       })
     } catch (err) {
@@ -150,6 +179,11 @@ function AccountIntegrations() {
           {error && (
             <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
+            </div>
+          )}
+          {backfillStatus && (
+            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              {backfillStatus}
             </div>
           )}
         </CardContent>
