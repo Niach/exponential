@@ -197,7 +197,21 @@ OIDC_CLIENT_ID                # OAuth2 client ID
 OIDC_CLIENT_SECRET            # OAuth2 client secret
 OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
 OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
+GOOGLE_CLIENT_ID              # Google OAuth client ID (enables Calendar integration)
+GOOGLE_CLIENT_SECRET          # Google OAuth client secret
 ```
+
+## Integrations
+
+### Google Calendar
+
+Per-user opt-in. User connects via `/account/integrations` (sidebar user dropdown → Integrations). Linking uses Better Auth's `authClient.linkSocial({ provider: 'google', scopes: ['https://www.googleapis.com/auth/calendar.events'] })`. Tokens are stored in the existing `accounts` table with `providerId='google'`; access tokens are auto-refreshed via `auth.api.getAccessToken`.
+
+Sync logic is in `src/lib/google-calendar.ts` and is invoked via `fireAndForgetSync` / `fireAndForgetDelete` from `src/lib/trpc/issues.ts` after each create/update/delete commits. Failures are logged and persisted to `issues.googleCalendarLastSyncError` but never block the mutation. The sync is one-way (issue → calendar) and writes all-day events to the user's primary calendar:
+
+- Issue has `dueDate` AND status not in `done`/`cancelled` AND not archived → event exists
+- Otherwise → no event
+- `issues.googleCalendarEventId` tracks the synced event ID
 
 ## Style Conventions
 

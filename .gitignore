@@ -6,6 +6,7 @@ dist-ssr
 *.local
 count.txt
 .env
+.claude
 .nitro
 .tanstack
 .output

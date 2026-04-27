@@ -41,6 +41,7 @@ import {
   Plus,
   Settings,
   Check,
+  Plug,
 } from "lucide-react"
 import {
   useWorkspaceBySlug,
@@ -216,6 +217,13 @@ function WorkspaceLayout() {
               </SidebarMenuButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuItem
+                onClick={() => navigate({ to: `/account/integrations` })}
+              >
+                <Plug className="mr-2 h-4 w-4" />
+                Integrations
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign out

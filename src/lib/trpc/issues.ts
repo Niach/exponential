@@ -25,6 +25,10 @@ import {
   stripMarkdownImages,
 } from "@/lib/issue-attachments"
 import { deleteObject } from "@/lib/storage"
+import {
+  fireAndForgetDelete,
+  fireAndForgetSync,
+} from "@/lib/google-calendar"
 
 function assertRecurrencePair(
   interval: number | null | undefined,
@@ -72,7 +76,7 @@ export const issuesRouter = router({
         })
       }
 
-      return await ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
           .insert(issues)
@@ -117,6 +121,12 @@ export const issuesRouter = router({
 
         return { issue, txId }
       })
+
+      if (result.issue.dueDate) {
+        fireAndForgetSync(ctx.session.user.id, result.issue)
+      }
+
+      return result
     }),
 
   update: authedProcedure
@@ -148,7 +158,7 @@ export const issuesRouter = router({
 
       const deletedStorageKeys: string[] = []
 
-      const { issue } = await ctx.db.transaction(async (tx) => {
+      const { issue, clonedIssue } = await ctx.db.transaction(async (tx) => {
         const [currentIssue] = await tx
           .select({
             description: issues.description,
@@ -290,7 +300,7 @@ export const issuesRouter = router({
             ? { text: stripMarkdownImages(sourceDescriptionText) }
             : null
 
-          const [clonedIssue] = await tx
+          const [insertedClone] = await tx
             .insert(issues)
             .values({
               projectId: currentIssue.projectId,
@@ -304,17 +314,19 @@ export const issuesRouter = router({
               recurrenceUnit: nextRecurrenceUnit,
               creatorId: ctx.session.user.id,
             })
-            .returning({ id: issues.id })
+            .returning()
 
           await tx.execute(sql`
             INSERT INTO ${issueLabels} (issue_id, label_id, workspace_id)
-            SELECT ${clonedIssue.id}::uuid, label_id, workspace_id
+            SELECT ${insertedClone.id}::uuid, label_id, workspace_id
             FROM ${issueLabels}
             WHERE issue_id = ${id}::uuid
           `)
+
+          return { issue, clonedIssue: insertedClone }
         }
 
-        return { issue }
+        return { issue, clonedIssue: null }
       })
 
       if (deletedStorageKeys.length > 0) {
@@ -329,6 +341,11 @@ export const issuesRouter = router({
         )
       }
 
+      fireAndForgetSync(ctx.session.user.id, issue)
+      if (clonedIssue) {
+        fireAndForgetSync(ctx.session.user.id, clonedIssue)
+      }
+
       return { issue }
     }),
 
@@ -339,6 +356,7 @@ export const issuesRouter = router({
       await assertProjectMember(ctx.session.user.id, issueContext.projectId)
 
       const storageKeys: Array<string> = []
+      let googleCalendarEventId: string | null = null
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -352,7 +370,10 @@ export const issuesRouter = router({
         const deleted = await tx
           .delete(issues)
           .where(eq(issues.id, input.id))
-          .returning({ id: issues.id })
+          .returning({
+            id: issues.id,
+            googleCalendarEventId: issues.googleCalendarEventId,
+          })
 
         if (deleted.length === 0) {
           throw new TRPCError({
@@ -361,6 +382,7 @@ export const issuesRouter = router({
           })
         }
 
+        googleCalendarEventId = deleted[0].googleCalendarEventId
         return { txId, id: deleted[0].id }
       })
 
@@ -374,6 +396,10 @@ export const issuesRouter = router({
             }
           })
         )
+      }
+
+      if (googleCalendarEventId) {
+        fireAndForgetDelete(ctx.session.user.id, googleCalendarEventId)
       }
 
       return result

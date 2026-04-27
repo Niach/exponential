@@ -29,6 +29,13 @@
       "when": 1777231000000,
       "tag": "0003_issue_labels_workspace_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777241835467,
+      "tag": "0004_fancy_gamora",
+      "breakpoints": true
     }
   ]
 }

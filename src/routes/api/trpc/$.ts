@@ -11,6 +11,7 @@ import { labelsRouter } from "@/lib/trpc/labels"
 import { workspaceInvitesRouter } from "@/lib/trpc/workspace-invites"
 import { workspaceMembersRouter } from "@/lib/trpc/workspace-members"
 import { usersRouter } from "@/lib/trpc/users"
+import { integrationsRouter } from "@/lib/trpc/integrations"
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   workspaceInvites: workspaceInvitesRouter,
   workspaceMembers: workspaceMembersRouter,
   users: usersRouter,
+  integrations: integrationsRouter,
 })
 
 export type AppRouter = typeof appRouter

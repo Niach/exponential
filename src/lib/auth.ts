@@ -6,6 +6,9 @@ import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 
 const oidcEnabled = process.env.AUTH_OIDC_ENABLED === `true`
+const googleCalendarEnabled = Boolean(
+  process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+)
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -21,6 +24,16 @@ export const auth = betterAuth({
   trustedOrigins: (process.env.BETTER_AUTH_TRUSTED_ORIGINS || ``)
     .split(`,`)
     .filter(Boolean),
+  socialProviders: googleCalendarEnabled
+    ? {
+        google: {
+          clientId: process.env.GOOGLE_CLIENT_ID!,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+          accessType: `offline`,
+          prompt: `select_account consent`,
+        },
+      }
+    : undefined,
   plugins: [
     tanstackStartCookies(),
     ...(oidcEnabled

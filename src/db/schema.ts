@@ -177,6 +177,11 @@ export const issues = pgTable(
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     recurrenceInterval: integer(`recurrence_interval`),
     recurrenceUnit: recurrenceUnitEnum(`recurrence_unit`),
+    googleCalendarEventId: varchar(`google_calendar_event_id`, { length: 1024 }),
+    googleCalendarLastSyncedAt: timestamp(`google_calendar_last_synced_at`, {
+      withTimezone: true,
+    }),
+    googleCalendarLastSyncError: text(`google_calendar_last_sync_error`),
     ...timestamps,
   },
   (table) => [
