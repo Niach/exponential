@@ -36,6 +36,13 @@ Custom SQL triggers must be applied manually after migrations:
 docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
 ```
 
+## Pushing
+
+Always use `git pushsync` instead of `git push` for this repo. It pushes
+commits + tags to GitHub (`origin`) and then triggers the Gitea mirror
+sync via the Gitea API so the home server starts building the new image
+immediately. The alias lives in `.git/config` (not committed).
+
 ## Project Structure
 
 ```
