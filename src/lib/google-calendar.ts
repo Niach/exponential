@@ -77,14 +77,19 @@ function buildEventBody(issue: Issue): calendar_v3.Schema$Event {
     const endTime = issue.endTime
       ? normalizeTime(issue.endTime)
       : addOneHour(startTime)
+    // Explicitly null the unused field so a patch from all-day → timed
+    // (or back) doesn't leave both `date` and `dateTime` populated, which
+    // Google rejects with "Invalid start time."
     return {
       summary,
       description,
       start: {
+        date: null,
         dateTime: `${dueDate}T${startTime}:00`,
         timeZone: CALENDAR_TIME_ZONE,
       },
       end: {
+        date: null,
         dateTime: `${dueDate}T${endTime}:00`,
         timeZone: CALENDAR_TIME_ZONE,
       },
@@ -94,8 +99,8 @@ function buildEventBody(issue: Issue): calendar_v3.Schema$Event {
   return {
     summary,
     description,
-    start: { date: dueDate },
-    end: { date: dueDate },
+    start: { date: dueDate, dateTime: null, timeZone: null },
+    end: { date: dueDate, dateTime: null, timeZone: null },
   }
 }
 
