@@ -34,6 +34,21 @@ export const auth = betterAuth({
         },
       }
     : undefined,
+  // Without this, Better Auth refuses to attach a Google account to a
+  // user that signed in via genericOAuth (Authentik) — the OAuth flow
+  // completes on Google's side but the accounts row never lands.
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: [`google`, `authentik`],
+    },
+  },
+  logger: {
+    level: `debug`,
+    log: (level, message, ...args) => {
+      console.log(`[better-auth][${level}] ${message}`, ...args)
+    },
+  },
   plugins: [
     tanstackStartCookies(),
     ...(oidcEnabled
