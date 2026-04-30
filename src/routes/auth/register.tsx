@@ -27,15 +27,19 @@ export const Route = createFileRoute(`/auth/register`)({
   }),
 })
 
+const GOOGLE_PROVIDER_KEY = `__google__`
+
 function RegisterPage() {
   const { redirect: redirectTo } = Route.useSearch()
-  const { oidcEnabled, oidcProviderId } = Route.useLoaderData()
+  const { oidcProviders, googleLoginEnabled } = Route.useLoaderData()
   const [name, setName] = useState(``)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
-  const [isOidcLoading, setIsOidcLoading] = useState(false)
+  const [pendingProvider, setPendingProvider] = useState<string | null>(null)
   const [error, setError] = useState(``)
+
+  const hasOauthOptions = oidcProviders.length > 0 || googleLoginEnabled
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -63,18 +67,31 @@ function RegisterPage() {
     }
   }
 
-  const handleOidcSignIn = async () => {
-    setIsOidcLoading(true)
+  const handleOidcSignIn = async (providerId: string) => {
+    setPendingProvider(providerId)
     setError(``)
-
     try {
       await authClient.signIn.oauth2({
-        providerId: oidcProviderId,
+        providerId,
         callbackURL: redirectTo || `/`,
       })
     } catch {
       setError(`An unexpected error occurred`)
-      setIsOidcLoading(false)
+      setPendingProvider(null)
+    }
+  }
+
+  const handleGoogleSignIn = async () => {
+    setPendingProvider(GOOGLE_PROVIDER_KEY)
+    setError(``)
+    try {
+      await authClient.signIn.social({
+        provider: `google`,
+        callbackURL: redirectTo || `/`,
+      })
+    } catch {
+      setError(`An unexpected error occurred`)
+      setPendingProvider(null)
     }
   }
 
@@ -96,27 +113,44 @@ function RegisterPage() {
       }
     >
       <div className="space-y-4">
-        {oidcEnabled && (
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled={isOidcLoading}
-              onClick={handleOidcSignIn}
-            >
-              {isOidcLoading ? `Redirecting...` : `Sign up with Authentik`}
-            </Button>
+        {oidcProviders.map((provider) => (
+          <Button
+            key={provider.id}
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={pendingProvider !== null}
+            onClick={() => handleOidcSignIn(provider.id)}
+          >
+            {pendingProvider === provider.id
+              ? `Redirecting...`
+              : `Sign up with ${provider.name}`}
+          </Button>
+        ))}
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">or</span>
-              </div>
+        {googleLoginEnabled && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={pendingProvider !== null}
+            onClick={handleGoogleSignIn}
+          >
+            {pendingProvider === GOOGLE_PROVIDER_KEY
+              ? `Redirecting...`
+              : `Sign up with Google`}
+          </Button>
+        )}
+
+        {hasOauthOptions && (
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
             </div>
-          </>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
