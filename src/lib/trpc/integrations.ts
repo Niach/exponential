@@ -5,6 +5,12 @@ import { fireAndForgetSync } from "@/lib/google-calendar"
 import { getUserWorkspaceIds } from "@/lib/workspace-membership"
 
 const GOOGLE_PROVIDER_ID = `google`
+const CALENDAR_SCOPE = `https://www.googleapis.com/auth/calendar.events`
+
+function hasCalendarScope(scope: string | null | undefined): boolean {
+  if (!scope) return false
+  return scope.split(/\s+/).includes(CALENDAR_SCOPE)
+}
 
 export const integrationsRouter = router({
   google: router({
@@ -24,7 +30,10 @@ export const integrationsRouter = router({
         )
         .limit(1)
 
-      if (!account) {
+      // A row may exist from "Sign in with Google" without the calendar
+      // scope. Treat that as not-connected so the UI offers the Connect
+      // button, which upgrades scopes via linkSocial.
+      if (!account || !hasCalendarScope(account.scope)) {
         return { connected: false as const }
       }
 
