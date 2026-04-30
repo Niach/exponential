@@ -15,6 +15,8 @@ import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
+import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
+import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiShapesWorkspacesRouteImport } from './routes/api/shapes/workspaces'
 import { Route as ApiShapesWorkspaceMembersRouteImport } from './routes/api/shapes/workspace-members'
@@ -26,6 +28,8 @@ import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
+import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
+import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAccountIntegrationsRouteImport } from './routes/_authenticated/account/integrations'
 import { Route as AuthenticatedWWorkspaceSlugRouteRouteImport } from './routes/_authenticated/w/$workspaceSlug/route'
 import { Route as AuthenticatedWWorkspaceSlugIndexRouteImport } from './routes/_authenticated/w/$workspaceSlug/index'
@@ -61,6 +65,16 @@ const ApiMcpRoute = ApiMcpRouteImport.update({
   id: '/api/mcp',
   path: '/api/mcp',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
 const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
   id: '/api/trpc/$',
@@ -120,6 +134,17 @@ const ApiAttachmentsAttachmentIdRoute =
     path: '/api/attachments/$attachmentId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AuthenticatedAdminWorkspacesRoute =
+  AuthenticatedAdminWorkspacesRouteImport.update({
+    id: '/workspaces',
+    path: '/workspaces',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
+const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
 const AuthenticatedAccountIntegrationsRoute =
   AuthenticatedAccountIntegrationsRouteImport.update({
     id: '/account/integrations',
@@ -158,12 +183,15 @@ const AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/api/mcp': typeof ApiMcpRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
   '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
+  '/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
@@ -175,6 +203,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/': typeof AuthenticatedWWorkspaceSlugIndexRoute
   '/w/$workspaceSlug/settings/': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
@@ -187,6 +216,8 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
   '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
+  '/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
@@ -198,6 +229,7 @@ export interface FileRoutesByTo {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugIndexRoute
   '/w/$workspaceSlug/settings': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
@@ -207,12 +239,15 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/api/mcp': typeof ApiMcpRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
   '/_authenticated/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
   '/_authenticated/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
+  '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
@@ -224,6 +259,7 @@ export interface FileRoutesById {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/_authenticated/w/$workspaceSlug/': typeof AuthenticatedWWorkspaceSlugIndexRoute
   '/_authenticated/w/$workspaceSlug/settings/': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
@@ -233,12 +269,15 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/api/mcp'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
     | '/w/$workspaceSlug'
     | '/account/integrations'
+    | '/admin/users'
+    | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/shapes/issue-labels'
@@ -250,6 +289,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/admin/'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/'
     | '/w/$workspaceSlug/settings/'
@@ -262,6 +302,8 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/invite/$token'
     | '/account/integrations'
+    | '/admin/users'
+    | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/shapes/issue-labels'
@@ -273,6 +315,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/admin'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug'
     | '/w/$workspaceSlug/settings'
@@ -281,12 +324,15 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/_authenticated/admin'
     | '/api/mcp'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
     | '/_authenticated/w/$workspaceSlug'
     | '/_authenticated/account/integrations'
+    | '/_authenticated/admin/users'
+    | '/_authenticated/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/shapes/issue-labels'
@@ -298,6 +344,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/_authenticated/admin/'
     | '/api/issues/$issueId/images'
     | '/_authenticated/w/$workspaceSlug/'
     | '/_authenticated/w/$workspaceSlug/settings/'
@@ -368,6 +415,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/mcp'
       preLoaderRoute: typeof ApiMcpRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/admin/': {
+      id: '/_authenticated/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
     }
     '/api/trpc/$': {
       id: '/api/trpc/$'
@@ -446,6 +507,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAttachmentsAttachmentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/admin/workspaces': {
+      id: '/_authenticated/admin/workspaces'
+      path: '/workspaces'
+      fullPath: '/admin/workspaces'
+      preLoaderRoute: typeof AuthenticatedAdminWorkspacesRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/users': {
+      id: '/_authenticated/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
     '/_authenticated/account/integrations': {
       id: '/_authenticated/account/integrations'
       path: '/account/integrations'
@@ -491,6 +566,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedAdminRouteRouteChildren {
+  AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
+  AuthenticatedAdminWorkspacesRoute: typeof AuthenticatedAdminWorkspacesRoute
+  AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
+}
+
+const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
+  {
+    AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
+    AuthenticatedAdminWorkspacesRoute: AuthenticatedAdminWorkspacesRoute,
+    AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
+  }
+
+const AuthenticatedAdminRouteRouteWithChildren =
+  AuthenticatedAdminRouteRoute._addFileChildren(
+    AuthenticatedAdminRouteRouteChildren,
+  )
+
 interface AuthenticatedWWorkspaceSlugRouteRouteChildren {
   AuthenticatedWWorkspaceSlugIndexRoute: typeof AuthenticatedWWorkspaceSlugIndexRoute
   AuthenticatedWWorkspaceSlugSettingsIndexRoute: typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
@@ -513,11 +606,13 @@ const AuthenticatedWWorkspaceSlugRouteRouteWithChildren =
   )
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedWWorkspaceSlugRouteRoute: typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
   AuthenticatedAccountIntegrationsRoute: typeof AuthenticatedAccountIntegrationsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
   AuthenticatedWWorkspaceSlugRouteRoute:
     AuthenticatedWWorkspaceSlugRouteRouteWithChildren,
   AuthenticatedAccountIntegrationsRoute: AuthenticatedAccountIntegrationsRoute,

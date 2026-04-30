@@ -1,17 +1,21 @@
 import { createAuthClient } from "better-auth/react"
-import { genericOAuthClient } from "better-auth/client/plugins"
+import {
+  genericOAuthClient,
+  inferAdditionalFields,
+} from "better-auth/client/plugins"
 import {
   createCollection,
   localOnlyCollectionOptions,
 } from "@tanstack/react-db"
 import { z } from "zod"
+import type { auth } from "@/lib/auth"
 
 export const authClient = createAuthClient({
   baseURL:
     typeof window !== `undefined`
       ? window.location.origin
       : undefined,
-  plugins: [genericOAuthClient()],
+  plugins: [genericOAuthClient(), inferAdditionalFields<typeof auth>()],
 })
 
 type SessionData = NonNullable<

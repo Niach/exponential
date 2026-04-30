@@ -43,6 +43,7 @@ import {
   Settings,
   Check,
   Plug,
+  Shield,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { Project } from "@/db/schema"
@@ -220,6 +221,14 @@ function WorkspaceLayout() {
               </SidebarMenuButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">
+              {(session?.user as { isAdmin?: boolean })?.isAdmin && (
+                <DropdownMenuItem
+                  onClick={() => navigate({ to: `/admin/users` })}
+                >
+                  <Shield className="mr-2 h-4 w-4" />
+                  Admin
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => navigate({ to: `/account/integrations` })}
               >

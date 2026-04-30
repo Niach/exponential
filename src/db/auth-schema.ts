@@ -8,6 +8,9 @@ export const users = pgTable(`users`, {
     .$defaultFn(() => false)
     .notNull(),
   image: text(`image`),
+  isAdmin: boolean(`is_admin`)
+    .$defaultFn(() => false)
+    .notNull(),
   createdAt: timestamp(`created_at`)
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),

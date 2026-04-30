@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/db/connection"
 import { sql } from "drizzle-orm"
+import { assertAdmin } from "@/lib/admin"
 
 export type Context = {
   session: Awaited<ReturnType<typeof auth.api.getSession>>
@@ -28,6 +29,21 @@ export const isAuthed = middleware(async ({ ctx, next }) => {
 })
 
 export const authedProcedure = procedure.use(isAuthed)
+
+export const isAdmin = middleware(async ({ ctx, next }) => {
+  if (!ctx.session?.user) {
+    throw new TRPCError({ code: `UNAUTHORIZED` })
+  }
+  await assertAdmin(ctx.session.user.id)
+  return next({
+    ctx: {
+      ...ctx,
+      session: ctx.session,
+    },
+  })
+})
+
+export const adminProcedure = procedure.use(isAdmin)
 
 // Helper function to generate transaction ID for Electric sync
 export async function generateTxId(
