@@ -31,7 +31,7 @@ export function PrivacyPage() {
             (“Exponential”, “the app”) accesses, uses, stores, shares, retains,
             and protects Google user data when you choose to sign in with
             Google or connect your Google Calendar. Exponential is operated by
-            Daniel Strähhuber as a personal, self-hosted issue tracker. There
+            Dennis Strähhuber as a personal, self-hosted issue tracker. There
             is no commercial service, no shared backend, and no central
             database aggregating user data across installs.
           </p>
