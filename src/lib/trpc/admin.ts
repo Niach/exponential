@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts } from "@/db/auth-schema"
 import { workspaces, workspaceMembers, projects } from "@/db/schema"
@@ -90,27 +90,72 @@ export const adminRouter = router({
     }),
 
   listWorkspaces: adminProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db
+    const wsRows = await ctx.db
       .select({
         id: workspaces.id,
         name: workspaces.name,
         slug: workspaces.slug,
         createdAt: workspaces.createdAt,
-        memberCount: sql<number>`(select count(*)::int from ${workspaceMembers} where ${workspaceMembers.workspaceId} = ${workspaces.id})`,
-        projectCount: sql<number>`(select count(*)::int from ${projects} where ${projects.workspaceId} = ${workspaces.id})`,
-        owners: sql<
-          { id: string; name: string; email: string }[]
-        >`coalesce((
-          select json_agg(json_build_object('id', u.id, 'name', u.name, 'email', u.email))
-          from ${workspaceMembers} wm
-          join ${users} u on u.id = wm.user_id
-          where wm.workspace_id = ${workspaces.id} and wm.role = 'owner'
-        ), '[]'::json)`,
       })
       .from(workspaces)
       .orderBy(desc(workspaces.createdAt))
 
-    return rows
+    if (wsRows.length === 0) return []
+
+    const ids = wsRows.map((w) => w.id)
+
+    const [memberRows, projectRows, ownerRows] = await Promise.all([
+      ctx.db
+        .select({
+          workspaceId: workspaceMembers.workspaceId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(workspaceMembers)
+        .where(inArray(workspaceMembers.workspaceId, ids))
+        .groupBy(workspaceMembers.workspaceId),
+      ctx.db
+        .select({
+          workspaceId: projects.workspaceId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(projects)
+        .where(inArray(projects.workspaceId, ids))
+        .groupBy(projects.workspaceId),
+      ctx.db
+        .select({
+          workspaceId: workspaceMembers.workspaceId,
+          userId: users.id,
+          name: users.name,
+          email: users.email,
+        })
+        .from(workspaceMembers)
+        .innerJoin(users, eq(users.id, workspaceMembers.userId))
+        .where(
+          and(
+            inArray(workspaceMembers.workspaceId, ids),
+            eq(workspaceMembers.role, `owner`)
+          )
+        ),
+    ])
+
+    const memberCounts = new Map(memberRows.map((r) => [r.workspaceId, r.count]))
+    const projectCounts = new Map(projectRows.map((r) => [r.workspaceId, r.count]))
+    const ownersByWs = new Map<
+      string,
+      { id: string; name: string; email: string }[]
+    >()
+    for (const o of ownerRows) {
+      const list = ownersByWs.get(o.workspaceId) ?? []
+      list.push({ id: o.userId, name: o.name, email: o.email })
+      ownersByWs.set(o.workspaceId, list)
+    }
+
+    return wsRows.map((w) => ({
+      ...w,
+      memberCount: memberCounts.get(w.id) ?? 0,
+      projectCount: projectCounts.get(w.id) ?? 0,
+      owners: ownersByWs.get(w.id) ?? [],
+    }))
   }),
 
   deleteWorkspace: adminProcedure
