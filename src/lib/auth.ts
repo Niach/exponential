@@ -60,9 +60,14 @@ export function parseOidcProviders(): OidcProviderConfig[] {
 }
 
 const oidcProviders = parseOidcProviders()
-const googleCalendarEnabled = Boolean(
+const googleClientConfigured = Boolean(
   process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
 )
+const googleLoginEnabled =
+  googleClientConfigured && process.env.GOOGLE_LOGIN_ENABLED === `true`
+const googleCalendarEnabled =
+  googleClientConfigured && process.env.GOOGLE_CALENDAR_ENABLED === `true`
+const googleSocialEnabled = googleLoginEnabled || googleCalendarEnabled
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -78,7 +83,7 @@ export const auth = betterAuth({
   trustedOrigins: (process.env.BETTER_AUTH_TRUSTED_ORIGINS || ``)
     .split(`,`)
     .filter(Boolean),
-  socialProviders: googleCalendarEnabled
+  socialProviders: googleSocialEnabled
     ? {
         google: {
           clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -94,7 +99,10 @@ export const auth = betterAuth({
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: [...oidcProviders.map((p) => p.id), `google`],
+      trustedProviders: [
+        ...oidcProviders.map((p) => p.id),
+        ...(googleSocialEnabled ? [`google`] : []),
+      ],
       // Logged-in user's email (from an OIDC provider) likely differs from
       // their Google account email — without this, Better Auth refuses to link.
       allowDifferentEmails: true,

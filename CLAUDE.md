@@ -204,8 +204,10 @@ OIDC_CLIENT_ID                # OAuth2 client ID
 OIDC_CLIENT_SECRET            # OAuth2 client secret
 OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
 OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
-GOOGLE_CLIENT_ID              # Google OAuth client ID (enables Calendar integration)
+GOOGLE_CLIENT_ID              # Google OAuth client ID (required for login or Calendar)
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
+GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
+GOOGLE_CALENDAR_ENABLED       # Enable Google Calendar integration (default: false)
 ```
 
 ## Integrations
