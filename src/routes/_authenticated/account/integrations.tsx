@@ -48,7 +48,7 @@ function AccountIntegrations() {
       cleanup = true
     }
 
-    if (backfillParam === `1` && status.connected) {
+    if (backfillParam === `1` && !errorParam) {
       params.delete(`backfill`)
       cleanup = true
       setBackfillStatus(`Syncing existing issues to your calendar…`)
@@ -60,6 +60,9 @@ function AccountIntegrations() {
               ? `Synced ${res.scheduled} existing issue${res.scheduled === 1 ? `` : `s`} to your calendar.`
               : `No existing issues with due dates to sync.`
           )
+          // Backfill marks calendar.events scope as granted; re-fetch loader
+          // data so the status flips from not-connected to connected.
+          void router.invalidate()
         })
         .catch((err) => {
           setBackfillStatus(

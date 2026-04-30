@@ -64,6 +64,37 @@ export const integrationsRouter = router({
      */
     backfill: authedProcedure.mutation(async ({ ctx }) => {
       const userId = ctx.session.user.id
+
+      // Better Auth's linkSocial upgrades the access/refresh tokens with the
+      // newly granted scopes but doesn't always rewrite accounts.scope, so
+      // the row keeps its login-time scope (`openid profile email`). Mark
+      // calendar.events as granted here — backfill only runs after a
+      // successful linkSocial callback (`?backfill=1` redirect), which means
+      // Google did grant the scope.
+      const [existing] = await ctx.db
+        .select({ scope: accounts.scope })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.userId, userId),
+            eq(accounts.providerId, GOOGLE_PROVIDER_ID)
+          )
+        )
+        .limit(1)
+      if (existing && !hasCalendarScope(existing.scope)) {
+        const merged = (existing.scope ?? ``).split(/\s+/).filter(Boolean)
+        merged.push(CALENDAR_SCOPE)
+        await ctx.db
+          .update(accounts)
+          .set({ scope: merged.join(` `), updatedAt: new Date() })
+          .where(
+            and(
+              eq(accounts.userId, userId),
+              eq(accounts.providerId, GOOGLE_PROVIDER_ID)
+            )
+          )
+      }
+
       const workspaceIds = await getUserWorkspaceIds(userId)
       if (workspaceIds.length === 0) {
         return { ok: true as const, scheduled: 0 }
