@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.IssueDescription
+import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.db.IssueDao
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelDao
@@ -22,6 +24,8 @@ import com.exponential.app.domain.deriveTab
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.matchesFilters
 import com.exponential.app.domain.statuses
+import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
+import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -57,6 +61,9 @@ class IssueListViewModel @Inject constructor(
     private val issueLabelDao: IssueLabelDao,
     private val labelDao: LabelDao,
     private val issuesApi: IssuesApi,
+    private val issueImagesApi: IssueImagesApi,
+    @dagger.hilt.android.qualifiers.ApplicationContext
+    private val appContext: android.content.Context,
 ) : ViewModel() {
 
     private val projectId: String = savedStateHandle["projectId"] ?: ""
@@ -171,27 +178,74 @@ class IssueListViewModel @Inject constructor(
         priority: IssuePriority,
         description: String?,
         dueDate: String?,
+        pendingImages: Map<String, android.net.Uri> = emptyMap(),
     ) {
         if (title.isBlank()) return
         viewModelScope.launch {
             _busy.value = true
             _error.value = null
             try {
-                issuesApi.create(
+                val rawDescription = description?.takeIf { it.isNotBlank() }
+                val strippedDescription = rawDescription
+                    ?.let { removeMarkdownImagesByUrl(it, pendingImages.keys) }
+                    ?.takeIf { it.isNotBlank() }
+
+                val created = issuesApi.create(
                     CreateIssueInput(
                         projectId = projectId,
                         title = title.trim(),
                         status = status.wire,
                         priority = priority.wire,
-                        description = description?.takeIf { it.isNotBlank() }?.let { IssueDescription(it) },
+                        description = strippedDescription?.let { IssueDescription(it) },
                         dueDate = dueDate,
                     )
                 )
+
+                if (rawDescription != null && pendingImages.isNotEmpty()) {
+                    val urlByPlaceholder = uploadPendingImages(created.id, pendingImages)
+                    val finalDescription = replaceMarkdownImageUrls(
+                        markdown = removeMarkdownImagesByUrl(
+                            rawDescription,
+                            pendingImages.keys.minus(urlByPlaceholder.keys),
+                        ),
+                        replacements = urlByPlaceholder,
+                    )
+                    if (finalDescription != strippedDescription.orEmpty() && finalDescription.isNotBlank()) {
+                        issuesApi.update(
+                            UpdateIssueInput(id = created.id, description = IssueDescription(finalDescription))
+                        )
+                    }
+                }
             } catch (error: Throwable) {
                 _error.value = error.message ?: "Failed to create issue"
             } finally {
                 _busy.value = false
             }
         }
+    }
+
+    private suspend fun uploadPendingImages(
+        issueId: String,
+        pending: Map<String, android.net.Uri>,
+    ): Map<String, String> {
+        val out = mutableMapOf<String, String>()
+        val resolver = appContext.contentResolver
+        for ((placeholder, uri) in pending) {
+            try {
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
+                val contentType = resolver.getType(uri) ?: "image/jpeg"
+                val filename = run {
+                    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+                    } ?: uri.lastPathSegment ?: "image"
+                }
+                val uploaded = issueImagesApi.upload(issueId, bytes, filename, contentType)
+                out[placeholder] = uploaded.url
+            } catch (_: Throwable) {
+                // Skip this image; placeholder will be stripped from final description.
+            }
+        }
+        return out
     }
 }

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +18,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,6 +40,7 @@ import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
 import com.exponential.app.ui.markdown.MarkdownEditor
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +54,7 @@ fun CreateIssueSheet(
         priority: IssuePriority,
         description: String?,
         dueDate: String?,
+        pendingImages: Map<String, Uri>,
         keepOpen: Boolean,
     ) -> Unit,
 ) {
@@ -65,6 +68,14 @@ fun CreateIssueSheet(
     var statusMenuOpen by remember { mutableStateOf(false) }
     var priorityMenuOpen by remember { mutableStateOf(false) }
     var datePickerOpen by remember { mutableStateOf(false) }
+
+    // Image upload defers actual /api/issues/<id>/images calls until after the
+    // issue exists. Picking an image stashes its content URI under a stable
+    // placeholder URL ("draft://<uuid>") that is inserted into the markdown so
+    // the editor can preview it. On submit, the parent VM strips placeholders,
+    // creates the issue, uploads each image, then updates the description with
+    // the real URLs.
+    val pendingImages = remember { mutableStateMapOf<String, Uri>() }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
@@ -83,8 +94,12 @@ fun CreateIssueSheet(
                 markdown = description,
                 editable = true,
                 onChange = { description = it },
-                onUploadImage = null,
-                imageUploadEnabled = false,
+                onUploadImage = { uri ->
+                    val placeholder = "draft://${UUID.randomUUID()}"
+                    pendingImages[placeholder] = uri
+                    placeholder
+                },
+                imageUploadEnabled = true,
                 placeholder = "Description (markdown supported)",
                 minHeight = 120.dp,
             )
@@ -141,10 +156,19 @@ fun CreateIssueSheet(
                 Button(
                     enabled = !isCreating && title.isNotBlank(),
                     onClick = {
-                        onCreate(title, status, priority, description, dueDate, createMore)
+                        onCreate(
+                            title,
+                            status,
+                            priority,
+                            description,
+                            dueDate,
+                            pendingImages.toMap(),
+                            createMore,
+                        )
                         if (createMore) {
                             title = ""
                             description = ""
+                            pendingImages.clear()
                         }
                     },
                 ) {

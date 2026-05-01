@@ -135,8 +135,8 @@ fun IssueListScreen(
             isCreating = state.isCreating,
             error = state.error,
             onDismiss = { showCreate = false },
-            onCreate = { title, status, priority, description, dueDate, keepOpen ->
-                viewModel.createIssue(title, status, priority, description, dueDate)
+            onCreate = { title, status, priority, description, dueDate, pendingImages, keepOpen ->
+                viewModel.createIssue(title, status, priority, description, dueDate, pendingImages)
                 if (!keepOpen) showCreate = false
             },
         )
