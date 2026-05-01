@@ -74,20 +74,20 @@ class LoginViewModel @Inject constructor(
     }
 
     /**
-     * Returns the URL the Custom Tab should open to start the OIDC flow.
-     * Better Auth handles the rest and redirects back to /api/mobile-oauth-return,
-     * which deep-links into this app via exp://oauth-return.
+     * URL the Custom Tab opens to start the OIDC flow. Better Auth's
+     * /sign-in/oauth2 is POST-only and Custom Tabs only emit GETs, so we
+     * route through /api/mobile-oauth-start which POSTs server-side and
+     * 302s to the IdP. The flow ends at /api/mobile-oauth-return which
+     * deep-links back into the app via exp://oauth-return#token=...
      */
     fun oidcStartUrl(providerId: String): String? {
         val baseUrl = auth.instanceUrl.value ?: return null
-        val callback = encode("$baseUrl/api/mobile-oauth-return")
-        return "$baseUrl/api/auth/sign-in/oauth2?providerId=${encode(providerId)}&callbackURL=$callback"
+        return "$baseUrl/api/mobile-oauth-start?providerId=${encode(providerId)}"
     }
 
     fun googleStartUrl(): String? {
         val baseUrl = auth.instanceUrl.value ?: return null
-        val callback = encode("$baseUrl/api/mobile-oauth-return")
-        return "$baseUrl/api/auth/sign-in/social?provider=google&callbackURL=$callback"
+        return "$baseUrl/api/mobile-oauth-start?provider=google"
     }
 
     private fun encode(s: String): String =

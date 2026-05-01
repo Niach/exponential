@@ -14,6 +14,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
@@ -61,6 +62,11 @@ const AuthRegisterRoute = AuthRegisterRouteImport.update({
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
   path: '/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileOauthStartRoute = ApiMobileOauthStartRouteImport.update({
+  id: '/api/mobile-oauth-start',
+  path: '/api/mobile-oauth-start',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMobileOauthReturnRoute = ApiMobileOauthReturnRouteImport.update({
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
+  '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -228,6 +235,7 @@ export interface FileRoutesByTo {
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
+  '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -259,6 +267,7 @@ export interface FileRoutesById {
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
+  '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
+    | '/api/mobile-oauth-start'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
@@ -320,6 +330,7 @@ export interface FileRouteTypes {
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
+    | '/api/mobile-oauth-start'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
@@ -350,6 +361,7 @@ export interface FileRouteTypes {
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
+    | '/api/mobile-oauth-start'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
@@ -381,6 +393,7 @@ export interface RootRouteChildren {
   ApiAuthConfigRoute: typeof ApiAuthConfigRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
+  ApiMobileOauthStartRoute: typeof ApiMobileOauthStartRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   InviteTokenRoute: typeof InviteTokenRoute
@@ -433,6 +446,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/login'
       fullPath: '/auth/login'
       preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile-oauth-start': {
+      id: '/api/mobile-oauth-start'
+      path: '/api/mobile-oauth-start'
+      fullPath: '/api/mobile-oauth-start'
+      preLoaderRoute: typeof ApiMobileOauthStartRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mobile-oauth-return': {
@@ -668,6 +688,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthConfigRoute: ApiAuthConfigRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,
+  ApiMobileOauthStartRoute: ApiMobileOauthStartRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   InviteTokenRoute: InviteTokenRoute,
