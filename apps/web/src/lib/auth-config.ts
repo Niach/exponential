@@ -1,7 +1,14 @@
 import { createServerFn } from "@tanstack/react-start"
-import { parseOidcProviders } from "@/lib/auth"
+import { parseOidcProviders } from "@/lib/oidc-providers"
 
-export const getAuthConfig = createServerFn({ method: `GET` }).handler(() => {
+export type AuthConfig = {
+  passwordEnabled: boolean
+  oidcProviders: Array<{ id: string; name: string }>
+  googleLoginEnabled: boolean
+  googleCalendarEnabled: boolean
+}
+
+export function buildAuthConfig(): AuthConfig {
   const googleClientConfigured = Boolean(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
   )
@@ -13,4 +20,8 @@ export const getAuthConfig = createServerFn({ method: `GET` }).handler(() => {
     googleCalendarEnabled:
       googleClientConfigured && process.env.GOOGLE_CALENDAR_ENABLED === `true`,
   }
-})
+}
+
+export const getAuthConfig = createServerFn({ method: `GET` }).handler(() =>
+  buildAuthConfig()
+)

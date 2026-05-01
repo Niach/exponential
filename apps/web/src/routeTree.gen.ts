@@ -14,7 +14,9 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
+import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
@@ -61,9 +63,19 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMobileOauthReturnRoute = ApiMobileOauthReturnRouteImport.update({
+  id: '/api/mobile-oauth-return',
+  path: '/api/mobile-oauth-return',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMcpRoute = ApiMcpRouteImport.update({
   id: '/api/mcp',
   path: '/api/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
+  id: '/api/auth-config',
+  path: '/api/auth-config',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
@@ -184,7 +196,9 @@ const AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
+  '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -211,7 +225,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
+  '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -240,7 +256,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
+  '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -270,7 +288,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/api/auth-config'
     | '/api/mcp'
+    | '/api/mobile-oauth-return'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
@@ -297,7 +317,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/api/auth-config'
     | '/api/mcp'
+    | '/api/mobile-oauth-return'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
@@ -325,7 +347,9 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/_authenticated/admin'
+    | '/api/auth-config'
     | '/api/mcp'
+    | '/api/mobile-oauth-return'
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
@@ -354,7 +378,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  ApiAuthConfigRoute: typeof ApiAuthConfigRoute
   ApiMcpRoute: typeof ApiMcpRoute
+  ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   InviteTokenRoute: typeof InviteTokenRoute
@@ -409,11 +435,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile-oauth-return': {
+      id: '/api/mobile-oauth-return'
+      path: '/api/mobile-oauth-return'
+      fullPath: '/api/mobile-oauth-return'
+      preLoaderRoute: typeof ApiMobileOauthReturnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mcp': {
       id: '/api/mcp'
       path: '/api/mcp'
       fullPath: '/api/mcp'
       preLoaderRoute: typeof ApiMcpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth-config': {
+      id: '/api/auth-config'
+      path: '/api/auth-config'
+      fullPath: '/api/auth-config'
+      preLoaderRoute: typeof ApiAuthConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin': {
@@ -625,7 +665,9 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  ApiAuthConfigRoute: ApiAuthConfigRoute,
   ApiMcpRoute: ApiMcpRoute,
+  ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   InviteTokenRoute: InviteTokenRoute,
