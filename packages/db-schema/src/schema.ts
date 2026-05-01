@@ -29,7 +29,7 @@ import {
   recurrenceUnitValues,
   workspaceRoleSchema,
   workspaceRoleValues,
-} from "@/lib/domain"
+} from "./domain"
 
 export * from "./auth-schema"
 import { users } from "./auth-schema"

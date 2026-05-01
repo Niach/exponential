@@ -14,26 +14,56 @@ Real-time issue tracker.
 - **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, MinIO:9000/9001, Caddy:3000 (HTTP/2 reverse proxy)
 - **Package Manager**: bun
 
-## Commands
+## Monorepo Layout
 
-```bash
-bun dev                    # Start dev server (localhost:5173)
-docker compose up           # Start Postgres + Electric + MinIO
-docker compose down         # Stop infrastructure
-docker compose down -v      # Stop + wipe volumes
-bun drizzle-kit generate   # Generate migrations from schema changes
-bun drizzle-kit migrate    # Apply migrations
-bun run build              # Production build
-bun lint                   # ESLint fix
-bun format                 # Prettier format
+```
+exponential/
+├── apps/
+│   ├── web/        # TanStack Start app (the issue tracker)
+│   ├── marketing/  # Marketing site (Vite + React, deployed via Coolify)
+│   └── android/    # Native Kotlin / Jetpack Compose app (in progress)
+├── packages/       # Shared packages (db-schema, api-contracts, …)
+├── docker-compose.yaml
+├── Caddyfile
+├── Dockerfile      # Builds the web app image; build context = repo root
+└── package.json    # bun workspaces, dispatcher scripts
 ```
 
-After schema changes, always: `bun drizzle-kit generate && bun drizzle-kit migrate`
+Workspace package names: `@exp/web`, `@exp/marketing` (and future `@exp/db-schema`, etc.).
+
+## Commands
+
+All commands run from the repo root unless noted.
+
+```bash
+bun install                        # Install workspace deps (run from root)
+bun dev                            # Start web dev server (apps/web, localhost:5173)
+bun run dev:marketing              # Start marketing dev server (apps/marketing)
+bun run build                      # Build web + marketing
+bun run build:web                  # Build only the web app
+bun run typecheck                  # Typecheck the web app
+bun run test                       # Run web vitest unit tests
+bun run test:e2e                   # Run web playwright e2e tests
+bun run migrate                    # Apply Drizzle migrations
+bun run migrate:generate           # Generate migrations from schema changes
+bun run psql                       # psql shell into local DB
+
+bun run backend:up                 # docker compose up -d (Postgres + Electric + MinIO + Caddy)
+bun run backend:down               # docker compose down
+bun run backend:clear              # docker compose down -v (wipe volumes)
+
+bun run lint                       # ESLint fix across workspaces
+bun run format                     # Prettier format
+```
+
+You can also run a script directly inside a workspace: `bun --filter @exp/web <script>` or `cd apps/web && bun run <script>`.
+
+After schema changes, always: `bun run migrate:generate && bun run migrate`
 
 Custom SQL triggers must be applied manually after migrations:
 
 ```bash
-docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
+docker exec -i exponential-postgres-1 psql -U postgres -d exponential < apps/web/src/db/out/custom/0001_triggers.sql
 ```
 
 ## Pushing
@@ -43,10 +73,10 @@ commits + tags to GitHub (`origin`) and then triggers the Gitea mirror
 sync via the Gitea API so the home server starts building the new image
 immediately. The alias lives in `.git/config` (not committed).
 
-## Project Structure
+## Web App Structure (`apps/web/`)
 
 ```
-src/
+apps/web/src/
 ├── components/
 │   ├── ui/                      # shadcn components (button, input, card, sidebar, dialog, calendar, etc.)
 │   ├── create-issue-dialog.tsx   # Issue creation (title, description, status, priority, labels, due date)
@@ -139,11 +169,11 @@ src/
 
 ### Electric Shape Proxies
 
-Each synced table gets a shape proxy in `src/routes/api/shapes/`. The proxy authenticates the request, then forwards to Electric. Client collections in `src/lib/collections.ts` point to these proxy URLs. Current proxies: workspaces, projects, issues, labels, issue-labels.
+Each synced table gets a shape proxy in `apps/web/src/routes/api/shapes/`. The proxy authenticates the request, then forwards to Electric. Client collections in `apps/web/src/lib/collections.ts` point to these proxy URLs. Current proxies: workspaces, projects, issues, labels, issue-labels.
 
 ### Electric Collections
 
-All collections in `src/lib/collections.ts` use `columnMapper: snakeCamelMapper()` from `@electric-sql/client` to map Postgres `snake_case` columns to JS `camelCase`. Without this, `useLiveQuery` `where` filters silently fail. Use `undefined` (not `false`) to skip a query; use `and()`/`or()` from `@tanstack/react-db` instead of JS `&&`/`||`.
+All collections in `apps/web/src/lib/collections.ts` use `columnMapper: snakeCamelMapper()` from `@electric-sql/client` to map Postgres `snake_case` columns to JS `camelCase`. Without this, `useLiveQuery` `where` filters silently fail. Use `undefined` (not `false`) to skip a query; use `and()`/`or()` from `@tanstack/react-db` instead of JS `&&`/`||`.
 
 ### Auth Guard
 
@@ -151,7 +181,7 @@ All collections in `src/lib/collections.ts` use `columnMapper: snakeCamelMapper(
 
 ### tRPC + Electric Sync
 
-Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID so the client can wait for Electric to sync the write before updating the UI. Routers are modular in `src/lib/trpc/` and combined in `api/trpc/$.ts` as `appRouter`.
+Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID so the client can wait for Electric to sync the write before updating the UI. Routers are modular in `apps/web/src/lib/trpc/` and combined in `api/trpc/$.ts` as `appRouter`.
 
 ### Issue List UX
 
@@ -162,7 +192,7 @@ Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID s
 
 ### Issue Filtering
 
-- `src/lib/filters.ts` defines `IssueFilters` (statuses, priorities, labelIds), tab presets (all/active/backlog), and `matchesFilters()`
+- `apps/web/src/lib/filters.ts` defines `IssueFilters` (statuses, priorities, labelIds), tab presets (all/active/backlog), and `matchesFilters()`
 - `IssueFilterBar` provides tab navigation and a filter popover button
 - `IssueFilterPopover` offers multi-category drill-down filtering (status, priority, labels)
 - `ActiveFilterPills` shows removable pills for active filters below the filter bar
