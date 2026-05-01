@@ -1,10 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive-icon foreground: ports apps/web/public/logo-light.svg into a
+  108dp viewport. The original SVG is 100x100 with a circle r=50 centered
+  at (50,50) and three thick stroke curves clipped to the circle by a mask.
+
+  Android vector drawables don't support SVG masks, so we render the same
+  composition by stacking layers: a white filled circle on top, then three
+  dark strokes the same color as ic_launcher_background. Outside the white
+  circle the dark strokes paint over the (already dark) background and are
+  invisible; inside, they look like the cuts from the original mask.
+
+  Scale = 33/50 so the white circle fits in the 33dp round-mask safe zone
+  inside the 108dp adaptive-icon viewport (centered at 54,54).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
     <path
         android:fillColor="#FAFAFA"
-        android:pathData="M30,38 L30,70 L36,70 L36,58 L48,58 L48,52 L36,52 L36,44 L52,44 L52,38 Z M58,38 L58,70 L78,70 L78,64 L64,64 L64,56 L76,56 L76,50 L64,50 L64,44 L78,44 L78,38 Z" />
+        android:pathData="M 54,21 A 33,33 0 1,0 54,87 A 33,33 0 1,0 54,21 Z" />
+
+    <path
+        android:strokeColor="#09090B"
+        android:strokeWidth="4"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000"
+        android:pathData="M 17.13,61.93 C 46.80,64.19 53.16,39.95 53.36,16.90" />
+    <path
+        android:strokeColor="#09090B"
+        android:strokeWidth="4"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000"
+        android:pathData="M 17.66,77.76 C 56.49,76.72 67.95,45.61 69.18,17.64" />
+    <path
+        android:strokeColor="#09090B"
+        android:strokeWidth="4"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000"
+        android:pathData="M 18.18,93.59 C 66.18,89.24 82.74,51.27 85.01,18.37" />
 </vector>
