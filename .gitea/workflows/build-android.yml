@@ -48,14 +48,33 @@ jobs:
         working-directory: apps/android
         run: ./gradlew :app:assembleRelease --no-daemon
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: exponential-debug-${{ steps.version.outputs.VERSION }}.apk
-          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish APKs to Gitea release
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          SERVER="${GITHUB_SERVER_URL:-https://gitea.home.straehhuber.com}"
+          REPO="${GITHUB_REPOSITORY}"
+          TAG="${GITHUB_REF#refs/tags/}"
+          DEBUG_APK="apps/android/app/build/outputs/apk/debug/app-debug.apk"
+          RELEASE_APK="apps/android/app/build/outputs/apk/release/app-release-unsigned.apk"
 
-      - name: Upload release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: exponential-release-unsigned-${{ steps.version.outputs.VERSION }}.apk
-          path: apps/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          # Reuse the release if the tag has already been published; otherwise create a new one.
+          RELEASE_ID=$(curl -fsS -H "Authorization: token ${GITEA_TOKEN}" \
+            "${SERVER}/api/v1/repos/${REPO}/releases/tags/${TAG}" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("id",""))' || true)
+          if [ -z "${RELEASE_ID}" ]; then
+            RELEASE_ID=$(curl -fsS -X POST -H "Authorization: token ${GITEA_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"Android ${VERSION}\",\"body\":\"Built from ${GITHUB_SHA}.\\nDebug APK is debuggable; release APK is unsigned (sign locally before distributing).\",\"draft\":false,\"prerelease\":false}" \
+              "${SERVER}/api/v1/repos/${REPO}/releases" \
+              | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+          fi
+
+          curl -fsS -X POST -H "Authorization: token ${GITEA_TOKEN}" \
+            -F "attachment=@${DEBUG_APK}" \
+            "${SERVER}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets?name=exponential-debug-${VERSION}.apk"
+          curl -fsS -X POST -H "Authorization: token ${GITEA_TOKEN}" \
+            -F "attachment=@${RELEASE_APK}" \
+            "${SERVER}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets?name=exponential-release-unsigned-${VERSION}.apk"
