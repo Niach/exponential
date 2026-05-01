@@ -30,6 +30,7 @@ import {
   fireAndForgetDelete,
   fireAndForgetSync,
 } from "@/lib/google-calendar"
+import { fireAndForgetAssignmentNotify } from "@/lib/notifications"
 
 function assertRecurrencePair(
   interval: number | null | undefined,
@@ -130,6 +131,11 @@ export const issuesRouter = router({
       if (result.issue.dueDate) {
         fireAndForgetSync(ctx.session.user.id, result.issue)
       }
+      fireAndForgetAssignmentNotify({
+        issueId: result.issue.id,
+        actorUserId: ctx.session.user.id,
+        newAssigneeId: result.issue.assigneeId,
+      })
 
       return result
     }),
@@ -165,6 +171,7 @@ export const issuesRouter = router({
 
       const deletedStorageKeys: string[] = []
 
+      let previousAssigneeId: string | null = null
       const { issue, clonedIssue } = await ctx.db.transaction(async (tx) => {
         const [currentIssue] = await tx
           .select({
@@ -188,6 +195,7 @@ export const issuesRouter = router({
           })
         }
 
+        previousAssigneeId = currentIssue.assigneeId
         const setValues: Record<string, unknown> = { ...updates }
 
         if (updates.status === `done` || updates.status === `cancelled`) {
@@ -352,6 +360,12 @@ export const issuesRouter = router({
       if (clonedIssue) {
         fireAndForgetSync(ctx.session.user.id, clonedIssue)
       }
+      fireAndForgetAssignmentNotify({
+        issueId: issue.id,
+        actorUserId: ctx.session.user.id,
+        newAssigneeId: issue.assigneeId,
+        previousAssigneeId: previousAssigneeId,
+      })
 
       return { issue }
     }),

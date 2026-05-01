@@ -50,6 +50,13 @@
       "when": 1777582784159,
       "tag": "0006_careless_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777674060295,
+      "tag": "0007_cynical_fenris",
+      "breakpoints": true
     }
   ]
 }

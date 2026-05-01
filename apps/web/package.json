@@ -1,7 +1,7 @@
 {
   "name": "@exp/web",
   "private": true,
-  "version": "0.10.3",
+  "version": "0.11.0",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
@@ -23,6 +23,7 @@
     "@aws-sdk/client-s3": "^3.888.0",
     "@electric-sql/client": "^1.2.0",
     "@exp/db-schema": "workspace:*",
+    "@googleapis/calendar": "^11.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tailwindcss/vite": "^4.0.6",
     "@tanstack/electric-db-collection": "^0.2.37",
@@ -44,9 +45,9 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
-    "@googleapis/calendar": "^11.0.0",
     "drizzle-orm": "^0.39.0",
     "drizzle-zod": "^0.7.1",
+    "firebase-admin": "^13.8.0",
     "google-auth-library": "^10.5.0",
     "lucide-react": "^0.544.0",
     "nitro": "3.0.1-alpha.1",

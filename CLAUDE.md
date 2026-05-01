@@ -247,6 +247,7 @@ GOOGLE_CLIENT_ID              # Google OAuth client ID (required for login or Ca
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
 GOOGLE_CALENDAR_ENABLED       # Enable Google Calendar integration (default: false)
+FIREBASE_SERVICE_ACCOUNT_JSON # Firebase service account key (JSON string) for FCM push delivery
 ```
 
 ## Integrations

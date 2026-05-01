@@ -314,6 +314,16 @@ export const pushSubscriptions = pgTable(`push_subscriptions`, {
   ...timestamps,
 })
 
+export const fcmTokens = pgTable(`fcm_tokens`, {
+  id: uuidPk(),
+  userId: text(`user_id`)
+    .notNull()
+    .references(() => users.id, { onDelete: `cascade` }),
+  token: text().notNull().unique(),
+  platform: varchar({ length: 20 }).notNull(),
+  ...timestamps,
+})
+
 export const notifications = pgTable(
   `notifications`,
   {
