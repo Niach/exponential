@@ -17,7 +17,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -28,6 +36,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,15 +47,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.db.ProjectEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
-@kotlinx.coroutines.ExperimentalCoroutinesApi
 @Composable
 fun HomeScreen(
     onOpenProject: (String) -> Unit,
+    onOpenIntegrations: () -> Unit,
     onSignOut: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val error by viewModel.error.collectAsState()
+    var workspaceMenuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.bootstrap() }
 
@@ -52,18 +64,53 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            state.workspace?.name ?: "Workspace",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        if (state.email != null) {
-                            Text(
-                                state.email!!,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    Box {
+                        Row(
+                            modifier = Modifier.clickable { workspaceMenuOpen = true },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text(
+                                    state.selectedWorkspace?.name ?: "Workspace",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                if (state.email != null) {
+                                    Text(
+                                        state.email!!,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
                         }
+                        DropdownMenu(
+                            expanded = workspaceMenuOpen,
+                            onDismissRequest = { workspaceMenuOpen = false },
+                        ) {
+                            state.workspaces.forEach { ws ->
+                                DropdownMenuItem(
+                                    text = { Text(ws.name) },
+                                    leadingIcon = {
+                                        if (ws.id == state.selectedWorkspace?.id) {
+                                            Icon(Icons.Filled.Check, null)
+                                        } else {
+                                            Spacer(Modifier.size(20.dp))
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.selectWorkspace(ws.id)
+                                        workspaceMenuOpen = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenIntegrations) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Integrations")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

@@ -11,10 +11,10 @@ import com.exponential.app.data.db.WorkspaceDao
 import com.exponential.app.data.db.WorkspaceEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -23,13 +23,14 @@ import kotlinx.coroutines.launch
 
 data class HomeState(
     val email: String? = null,
-    val workspace: WorkspaceEntity? = null,
+    val workspaces: List<WorkspaceEntity> = emptyList(),
+    val selectedWorkspace: WorkspaceEntity? = null,
     val projects: List<ProjectEntity> = emptyList(),
     val error: String? = null,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
-@kotlinx.coroutines.ExperimentalCoroutinesApi
 class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val authApi: AuthApi,
@@ -38,36 +39,47 @@ class HomeViewModel @Inject constructor(
     private val projectDao: ProjectDao,
 ) : ViewModel() {
 
-    private val workspaceFlow = MutableStateFlow<WorkspaceEntity?>(null)
+    private val _selectedId = MutableStateFlow<String?>(null)
 
-    private val projectsFlow = workspaceFlow.flatMapLatest { ws ->
-        if (ws == null) flowOf(emptyList()) else projectDao.observeByWorkspace(ws.id)
+    private val workspacesFlow = workspaceDao.observeAll()
+
+    private val projectsFlow = _selectedId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else projectDao.observeByWorkspace(id)
     }
 
     val state: StateFlow<HomeState> = combine(
-        workspaceFlow,
+        workspacesFlow,
+        _selectedId,
         projectsFlow,
         auth.userEmail,
-    ) { workspace, projects, email ->
-        HomeState(email = email, workspace = workspace, projects = projects)
+    ) { workspaces, selectedId, projects, email ->
+        val selected = workspaces.firstOrNull { it.id == selectedId }
+            ?: workspaces.firstOrNull()
+        HomeState(
+            email = email,
+            workspaces = workspaces,
+            selectedWorkspace = selected,
+            projects = projects,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
     private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    val error: StateFlow<String?> = _error
 
     fun bootstrap() {
         viewModelScope.launch {
             try {
-                val email = authApi.fetchSession()
-                if (email != null) auth.setToken(auth.token.value ?: return@launch, email)
-
                 val workspace = workspacesApi.ensureDefault()
                 workspaceDao.upsert(workspace)
-                workspaceFlow.value = workspace
+                if (_selectedId.value == null) _selectedId.value = workspace.id
                 _error.value = null
             } catch (error: Throwable) {
                 _error.value = error.message ?: "Failed to load workspace"
             }
         }
+    }
+
+    fun selectWorkspace(id: String) {
+        _selectedId.value = id
     }
 }

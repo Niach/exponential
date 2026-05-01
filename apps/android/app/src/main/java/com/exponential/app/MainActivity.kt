@@ -19,6 +19,7 @@ import androidx.navigation.compose.rememberNavController
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.home.HomeScreen
 import com.exponential.app.ui.instance.InstanceScreen
+import com.exponential.app.ui.integrations.IntegrationsScreen
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.theme.ExponentialTheme
@@ -89,6 +90,7 @@ private fun AppRoot() {
                 onOpenProject = { projectId ->
                     navController.navigate("project/$projectId")
                 },
+                onOpenIntegrations = { navController.navigate("integrations") },
                 onSignOut = {
                     viewModel.signOut()
                     navController.navigate("login") {
@@ -96,6 +98,9 @@ private fun AppRoot() {
                     }
                 },
             )
+        }
+        composable("integrations") {
+            IntegrationsScreen(onBack = { navController.popBackStack() })
         }
         composable("project/{projectId}") { entry ->
             val projectId = entry.arguments?.getString("projectId").orEmpty()
