@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "874730442314",
+    "project_id": "gen-lang-client-0146104429",
+    "storage_bucket": "gen-lang-client-0146104429.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:874730442314:android:325bc5585f8c63cbbae0b3",
+        "android_client_info": {
+          "package_name": "com.straehhuber.exponential"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "874730442314-79lks3o9ut54u4o4lsp77b1ffh3q28i4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJUpIkrBuIR9jhZ_lKaBdmMR02xukBcBA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "874730442314-79lks3o9ut54u4o4lsp77b1ffh3q28i4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
