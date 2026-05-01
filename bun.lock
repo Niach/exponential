@@ -36,7 +36,7 @@
     },
     "apps/web": {
       "name": "@exp/web",
-      "version": "0.7.0",
+      "version": "0.10.0",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.888.0",
         "@electric-sql/client": "^1.2.0",
@@ -110,6 +110,10 @@
         "drizzle-zod": "^0.7.1",
         "zod": "^4.0.14",
       },
+    },
+    "packages/tsconfig": {
+      "name": "@exp/tsconfig",
+      "version": "0.0.0",
     },
   },
   "packages": {
@@ -406,6 +410,8 @@
     "@exp/db-schema": ["@exp/db-schema@workspace:packages/db-schema"],
 
     "@exp/marketing": ["@exp/marketing@workspace:apps/marketing"],
+
+    "@exp/tsconfig": ["@exp/tsconfig@workspace:packages/tsconfig"],
 
     "@exp/web": ["@exp/web@workspace:apps/web"],
 

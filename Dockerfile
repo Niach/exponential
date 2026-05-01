@@ -3,6 +3,8 @@ WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/marketing/package.json apps/marketing/package.json
+COPY packages/db-schema/package.json packages/db-schema/package.json
+COPY packages/tsconfig/package.json packages/tsconfig/package.json
 RUN bun install --frozen-lockfile
 COPY . .
 RUN bun --filter @exp/web build
@@ -18,6 +20,7 @@ COPY --from=builder /app/package.json .
 COPY --from=builder /app/bun.lock .
 COPY --from=builder /app/bunfig.toml .
 COPY --from=builder /app/apps/marketing/package.json apps/marketing/package.json
+COPY --from=builder /app/packages packages
 RUN bun install --frozen-lockfile
 RUN touch apps/web/.env
 EXPOSE 3000
