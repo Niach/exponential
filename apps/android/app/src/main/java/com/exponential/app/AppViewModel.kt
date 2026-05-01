@@ -3,6 +3,7 @@ package com.exponential.app
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.electric.SyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,6 +20,7 @@ data class AppState(
 @HiltViewModel
 class AppViewModel @Inject constructor(
     private val auth: AuthRepository,
+    private val syncManager: SyncManager,
 ) : ViewModel() {
 
     val state: StateFlow<AppState> = combine(
@@ -33,12 +35,16 @@ class AppViewModel @Inject constructor(
 
     fun clearInstance() {
         viewModelScope.launch {
+            syncManager.signOut()
             auth.clearToken()
             auth.clearInstanceUrl()
         }
     }
 
     fun signOut() {
-        viewModelScope.launch { auth.clearToken() }
+        viewModelScope.launch {
+            syncManager.signOut()
+            auth.clearToken()
+        }
     }
 }
