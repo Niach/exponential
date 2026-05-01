@@ -54,9 +54,18 @@ bun run backend:clear              # docker compose down -v (wipe volumes)
 
 bun run lint                       # ESLint fix across workspaces
 bun run format                     # Prettier format
+
+bun run android:build              # ./gradlew :app:assembleDebug in apps/android
+bun run android:install            # ./gradlew :app:installDebug
 ```
 
 You can also run a script directly inside a workspace: `bun --filter @exp/web <script>` or `cd apps/web && bun run <script>`.
+
+## Deploys
+
+- **Web**: tag `vX.Y.Z` triggers `.gitea/workflows/build-release.yml` — builds the root `Dockerfile` (context `.`), pushes to the Gitea registry, then redeploys the Portainer stack.
+- **Marketing**: Coolify watches the repo. After the monorepo move the Coolify app's source/base directory is `apps/marketing/` (was `marketing/`). The Coolify start command must not include `serve -s`.
+- **Android**: tag `android-vX.Y.Z` triggers `.gitea/workflows/build-android.yml` — builds debug + release (unsigned) APKs and uploads them as artifacts. Signing for distribution still needs a keystore + signing config in `app/build.gradle.kts`.
 
 After schema changes, always: `bun run migrate:generate && bun run migrate`
 
