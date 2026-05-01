@@ -21,10 +21,12 @@ function isDefined<TValue>(value: TValue | undefined): value is TValue {
 }
 
 export function useWorkspaceBySlug(workspaceSlug: string) {
-  const { data } = useLiveQuery((query) =>
-    query
-      .from({ workspaces: workspaceCollection })
-      .where(({ workspaces }) => eq(workspaces.slug, workspaceSlug))
+  const { data } = useLiveQuery(
+    (query) =>
+      query
+        .from({ workspaces: workspaceCollection })
+        .where(({ workspaces }) => eq(workspaces.slug, workspaceSlug)),
+    [workspaceSlug]
   )
 
   return (data?.[0] ?? null) as Workspace | null
