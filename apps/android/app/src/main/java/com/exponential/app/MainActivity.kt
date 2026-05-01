@@ -19,6 +19,8 @@ import androidx.navigation.compose.rememberNavController
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.home.HomeScreen
 import com.exponential.app.ui.instance.InstanceScreen
+import com.exponential.app.ui.issue.IssueListScreen
+import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -44,6 +46,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @androidx.compose.runtime.Composable
 private fun AppRoot() {
     val viewModel: AppViewModel = hiltViewModel()
@@ -82,12 +85,32 @@ private fun AppRoot() {
             )
         }
         composable("home") {
-            HomeScreen(onSignOut = {
-                viewModel.signOut()
-                navController.navigate("login") {
-                    popUpTo("home") { inclusive = true }
-                }
-            })
+            HomeScreen(
+                onOpenProject = { projectId ->
+                    navController.navigate("project/$projectId")
+                },
+                onSignOut = {
+                    viewModel.signOut()
+                    navController.navigate("login") {
+                        popUpTo("home") { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable("project/{projectId}") { entry ->
+            val projectId = entry.arguments?.getString("projectId").orEmpty()
+            IssueListScreen(
+                projectId = projectId,
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { issueId -> navController.navigate("issue/$issueId") },
+            )
+        }
+        composable("issue/{issueId}") { entry ->
+            val issueId = entry.arguments?.getString("issueId").orEmpty()
+            IssueDetailScreen(
+                issueId = issueId,
+                onBack = { navController.popBackStack() },
+            )
         }
     }
 }
