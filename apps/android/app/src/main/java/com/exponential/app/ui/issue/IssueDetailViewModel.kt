@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueDescription
+import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.UpdateIssueInput
@@ -47,6 +48,9 @@ class IssueDetailViewModel @Inject constructor(
     private val issueLabelDao: IssueLabelDao,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
+    private val issueImagesApi: IssueImagesApi,
+    @dagger.hilt.android.qualifiers.ApplicationContext
+    private val appContext: android.content.Context,
 ) : ViewModel() {
 
     val issueId: String = savedStateHandle["issueId"] ?: ""
@@ -152,4 +156,18 @@ class IssueDetailViewModel @Inject constructor(
             runCatching { issuesApi.delete(issueId) }.onSuccess { onDeleted() }
         }
     }
+
+    suspend fun uploadImage(uri: android.net.Uri): String? = runCatching {
+        val resolver = appContext.contentResolver
+        val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: return@runCatching null
+        val contentType = resolver.getType(uri) ?: "image/jpeg"
+        val filename = run {
+            resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+            } ?: uri.lastPathSegment ?: "image"
+        }
+        issueImagesApi.upload(issueId, bytes, filename, contentType).url
+    }.getOrNull()
 }

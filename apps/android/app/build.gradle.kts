@@ -87,7 +87,10 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.security.crypto)
     implementation(libs.browser)
-    implementation(libs.compose.richtext.commonmark)
+    implementation(libs.richeditor.compose)
+    implementation(libs.richeditor.compose.coil3)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.ktor3)
 
     debugImplementation(libs.compose.ui.tooling)
 

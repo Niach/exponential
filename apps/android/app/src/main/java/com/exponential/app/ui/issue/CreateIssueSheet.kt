@@ -38,6 +38,7 @@ import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.markdown.MarkdownEditor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,11 +79,14 @@ fun CreateIssueSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                placeholder = { Text("Description (markdown supported)") },
-                modifier = Modifier.fillMaxWidth().height(120.dp),
+            MarkdownEditor(
+                markdown = description,
+                editable = true,
+                onChange = { description = it },
+                onUploadImage = null,
+                imageUploadEnabled = false,
+                placeholder = "Description (markdown supported)",
+                minHeight = 120.dp,
             )
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

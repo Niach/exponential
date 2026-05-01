@@ -54,8 +54,8 @@ import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
-import com.halilibo.richtext.commonmark.Markdown
-import com.halilibo.richtext.ui.BasicRichText
+import com.exponential.app.ui.markdown.MarkdownEditor
+import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -77,7 +77,7 @@ fun IssueDetailScreen(
     LaunchedEffect(issue?.id) {
         if (issue != null) {
             titleField = issue.title
-            descriptionField = describe(issue.description)
+            descriptionField = extractDescriptionMarkdown(issue.description)
         }
     }
 
@@ -223,34 +223,16 @@ fun IssueDetailScreen(
                     )
                 }
             }
-            if (editingDescription) {
-                OutlinedTextField(
-                    value = descriptionField,
-                    onValueChange = { descriptionField = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(240.dp)
-                        .onFocusChanged { focus ->
-                            val current = describe(issue.description)
-                            if (!focus.isFocused && descriptionField != current) {
-                                viewModel.updateDescription(descriptionField)
-                            }
-                        },
-                    placeholder = { Text("Add a description (markdown)") },
-                )
-            } else {
-                if (descriptionField.isBlank()) {
-                    Text(
-                        "No description",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    BasicRichText {
-                        Markdown(content = descriptionField)
-                    }
-                }
-            }
+            MarkdownEditor(
+                markdown = descriptionField,
+                editable = editingDescription,
+                onChange = {
+                    descriptionField = it
+                    viewModel.updateDescription(it)
+                },
+                onUploadImage = { uri -> viewModel.uploadImage(uri) },
+                imageUploadEnabled = true,
+            )
         }
     }
 
@@ -273,12 +255,3 @@ fun IssueDetailScreen(
     }
 }
 
-internal fun describe(raw: String?): String {
-    if (raw.isNullOrBlank()) return ""
-    return runCatching {
-        val element = kotlinx.serialization.json.Json.parseToJsonElement(raw)
-        if (element is kotlinx.serialization.json.JsonObject) {
-            (element["text"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: raw
-        } else raw
-    }.getOrDefault(raw)
-}
