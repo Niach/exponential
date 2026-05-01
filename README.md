@@ -2,8 +2,6 @@
 
 A real-time, self-hosted issue tracker. Open source, MIT-licensed, and yours end-to-end.
 
-🌐 **[exponential.straehhuber.com](https://exponential.straehhuber.com)** — landing page with a live demo of the issue board
-
 ## Why
 
 Most issue trackers are SaaS. Exponential is a small, sharp, self-hostable alternative: one `docker-compose` brings up Postgres, Electric, MinIO, and Caddy; one `.env` configures auth; you own the data and the box it sits on. Mutations are optimistic and reconcile through Electric, so every connected client stays live without spinners or stale lists.
