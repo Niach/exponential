@@ -371,7 +371,7 @@ export function IssueEditorDialogShell({
 
         <div className="flex-1 min-h-0 overflow-y-auto">{editor}</div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto px-3 py-2 border-t border-border">
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-t border-border shrink-0">
           {chipNodes}
         </div>
 

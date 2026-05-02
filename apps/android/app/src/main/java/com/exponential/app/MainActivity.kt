@@ -192,8 +192,19 @@ private fun AppRoot() {
             val projectId = entry.arguments?.getString("projectId").orEmpty()
             IssueListScreen(
                 projectId = projectId,
-                onBack = { navController.popBackStack() },
                 onOpenIssue = { issueId -> navController.navigate("issue/$issueId") },
+                onOpenProject = { nextId ->
+                    navController.navigate("project/$nextId") {
+                        popUpTo("home")
+                    }
+                },
+                onOpenIntegrations = { navController.navigate("integrations") },
+                onSignOut = {
+                    viewModel.signOut()
+                    navController.navigate("login") {
+                        popUpTo("home") { inclusive = true }
+                    }
+                },
             )
         }
         composable("issue/{issueId}") { entry ->
