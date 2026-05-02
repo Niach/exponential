@@ -7,6 +7,7 @@ import coil3.disk.directory
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
+import com.exponential.app.data.auth.AuthRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,8 +25,16 @@ object ImageLoaderModule {
     fun provideImageLoader(
         @ApplicationContext context: Context,
         httpClient: HttpClient,
+        auth: AuthRepository,
     ): ImageLoader = ImageLoader.Builder(context)
-        .components { add(KtorNetworkFetcherFactory(httpClient = httpClient)) }
+        .components {
+            add(KtorNetworkFetcherFactory(httpClient = httpClient))
+            // Issue images come back as relative paths like
+            // /api/attachments/{id}. Resolve them against the configured
+            // instance URL so Coil can fetch them; the HttpClient's
+            // DefaultRequest plugin attaches the bearer token.
+            add(InstanceUrlInterceptor(auth))
+        }
         .memoryCache {
             MemoryCache.Builder()
                 .maxSizePercent(context, 0.20)

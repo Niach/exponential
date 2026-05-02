@@ -18,33 +18,31 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.ui.nav.AppDrawer
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,87 +54,66 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val error by viewModel.error.collectAsState()
-    var workspaceMenuOpen by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) { viewModel.bootstrap() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Box {
-                        Row(
-                            modifier = Modifier.clickable { workspaceMenuOpen = true },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
-                                Text(
-                                    state.selectedWorkspace?.name ?: "Workspace",
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                if (state.email != null) {
-                                    Text(
-                                        state.email!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(4.dp))
-                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
-                        }
-                        DropdownMenu(
-                            expanded = workspaceMenuOpen,
-                            onDismissRequest = { workspaceMenuOpen = false },
-                        ) {
-                            state.workspaces.forEach { ws ->
-                                DropdownMenuItem(
-                                    text = { Text(ws.name) },
-                                    leadingIcon = {
-                                        if (ws.id == state.selectedWorkspace?.id) {
-                                            Icon(Icons.Filled.Check, null)
-                                        } else {
-                                            Spacer(Modifier.size(20.dp))
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.selectWorkspace(ws.id)
-                                        workspaceMenuOpen = false
-                                    },
-                                )
-                            }
-                        }
-                    }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            AppDrawer(
+                workspaces = state.workspaces,
+                selectedWorkspace = state.selectedWorkspace,
+                projects = state.projects,
+                email = state.email,
+                activeProjectId = null,
+                onSelectWorkspace = {
+                    viewModel.selectWorkspace(it)
+                    scope.launch { drawerState.close() }
                 },
-                actions = {
-                    IconButton(onClick = onOpenIntegrations) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Integrations")
-                    }
+                onOpenProject = {
+                    scope.launch { drawerState.close() }
+                    onOpenProject(it)
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                onOpenIntegrations = {
+                    scope.launch { drawerState.close() }
+                    onOpenIntegrations()
+                },
+                onSignOut = {
+                    scope.launch { drawerState.close() }
+                    onSignOut()
+                },
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (state.projects.isEmpty()) {
-                EmptyState(message = error ?: "No projects yet — create one on the web.")
-            } else {
-                ProjectList(
-                    projects = state.projects,
-                    onOpenProject = onOpenProject,
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(state.selectedWorkspace?.name ?: "Workspace")
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ),
                 )
-            }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = onSignOut,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-            ) {
-                Text("Sign out")
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+        ) { padding ->
+            Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+                if (state.projects.isEmpty()) {
+                    EmptyState(message = error ?: "No projects yet — create one on the web.")
+                } else {
+                    ProjectList(
+                        projects = state.projects,
+                        onOpenProject = onOpenProject,
+                    )
+                }
             }
         }
     }

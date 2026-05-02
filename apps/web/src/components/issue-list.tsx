@@ -106,7 +106,7 @@ export function IssueList({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 md:hover:opacity-100"
+                className="hidden md:inline-flex text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation()
                   onNewIssue(group.status)

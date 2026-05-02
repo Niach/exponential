@@ -53,7 +53,7 @@ data class IssueEntity(
     val number: Int,
     val identifier: String,
     val title: String,
-    val description: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val description: String? = null,
     val status: String,
     val priority: String,
     @ColumnInfo(name = "assignee_id") @SerialName("assignee_id") @JsonNames("assigneeId") val assigneeId: String? = null,

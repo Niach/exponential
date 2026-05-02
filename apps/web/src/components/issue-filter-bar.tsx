@@ -44,11 +44,11 @@ export function IssueFilterBar({
           />
           <Button
             size="xs"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white ml-1"
+            className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white ml-1"
             onClick={onNewIssue}
           >
             <Plus className="size-3" />
-            <span className="hidden md:inline">New Issue</span>
+            New Issue
           </Button>
         </div>
       </div>
