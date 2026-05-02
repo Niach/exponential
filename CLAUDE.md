@@ -11,7 +11,7 @@ Real-time issue tracker.
 - **API**: tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync)
 - **UI**: shadcn/ui on Tailwind v4 (OKLCH zinc palette, dark theme forced via `html.dark`)
 - **Date Picker**: `react-day-picker` + `date-fns` via shadcn `Calendar` component
-- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, MinIO:9000/9001, Caddy:3000 (HTTP/2 reverse proxy)
+- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, Garage:3900 (S3-compatible), Caddy:3000 (HTTP/2 reverse proxy)
 - **Package Manager**: bun
 
 ## Monorepo Layout
@@ -48,9 +48,10 @@ bun run migrate                    # Apply Drizzle migrations
 bun run migrate:generate           # Generate migrations from schema changes
 bun run psql                       # psql shell into local DB
 
-bun run backend:up                 # docker compose up -d (Postgres + Electric + MinIO + Caddy)
+bun run backend:up                 # docker compose up -d (Postgres + Electric + Garage + Caddy)
 bun run backend:down               # docker compose down
 bun run backend:clear              # docker compose down -v (wipe volumes)
+bun run storage:init               # one-time Garage bootstrap (after backend:up); prints S3 access/secret key
 
 bun run lint                       # ESLint fix across workspaces
 bun run format                     # Prettier format
@@ -234,9 +235,11 @@ BETTER_AUTH_SECRET            # 32+ char secret for session signing
 BETTER_AUTH_URL               # App base URL (http://localhost:5173)
 BETTER_AUTH_TRUSTED_ORIGINS   # Comma-separated allowed origins
 ELECTRIC_URL                  # Electric service URL (http://localhost:30000)
-MINIO_ENDPOINT                # MinIO URL (http://localhost:9000)
-MINIO_ACCESS_KEY              # MinIO access key
-MINIO_SECRET_KEY              # MinIO secret key
+S3_ENDPOINT                   # S3-compatible storage URL (Garage default: http://localhost:3900)
+S3_ACCESS_KEY                 # S3 access key (created by `bun run storage:init`)
+S3_SECRET_KEY                 # S3 secret key (created by `bun run storage:init`)
+S3_BUCKET                     # S3 bucket for attachments (default: exponential-attachments)
+S3_REGION                     # S3 region label (default: garage)
 AUTH_OIDC_ENABLED             # Enable OIDC login (default: false)
 AUTH_PASSWORD_ENABLED         # Enable email/password login (default: true)
 OIDC_CLIENT_ID                # OAuth2 client ID

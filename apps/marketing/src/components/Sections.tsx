@@ -88,7 +88,7 @@ export function HostTerminal() {
         <span className="term-out">[+] electric   </span>
         <span className="term-ok">healthy</span>
         {`\n`}
-        <span className="term-out">[+] minio      </span>
+        <span className="term-out">[+] garage     </span>
         <span className="term-ok">healthy</span>
         {`\n`}
         <span className="term-out">[+] caddy      </span>
@@ -145,7 +145,7 @@ export function FeatureGrid() {
         </span>
         <h3>Your data, your servers</h3>
         <p>
-          One docker-compose file: Postgres, Electric, MinIO, Caddy. No SaaS
+          One docker-compose file: Postgres, Electric, Garage, Caddy. No SaaS
           dependencies, no telemetry, no vendor lock-in.
         </p>
       </div>

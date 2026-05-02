@@ -11,9 +11,9 @@ import {
   type GetObjectCommandOutput,
 } from "@aws-sdk/client-s3"
 
-const storageBucket = process.env.MINIO_BUCKET || `exponential-attachments`
-const storageEndpoint = process.env.MINIO_ENDPOINT || `http://localhost:9000`
-const storageRegion = process.env.MINIO_REGION || `us-east-1`
+const storageBucket = process.env.S3_BUCKET || `exponential-attachments`
+const storageEndpoint = process.env.S3_ENDPOINT || `http://localhost:3900`
+const storageRegion = process.env.S3_REGION || `garage`
 
 let bucketReadyPromise: Promise<void> | null = null
 
@@ -23,10 +23,10 @@ function createStorageClient() {
     region: storageRegion,
     forcePathStyle: true,
     credentials:
-      process.env.MINIO_ACCESS_KEY && process.env.MINIO_SECRET_KEY
+      process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY
         ? {
-            accessKeyId: process.env.MINIO_ACCESS_KEY,
-            secretAccessKey: process.env.MINIO_SECRET_KEY,
+            accessKeyId: process.env.S3_ACCESS_KEY,
+            secretAccessKey: process.env.S3_SECRET_KEY,
           }
         : undefined,
   })

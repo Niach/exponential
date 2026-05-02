@@ -1,7 +1,7 @@
 {
   "name": "exponential",
   "private": true,
-  "version": "0.11.1",
+  "version": "0.12.0",
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "engines": {
@@ -25,6 +25,7 @@
     "backend:up": "docker compose up -d",
     "backend:down": "docker compose down",
     "backend:clear": "docker compose down -v",
+    "storage:init": "bash scripts/garage-init.sh",
     "lint": "bun --filter '*' lint",
     "lint:check": "bun --filter '*' lint:check",
     "format": "prettier --write .",

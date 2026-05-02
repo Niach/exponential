@@ -4,7 +4,7 @@ A real-time, self-hosted issue tracker. Open source, MIT-licensed, and yours end
 
 ## Why
 
-Most issue trackers are SaaS. Exponential is a small, sharp, self-hostable alternative: one `docker-compose` brings up Postgres, Electric, MinIO, and Caddy; one `.env` configures auth; you own the data and the box it sits on. Mutations are optimistic and reconcile through Electric, so every connected client stays live without spinners or stale lists.
+Most issue trackers are SaaS. Exponential is a small, sharp, self-hostable alternative: one `docker-compose` brings up Postgres, Electric, Garage, and Caddy; one `.env` configures auth; you own the data and the box it sits on. Mutations are optimistic and reconcile through Electric, so every connected client stays live without spinners or stale lists.
 
 ## Features
 
@@ -22,11 +22,14 @@ Most issue trackers are SaaS. Exponential is a small, sharp, self-hostable alter
 git clone https://github.com/Niach/exponential
 cd exponential
 cp .env.example .env             # set BETTER_AUTH_SECRET, optional integrations
-docker compose up -d             # postgres, electric, minio, caddy
+openssl rand -hex 32 > infra/garage/secrets/rpc_secret
+openssl rand -base64 32 > infra/garage/secrets/admin_token
+docker compose up -d             # postgres, electric, garage, caddy
 bun install
 bun migrate
 docker exec -i exponential-postgres-1 \
-  psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
+  psql -U postgres -d exponential < apps/web/src/db/out/custom/0001_triggers.sql
+bun run storage:init             # creates Garage bucket + access key; paste output into .env
 bun dev
 ```
 
@@ -45,7 +48,7 @@ This is a bun workspace.
 │   └── routes/           # TanStack Router file routes (incl. /api/trpc, /api/shapes, /api/auth)
 ├── marketing/            # standalone Vite app for exponential.straehhuber.com
 │   └── src/              # home + privacy + terms, deployed to Cloudflare Pages
-├── docker-compose.yaml   # postgres:54321, electric:30000, minio:9000/9001, caddy:3000
+├── docker-compose.yaml   # postgres:54321, electric:30000, garage:3900, caddy:3000
 ├── Dockerfile            # production app image
 └── CLAUDE.md             # deeper architecture notes for AI coding assistants
 ```
@@ -59,7 +62,7 @@ This is a bun workspace.
 - **Auth**: Better Auth (email/password, OIDC via `genericOAuth`, Google social provider for Calendar linking)
 - **UI**: shadcn/ui on Tailwind v4, dark theme forced via `html.dark`, OKLCH zinc palette
 - **Editor**: Tiptap with markdown + image extensions
-- **Storage**: MinIO (S3-compatible) for issue image attachments
+- **Storage**: Garage (S3-compatible) for issue image attachments
 - **Package manager**: bun
 
 ## Configuration
@@ -72,7 +75,7 @@ See [`.env.example`](./.env.example) for the full list. Highlights:
 | `BETTER_AUTH_SECRET` | yes | 32+ char session-signing secret |
 | `BETTER_AUTH_URL` | yes | Public app URL |
 | `ELECTRIC_URL` | yes | Electric service URL |
-| `MINIO_*` | yes | Attachment storage |
+| `S3_*` | yes | Attachment storage (Garage by default) |
 | `AUTH_OIDC_ENABLED` + `OIDC_*` | optional | Enable OIDC login |
 | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | optional | Enable Google Calendar integration |
 | `MCP_API_TOKEN` + `MCP_USER_EMAIL` | optional | Enable MCP server |
