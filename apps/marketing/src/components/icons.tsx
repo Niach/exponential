@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react"
 import {
   ArrowRight,
+  Bot,
+  CalendarSync,
   Calendar as CalendarIcon,
   ChevronDown,
   ChevronRight,
@@ -49,6 +51,8 @@ export const IcServer = wrap(Server)
 export const IcFilter = wrap(Filter)
 export const IcPlus = wrap(Plus)
 export const IcCal = wrap(CalendarIcon)
+export const IcCalSync = wrap(CalendarSync)
+export const IcBot = wrap(Bot)
 export const IcUser = wrap(UserIcon)
 export const IcTag = wrap(Tag)
 export const IcAttach = wrap(Paperclip)

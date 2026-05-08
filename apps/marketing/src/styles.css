@@ -1064,14 +1064,14 @@ h2.section-title {
 /* ─── Self-host ─── */
 .host-grid {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 32px;
   align-items: start;
 }
 
 @media (max-width: 880px) {
   .host-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1099,6 +1099,7 @@ h2.section-title {
   padding: 18px 18px 22px;
   line-height: 1.65;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .term-prompt { color: var(--accent); }
@@ -1154,7 +1155,7 @@ h2.section-title {
 /* ─── Feature grid ─── */
 .features {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);
@@ -1162,10 +1163,15 @@ h2.section-title {
   overflow: hidden;
 }
 
+/* row 1: three cards spanning two cols each.
+   row 2: two cards spanning three cols each. */
+.feature { grid-column: span 2; }
+.feature:nth-child(n + 4) { grid-column: span 3; }
+
 @media (max-width: 880px) {
-  .features {
-    grid-template-columns: 1fr;
-  }
+  .features { grid-template-columns: 1fr; }
+  .feature,
+  .feature:nth-child(n + 4) { grid-column: auto; }
 }
 
 .feature {
@@ -1199,6 +1205,14 @@ h2.section-title {
   font-size: 13.5px;
   line-height: 1.55;
   color: var(--fg-muted);
+}
+.feature p code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-soft);
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--fg);
 }
 
 .feature-vis {
@@ -1273,12 +1287,12 @@ h2.section-title {
 /* OSS card */
 .oss-grid {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 32px;
   align-items: stretch;
 }
 @media (max-width: 880px) {
-  .oss-grid { grid-template-columns: 1fr; }
+  .oss-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .repo-card {
@@ -1289,6 +1303,16 @@ h2.section-title {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.repo-cta {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.oss-solo {
+  max-width: 640px;
+  margin: 0 auto;
 }
 
 .repo-head {
@@ -1401,6 +1425,7 @@ h2.section-title {
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
 }
 .copy-cmd code::before {
   content: "$ ";
@@ -1514,4 +1539,81 @@ footer {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Mobile ─── */
+@media (max-width: 720px) {
+  /* Topbar: drop in-page nav, keep brand + GitHub + Self-host */
+  .nav { display: none; }
+  .topbar-inner { gap: 12px; height: 52px; }
+  .topbar-right { gap: 6px; }
+  .topbar-right .btn-sm { padding: 5px 9px; font-size: 11.5px; }
+
+  /* Sections: tighter vertical rhythm */
+  section { padding: 56px 0; }
+  .section-tag { margin-bottom: 32px; gap: 8px; }
+
+  /* Hero */
+  .hero { padding: 36px 0 12px; }
+  .hero-title { margin-bottom: 16px; }
+  .hero-sub { font-size: 16px; margin-bottom: 26px; }
+  .hero-cta { flex-wrap: wrap; margin-bottom: 36px; }
+  .hero-grid { background-size: 40px 40px; }
+
+  /* Showcase: render the desktop app at its natural width and
+     scale it down so it spans the full mobile viewport width. */
+  .preview-wrap {
+    padding: 0;
+    background: none;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    aspect-ratio: 1100 / 600;
+    container-type: inline-size;
+  }
+  .preview-wrap::before { display: none; }
+  .preview-wrap .window {
+    width: 1100px;
+    height: 600px;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+    transform-origin: top left;
+    transform: scale(calc(100cqi / 1100px));
+  }
+  .preview-wrap .ex-app { min-height: 564px; }
+
+  /* Section text */
+  h2.section-title { font-size: 30px; line-height: 1.08; }
+  .section-sub { font-size: 15.5px; margin-bottom: 36px; }
+
+  /* Install column */
+  .host-grid { gap: 28px; }
+  .terminal-body { padding: 14px 14px 18px; font-size: 11.5px; }
+  .svc-grid { grid-template-columns: 1fr; }
+
+  /* Features */
+  .feature { min-height: auto; padding: 24px 22px; gap: 12px; }
+
+  /* OSS / repo */
+  .repo-card { padding: 20px; gap: 14px; }
+  .tree-row { padding: 5px 12px; }
+
+  /* Copy block */
+  .copy-cmd { font-size: 11.5px; }
+  .copy-cmd code { padding: 10px 12px; }
+  .copy-cmd .copy-btn { padding: 0 12px; }
+
+  /* Footer */
+  footer { padding: 36px 0 44px; }
+  .foot-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+}
+
+@media (max-width: 420px) {
+  .shell { padding: 0 16px; }
+  .topbar-right .btn-ghost { display: none; }
+  .hero-cta .btn { font-size: 12.5px; padding: 7px 12px; }
 }

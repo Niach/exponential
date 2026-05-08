@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react"
-import { IcCopy, IcGithub, IcServer, IcShield, IcZap } from "./icons"
+import {
+  IcBot,
+  IcCalSync,
+  IcCopy,
+  IcGithub,
+  IcServer,
+  IcShield,
+  IcZap,
+} from "./icons"
 
 export function SectionTag({ num, label }: { num: string; label: string }) {
   return (
@@ -149,6 +157,30 @@ export function FeatureGrid() {
           dependencies, no telemetry, no vendor lock-in.
         </p>
       </div>
+
+      <div className="feature">
+        <span className="feature-icon">
+          <IcCalSync size={20} />
+        </span>
+        <h3>Google Calendar sync</h3>
+        <p>
+          Per-user opt-in. Issues with a due date appear as all-day events on
+          your primary calendar — automatically created, updated, and removed
+          as status and dates change.
+        </p>
+      </div>
+
+      <div className="feature">
+        <span className="feature-icon">
+          <IcBot size={20} />
+        </span>
+        <h3>MCP server, built in</h3>
+        <p>
+          Point Claude or any MCP-aware client at <code>/api/mcp</code> and let
+          it list, create, and update issues, projects, and labels — scoped to
+          the workspaces the user belongs to.
+        </p>
+      </div>
     </div>
   )
 }
@@ -182,38 +214,13 @@ export function RepoCard() {
         Drizzle, and Better Auth. Read the source, fork it, run it on your own
         infrastructure.
       </p>
-    </div>
-  )
-}
 
-export function OssCopy() {
-  return (
-    <div
-      style={{
-        display: `flex`,
-        flexDirection: `column`,
-        justifyContent: `center`,
-        gap: 18,
-      }}
-    >
-      <div className="section-eyebrow" style={{ marginBottom: 0 }}>
-        Open source
-      </div>
-      <h2 className="section-title" style={{ marginBottom: 0 }}>
-        Read every line. Run every line.
-      </h2>
-      <p className="section-sub" style={{ marginBottom: 0 }}>
-        The full source lives in one repo under MIT. Audit it, fork it, run it
-        untouched on your own metal.
-      </p>
-      <div style={{ display: `flex`, gap: 10, flexWrap: `wrap` }}>
-        <a
-          className="btn btn-primary"
-          href="https://github.com/Niach/exponential"
-        >
-          <IcGithub size={14} /> View on GitHub
-        </a>
-      </div>
+      <a
+        className="btn btn-primary repo-cta"
+        href="https://github.com/Niach/exponential"
+      >
+        <IcGithub size={14} /> View on GitHub
+      </a>
     </div>
   )
 }

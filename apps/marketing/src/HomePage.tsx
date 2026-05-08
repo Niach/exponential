@@ -3,7 +3,6 @@ import {
   CopyBlock,
   FeatureGrid,
   HostTerminal,
-  OssCopy,
   RepoCard,
   SectionTag,
 } from "./components/Sections"
@@ -127,9 +126,9 @@ export function HomePage() {
 
       <section id="open-source">
         <div className="shell">
-          <div className="oss-grid">
+          <SectionTag num="03" label="Open source" />
+          <div className="oss-solo">
             <RepoCard />
-            <OssCopy />
           </div>
         </div>
       </section>
