@@ -4,6 +4,14 @@ import os
 
 private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "SyncManager")
 
+// One TanStack Start instance, one shape protocol for every client.
+// Web uses @electric-sql/client; iOS and Android implement the same wire
+// format by hand. See packages/electric-protocol/README.md for the contract.
+//
+// Every shape runs an independent long-polling loop in its own Task. Each
+// poll either returns immediately with new rows or holds the connection
+// open ~60s before returning an `up-to-date` control message. There is
+// no polling timer anywhere.
 final class SyncManager: @unchecked Sendable {
     private let auth: AuthRepository
     let db: DatabaseManager
@@ -31,7 +39,7 @@ final class SyncManager: @unchecked Sendable {
                 let currentToken = self.auth.token
 
                 if currentUrl != previousUrl || currentToken != previousToken {
-                    logger.info("Auth state changed")
+                    logger.info("Auth state changed — restarting shape sync")
                     previousUrl = currentUrl
                     previousToken = currentToken
                     self.cancelShapes()
@@ -58,76 +66,21 @@ final class SyncManager: @unchecked Sendable {
         }
     }
 
-    /// One-shot fetch of all shapes — called from UI as a workaround
+    /// Wait up to ~5s for the workspaces shape to land its initial snapshot.
+    /// Live sync runs automatically — this exists so UI loading indicators
+    /// have a meaningful signal to wait on instead of returning instantly.
     func initialSync() async {
-        guard let baseUrl = auth.instanceUrl, let token = auth.token else { return }
-        logger.info("Starting initial sync")
-
-        async let ws = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/workspaces", type: WorkspaceEntity.self)
-        async let proj = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/projects", type: ProjectEntity.self)
-        async let iss = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/issues", type: IssueEntity.self)
-        async let lab = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/labels", type: LabelEntity.self)
-        async let il = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/issue-labels", type: IssueLabelEntity.self)
-        async let usr = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/users", type: UserEntity.self)
-        async let wm = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/workspace-members", type: WorkspaceMemberEntity.self)
-        async let wi = fetchShape(baseUrl: baseUrl, token: token, path: "/api/shapes/workspace-invites", type: WorkspaceInviteEntity.self)
-
-        let results = await [ws, proj, iss, lab, il, usr, wm, wi]
-        let names = ["ws", "proj", "issues", "labels", "il", "users", "wm", "wi"]
-        for (name, count) in zip(names, results) {
-            logger.info("  \(name): \(count)")
+        let start = Date()
+        while Date().timeIntervalSince(start) < 5 {
+            let hasData = (try? await db.dbPool.read { db in
+                try WorkspaceEntity.fetchCount(db) > 0
+            }) ?? false
+            if hasData { return }
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
-    private func fetchShape<T: Codable & FetchableRecord & PersistableRecord & Sendable>(
-        baseUrl: String, token: String, path: String, type: T.Type
-    ) async -> Int {
-        guard let url = URL(string: "\(baseUrl)\(path)?offset=-1") else { return -1 }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return -2 }
-            guard let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return -3 }
-
-            var saved = 0
-            for dict in array {
-                guard let value = dict["value"] as? [String: Any] else { continue }
-                let coerced = Self.coerceStringValues(value)
-                guard let jsonData = try? JSONSerialization.data(withJSONObject: coerced) else { continue }
-
-                if let entity = try? JSONDecoder().decode(T.self, from: jsonData) {
-                    try await db.dbPool.write { db in try entity.save(db) }
-                    saved += 1
-                }
-            }
-            return saved
-        } catch {
-            logger.error("fetchShape \(path): \(error.localizedDescription)")
-            return -4
-        }
-    }
-
-    private static func coerceStringValues(_ dict: [String: Any]) -> [String: Any] {
-        var result = [String: Any]()
-        for (key, value) in dict {
-            if let str = value as? String {
-                if str == "true" { result[key] = true }
-                else if str == "false" { result[key] = false }
-                else if str.contains("."), let d = Double(str) { result[key] = d }
-                else if let i = Int(str) { result[key] = i }
-                else { result[key] = str }
-            } else {
-                result[key] = value
-            }
-        }
-        return result
-    }
-
-    // MARK: - Live shapes (for real-time updates after initial sync)
+    // MARK: - Live shape sync
 
     private func cancelShapes() {
         shapeTasks.forEach { $0.cancel() }
@@ -135,8 +88,107 @@ final class SyncManager: @unchecked Sendable {
     }
 
     private func launchShapes() {
-        logger.info("Launching live shape sync")
-        // For now, live sync is handled by initialSync() + polling
-        // TODO: re-enable ShapeClient-based live sync once GRDB async write issue is resolved
+        logger.info("Launching live shape sync (8 shapes)")
+        let db = self.db
+        let auth = self.auth
+        let baseUrl: @Sendable () -> String? = { auth.instanceUrl }
+        let token: @Sendable () -> String? = { auth.token }
+
+        shapeTasks.append(makeShapeTask(
+            name: "workspaces", path: "/api/shapes/workspaces", table: "workspace",
+            type: WorkspaceEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "projects", path: "/api/shapes/projects", table: "project",
+            type: ProjectEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "issues", path: "/api/shapes/issues", table: "issue",
+            type: IssueEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "labels", path: "/api/shapes/labels", table: "label",
+            type: LabelEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "issue-labels", path: "/api/shapes/issue-labels", table: "issue_label",
+            type: IssueLabelEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "users", path: "/api/shapes/users", table: "user",
+            type: UserEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "workspace-members", path: "/api/shapes/workspace-members", table: "workspace_member",
+            type: WorkspaceMemberEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "workspace-invites", path: "/api/shapes/workspace-invites", table: "workspace_invite",
+            type: WorkspaceInviteEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
     }
+
+    private func makeShapeTask<T: Codable & FetchableRecord & PersistableRecord & Sendable>(
+        name: String, path: String, table: String, type: T.Type,
+        db: DatabaseManager,
+        baseUrl: @escaping @Sendable () -> String?,
+        token: @escaping @Sendable () -> String?
+    ) -> Task<Void, Never> {
+        let client = ShapeClient<T>(
+            shapeName: name,
+            urlPath: path,
+            baseUrlProvider: baseUrl,
+            tokenProvider: token,
+            db: db,
+            onMessages: { messages in
+                try await applyBatch(messages: messages, table: table, db: db)
+            }
+        )
+        return Task {
+            do {
+                try await client.run()
+            } catch is CancellationError {
+                // Expected on auth change / stop()
+            } catch {
+                logger.error("[\(name)] shape task ended: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+// One transaction per long-poll batch — never one transaction per row.
+// Per-row writes from 8 concurrent shape loops were what starved the GRDB
+// writer and forced live sync off in the first place. Keep batched.
+private func applyBatch<T: PersistableRecord & Sendable>(
+    messages: [ShapeMessage<T>], table: String, db: DatabaseManager
+) async throws {
+    guard !messages.isEmpty else { return }
+    try await db.dbPool.write { gdb in
+        for message in messages {
+            switch message {
+            case let .insert(_, value):
+                try value.save(gdb)
+            case let .update(_, value):
+                try value.save(gdb)
+            case let .delete(key, value):
+                if let value {
+                    try value.delete(gdb)
+                } else if let id = parseIdFromKey(key) {
+                    try gdb.execute(sql: "DELETE FROM \(table) WHERE id = ?", arguments: [id])
+                }
+            case .upToDate:
+                break
+            case .mustRefetch:
+                try gdb.execute(sql: "DELETE FROM \(table)")
+            }
+        }
+    }
+}
+
+// Electric shape keys arrive as `"table"/"id"` (quoted). Strip the table
+// segment and the surrounding quotes to recover the bare primary key.
+private func parseIdFromKey(_ key: String) -> String? {
+    let parts = key.split(separator: "/")
+    guard let last = parts.last else { return nil }
+    return last.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
 }
