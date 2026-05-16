@@ -34,12 +34,15 @@ import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.home.HomeScreen
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.instance.InstanceScreen
+import com.exponential.app.ui.admin.AdminUsersScreen
+import com.exponential.app.ui.admin.AdminWorkspacesScreen
 import com.exponential.app.ui.integrations.IntegrationsScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.nav.MainScaffold
 import com.exponential.app.ui.settings.SettingsScreen
+import com.exponential.app.ui.settings.WorkspaceSettingsScreen
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -254,11 +257,20 @@ private fun AuthenticatedShell(
             composable("settings") {
                 SettingsScreen(
                     onOpenIntegrations = { navController.navigate("integrations") },
-                    onOpenWorkspaceSettings = { /* TODO: workspace-settings route */ },
-                    onOpenAdminUsers = { /* TODO: admin route */ },
-                    onOpenAdminWorkspaces = { /* TODO: admin route */ },
+                    onOpenWorkspaceSettings = { navController.navigate("workspace-settings") },
+                    onOpenAdminUsers = { navController.navigate("admin-users") },
+                    onOpenAdminWorkspaces = { navController.navigate("admin-workspaces") },
                     onSignOut = onSignOut,
                 )
+            }
+            composable("workspace-settings") {
+                WorkspaceSettingsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("admin-users") {
+                AdminUsersScreen(onBack = { navController.popBackStack() })
+            }
+            composable("admin-workspaces") {
+                AdminWorkspacesScreen(onBack = { navController.popBackStack() })
             }
             composable("integrations") {
                 IntegrationsScreen(onBack = { navController.popBackStack() })

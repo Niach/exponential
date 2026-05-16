@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +51,11 @@ fun LabelPickerSheet(
     var newName by remember { mutableStateOf("") }
     var newColor by remember { mutableStateOf(SUGGESTED_COLORS.first()) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+    ) {
         Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
             Text("Labels", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.size(12.dp))
