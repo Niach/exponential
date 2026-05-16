@@ -16,6 +16,8 @@ import com.exponential.app.data.db.LabelDao
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.UserDao
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +38,8 @@ data class IssueDetailState(
     val project: ProjectEntity? = null,
     val workspaceLabels: List<LabelEntity> = emptyList(),
     val issueLabels: List<LabelEntity> = emptyList(),
+    val users: List<UserEntity> = emptyList(),
+    val assignee: UserEntity? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -46,6 +50,7 @@ class IssueDetailViewModel @Inject constructor(
     private val projectDao: ProjectDao,
     private val labelDao: LabelDao,
     private val issueLabelDao: IssueLabelDao,
+    private val userDao: UserDao,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
     private val issueImagesApi: IssueImagesApi,
@@ -66,13 +71,16 @@ class IssueDetailViewModel @Inject constructor(
         _project,
         workspaceLabelsFlow,
         issueLabelDao.observeByIssue(issueId),
-    ) { issue, project, allLabels, joins ->
+        userDao.observeAll(),
+    ) { issue, project, allLabels, joins, users ->
         val labelsById = allLabels.associateBy { it.id }
         IssueDetailState(
             issue = issue,
             project = project,
             workspaceLabels = allLabels,
             issueLabels = joins.mapNotNull { labelsById[it.labelId] },
+            users = users,
+            assignee = issue?.assigneeId?.let { id -> users.firstOrNull { it.id == id } },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
 
@@ -128,6 +136,44 @@ class IssueDetailViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 issuesApi.update(UpdateIssueInput(id = issueId, dueDate = date))
+            }
+        }
+    }
+
+    fun updateAssignee(userId: String?) {
+        viewModelScope.launch {
+            runCatching {
+                issuesApi.update(UpdateIssueInput(id = issueId, assigneeId = userId))
+            }
+        }
+    }
+
+    fun updateDueTime(time: String?) {
+        viewModelScope.launch {
+            runCatching {
+                issuesApi.update(UpdateIssueInput(id = issueId, dueTime = time))
+            }
+        }
+    }
+
+    fun updateEndTime(time: String?) {
+        viewModelScope.launch {
+            runCatching {
+                issuesApi.update(UpdateIssueInput(id = issueId, endTime = time))
+            }
+        }
+    }
+
+    fun updateRecurrence(interval: Int?, unit: String?) {
+        viewModelScope.launch {
+            runCatching {
+                issuesApi.update(
+                    UpdateIssueInput(
+                        id = issueId,
+                        recurrenceInterval = interval,
+                        recurrenceUnit = unit,
+                    )
+                )
             }
         }
     }

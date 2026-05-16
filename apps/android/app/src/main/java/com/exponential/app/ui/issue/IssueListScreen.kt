@@ -29,13 +29,14 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -137,10 +138,23 @@ fun IssueListScreen(
         CreateIssueSheet(
             isCreating = state.isCreating,
             error = state.error,
+            users = state.users,
             onDismiss = { showCreate = false },
-            onCreate = { title, status, priority, description, dueDate, pendingImages, keepOpen ->
-                viewModel.createIssue(title, status, priority, description, dueDate, pendingImages)
-                if (!keepOpen) showCreate = false
+            onCreate = { payload ->
+                viewModel.createIssue(
+                    title = payload.title,
+                    status = payload.status,
+                    priority = payload.priority,
+                    description = payload.description,
+                    dueDate = payload.dueDate,
+                    assigneeId = payload.assigneeId,
+                    dueTime = payload.dueTime,
+                    endTime = payload.endTime,
+                    recurrenceInterval = payload.recurrenceInterval,
+                    recurrenceUnit = payload.recurrenceUnit,
+                    pendingImages = payload.pendingImages,
+                )
+                if (!payload.keepOpen) showCreate = false
             },
         )
     }
@@ -160,20 +174,20 @@ fun IssueListScreen(
 
 @Composable
 private fun FilterTabsRow(active: FilterTab, onSelect: (FilterTab) -> Unit) {
-    Row(
+    val entries = FilterTab.entries
+    SingleChoiceSegmentedButtonRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FilterTab.entries.forEach { tab ->
-            FilterChip(
+        entries.forEachIndexed { index, tab ->
+            SegmentedButton(
                 selected = active == tab,
                 onClick = { onSelect(tab) },
-                label = { Text(tab.label) },
-                colors = FilterChipDefaults.filterChipColors(),
-            )
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = entries.size),
+            ) {
+                Text(tab.label)
+            }
         }
     }
 }

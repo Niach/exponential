@@ -22,10 +22,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,7 +74,11 @@ fun IssueDetailScreen(
     var descriptionField by remember { mutableStateOf("") }
     var statusMenuOpen by remember { mutableStateOf(false) }
     var priorityMenuOpen by remember { mutableStateOf(false) }
+    var assigneeMenuOpen by remember { mutableStateOf(false) }
     var datePickerOpen by remember { mutableStateOf(false) }
+    var dueTimePickerOpen by remember { mutableStateOf(false) }
+    var endTimePickerOpen by remember { mutableStateOf(false) }
+    var recurrenceSheetOpen by remember { mutableStateOf(false) }
     var labelsOpen by remember { mutableStateOf(false) }
     var editingDescription by remember { mutableStateOf(false) }
 
@@ -173,8 +181,43 @@ fun IssueDetailScreen(
                         }
                     }
                 }
+                Box {
+                    OutlinedButton(onClick = { assigneeMenuOpen = true }) {
+                        Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(state.assignee?.name ?: state.assignee?.email ?: "Unassigned", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    DropdownMenu(expanded = assigneeMenuOpen, onDismissRequest = { assigneeMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Unassigned") },
+                            onClick = { viewModel.updateAssignee(null); assigneeMenuOpen = false },
+                        )
+                        HorizontalDivider()
+                        state.users.forEach { user ->
+                            DropdownMenuItem(
+                                text = { Text(user.name ?: user.email) },
+                                onClick = { viewModel.updateAssignee(user.id); assigneeMenuOpen = false },
+                            )
+                        }
+                    }
+                }
                 OutlinedButton(onClick = { datePickerOpen = true }) {
                     Text(issue.dueDate ?: "Due date")
+                }
+                if (issue.dueDate != null) {
+                    OutlinedButton(onClick = { dueTimePickerOpen = true }) {
+                        Icon(Icons.Filled.Schedule, null, modifier = Modifier.width(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(issue.dueTime ?: "Start time")
+                    }
+                    OutlinedButton(onClick = { endTimePickerOpen = true }) {
+                        Text(issue.endTime ?: "End time")
+                    }
+                }
+                OutlinedButton(onClick = { recurrenceSheetOpen = true }) {
+                    Icon(Icons.Filled.Repeat, null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(formatRecurrence(issue.recurrenceInterval, issue.recurrenceUnit))
                 }
                 OutlinedButton(onClick = { labelsOpen = true }) {
                     Icon(Icons.Filled.Add, null, modifier = Modifier.size(14.dp))
@@ -253,5 +296,45 @@ fun IssueDetailScreen(
             onDismiss = { labelsOpen = false },
         )
     }
+
+    if (dueTimePickerOpen && issue != null) {
+        IssueTimePickerDialog(
+            initialTime = issue.dueTime,
+            title = "Start time",
+            onConfirm = { viewModel.updateDueTime(it); dueTimePickerOpen = false },
+            onClear = { viewModel.updateDueTime(null); dueTimePickerOpen = false },
+            onDismiss = { dueTimePickerOpen = false },
+        )
+    }
+
+    if (endTimePickerOpen && issue != null) {
+        IssueTimePickerDialog(
+            initialTime = issue.endTime,
+            title = "End time",
+            onConfirm = { viewModel.updateEndTime(it); endTimePickerOpen = false },
+            onClear = { viewModel.updateEndTime(null); endTimePickerOpen = false },
+            onDismiss = { endTimePickerOpen = false },
+        )
+    }
+
+    if (recurrenceSheetOpen && issue != null) {
+        RecurrenceSheet(
+            interval = issue.recurrenceInterval,
+            unit = issue.recurrenceUnit,
+            onApply = { i, u -> viewModel.updateRecurrence(i, u); recurrenceSheetOpen = false },
+            onDismiss = { recurrenceSheetOpen = false },
+        )
+    }
+}
+
+private fun formatRecurrence(interval: Int?, unit: String?): String {
+    if (interval == null || unit == null) return "Does not repeat"
+    val pretty = when (unit) {
+        "day" -> if (interval == 1) "Daily" else "Every $interval days"
+        "week" -> if (interval == 1) "Weekly" else "Every $interval weeks"
+        "month" -> if (interval == 1) "Monthly" else "Every $interval months"
+        else -> "Every $interval $unit"
+    }
+    return pretty
 }
 

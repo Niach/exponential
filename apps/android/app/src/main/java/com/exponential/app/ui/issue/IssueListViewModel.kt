@@ -16,6 +16,8 @@ import com.exponential.app.data.db.LabelDao
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.UserDao
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
@@ -48,6 +50,7 @@ data class IssueListState(
     val filters: IssueFilters = IssueFilters(),
     val tab: FilterTab = FilterTab.All,
     val labels: List<LabelEntity> = emptyList(),
+    val users: List<UserEntity> = emptyList(),
     val isCreating: Boolean = false,
     val error: String? = null,
 )
@@ -60,6 +63,7 @@ class IssueListViewModel @Inject constructor(
     private val issueDao: IssueDao,
     private val issueLabelDao: IssueLabelDao,
     private val labelDao: LabelDao,
+    private val userDao: UserDao,
     private val issuesApi: IssuesApi,
     private val issueImagesApi: IssueImagesApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
@@ -91,6 +95,7 @@ class IssueListViewModel @Inject constructor(
             _filters,
             _busy,
             _error,
+            userDao.observeAll(),
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -104,6 +109,8 @@ class IssueListViewModel @Inject constructor(
         val filters = values[4] as IssueFilters
         val busy = values[5] as Boolean
         val error = values[6] as String?
+        @Suppress("UNCHECKED_CAST")
+        val users = values[7] as List<UserEntity>
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
@@ -132,6 +139,7 @@ class IssueListViewModel @Inject constructor(
             filters = filters,
             tab = deriveTab(filters.statuses),
             labels = labels,
+            users = users,
             isCreating = busy,
             error = error,
         )
@@ -178,6 +186,11 @@ class IssueListViewModel @Inject constructor(
         priority: IssuePriority,
         description: String?,
         dueDate: String?,
+        assigneeId: String? = null,
+        dueTime: String? = null,
+        endTime: String? = null,
+        recurrenceInterval: Int? = null,
+        recurrenceUnit: String? = null,
         pendingImages: Map<String, android.net.Uri> = emptyMap(),
     ) {
         if (title.isBlank()) return
@@ -197,7 +210,12 @@ class IssueListViewModel @Inject constructor(
                         status = status.wire,
                         priority = priority.wire,
                         description = strippedDescription?.let { IssueDescription(it) },
+                        assigneeId = assigneeId,
                         dueDate = dueDate,
+                        dueTime = dueTime,
+                        endTime = endTime,
+                        recurrenceInterval = recurrenceInterval,
+                        recurrenceUnit = recurrenceUnit,
                     )
                 )
 

@@ -3,6 +3,7 @@ package com.exponential.app.ui.issue
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,11 +13,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -30,9 +36,12 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.issuePriorityOrder
@@ -42,42 +51,58 @@ import com.exponential.app.domain.statusIcon
 import com.exponential.app.ui.markdown.MarkdownEditor
 import java.util.UUID
 
-@OptIn(ExperimentalMaterial3Api::class)
+data class CreateIssuePayload(
+    val title: String,
+    val status: IssueStatus,
+    val priority: IssuePriority,
+    val description: String?,
+    val assigneeId: String?,
+    val dueDate: String?,
+    val dueTime: String?,
+    val endTime: String?,
+    val recurrenceInterval: Int?,
+    val recurrenceUnit: String?,
+    val pendingImages: Map<String, Uri>,
+    val keepOpen: Boolean,
+)
+
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun CreateIssueSheet(
     isCreating: Boolean,
     error: String?,
+    users: List<UserEntity>,
     onDismiss: () -> Unit,
-    onCreate: (
-        title: String,
-        status: IssueStatus,
-        priority: IssuePriority,
-        description: String?,
-        dueDate: String?,
-        pendingImages: Map<String, Uri>,
-        keepOpen: Boolean,
-    ) -> Unit,
+    onCreate: (CreateIssuePayload) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(IssueStatus.Backlog) }
     var priority by remember { mutableStateOf(IssuePriority.None) }
+    var assigneeId by remember { mutableStateOf<String?>(null) }
     var dueDate by remember { mutableStateOf<String?>(null) }
+    var dueTime by remember { mutableStateOf<String?>(null) }
+    var endTime by remember { mutableStateOf<String?>(null) }
+    var recurrenceInterval by remember { mutableStateOf<Int?>(null) }
+    var recurrenceUnit by remember { mutableStateOf<String?>(null) }
     var createMore by remember { mutableStateOf(false) }
     var statusMenuOpen by remember { mutableStateOf(false) }
     var priorityMenuOpen by remember { mutableStateOf(false) }
+    var assigneeMenuOpen by remember { mutableStateOf(false) }
     var datePickerOpen by remember { mutableStateOf(false) }
+    var dueTimePickerOpen by remember { mutableStateOf(false) }
+    var endTimePickerOpen by remember { mutableStateOf(false) }
+    var recurrenceSheetOpen by remember { mutableStateOf(false) }
 
-    // Image upload defers actual /api/issues/<id>/images calls until after the
-    // issue exists. Picking an image stashes its content URI under a stable
-    // placeholder URL ("draft://<uuid>") that is inserted into the markdown so
-    // the editor can preview it. On submit, the parent VM strips placeholders,
-    // creates the issue, uploads each image, then updates the description with
-    // the real URLs.
     val pendingImages = remember { mutableStateMapOf<String, Uri>() }
+    val assigneeUser = users.firstOrNull { it.id == assigneeId }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+    ) {
         Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
             Text("New issue", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
@@ -104,39 +129,83 @@ fun CreateIssueSheet(
                 minHeight = 120.dp,
             )
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                OutlinedButton(onClick = { statusMenuOpen = true }) {
-                    Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(status.label)
-                }
-                DropdownMenu(expanded = statusMenuOpen, onDismissRequest = { statusMenuOpen = false }) {
-                    issueStatusOrder.forEach { item ->
-                        DropdownMenuItem(
-                            text = { Text(item.label) },
-                            leadingIcon = { Icon(statusIcon(item), null) },
-                            onClick = { status = item; statusMenuOpen = false },
-                        )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.foundation.layout.Box {
+                    OutlinedButton(onClick = { statusMenuOpen = true }) {
+                        Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(status.label)
+                    }
+                    DropdownMenu(expanded = statusMenuOpen, onDismissRequest = { statusMenuOpen = false }) {
+                        issueStatusOrder.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.label) },
+                                leadingIcon = { Icon(statusIcon(item), null) },
+                                onClick = { status = item; statusMenuOpen = false },
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = { priorityMenuOpen = true }) {
-                    Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(priority.label)
-                }
-                DropdownMenu(expanded = priorityMenuOpen, onDismissRequest = { priorityMenuOpen = false }) {
-                    issuePriorityOrder.forEach { item ->
-                        DropdownMenuItem(
-                            text = { Text(item.label) },
-                            leadingIcon = { Icon(priorityIcon(item), null) },
-                            onClick = { priority = item; priorityMenuOpen = false },
-                        )
+                androidx.compose.foundation.layout.Box {
+                    OutlinedButton(onClick = { priorityMenuOpen = true }) {
+                        Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(priority.label)
+                    }
+                    DropdownMenu(expanded = priorityMenuOpen, onDismissRequest = { priorityMenuOpen = false }) {
+                        issuePriorityOrder.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.label) },
+                                leadingIcon = { Icon(priorityIcon(item), null) },
+                                onClick = { priority = item; priorityMenuOpen = false },
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.width(8.dp))
+                androidx.compose.foundation.layout.Box {
+                    OutlinedButton(onClick = { assigneeMenuOpen = true }) {
+                        Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            assigneeUser?.name ?: assigneeUser?.email ?: "Unassigned",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    DropdownMenu(expanded = assigneeMenuOpen, onDismissRequest = { assigneeMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Unassigned") },
+                            onClick = { assigneeId = null; assigneeMenuOpen = false },
+                        )
+                        HorizontalDivider()
+                        users.forEach { user ->
+                            DropdownMenuItem(
+                                text = { Text(user.name ?: user.email) },
+                                onClick = { assigneeId = user.id; assigneeMenuOpen = false },
+                            )
+                        }
+                    }
+                }
                 OutlinedButton(onClick = { datePickerOpen = true }) {
                     Text(dueDate ?: "Due date")
+                }
+                if (dueDate != null) {
+                    OutlinedButton(onClick = { dueTimePickerOpen = true }) {
+                        Icon(Icons.Filled.Schedule, null, modifier = Modifier.width(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(dueTime ?: "Start time")
+                    }
+                    OutlinedButton(onClick = { endTimePickerOpen = true }) {
+                        Text(endTime ?: "End time")
+                    }
+                }
+                OutlinedButton(onClick = { recurrenceSheetOpen = true }) {
+                    Icon(Icons.Filled.Repeat, null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(formatCreateRecurrence(recurrenceInterval, recurrenceUnit))
                 }
             }
             if (error != null) {
@@ -147,9 +216,9 @@ fun CreateIssueSheet(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = createMore, onCheckedChange = { createMore = it })
                     Text("Create more")
                 }
@@ -157,13 +226,20 @@ fun CreateIssueSheet(
                     enabled = !isCreating && title.isNotBlank(),
                     onClick = {
                         onCreate(
-                            title,
-                            status,
-                            priority,
-                            description,
-                            dueDate,
-                            pendingImages.toMap(),
-                            createMore,
+                            CreateIssuePayload(
+                                title = title,
+                                status = status,
+                                priority = priority,
+                                description = description,
+                                assigneeId = assigneeId,
+                                dueDate = dueDate,
+                                dueTime = dueTime,
+                                endTime = endTime,
+                                recurrenceInterval = recurrenceInterval,
+                                recurrenceUnit = recurrenceUnit,
+                                pendingImages = pendingImages.toMap(),
+                                keepOpen = createMore,
+                            )
                         )
                         if (createMore) {
                             title = ""
@@ -187,5 +263,48 @@ fun CreateIssueSheet(
             onConfirm = { dueDate = it; datePickerOpen = false },
             onDismiss = { datePickerOpen = false },
         )
+    }
+
+    if (dueTimePickerOpen) {
+        IssueTimePickerDialog(
+            initialTime = dueTime,
+            title = "Start time",
+            onConfirm = { dueTime = it; dueTimePickerOpen = false },
+            onClear = { dueTime = null; dueTimePickerOpen = false },
+            onDismiss = { dueTimePickerOpen = false },
+        )
+    }
+
+    if (endTimePickerOpen) {
+        IssueTimePickerDialog(
+            initialTime = endTime,
+            title = "End time",
+            onConfirm = { endTime = it; endTimePickerOpen = false },
+            onClear = { endTime = null; endTimePickerOpen = false },
+            onDismiss = { endTimePickerOpen = false },
+        )
+    }
+
+    if (recurrenceSheetOpen) {
+        RecurrenceSheet(
+            interval = recurrenceInterval,
+            unit = recurrenceUnit,
+            onApply = { i, u ->
+                recurrenceInterval = i
+                recurrenceUnit = u
+                recurrenceSheetOpen = false
+            },
+            onDismiss = { recurrenceSheetOpen = false },
+        )
+    }
+}
+
+private fun formatCreateRecurrence(interval: Int?, unit: String?): String {
+    if (interval == null || unit == null) return "Does not repeat"
+    return when (unit) {
+        "day" -> if (interval == 1) "Daily" else "Every $interval days"
+        "week" -> if (interval == 1) "Weekly" else "Every $interval weeks"
+        "month" -> if (interval == 1) "Monthly" else "Every $interval months"
+        else -> "Every $interval $unit"
     }
 }

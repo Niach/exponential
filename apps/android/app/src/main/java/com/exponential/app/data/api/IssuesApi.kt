@@ -13,7 +13,12 @@ data class CreateIssueInput(
     val status: String? = null,
     val priority: String? = null,
     val description: IssueDescription? = null,
+    @SerialName("assigneeId") val assigneeId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
+    @SerialName("dueTime") val dueTime: String? = null,
+    @SerialName("endTime") val endTime: String? = null,
+    @SerialName("recurrenceInterval") val recurrenceInterval: Int? = null,
+    @SerialName("recurrenceUnit") val recurrenceUnit: String? = null,
 )
 
 @Serializable
@@ -23,7 +28,12 @@ data class UpdateIssueInput(
     val status: String? = null,
     val priority: String? = null,
     val description: IssueDescription? = null,
+    @SerialName("assigneeId") val assigneeId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
+    @SerialName("dueTime") val dueTime: String? = null,
+    @SerialName("endTime") val endTime: String? = null,
+    @SerialName("recurrenceInterval") val recurrenceInterval: Int? = null,
+    @SerialName("recurrenceUnit") val recurrenceUnit: String? = null,
 )
 
 @Serializable
