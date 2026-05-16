@@ -1,4 +1,5 @@
 import SwiftUI
+import GRDB
 
 struct CreateIssueSheet: View {
     let projectId: String
@@ -12,10 +13,13 @@ struct CreateIssueSheet: View {
     @State private var status: IssueStatus = .backlog
     @State private var priority: IssuePriority = .none
     @State private var dueDate: Date?
-    @State private var dueTime = ""
-    @State private var endTime = ""
+    @State private var dueTime: String?
+    @State private var endTime: String?
     @State private var assigneeId: String?
+    @State private var recurrenceInterval: Int?
+    @State private var recurrenceUnit: RecurrenceUnit?
     @State private var selectedLabelIds: Set<String> = []
+    @State private var users: [UserEntity] = []
     @State private var createMore = false
     @State private var loading = false
     @State private var error: String?
@@ -94,12 +98,83 @@ struct CreateIssueSheet: View {
                                 }
                             }
 
+                            // Assignee
+                            metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
+                                Menu {
+                                    Button {
+                                        assigneeId = nil
+                                    } label: {
+                                        Label("Unassigned", systemImage: "xmark")
+                                    }
+                                    ForEach(users, id: \.id) { user in
+                                        Button { assigneeId = user.id } label: {
+                                            Text(user.name ?? user.email)
+                                        }
+                                    }
+                                } label: {
+                                    let assignee = users.first { $0.id == assigneeId }
+                                    Text(assignee?.name ?? assignee?.email ?? "Unassigned")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                }
+                            }
+
+                            // Recurrence
+                            metadataRow(label: "Repeat", icon: "repeat", iconColor: .white.opacity(0.6)) {
+                                Menu {
+                                    Button {
+                                        recurrenceInterval = nil
+                                        recurrenceUnit = nil
+                                    } label: {
+                                        Label("Doesn't repeat", systemImage: "xmark")
+                                    }
+                                    ForEach(RecurrenceUnit.allCases) { unit in
+                                        Section(unit.label(for: 2).capitalized) {
+                                            ForEach(recurrenceIntervals, id: \.self) { interval in
+                                                Button {
+                                                    recurrenceInterval = interval
+                                                    recurrenceUnit = unit
+                                                } label: {
+                                                    Text("Every \(interval) \(unit.label(for: interval))")
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    Text(formatCreateRecurrence(recurrenceInterval, recurrenceUnit))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                }
+                            }
+
                         }
                         .padding(16)
                         .glassSection()
 
                         // Due date — same inline picker as IssueDetailView
                         DueDatePicker(date: $dueDate)
+
+                        // Times (only when a due date is selected)
+                        if dueDate != nil {
+                            VStack(spacing: 12) {
+                                metadataRow(label: "Start time", icon: "clock", iconColor: .white.opacity(0.6)) {
+                                    TimeFieldButton(
+                                        value: dueTime,
+                                        placeholder: "—",
+                                        onChange: { dueTime = $0 }
+                                    )
+                                }
+                                metadataRow(label: "End time", icon: "clock.badge", iconColor: .white.opacity(0.6)) {
+                                    TimeFieldButton(
+                                        value: endTime,
+                                        placeholder: "—",
+                                        onChange: { endTime = $0 }
+                                    )
+                                }
+                            }
+                            .padding(16)
+                            .glassSection()
+                        }
 
                         // Create more toggle
                         Toggle(isOn: $createMore) {
@@ -141,7 +216,16 @@ struct CreateIssueSheet: View {
                     .disabled(title.isEmpty || loading)
                 }
             }
-            .onAppear { titleFocused = true }
+            .onAppear {
+                titleFocused = true
+                Task {
+                    if let loaded = try? await deps.db.dbPool.read({ db in
+                        try UserEntity.fetchAll(db)
+                    }) {
+                        users = loaded
+                    }
+                }
+            }
         }
     }
 
@@ -167,6 +251,7 @@ struct CreateIssueSheet: View {
         loading = true
         error = nil
 
+        let dateStr = dueDate.map { formatDate($0) }
         let input = CreateIssueInput(
             projectId: projectId,
             title: title,
@@ -174,8 +259,12 @@ struct CreateIssueSheet: View {
             priority: priority.rawValue,
             assigneeId: assigneeId,
             description: description.isEmpty ? nil : IssueDescription(text: description),
-            dueDate: dueDate.map { formatDate($0) },
-            labelIds: selectedLabelIds.isEmpty ? nil : Array(selectedLabelIds)
+            dueDate: dateStr,
+            dueTime: dateStr == nil ? nil : dueTime,
+            endTime: dateStr == nil ? nil : endTime,
+            labelIds: selectedLabelIds.isEmpty ? nil : Array(selectedLabelIds),
+            recurrenceInterval: recurrenceInterval,
+            recurrenceUnit: recurrenceUnit?.rawValue
         )
 
         do {
@@ -199,4 +288,16 @@ struct CreateIssueSheet: View {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
+}
+
+private func formatCreateRecurrence(_ interval: Int?, _ unit: RecurrenceUnit?) -> String {
+    guard let interval, let unit else { return "Doesn't repeat" }
+    if interval == 1 {
+        switch unit {
+        case .day: return "Daily"
+        case .week: return "Weekly"
+        case .month: return "Monthly"
+        }
+    }
+    return "Every \(interval) \(unit.label(for: interval))"
 }

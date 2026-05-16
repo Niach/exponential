@@ -120,6 +120,25 @@ final class IssueDetailViewModel {
         await update(UpdateIssueInput(id: issue.id, dueDate: dateStr))
     }
 
+    func setDueTime(_ time: String?) async {
+        guard let issue else { return }
+        await update(UpdateIssueInput(id: issue.id, dueTime: time))
+    }
+
+    func setEndTime(_ time: String?) async {
+        guard let issue else { return }
+        await update(UpdateIssueInput(id: issue.id, endTime: time))
+    }
+
+    func setRecurrence(interval: Int?, unit: RecurrenceUnit?) async {
+        guard let issue else { return }
+        await update(UpdateIssueInput(
+            id: issue.id,
+            recurrenceInterval: interval,
+            recurrenceUnit: unit?.rawValue
+        ))
+    }
+
     func toggleLabel(_ labelId: String) async {
         guard let issue else { return }
         do {

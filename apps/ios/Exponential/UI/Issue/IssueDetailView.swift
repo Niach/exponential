@@ -145,6 +145,64 @@ struct IssueDetailView: View {
                             set: { newDate in Task { await vm.setDueDate(newDate) } }
                         ))
 
+                        // Times (only when a due date is set; matches the
+                        // server-side semantics where dueTime depends on dueDate).
+                        if issue.dueDate != nil {
+                            VStack(spacing: 0) {
+                                detailRow(label: "Start time") {
+                                    TimeFieldButton(
+                                        value: issue.dueTime,
+                                        placeholder: "—",
+                                        onChange: { Task { await vm.setDueTime($0) } }
+                                    )
+                                }
+                                Divider().background(Color.white.opacity(0.06))
+                                detailRow(label: "End time") {
+                                    TimeFieldButton(
+                                        value: issue.endTime,
+                                        placeholder: "—",
+                                        onChange: { Task { await vm.setEndTime($0) } }
+                                    )
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .glassSection()
+                        }
+
+                        // Recurrence
+                        VStack(spacing: 0) {
+                            detailRow(label: "Repeat") {
+                                Menu {
+                                    Button {
+                                        Task { await vm.setRecurrence(interval: nil, unit: nil) }
+                                    } label: {
+                                        Label("Doesn't repeat", systemImage: "xmark")
+                                    }
+                                    ForEach(RecurrenceUnit.allCases) { unit in
+                                        Section(unit.label(for: 2).capitalized) {
+                                            ForEach(recurrenceIntervals, id: \.self) { interval in
+                                                Button {
+                                                    Task { await vm.setRecurrence(interval: interval, unit: unit) }
+                                                } label: {
+                                                    Text("Every \(interval) \(unit.label(for: interval))")
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    Text(formatRecurrence(issue.recurrenceInterval, issue.recurrenceUnit))
+                                        .font(.subheadline)
+                                        .foregroundStyle(
+                                            issue.recurrenceInterval == nil
+                                                ? .white.opacity(TextOpacity.tertiary)
+                                                : .white
+                                        )
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .glassSection()
+
                         // Labels
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Labels")
@@ -257,6 +315,89 @@ struct IssueDetailView: View {
         return formatter.date(from: dateString)
     }
 
+}
+
+// Inline time picker that surfaces the iOS wheel picker via a popover
+// and a "Clear" affordance for nullable time values.
+struct TimeFieldButton: View {
+    let value: String?
+    let placeholder: String
+    let onChange: (String?) -> Void
+
+    @State private var showPicker = false
+    @State private var draft = Date()
+
+    var body: some View {
+        Button {
+            draft = parseTime(value) ?? defaultTime()
+            showPicker = true
+        } label: {
+            Text(value ?? placeholder)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(value == nil
+                    ? .white.opacity(TextOpacity.tertiary)
+                    : .white)
+        }
+        .popover(isPresented: $showPicker) {
+            VStack(spacing: 12) {
+                DatePicker("Time", selection: $draft, displayedComponents: [.hourAndMinute])
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                HStack {
+                    if value != nil {
+                        Button("Clear") {
+                            onChange(nil)
+                            showPicker = false
+                        }
+                        .tint(.red)
+                    }
+                    Spacer()
+                    Button("Cancel") { showPicker = false }
+                    Button("Save") {
+                        onChange(formatTime(draft))
+                        showPicker = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(16)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func parseTime(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.date(from: value)
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func defaultTime() -> Date {
+        var components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        components.hour = 9
+        components.minute = 0
+        return Calendar.current.date(from: components) ?? Date()
+    }
+}
+
+private func formatRecurrence(_ interval: Int?, _ unit: String?) -> String {
+    guard let interval, let unitRaw = unit, let unit = RecurrenceUnit(rawValue: unitRaw) else {
+        return "Doesn't repeat"
+    }
+    if interval == 1 {
+        switch unit {
+        case .day: return "Daily"
+        case .week: return "Weekly"
+        case .month: return "Monthly"
+        }
+    }
+    return "Every \(interval) \(unit.label(for: interval))"
 }
 
 // MARK: - Flow Layout for labels
