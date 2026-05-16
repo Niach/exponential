@@ -36,5 +36,14 @@ object DatabaseModule {
     fun provideIssueLabelDao(db: ExponentialDatabase): IssueLabelDao = db.issueLabelDao()
 
     @Provides
+    fun provideUserDao(db: ExponentialDatabase): UserDao = db.userDao()
+
+    @Provides
+    fun provideWorkspaceMemberDao(db: ExponentialDatabase): WorkspaceMemberDao = db.workspaceMemberDao()
+
+    @Provides
+    fun provideWorkspaceInviteDao(db: ExponentialDatabase): WorkspaceInviteDao = db.workspaceInviteDao()
+
+    @Provides
     fun provideElectricOffsetDao(db: ExponentialDatabase): ElectricOffsetDao = db.electricOffsetDao()
 }

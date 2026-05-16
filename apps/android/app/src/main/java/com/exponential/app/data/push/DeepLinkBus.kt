@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class DeepLinkBus @Inject constructor() {
     sealed interface Target {
         data class Issue(val id: String) : Target
+        data class Invite(val token: String) : Target
     }
 
     private val _target = MutableStateFlow<Target?>(null)
@@ -22,6 +23,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openIssue(id: String) {
         _target.value = Target.Issue(id)
+    }
+
+    fun openInvite(token: String) {
+        _target.value = Target.Invite(token)
     }
 
     fun consume() {

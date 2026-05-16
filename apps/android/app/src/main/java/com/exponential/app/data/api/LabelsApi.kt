@@ -19,7 +19,15 @@ data class CreateLabelResult(val label: LabelEntity)
 data class IssueLabelInput(val issueId: String, val labelId: String)
 
 @Serializable
-private object EmptyResult
+data class UpdateLabelInput(
+    val workspaceId: String,
+    val labelId: String,
+    val name: String? = null,
+    val color: String? = null,
+)
+
+@Serializable
+data class DeleteLabelInput(val workspaceId: String, val labelId: String)
 
 @Singleton
 class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
@@ -30,6 +38,24 @@ class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = CreateLabelInput.serializer(),
             outputSerializer = CreateLabelResult.serializer(),
         ).label
+
+    suspend fun update(input: UpdateLabelInput) {
+        trpc.mutation(
+            path = "labels.update",
+            input = input,
+            inputSerializer = UpdateLabelInput.serializer(),
+            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
+        )
+    }
+
+    suspend fun delete(workspaceId: String, labelId: String) {
+        trpc.mutation(
+            path = "labels.delete",
+            input = DeleteLabelInput(workspaceId, labelId),
+            inputSerializer = DeleteLabelInput.serializer(),
+            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
+        )
+    }
 
     suspend fun addLabel(issueId: String, labelId: String) {
         trpc.mutation(

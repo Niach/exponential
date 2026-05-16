@@ -10,8 +10,14 @@ import com.exponential.app.data.db.LabelDao
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.UserDao
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.WorkspaceDao
 import com.exponential.app.data.db.WorkspaceEntity
+import com.exponential.app.data.db.WorkspaceInviteDao
+import com.exponential.app.data.db.WorkspaceInviteEntity
+import com.exponential.app.data.db.WorkspaceMemberDao
+import com.exponential.app.data.db.WorkspaceMemberEntity
 import io.ktor.client.HttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,6 +42,9 @@ class SyncManager @Inject constructor(
     private val issueDao: IssueDao,
     private val labelDao: LabelDao,
     private val issueLabelDao: IssueLabelDao,
+    private val userDao: UserDao,
+    private val workspaceMemberDao: WorkspaceMemberDao,
+    private val workspaceInviteDao: WorkspaceInviteDao,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var shapeJobs: List<Job> = emptyList()
@@ -59,6 +68,9 @@ class SyncManager @Inject constructor(
         issueDao.clear()
         labelDao.clear()
         issueLabelDao.clear()
+        userDao.clear()
+        workspaceMemberDao.clear()
+        workspaceInviteDao.clear()
     }
 
     private fun cancelShapes() {
@@ -112,6 +124,33 @@ class SyncManager @Inject constructor(
                 onUpdate = { issueLabelDao.upsert(it) },
                 onDelete = { issueLabelDao.delete(it.issueId, it.labelId) },
                 onRefetch = { issueLabelDao.clear() },
+            ),
+            launchShape(
+                shape = "users",
+                path = "/api/shapes/users",
+                serializer = UserEntity.serializer(),
+                onInsert = { userDao.upsert(it) },
+                onUpdate = { userDao.upsert(it) },
+                onDelete = { userDao.deleteById(it.id) },
+                onRefetch = { userDao.clear() },
+            ),
+            launchShape(
+                shape = "workspace_members",
+                path = "/api/shapes/workspace-members",
+                serializer = WorkspaceMemberEntity.serializer(),
+                onInsert = { workspaceMemberDao.upsert(it) },
+                onUpdate = { workspaceMemberDao.upsert(it) },
+                onDelete = { workspaceMemberDao.deleteById(it.id) },
+                onRefetch = { workspaceMemberDao.clear() },
+            ),
+            launchShape(
+                shape = "workspace_invites",
+                path = "/api/shapes/workspace-invites",
+                serializer = WorkspaceInviteEntity.serializer(),
+                onInsert = { workspaceInviteDao.upsert(it) },
+                onUpdate = { workspaceInviteDao.upsert(it) },
+                onDelete = { workspaceInviteDao.deleteById(it.id) },
+                onRefetch = { workspaceInviteDao.clear() },
             ),
         )
     }

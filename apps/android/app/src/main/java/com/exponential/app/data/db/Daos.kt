@@ -97,6 +97,57 @@ interface IssueLabelDao {
 }
 
 @Dao
+interface UserDao {
+    @Query("SELECT * FROM users ORDER BY name, email")
+    fun observeAll(): Flow<List<UserEntity>>
+
+    @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<UserEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: UserEntity)
+
+    @Query("DELETE FROM users WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM users")
+    suspend fun clear()
+}
+
+@Dao
+interface WorkspaceMemberDao {
+    @Query("SELECT * FROM workspace_members WHERE workspace_id = :workspaceId")
+    fun observeByWorkspace(workspaceId: String): Flow<List<WorkspaceMemberEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: WorkspaceMemberEntity)
+
+    @Query("DELETE FROM workspace_members WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM workspace_members")
+    suspend fun clear()
+}
+
+@Dao
+interface WorkspaceInviteDao {
+    @Query("SELECT * FROM workspace_invites WHERE workspace_id = :workspaceId AND accepted_at IS NULL")
+    fun observeByWorkspace(workspaceId: String): Flow<List<WorkspaceInviteEntity>>
+
+    @Query("SELECT * FROM workspace_invites WHERE token = :token LIMIT 1")
+    fun observeByToken(token: String): Flow<WorkspaceInviteEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: WorkspaceInviteEntity)
+
+    @Query("DELETE FROM workspace_invites WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM workspace_invites")
+    suspend fun clear()
+}
+
+@Dao
 interface ElectricOffsetDao {
     @Query("SELECT * FROM electric_offsets WHERE shape = :shape LIMIT 1")
     suspend fun get(shape: String): ElectricOffsetEntity?

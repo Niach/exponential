@@ -97,6 +97,47 @@ data class IssueLabelEntity(
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
 )
 
+@Entity(tableName = "users")
+@Serializable
+data class UserEntity(
+    @PrimaryKey val id: String,
+    val name: String? = null,
+    val email: String,
+    val image: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+@Entity(
+    tableName = "workspace_members",
+    indices = [Index("workspace_id"), Index("user_id")],
+)
+@Serializable
+data class WorkspaceMemberEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
+    val role: String,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+@Entity(
+    tableName = "workspace_invites",
+    indices = [Index("workspace_id"), Index("token")],
+)
+@Serializable
+data class WorkspaceInviteEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    val role: String,
+    val token: String,
+    @ColumnInfo(name = "expires_at") @SerialName("expires_at") @JsonNames("expiresAt") val expiresAt: String,
+    @ColumnInfo(name = "accepted_at") @SerialName("accepted_at") @JsonNames("acceptedAt") val acceptedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
 @Entity(tableName = "electric_offsets")
 data class ElectricOffsetEntity(
     @PrimaryKey @ColumnInfo(name = "shape") val shape: String,

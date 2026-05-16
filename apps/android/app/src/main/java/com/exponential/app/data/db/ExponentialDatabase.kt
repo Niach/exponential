@@ -10,9 +10,12 @@ import androidx.room.RoomDatabase
         IssueEntity::class,
         LabelEntity::class,
         IssueLabelEntity::class,
+        UserEntity::class,
+        WorkspaceMemberEntity::class,
+        WorkspaceInviteEntity::class,
         ElectricOffsetEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -21,5 +24,8 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueDao(): IssueDao
     abstract fun labelDao(): LabelDao
     abstract fun issueLabelDao(): IssueLabelDao
+    abstract fun userDao(): UserDao
+    abstract fun workspaceMemberDao(): WorkspaceMemberDao
+    abstract fun workspaceInviteDao(): WorkspaceInviteDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

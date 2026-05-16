@@ -15,6 +15,7 @@ import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -25,7 +26,14 @@ data class SignInRequest(val email: String, val password: String)
 data class SignInResponse(val token: String? = null, val user: AuthUser? = null)
 
 @Serializable
-data class AuthUser(val id: String, val email: String, val name: String? = null)
+data class AuthUser(
+    val id: String,
+    val email: String,
+    val name: String? = null,
+    val isAdmin: Boolean = false,
+)
+
+data class SessionInfo(val email: String, val userId: String, val isAdmin: Boolean)
 
 sealed interface SignInResult {
     data class Success(val token: String, val email: String) : SignInResult
@@ -56,7 +64,7 @@ class AuthApi @Inject constructor(
             // plugin is enabled, or { user } with a Set-Cookie header. Try both.
             val parsed: SignInResponse = response.body()
             if (parsed.token != null && parsed.user != null) {
-                auth.setToken(parsed.token, parsed.user.email)
+                auth.setToken(parsed.token, parsed.user.email, parsed.user.id, parsed.user.isAdmin)
                 return SignInResult.Success(parsed.token, parsed.user.email)
             }
 
@@ -67,9 +75,9 @@ class AuthApi @Inject constructor(
                 ?.let { Regex("""session_token=([^;]+)""").find(it)?.groupValues?.get(1) }
 
             if (token != null) {
-                val email = parsed.user?.email ?: email
-                auth.setToken(token, email)
-                SignInResult.Success(token, email)
+                val resolvedEmail = parsed.user?.email ?: email
+                auth.setToken(token, resolvedEmail, parsed.user?.id, parsed.user?.isAdmin == true)
+                SignInResult.Success(token, resolvedEmail)
             } else {
                 SignInResult.Failure("Sign-in succeeded but no session token returned")
             }
@@ -78,14 +86,18 @@ class AuthApi @Inject constructor(
         }
     }
 
-    suspend fun fetchSession(): String? {
+    suspend fun fetchSession(): SessionInfo? {
         val baseUrl = auth.instanceUrl.value ?: return null
         return try {
             val response = client.get("$baseUrl/api/auth/get-session")
             if (!response.status.isSuccess()) return null
             val body = response.bodyAsText()
             val parsed = json.parseToJsonElement(body) as? JsonObject ?: return null
-            (parsed["user"] as? JsonObject)?.get("email")?.jsonPrimitive?.content
+            val user = parsed["user"] as? JsonObject ?: return null
+            val email = user["email"]?.jsonPrimitive?.content ?: return null
+            val id = user["id"]?.jsonPrimitive?.content ?: return null
+            val isAdmin = (user["isAdmin"]?.jsonPrimitive?.booleanOrNull) ?: false
+            SessionInfo(email = email, userId = id, isAdmin = isAdmin)
         } catch (e: Exception) {
             null
         }
