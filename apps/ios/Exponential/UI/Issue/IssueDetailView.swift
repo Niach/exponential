@@ -8,6 +8,8 @@ struct IssueDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: IssueDetailViewModel?
     @State private var showDeleteConfirm = false
+    @State private var pendingImages: [String: PendingImage] = [:]
+    @State private var descriptionDirty = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -44,17 +46,23 @@ struct IssueDetailView: View {
                             if !focused { Task { await vm.saveTitle() } }
                         }
 
-                        // Description (editable)
-                        TextField("Add description...", text: Binding(
-                            get: { vm.editingDescription },
-                            set: { vm.editingDescription = $0 }
-                        ), axis: .vertical)
-                        .font(.body)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(3...20)
-                        .onChange(of: titleFocused) { _, _ in
-                            Task { await vm.saveDescription() }
+                        // Description (markdown editor with image upload)
+                        MarkdownEditor(
+                            text: Binding(
+                                get: { vm.editingDescription },
+                                set: { newValue in
+                                    vm.editingDescription = newValue
+                                    descriptionDirty = true
+                                }
+                            ),
+                            pendingImages: $pendingImages
+                        )
+                        .onChange(of: titleFocused) { _, focused in
+                            if !focused && descriptionDirty {
+                                Task {
+                                    await uploadPendingAndSaveDescription(vm)
+                                }
+                            }
                         }
 
                         // Metadata
@@ -306,6 +314,38 @@ struct IssueDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    // Upload draft images, swap their placeholder URLs for the returned
+    // real URLs, then save the description through the normal path. This
+    // is the iOS analogue of Android's IssueDetailViewModel.uploadImage
+    // + description rewrite pattern.
+    private func uploadPendingAndSaveDescription(_ vm: IssueDetailViewModel) async {
+        let drafts = pendingImages
+        for (placeholder, image) in drafts {
+            do {
+                let uploaded = try await deps.issueImagesApi.upload(
+                    issueId: issueId,
+                    data: image.data,
+                    filename: image.filename,
+                    contentType: image.contentType
+                )
+                vm.editingDescription = MarkdownImageUtils.replaceImageUrl(
+                    in: vm.editingDescription,
+                    from: placeholder,
+                    to: uploaded.url
+                )
+                pendingImages.removeValue(forKey: placeholder)
+            } catch {
+                vm.editingDescription = MarkdownImageUtils.stripUnknownDraftImages(
+                    vm.editingDescription,
+                    keep: Set(pendingImages.keys).subtracting([placeholder])
+                )
+                pendingImages.removeValue(forKey: placeholder)
+            }
+        }
+        descriptionDirty = false
+        await vm.saveDescription()
     }
 
     private func parseDate(_ dateString: String?) -> Date? {

@@ -1,7 +1,9 @@
+import PhotosUI
 import SwiftUI
 
 struct MarkdownToolbar: View {
     @Binding var text: String
+    @Binding var photoItem: PhotosPickerItem?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -26,7 +28,22 @@ struct MarkdownToolbar: View {
                 Divider().frame(height: 20).background(Color.white.opacity(0.1))
 
                 toolButton("link", symbol: "link") { wrapSelection(prefix: "[", suffix: "](url)") }
-                toolButton("image", symbol: "photo") { text += "\n![alt](url)" }
+
+                // Real image picker — the photoItem binding is owned by the
+                // parent MarkdownEditor, which handles ingestion + placeholder
+                // insertion on change.
+                PhotosPicker(
+                    selection: $photoItem,
+                    matching: .images,
+                    photoLibrary: .shared()
+                ) {
+                    Image(systemName: "photo")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 32, height: 28)
+                }
+                .buttonStyle(.plain)
+                .glassButton()
             }
             .padding(.horizontal, 4)
             .padding(.vertical, 6)

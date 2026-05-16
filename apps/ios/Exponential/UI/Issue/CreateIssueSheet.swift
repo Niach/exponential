@@ -20,6 +20,7 @@ struct CreateIssueSheet: View {
     @State private var recurrenceUnit: RecurrenceUnit?
     @State private var selectedLabelIds: Set<String> = []
     @State private var users: [UserEntity] = []
+    @State private var pendingImages: [String: PendingImage] = [:]
     @State private var createMore = false
     @State private var loading = false
     @State private var error: String?
@@ -47,20 +48,11 @@ struct CreateIssueSheet: View {
                                     .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
                             )
 
-                        // Description
-                        TextField("Add description...", text: $description, axis: .vertical)
-                            .font(.body)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .lineLimit(3...8)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(Color.white.opacity(0.04))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-                            )
+                        // Description (markdown editor with image upload)
+                        MarkdownEditor(
+                            text: $description,
+                            pendingImages: $pendingImages
+                        )
 
                         // Metadata row
                         VStack(spacing: 12) {
@@ -252,13 +244,23 @@ struct CreateIssueSheet: View {
         error = nil
 
         let dateStr = dueDate.map { formatDate($0) }
+
+        // The server rejects markdown images on creation (they have to be
+        // associated with an existing issue id). Strip drafts from the
+        // initial create payload; we'll upload + restore them right after
+        // the issue exists.
+        let stripped = MarkdownImageUtils.stripUnknownDraftImages(
+            description,
+            keep: []
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
         let input = CreateIssueInput(
             projectId: projectId,
             title: title,
             status: status.rawValue,
             priority: priority.rawValue,
             assigneeId: assigneeId,
-            description: description.isEmpty ? nil : IssueDescription(text: description),
+            description: stripped.isEmpty ? nil : IssueDescription(text: stripped),
             dueDate: dateStr,
             dueTime: dateStr == nil ? nil : dueTime,
             endTime: dateStr == nil ? nil : endTime,
@@ -268,10 +270,49 @@ struct CreateIssueSheet: View {
         )
 
         do {
-            _ = try await deps.issuesApi.create(input)
+            let createdId = try await deps.issuesApi.create(input)
+
+            // Upload any drafts, swap their URLs into the original
+            // description, and patch the issue with the final markdown.
+            if !pendingImages.isEmpty {
+                var finalDescription = description
+                var stillPending = pendingImages
+                for (placeholder, image) in pendingImages {
+                    do {
+                        let uploaded = try await deps.issueImagesApi.upload(
+                            issueId: createdId,
+                            data: image.data,
+                            filename: image.filename,
+                            contentType: image.contentType
+                        )
+                        finalDescription = MarkdownImageUtils.replaceImageUrl(
+                            in: finalDescription,
+                            from: placeholder,
+                            to: uploaded.url
+                        )
+                        stillPending.removeValue(forKey: placeholder)
+                    } catch {
+                        stillPending.removeValue(forKey: placeholder)
+                    }
+                }
+                finalDescription = MarkdownImageUtils.stripUnknownDraftImages(
+                    finalDescription,
+                    keep: []
+                )
+                if finalDescription != stripped {
+                    try await deps.issuesApi.update(
+                        UpdateIssueInput(
+                            id: createdId,
+                            description: IssueDescription(text: finalDescription)
+                        )
+                    )
+                }
+            }
+
             if createMore {
                 title = ""
                 description = ""
+                pendingImages = [:]
                 titleFocused = true
             } else {
                 dismiss()
