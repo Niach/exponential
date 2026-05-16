@@ -1,0 +1,141 @@
+import Foundation
+import GRDB
+
+@MainActor @Observable
+final class IssueListViewModel {
+    var issues: [IssueEntity] = []
+    var labels: [LabelEntity] = []
+    var issueLabels: [IssueLabelEntity] = []
+    var users: [UserEntity] = []
+    var project: ProjectEntity?
+    var filters = IssueFilters()
+    var activeTab: FilterTab = .all
+    var collapsedStatuses: Set<IssueStatus> = []
+
+    private let projectId: String
+    private let db: DatabaseManager
+    private var observationTask: Task<Void, Never>?
+
+    init(projectId: String, db: DatabaseManager) {
+        self.projectId = projectId
+        self.db = db
+    }
+
+    func startObserving() {
+        observationTask = Task { [weak self] in
+            guard let self else { return }
+
+            // Observe project
+            let projectObservation = ValueObservation.tracking { db in
+                try ProjectEntity.fetchOne(db, key: self.projectId)
+            }
+            let projectTask = Task {
+                do {
+                    for try await project in projectObservation.values(in: self.db.dbPool) {
+                        self.project = project
+                    }
+                } catch {}
+            }
+
+            // Observe issues
+            let issueObservation = ValueObservation.tracking { db in
+                try IssueEntity
+                    .filter(Column("project_id") == self.projectId)
+                    .fetchAll(db)
+            }
+            let issueTask = Task {
+                do {
+                    for try await issues in issueObservation.values(in: self.db.dbPool) {
+                        self.issues = issues
+                    }
+                } catch {}
+            }
+
+            // Observe labels (workspace-scoped, need project's workspace)
+            let labelObservation = ValueObservation.tracking { db in
+                try LabelEntity.fetchAll(db)
+            }
+            let labelTask = Task {
+                do {
+                    for try await labels in labelObservation.values(in: self.db.dbPool) {
+                        self.labels = labels
+                    }
+                } catch {}
+            }
+
+            // Observe issue labels
+            let issueLabelObservation = ValueObservation.tracking { db in
+                try IssueLabelEntity.fetchAll(db)
+            }
+            let issueLabelTask = Task {
+                do {
+                    for try await issueLabels in issueLabelObservation.values(in: self.db.dbPool) {
+                        self.issueLabels = issueLabels
+                    }
+                } catch {}
+            }
+
+            // Observe users
+            let userObservation = ValueObservation.tracking { db in
+                try UserEntity.fetchAll(db)
+            }
+            let userTask = Task {
+                do {
+                    for try await users in userObservation.values(in: self.db.dbPool) {
+                        self.users = users
+                    }
+                } catch {}
+            }
+
+            // Wait for cancellation
+            _ = await (projectTask.value, issueTask.value, labelTask.value, issueLabelTask.value, userTask.value)
+        }
+    }
+
+    func stopObserving() {
+        observationTask?.cancel()
+        observationTask = nil
+    }
+
+    // MARK: - Computed
+
+    var filteredIssues: [IssueEntity] {
+        issues.filter { issue in
+            let status = IssueStatus.from(issue.status)
+            let priority = IssuePriority.from(issue.priority)
+            let issueLabelSet = Set(issueLabels.filter { $0.issueId == issue.id }.map(\.labelId))
+            return matchesFilters(status: status, priority: priority, issueLabelIds: issueLabelSet, filters: filters)
+        }
+    }
+
+    func issuesForStatus(_ status: IssueStatus) -> [IssueEntity] {
+        filteredIssues
+            .filter { IssueStatus.from($0.status) == status }
+            .sorted { a, b in
+                (a.sortOrder ?? 0) < (b.sortOrder ?? 0)
+            }
+    }
+
+    func labelsFor(issueId: String) -> [LabelEntity] {
+        let labelIds = issueLabels.filter { $0.issueId == issueId }.map(\.labelId)
+        return labels.filter { labelIds.contains($0.id) }
+    }
+
+    func userFor(id: String?) -> UserEntity? {
+        guard let id else { return nil }
+        return users.first { $0.id == id }
+    }
+
+    func setTab(_ tab: FilterTab) {
+        activeTab = tab
+        filters.statuses = tab.statuses
+    }
+
+    func toggleStatusCollapsed(_ status: IssueStatus) {
+        if collapsedStatuses.contains(status) {
+            collapsedStatuses.remove(status)
+        } else {
+            collapsedStatuses.insert(status)
+        }
+    }
+}

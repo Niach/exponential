@@ -1,0 +1,18 @@
+# Tuist-generated
+*.xcodeproj
+*.xcworkspace
+Derived/
+.build/
+.swiftpm/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# macOS
+.DS_Store
+
+# Firebase secrets (user-provided)
+Exponential/GoogleService-Info.plist

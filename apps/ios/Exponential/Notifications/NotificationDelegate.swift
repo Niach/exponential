@@ -1,0 +1,61 @@
+import FirebaseMessaging
+import Foundation
+import UIKit
+import UserNotifications
+
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, MessagingDelegate, Sendable {
+    private let pushTokenManager: PushTokenManager
+    private let deepLinkBus: DeepLinkBus
+
+    init(pushTokenManager: PushTokenManager, deepLinkBus: DeepLinkBus) {
+        self.pushTokenManager = pushTokenManager
+        self.deepLinkBus = deepLinkBus
+        super.init()
+    }
+
+    func setup() {
+        UNUserNotificationCenter.current().delegate = self
+        Messaging.messaging().delegate = self
+    }
+
+    func requestPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            if granted {
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+        }
+    }
+
+    // MARK: - MessagingDelegate
+
+    nonisolated func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken else { return }
+        pushTokenManager.register(fcmToken: fcmToken)
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    // Notification tapped
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        if let issueId = userInfo["issueId"] as? String {
+            deepLinkBus.navigateToIssue(issueId)
+        }
+        completionHandler()
+    }
+
+    // Notification received while app in foreground
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .badge, .sound])
+    }
+}
