@@ -1,4 +1,5 @@
 import SwiftUI
+import GRDB
 
 enum AppRoute: Hashable {
     case home
@@ -30,40 +31,103 @@ struct AppNavigator: View {
 
 struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
-    @State private var path = NavigationPath()
+    @State private var selectedTab: BottomTab = .projects
+    @State private var projectsPath = NavigationPath()
+    @State private var settingsPath = NavigationPath()
+    @State private var workspaceState = WorkspaceState()
+    @State private var showWorkspaceSwitcher = false
+    @State private var observationTask: Task<Void, Never>?
+    @State private var syncing = false
+
+    private var workspaceSheetHeight: CGFloat {
+        let header: CGFloat = 56
+        let rowHeight: CGFloat = 44
+        let bottomPadding: CGFloat = 24
+        let count = max(workspaceState.workspaces.count, 1)
+        return min(header + CGFloat(count) * rowHeight + bottomPadding, 320)
+    }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            HomeView()
-                .navigationDestination(for: AppRoute.self) { route in
-                    switch route {
-                    case .home:
-                        HomeView()
-                    case let .project(id):
-                        IssueListView(projectId: id)
-                    case let .issue(id):
-                        IssueDetailView(issueId: id)
-                    case let .workspaceSettings(workspaceId):
-                        WorkspaceSettingsView(workspaceId: workspaceId)
-                    case .integrations:
-                        IntegrationsView()
-                    case .adminUsers:
-                        AdminUsersView()
-                    case .adminWorkspaces:
-                        AdminWorkspacesView()
-                    case let .invite(token):
-                        InviteAcceptView(token: token)
-                    }
+        ZStack {
+            AppBackground()
+
+            switch selectedTab {
+            case .projects:
+                NavigationStack(path: $projectsPath) {
+                    HomeView(syncing: syncing)
+                        .navigationDestination(for: AppRoute.self) { destination(for: $0) }
                 }
+            case .settings:
+                NavigationStack(path: $settingsPath) {
+                    SettingsView()
+                        .navigationDestination(for: AppRoute.self) { destination(for: $0) }
+                }
+            }
         }
+        .environment(workspaceState)
+        .safeAreaInset(edge: .bottom) {
+            BottomBar(
+                selectedTab: $selectedTab,
+                workspace: workspaceState.activeWorkspace,
+                onWorkspaceTap: { showWorkspaceSwitcher = true }
+            )
+        }
+        .sheet(isPresented: $showWorkspaceSwitcher) {
+            SidebarView(
+                workspaces: workspaceState.workspaces,
+                activeWorkspaceId: workspaceState.activeWorkspaceId,
+                onSelectWorkspace: { id in
+                    workspaceState.activeWorkspaceId = id
+                    showWorkspaceSwitcher = false
+                }
+            )
+            .presentationBackground(.ultraThinMaterial)
+            .presentationDetents([.height(workspaceSheetHeight), .medium])
+            .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            startObserving()
+            if workspaceState.workspaces.isEmpty {
+                syncing = true
+                Task {
+                    try? deps.db.clearAllData()
+                    await deps.syncManager.initialSync()
+                    syncing = false
+                }
+            }
+        }
+        .onDisappear { stopObserving() }
         .onOpenURL { url in
             handleDeepLink(url)
         }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
-                path.append(AppRoute.issue(id: issueId))
+                selectedTab = .projects
+                projectsPath.append(AppRoute.issue(id: issueId))
                 _ = deps.deepLinkBus.consume()
             }
+        }
+    }
+
+    @ViewBuilder
+    private func destination(for route: AppRoute) -> some View {
+        switch route {
+        case .home:
+            HomeView(syncing: syncing)
+        case let .project(id):
+            IssueListView(projectId: id)
+        case let .issue(id):
+            IssueDetailView(issueId: id)
+        case let .workspaceSettings(workspaceId):
+            WorkspaceSettingsView(workspaceId: workspaceId)
+        case .integrations:
+            IntegrationsView()
+        case .adminUsers:
+            AdminUsersView()
+        case .adminWorkspaces:
+            AdminWorkspacesView()
+        case let .invite(token):
+            InviteAcceptView(token: token)
         }
     }
 
@@ -82,12 +146,45 @@ struct MainNavigator: View {
         }
         // Handle exp://issue/<issueId>
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
-            path.append(AppRoute.issue(id: String(issueId)))
+            selectedTab = .projects
+            projectsPath.append(AppRoute.issue(id: String(issueId)))
         }
         // Handle exp://invite/<token>
         if url.host == "invite", let token = url.pathComponents.dropFirst().first {
-            path.append(AppRoute.invite(token: String(token)))
+            selectedTab = .projects
+            projectsPath.append(AppRoute.invite(token: String(token)))
         }
+    }
+
+    private func startObserving() {
+        observationTask = Task {
+            let wsObs = ValueObservation.tracking { db in
+                try WorkspaceEntity.fetchAll(db)
+            }
+            let projObs = ValueObservation.tracking { db in
+                try ProjectEntity.fetchAll(db)
+            }
+            Task {
+                for try await ws in wsObs.values(in: deps.db.dbPool) {
+                    await MainActor.run {
+                        workspaceState.workspaces = ws
+                        if workspaceState.activeWorkspaceId == nil, let first = ws.first {
+                            workspaceState.activeWorkspaceId = first.id
+                        }
+                    }
+                }
+            }
+            Task {
+                for try await proj in projObs.values(in: deps.db.dbPool) {
+                    await MainActor.run { workspaceState.projects = proj }
+                }
+            }
+        }
+    }
+
+    private func stopObserving() {
+        observationTask?.cancel()
+        observationTask = nil
     }
 }
 

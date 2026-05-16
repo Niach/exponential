@@ -22,8 +22,7 @@ final class TrpcClient: Sendable {
             throw TrpcError.invalidUrl
         }
 
-        let envelope = TrpcRequestEnvelope(json: input)
-        let body = try JSONEncoder().encode(envelope)
+        let body = try JSONEncoder().encode(input)
         let (data, response) = try await httpClient.post(url, body: body)
 
         guard (200...299).contains(response.statusCode) else {
@@ -32,7 +31,7 @@ final class TrpcClient: Sendable {
         }
 
         let wrapper = try JSONDecoder().decode(TrpcResponseEnvelope<O>.self, from: data)
-        return wrapper.result.data.json
+        return wrapper.result.data
     }
 
     func mutationVoid<I: Encodable>(path: String, input: I) async throws {
@@ -43,8 +42,7 @@ final class TrpcClient: Sendable {
             throw TrpcError.invalidUrl
         }
 
-        let envelope = TrpcRequestEnvelope(json: input)
-        let body = try JSONEncoder().encode(envelope)
+        let body = try JSONEncoder().encode(input)
         let (data, response) = try await httpClient.post(url, body: body)
 
         guard (200...299).contains(response.statusCode) else {
@@ -55,22 +53,14 @@ final class TrpcClient: Sendable {
     }
 }
 
-// MARK: - Envelope Types
-
-private struct TrpcRequestEnvelope<T: Encodable>: Encodable {
-    let json: T
-}
+// MARK: - Response Envelope
 
 private struct TrpcResponseEnvelope<T: Decodable>: Decodable {
     let result: TrpcResult<T>
 }
 
 private struct TrpcResult<T: Decodable>: Decodable {
-    let data: TrpcData<T>
-}
-
-private struct TrpcData<T: Decodable>: Decodable {
-    let json: T
+    let data: T
 }
 
 enum TrpcError: Error, LocalizedError {
