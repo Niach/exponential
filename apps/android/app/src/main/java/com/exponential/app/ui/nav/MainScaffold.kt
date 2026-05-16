@@ -2,7 +2,9 @@ package com.exponential.app.ui.nav
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Settings
@@ -11,6 +13,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.PermanentDrawerSheet
+import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -20,6 +26,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -29,7 +37,8 @@ import com.exponential.app.data.db.WorkspaceEntity
 import kotlinx.coroutines.launch
 
 // CompositionLocal so any screen inside MainScaffold can open the drawer
-// without re-plumbing the callback through every level of nesting.
+// without re-plumbing the callback through every level of nesting. On
+// Expanded widths the drawer is always visible, so opener is a no-op.
 val LocalDrawerOpener = staticCompositionLocalOf<() -> Unit> {
     error("LocalDrawerOpener not provided — wrap content in MainScaffold")
 }
@@ -47,8 +56,60 @@ sealed class PrimaryDestination(
     }
 }
 
+// Material 3 width-size-class threshold for "expanded" — the canonical
+// breakpoint at which a permanent side drawer becomes preferable to a
+// modal one. Below this, we use the modal drawer + bottom NavigationBar.
+private const val EXPANDED_WIDTH_DP = 840
+
 @Composable
 fun MainScaffold(
+    navController: NavHostController,
+    workspaces: List<WorkspaceEntity>,
+    selectedWorkspace: WorkspaceEntity?,
+    projects: List<ProjectEntity>,
+    email: String?,
+    activeProjectId: String?,
+    onSelectWorkspace: (String) -> Unit,
+    onOpenProject: (String) -> Unit,
+    onOpenIntegrations: () -> Unit,
+    onSignOut: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val isExpanded = LocalConfiguration.current.screenWidthDp >= EXPANDED_WIDTH_DP
+
+    if (isExpanded) {
+        ExpandedShell(
+            navController = navController,
+            workspaces = workspaces,
+            selectedWorkspace = selectedWorkspace,
+            projects = projects,
+            email = email,
+            activeProjectId = activeProjectId,
+            onSelectWorkspace = onSelectWorkspace,
+            onOpenProject = onOpenProject,
+            onOpenIntegrations = onOpenIntegrations,
+            onSignOut = onSignOut,
+            content = content,
+        )
+    } else {
+        CompactShell(
+            navController = navController,
+            workspaces = workspaces,
+            selectedWorkspace = selectedWorkspace,
+            projects = projects,
+            email = email,
+            activeProjectId = activeProjectId,
+            onSelectWorkspace = onSelectWorkspace,
+            onOpenProject = onOpenProject,
+            onOpenIntegrations = onOpenIntegrations,
+            onSignOut = onSignOut,
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun CompactShell(
     navController: NavHostController,
     workspaces: List<WorkspaceEntity>,
     selectedWorkspace: WorkspaceEntity?,
@@ -99,9 +160,7 @@ fun MainScaffold(
             LocalDrawerOpener provides { scope.launch { drawerState.open() } }
         ) {
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxSize()) {
-                    content()
-                }
+                Box(Modifier.weight(1f).fillMaxSize()) { content() }
                 if (showBottomBar) {
                     NavigationBar {
                         PrimaryDestination.all.forEach { destination ->
@@ -109,15 +168,7 @@ fun MainScaffold(
                                 ?.any { it.route == destination.route } == true
                             NavigationBarItem(
                                 selected = selected,
-                                onClick = {
-                                    navController.navigate(destination.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
+                                onClick = { navigateToPrimary(navController, destination) },
                                 icon = { Icon(destination.icon, contentDescription = null) },
                                 label = { Text(destination.label) },
                             )
@@ -126,5 +177,71 @@ fun MainScaffold(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ExpandedShell(
+    navController: NavHostController,
+    workspaces: List<WorkspaceEntity>,
+    selectedWorkspace: WorkspaceEntity?,
+    projects: List<ProjectEntity>,
+    email: String?,
+    activeProjectId: String?,
+    onSelectWorkspace: (String) -> Unit,
+    onOpenProject: (String) -> Unit,
+    onOpenIntegrations: () -> Unit,
+    onSignOut: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val backStack by navController.currentBackStackEntryAsState()
+
+    PermanentNavigationDrawer(
+        drawerContent = {
+            PermanentDrawerSheet(modifier = Modifier.width(320.dp)) {
+                AppDrawer(
+                    workspaces = workspaces,
+                    selectedWorkspace = selectedWorkspace,
+                    projects = projects,
+                    email = email,
+                    activeProjectId = activeProjectId,
+                    onSelectWorkspace = onSelectWorkspace,
+                    onOpenProject = onOpenProject,
+                    onOpenIntegrations = onOpenIntegrations,
+                    onSignOut = onSignOut,
+                )
+            }
+        },
+    ) {
+        // Drawer is always visible at expanded width; opener is a no-op so
+        // the menu icon button doesn't try to slide an already-open drawer.
+        CompositionLocalProvider(LocalDrawerOpener provides {}) {
+            Row(Modifier.fillMaxSize()) {
+                NavigationRail {
+                    PrimaryDestination.all.forEach { destination ->
+                        val selected = backStack?.destination?.hierarchy
+                            ?.any { it.route == destination.route } == true
+                        NavigationRailItem(
+                            selected = selected,
+                            onClick = { navigateToPrimary(navController, destination) },
+                            icon = { Icon(destination.icon, contentDescription = null) },
+                            label = { Text(destination.label) },
+                        )
+                    }
+                }
+                Box(Modifier.fillMaxSize().weight(1f)) { content() }
+            }
+        }
+    }
+}
+
+private fun navigateToPrimary(
+    navController: NavHostController,
+    destination: PrimaryDestination,
+) {
+    navController.navigate(destination.route) {
+        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
 }
