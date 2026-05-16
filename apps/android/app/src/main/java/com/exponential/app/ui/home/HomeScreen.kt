@@ -19,101 +19,64 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.db.ProjectEntity
-import com.exponential.app.ui.nav.AppDrawer
-import kotlinx.coroutines.launch
+import com.exponential.app.ui.nav.LocalDrawerOpener
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onOpenProject: (String) -> Unit,
-    onOpenIntegrations: () -> Unit,
-    onSignOut: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val error by viewModel.error.collectAsState()
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    val openDrawer = LocalDrawerOpener.current
 
     LaunchedEffect(Unit) { viewModel.bootstrap() }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            AppDrawer(
-                workspaces = state.workspaces,
-                selectedWorkspace = state.selectedWorkspace,
-                projects = state.projects,
-                email = state.email,
-                activeProjectId = null,
-                onSelectWorkspace = {
-                    viewModel.selectWorkspace(it)
-                    scope.launch { drawerState.close() }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(state.selectedWorkspace?.name ?: "Workspace")
                 },
-                onOpenProject = {
-                    scope.launch { drawerState.close() }
-                    onOpenProject(it)
+                navigationIcon = {
+                    IconButton(onClick = { openDrawer() }) {
+                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                    }
                 },
-                onOpenIntegrations = {
-                    scope.launch { drawerState.close() }
-                    onOpenIntegrations()
-                },
-                onSignOut = {
-                    scope.launch { drawerState.close() }
-                    onSignOut()
-                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
             )
         },
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(state.selectedWorkspace?.name ?: "Workspace")
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                    ),
+        containerColor = MaterialTheme.colorScheme.background,
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (state.projects.isEmpty()) {
+                EmptyState(message = error ?: "No projects yet — create one on the web.")
+            } else {
+                ProjectList(
+                    projects = state.projects,
+                    onOpenProject = onOpenProject,
                 )
-            },
-            containerColor = MaterialTheme.colorScheme.background,
-        ) { padding ->
-            Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                if (state.projects.isEmpty()) {
-                    EmptyState(message = error ?: "No projects yet — create one on the web.")
-                } else {
-                    ProjectList(
-                        projects = state.projects,
-                        onOpenProject = onOpenProject,
-                    )
-                }
             }
         }
     }

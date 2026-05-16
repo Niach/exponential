@@ -28,7 +28,6 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -36,12 +35,10 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -61,64 +58,26 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
-import com.exponential.app.ui.home.HomeViewModel
-import com.exponential.app.ui.nav.AppDrawer
-import kotlinx.coroutines.launch
+import com.exponential.app.ui.nav.LocalDrawerOpener
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueListScreen(
     projectId: String,
     onOpenIssue: (String) -> Unit,
-    onOpenProject: (String) -> Unit,
-    onOpenIntegrations: () -> Unit,
-    onSignOut: () -> Unit,
     viewModel: IssueListViewModel = hiltViewModel(),
-    homeViewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    val homeState by homeViewModel.state.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    val openDrawer = LocalDrawerOpener.current
 
-    LaunchedEffect(Unit) { homeViewModel.bootstrap() }
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            AppDrawer(
-                workspaces = homeState.workspaces,
-                selectedWorkspace = homeState.selectedWorkspace,
-                projects = homeState.projects,
-                email = homeState.email,
-                activeProjectId = projectId,
-                onSelectWorkspace = {
-                    homeViewModel.selectWorkspace(it)
-                    scope.launch { drawerState.close() }
-                },
-                onOpenProject = {
-                    scope.launch { drawerState.close() }
-                    onOpenProject(it)
-                },
-                onOpenIntegrations = {
-                    scope.launch { drawerState.close() }
-                    onOpenIntegrations()
-                },
-                onSignOut = {
-                    scope.launch { drawerState.close() }
-                    onSignOut()
-                },
-            )
-        },
-    ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(state.project?.name ?: "Project") },
                 navigationIcon = {
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                    IconButton(onClick = { openDrawer() }) {
                         Icon(Icons.Filled.Menu, contentDescription = "Menu")
                     }
                 },
@@ -162,9 +121,9 @@ fun IssueListScreen(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     state.groups.forEach { group ->
-                        item(key = "header-${group.status.wire}") {
-                            StatusHeader(group.status, group.issues.size)
-                        }
+                    item(key = "header-${group.status.wire}") {
+                        StatusHeader(group.status, group.issues.size)
+                    }
                         items(group.issues, key = { it.issue.id }) { entry ->
                             IssueRow(entry.issue, entry.labels) { onOpenIssue(entry.issue.id) }
                         }
@@ -172,7 +131,6 @@ fun IssueListScreen(
                 }
             }
         }
-    }
     }
 
     if (showCreate) {

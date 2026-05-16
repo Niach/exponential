@@ -2,6 +2,7 @@ package com.exponential.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
@@ -37,19 +38,18 @@ class HomeViewModel @Inject constructor(
     private val workspacesApi: WorkspacesApi,
     private val workspaceDao: WorkspaceDao,
     private val projectDao: ProjectDao,
+    private val selection: WorkspaceSelection,
 ) : ViewModel() {
-
-    private val _selectedId = MutableStateFlow<String?>(null)
 
     private val workspacesFlow = workspaceDao.observeAll()
 
-    private val projectsFlow = _selectedId.flatMapLatest { id ->
+    private val projectsFlow = selection.selectedId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else projectDao.observeByWorkspace(id)
     }
 
     val state: StateFlow<HomeState> = combine(
         workspacesFlow,
-        _selectedId,
+        selection.selectedId,
         projectsFlow,
         auth.userEmail,
     ) { workspaces, selectedId, projects, email ->
@@ -71,7 +71,7 @@ class HomeViewModel @Inject constructor(
             try {
                 val workspace = workspacesApi.ensureDefault()
                 workspaceDao.upsert(workspace)
-                if (_selectedId.value == null) _selectedId.value = workspace.id
+                if (selection.selectedId.value == null) selection.select(workspace.id)
                 _error.value = null
             } catch (error: Throwable) {
                 _error.value = error.message ?: "Failed to load workspace"
@@ -80,6 +80,6 @@ class HomeViewModel @Inject constructor(
     }
 
     fun selectWorkspace(id: String) {
-        _selectedId.value = id
+        selection.select(id)
     }
 }

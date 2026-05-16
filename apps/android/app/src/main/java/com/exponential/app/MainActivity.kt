@@ -13,14 +13,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -29,10 +32,14 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.home.HomeScreen
+import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.integrations.IntegrationsScreen
-import com.exponential.app.ui.issue.IssueListScreen
+import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
+import com.exponential.app.ui.issue.IssueListScreen
+import com.exponential.app.ui.nav.MainScaffold
+import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -80,6 +87,7 @@ class MainActivity : ComponentActivity() {
         when (data.host) {
             "oauth-return" -> handleOauthReturn(data)
             "issue" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openIssue(it) }
+            "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }
         }
     }
 
@@ -95,8 +103,10 @@ class MainActivity : ComponentActivity() {
             ?: return
         authRepository.setToken(token, authRepository.userEmail.value)
         lifecycleScope.launch {
-            val email = authApi.fetchSession()
-            if (email != null) authRepository.setToken(token, email)
+            val session = authApi.fetchSession()
+            if (session != null) {
+                authRepository.setToken(token, session.email, session.userId, session.isAdmin)
+            }
         }
     }
 
@@ -110,14 +120,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-@androidx.compose.runtime.Composable
+@Composable
 private fun AppRoot() {
     val viewModel: AppViewModel = hiltViewModel()
-    val deepLinkBus: DeepLinkBus = (androidx.compose.ui.platform.LocalContext.current
-        .applicationContext as ExponentialApp)
+    val deepLinkBus: DeepLinkBus = (LocalContext.current.applicationContext as ExponentialApp)
         .let {
-            // Reach into the Hilt singleton via an entry point.
             dagger.hilt.android.EntryPointAccessors.fromApplication(
                 it,
                 DeepLinkEntryPoint::class.java,
@@ -138,81 +145,150 @@ private fun AppRoot() {
         if (state.token == null) return@LaunchedEffect
         when (target) {
             is DeepLinkBus.Target.Issue -> {
-                navController.navigate("issue/${target.id}") {
-                    launchSingleTop = true
-                }
+                navController.navigate("issue/${target.id}") { launchSingleTop = true }
+            }
+            is DeepLinkBus.Target.Invite -> {
+                navController.navigate("invite/${target.token}") { launchSingleTop = true }
             }
         }
         deepLinkBus.consume()
     }
 
+    if (state.instanceUrl == null) {
+        UnauthenticatedNav(
+            navController = navController,
+            startDestination = "instance",
+            onInstanceSet = { url ->
+                viewModel.setInstanceUrl(url)
+                navController.navigate("login") { popUpTo("instance") { inclusive = true } }
+            },
+            onLogin = {
+                navController.navigate("home") { popUpTo("login") { inclusive = true } }
+            },
+            onChangeInstance = {
+                viewModel.clearInstance()
+                navController.navigate("instance") { popUpTo("login") { inclusive = true } }
+            },
+            instanceUrl = state.instanceUrl ?: "",
+        )
+    } else if (state.token == null) {
+        UnauthenticatedNav(
+            navController = navController,
+            startDestination = "login",
+            onInstanceSet = { url ->
+                viewModel.setInstanceUrl(url)
+                navController.navigate("login") { popUpTo("instance") { inclusive = true } }
+            },
+            onLogin = {
+                navController.navigate("home") { popUpTo("login") { inclusive = true } }
+            },
+            onChangeInstance = {
+                viewModel.clearInstance()
+                navController.navigate("instance") { popUpTo("login") { inclusive = true } }
+            },
+            instanceUrl = state.instanceUrl ?: "",
+        )
+    } else {
+        AuthenticatedShell(
+            navController = navController,
+            onSignOut = {
+                viewModel.signOut()
+                navController.navigate("login") { popUpTo("home") { inclusive = true } }
+            },
+        )
+    }
+}
+
+@Composable
+private fun UnauthenticatedNav(
+    navController: NavHostController,
+    startDestination: String,
+    instanceUrl: String,
+    onInstanceSet: (String) -> Unit,
+    onLogin: () -> Unit,
+    onChangeInstance: () -> Unit,
+) {
     NavHost(navController = navController, startDestination = startDestination) {
         composable("instance") {
-            InstanceScreen(onContinue = { url ->
-                viewModel.setInstanceUrl(url)
-                navController.navigate("login") {
-                    popUpTo("instance") { inclusive = true }
-                }
-            })
+            InstanceScreen(onContinue = onInstanceSet)
         }
         composable("login") {
             LoginScreen(
-                instanceUrl = state.instanceUrl ?: "",
-                onLoggedIn = {
-                    navController.navigate("home") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                },
-                onChangeInstance = {
-                    viewModel.clearInstance()
-                    navController.navigate("instance") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                },
+                instanceUrl = instanceUrl,
+                onLoggedIn = onLogin,
+                onChangeInstance = onChangeInstance,
             )
         }
-        composable("home") {
-            HomeScreen(
-                onOpenProject = { projectId ->
-                    navController.navigate("project/$projectId")
-                },
-                onOpenIntegrations = { navController.navigate("integrations") },
-                onSignOut = {
-                    viewModel.signOut()
-                    navController.navigate("login") {
-                        popUpTo("home") { inclusive = true }
-                    }
-                },
-            )
-        }
-        composable("integrations") {
-            IntegrationsScreen(onBack = { navController.popBackStack() })
-        }
-        composable("project/{projectId}") { entry ->
-            val projectId = entry.arguments?.getString("projectId").orEmpty()
-            IssueListScreen(
-                projectId = projectId,
-                onOpenIssue = { issueId -> navController.navigate("issue/$issueId") },
-                onOpenProject = { nextId ->
-                    navController.navigate("project/$nextId") {
-                        popUpTo("home")
-                    }
-                },
-                onOpenIntegrations = { navController.navigate("integrations") },
-                onSignOut = {
-                    viewModel.signOut()
-                    navController.navigate("login") {
-                        popUpTo("home") { inclusive = true }
-                    }
-                },
-            )
-        }
-        composable("issue/{issueId}") { entry ->
-            val issueId = entry.arguments?.getString("issueId").orEmpty()
-            IssueDetailScreen(
-                issueId = issueId,
-                onBack = { navController.popBackStack() },
-            )
+    }
+}
+
+@Composable
+private fun AuthenticatedShell(
+    navController: NavHostController,
+    onSignOut: () -> Unit,
+) {
+    // Hoist HomeViewModel up here so MainScaffold's drawer shares state with
+    // any screen inside the NavHost that also injects it via hiltViewModel().
+    val homeViewModel: HomeViewModel = hiltViewModel()
+    val homeState by homeViewModel.state.collectAsState()
+    LaunchedEffect(Unit) { homeViewModel.bootstrap() }
+
+    MainScaffold(
+        navController = navController,
+        workspaces = homeState.workspaces,
+        selectedWorkspace = homeState.selectedWorkspace,
+        projects = homeState.projects,
+        email = homeState.email,
+        activeProjectId = null,
+        onSelectWorkspace = homeViewModel::selectWorkspace,
+        onOpenProject = { id -> navController.navigate("project/$id") },
+        onOpenIntegrations = { navController.navigate("integrations") },
+        onSignOut = onSignOut,
+    ) {
+        NavHost(navController = navController, startDestination = "home") {
+            composable("home") {
+                HomeScreen(
+                    onOpenProject = { id -> navController.navigate("project/$id") },
+                )
+            }
+            composable("settings") {
+                SettingsScreen(
+                    onOpenIntegrations = { navController.navigate("integrations") },
+                    onOpenWorkspaceSettings = { /* TODO: workspace-settings route */ },
+                    onOpenAdminUsers = { /* TODO: admin route */ },
+                    onOpenAdminWorkspaces = { /* TODO: admin route */ },
+                    onSignOut = onSignOut,
+                )
+            }
+            composable("integrations") {
+                IntegrationsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("project/{projectId}") { entry ->
+                val projectId = entry.arguments?.getString("projectId").orEmpty()
+                IssueListScreen(
+                    projectId = projectId,
+                    onOpenIssue = { id -> navController.navigate("issue/$id") },
+                )
+            }
+            composable("issue/{issueId}") { entry ->
+                val issueId = entry.arguments?.getString("issueId").orEmpty()
+                IssueDetailScreen(
+                    issueId = issueId,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable("invite/{token}") { entry ->
+                val token = entry.arguments?.getString("token").orEmpty()
+                InviteAcceptScreen(
+                    token = token,
+                    onBack = { navController.popBackStack() },
+                    onAccepted = {
+                        navController.navigate("home") {
+                            popUpTo("home") { inclusive = true }
+                        }
+                    },
+                )
+            }
         }
     }
 }
