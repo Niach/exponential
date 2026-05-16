@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/shapes/issues?offset=0_1&handle=h-2c3e9f10&live=true",
+    "headers": {
+      "authorization": "Bearer eyJhbGciOi..."
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "electric-handle": "h-2c3e9f10",
+      "electric-offset": "0_1",
+      "content-type": "application/json"
+    },
+    "body": [
+      {
+        "headers": { "control": "up-to-date" }
+      }
+    ]
+  }
+}

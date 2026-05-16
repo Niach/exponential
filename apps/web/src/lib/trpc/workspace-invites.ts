@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { router, procedure, authedProcedure, generateTxId } from "@/lib/trpc"
-import { db } from "@/db/connection"
 import { workspaceInvites, workspaceMembers, workspaces } from "@/db/schema"
 import { and, eq, isNull } from "drizzle-orm"
 import { randomBytes } from "crypto"
@@ -23,7 +22,7 @@ export const workspaceInvitesRouter = router({
       const token = randomBytes(32).toString(`hex`)
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
 
-      const [invite] = await db
+      const [invite] = await ctx.db
         .insert(workspaceInvites)
         .values({
           workspaceId: input.workspaceId,
@@ -40,7 +39,7 @@ export const workspaceInvitesRouter = router({
   accept: authedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return await db.transaction(async (tx) => {
+      return await ctx.db.transaction(async (tx) => {
         const [invite] = await tx
           .select()
           .from(workspaceInvites)
@@ -114,7 +113,7 @@ export const workspaceInvitesRouter = router({
     .query(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
 
-      const invites = await db
+      const invites = await ctx.db
         .select()
         .from(workspaceInvites)
         .where(
@@ -130,7 +129,7 @@ export const workspaceInvitesRouter = router({
   revoke: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [invite] = await db
+      const [invite] = await ctx.db
         .select()
         .from(workspaceInvites)
         .where(eq(workspaceInvites.id, input.id))
@@ -144,15 +143,15 @@ export const workspaceInvitesRouter = router({
         `owner`,
       ])
 
-      await db.delete(workspaceInvites).where(eq(workspaceInvites.id, input.id))
+      await ctx.db.delete(workspaceInvites).where(eq(workspaceInvites.id, input.id))
 
-      return { success: true }
+      return { ok: true }
     }),
 
   getByToken: procedure
     .input(z.object({ token: z.string() }))
-    .query(async ({ input }) => {
-      const [invite] = await db
+    .query(async ({ ctx, input }) => {
+      const [invite] = await ctx.db
         .select({
           id: workspaceInvites.id,
           workspaceId: workspaceInvites.workspaceId,

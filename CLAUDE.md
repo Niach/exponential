@@ -11,7 +11,7 @@ Real-time issue tracker.
 - **API**: tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync)
 - **UI**: shadcn/ui on Tailwind v4 (OKLCH zinc palette, dark theme forced via `html.dark`)
 - **Date Picker**: `react-day-picker` + `date-fns` via shadcn `Calendar` component
-- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, Garage:3900 (S3-compatible), Caddy:3000 (HTTP/2 reverse proxy)
+- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, Garage:3900 (S3-compatible), Caddy:3000 (HTTP/2 reverse proxy; `Caddyfile` is gitignored — copy from `Caddyfile.example`, which is configured for Electric long-poll timeouts)
 - **Package Manager**: bun
 
 ## Monorepo Layout

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { randomBytes } from "crypto"
 import { auth } from "@/lib/auth"
 
 // Custom Tabs only emit GETs, but Better Auth's /sign-in/oauth2 and
@@ -6,9 +7,17 @@ import { auth } from "@/lib/auth"
 // we invoke the POST server-side, then forward Better Auth's response
 // (state cookies + redirect to the IdP) to the browser.
 
+const STATE_COOKIE_NAME = `exp_mobile_oauth_state`
+
 function originForRequest(request: Request): string {
   const url = new URL(request.url)
   return `${url.protocol}//${url.host}`
+}
+
+function appendStateToUrl(target: string, state: string): string {
+  const url = new URL(target)
+  url.searchParams.set(`state`, state)
+  return url.toString()
 }
 
 async function handle({ request }: { request: Request }) {
@@ -43,7 +52,14 @@ async function handle({ request }: { request: Request }) {
 
   const headers = new Headers(response.headers)
   if (data?.url) {
-    headers.set(`Location`, data.url)
+    // CSRF defense: bind the IdP-issued state to a cookie so the return
+    // handler can prove the callback corresponds to this browser session.
+    const state = randomBytes(32).toString(`hex`)
+    headers.append(
+      `Set-Cookie`,
+      `${STATE_COOKIE_NAME}=${state}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
+    )
+    headers.set(`Location`, appendStateToUrl(data.url, state))
     headers.delete(`Content-Type`)
     headers.delete(`Content-Length`)
     return new Response(null, { status: 302, headers })

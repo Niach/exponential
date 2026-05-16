@@ -1,0 +1,10 @@
+{
+  "name": "@exp/electric-protocol",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Documentation + JSON fixtures for the Electric SQL shape protocol contract shared by web, iOS, and Android clients.",
+  "files": [
+    "README.md",
+    "fixtures"
+  ]
+}

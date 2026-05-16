@@ -11,6 +11,10 @@ export function createShapeRouteHandler({
   table,
 }: ShapeRouteHandlerOptions) {
   return async ({ request }: { request: Request }) => {
+    // Auth on /api/shapes/* is intentionally a single branch: better-auth's
+    // `bearer()` plugin (registered in lib/auth.ts) makes `getSession` accept
+    // both the session cookie (web) and `Authorization: Bearer <token>` (iOS
+    // and Android). One auth call covers all three clients — do not split.
     const session = await auth.api.getSession({
       headers: request.headers,
     })

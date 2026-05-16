@@ -1,0 +1,27 @@
+{
+  "description": "Same row in camelCase form (some server-side paths rewrite to camelCase before it reaches the client). Both forms appear in the wild — clients must accept either.",
+  "headers": { "operation": "insert" },
+  "key": "\"issues\"/\"01J9K0A0X3CB4E5F6G7H8J9K0L\"",
+  "value": {
+    "id": "01J9K0A0X3CB4E5F6G7H8J9K0L",
+    "projectId": "01J9K0A0X3CB4E5F6G7H8J9K0M",
+    "number": 1,
+    "identifier": "EXP-1",
+    "title": "First issue",
+    "description": { "text": "Body content" },
+    "status": "todo",
+    "priority": "medium",
+    "assigneeId": null,
+    "creatorId": "user_123",
+    "dueDate": "2026-05-20",
+    "dueTime": null,
+    "endTime": null,
+    "sortOrder": 1.0,
+    "completedAt": null,
+    "archivedAt": null,
+    "recurrenceInterval": null,
+    "recurrenceUnit": null,
+    "createdAt": "2025-12-01T12:00:00Z",
+    "updatedAt": "2025-12-01T12:00:00Z"
+  }
+}

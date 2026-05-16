@@ -1,0 +1,52 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/shapes/issues?offset=-1",
+    "headers": {
+      "authorization": "Bearer eyJhbGciOi..."
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "electric-handle": "h-2c3e9f10",
+      "electric-offset": "0_0",
+      "content-type": "application/json"
+    },
+    "body": [
+      {
+        "headers": { "operation": "insert" },
+        "key": "\"issues\"/\"01J9K0A0X3CB4E5F6G7H8J9K0L\"",
+        "value": {
+          "id": "01J9K0A0X3CB4E5F6G7H8J9K0L",
+          "project_id": "01J9K0A0X3CB4E5F6G7H8J9K0M",
+          "number": 1,
+          "identifier": "EXP-1",
+          "title": "First issue",
+          "status": "todo",
+          "priority": "medium",
+          "created_at": "2025-12-01T12:00:00Z",
+          "updated_at": "2025-12-01T12:00:00Z"
+        }
+      },
+      {
+        "headers": { "operation": "insert" },
+        "key": "\"issues\"/\"01J9K0A0X3CB4E5F6G7H8J9K0N\"",
+        "value": {
+          "id": "01J9K0A0X3CB4E5F6G7H8J9K0N",
+          "project_id": "01J9K0A0X3CB4E5F6G7H8J9K0M",
+          "number": 2,
+          "identifier": "EXP-2",
+          "title": "Second issue",
+          "status": "in_progress",
+          "priority": "high",
+          "created_at": "2025-12-01T12:01:00Z",
+          "updated_at": "2025-12-01T12:01:00Z"
+        }
+      },
+      {
+        "headers": { "control": "up-to-date" }
+      }
+    ]
+  }
+}

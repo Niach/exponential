@@ -47,7 +47,11 @@ export function StatusDropdown({
         const Icon = selected.icon
 
         return (
-          <Button variant="ghost" className="h-5 w-5 p-0">
+          <Button
+            variant="ghost"
+            className="h-5 w-5 p-0"
+            aria-label={`Change status (current: ${selected.label})`}
+          >
             <Icon className={`h-3.5 w-3.5 ${selected.color}`} />
           </Button>
         )

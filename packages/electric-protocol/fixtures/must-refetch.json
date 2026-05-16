@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/shapes/issues?offset=0_1&handle=h-2c3e9f10&live=true",
+    "headers": {
+      "authorization": "Bearer eyJhbGciOi..."
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "electric-handle": "h-2c3e9f10",
+      "electric-offset": "0_1",
+      "content-type": "application/json"
+    },
+    "body": [
+      {
+        "headers": { "control": "must-refetch" }
+      }
+    ]
+  },
+  "expectedClientBehavior": "Discard local rows for this shape, reset persisted offset/handle, immediately re-request with offset=-1 (a fresh initial snapshot)."
+}

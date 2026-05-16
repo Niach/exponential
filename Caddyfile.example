@@ -1,0 +1,20 @@
+localhost:3000 {
+	# Electric SQL shape requests with `?live=true` hold the upstream
+	# response open for up to ~60s. The defaults Caddy sets on the
+	# reverse_proxy transport (read_timeout=no limit, but flush_interval=0
+	# and the http server's read/write timeouts) are usually fine, but we
+	# pin long-poll-friendly values explicitly so any future tightening
+	# of Caddy defaults doesn't silently degrade live=true to short-polls.
+	#
+	# See packages/electric-protocol/README.md for the full contract.
+	reverse_proxy host.docker.internal:5173 {
+		header_up Host localhost
+		transport http {
+			dial_timeout 10s
+			read_timeout 5m
+			write_timeout 5m
+			keepalive 5m
+		}
+		flush_interval -1
+	}
+}

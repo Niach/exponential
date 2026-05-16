@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { db } from "@/db/connection"
 import { workspaceMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
@@ -15,7 +14,7 @@ export const workspaceMembersRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const [target] = await db
+      const [target] = await ctx.db
         .select()
         .from(workspaceMembers)
         .where(eq(workspaceMembers.id, input.memberId))
@@ -29,7 +28,7 @@ export const workspaceMembersRouter = router({
         `owner`,
       ])
 
-      const [updated] = await db
+      const [updated] = await ctx.db
         .update(workspaceMembers)
         .set({ role: input.role })
         .where(eq(workspaceMembers.id, input.memberId))
@@ -45,7 +44,7 @@ export const workspaceMembersRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const [target] = await db
+      const [target] = await ctx.db
         .select()
         .from(workspaceMembers)
         .where(eq(workspaceMembers.id, input.memberId))
@@ -64,7 +63,7 @@ export const workspaceMembersRouter = router({
 
       // Prevent removing the last owner
       if (target.role === `owner`) {
-        const owners = await db
+        const owners = await ctx.db
           .select()
           .from(workspaceMembers)
           .where(
@@ -81,10 +80,10 @@ export const workspaceMembersRouter = router({
         }
       }
 
-      await db
+      await ctx.db
         .delete(workspaceMembers)
         .where(eq(workspaceMembers.id, input.memberId))
 
-      return { success: true }
+      return { ok: true }
     }),
 })

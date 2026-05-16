@@ -1,5 +1,4 @@
 import { router, authedProcedure } from "@/lib/trpc"
-import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { getUserIdsInWorkspaces } from "@/lib/workspace-membership"
 import { inArray } from "drizzle-orm"
@@ -12,7 +11,7 @@ export const usersRouter = router({
       return { users: [] }
     }
 
-    const userRows = await db
+    const userRows = await ctx.db
       .select({ id: users.id, name: users.name, email: users.email })
       .from(users)
       .where(inArray(users.id, userIds))

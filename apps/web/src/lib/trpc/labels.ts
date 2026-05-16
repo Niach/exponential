@@ -1,7 +1,6 @@
 import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { db } from "@/db/connection"
 import { labels } from "@/db/schema"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
 
@@ -19,7 +18,7 @@ export const labelsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
-      return await db.transaction(async (tx) => {
+      return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [label] = await tx
           .insert(labels)
@@ -45,7 +44,7 @@ export const labelsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
-      return await db.transaction(async (tx) => {
+      return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const updates: { name?: string; color?: string } = {}
         if (input.name !== undefined) updates.name = input.name
@@ -76,7 +75,7 @@ export const labelsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
-      return await db.transaction(async (tx) => {
+      return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx
           .delete(labels)
