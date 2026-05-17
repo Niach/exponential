@@ -1,0 +1,23 @@
+{
+  "name": "@exp/push-relay",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint:check": "eslint .",
+    "lint": "eslint . --fix"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.8.0",
+    "hono": "^4.7.11",
+    "zod": "^4.0.14"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}

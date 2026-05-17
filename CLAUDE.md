@@ -20,16 +20,18 @@ Real-time issue tracker.
 exponential/
 ├── apps/
 │   ├── web/        # TanStack Start app (the issue tracker)
+│   ├── push-relay/ # Standalone push notification relay (Hono/Bun, separately deployed)
 │   ├── marketing/  # Marketing site (Vite + React, deployed via Coolify)
 │   └── android/    # Native Kotlin / Jetpack Compose app (in progress)
 ├── packages/       # Shared packages (db-schema, api-contracts, …)
 ├── docker-compose.yaml
 ├── Caddyfile
-├── Dockerfile      # Builds the web app image; build context = repo root
+├── Dockerfile              # Builds the web app image; build context = repo root
+├── Dockerfile.push-relay   # Builds the push relay image; build context = repo root
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
-Workspace package names: `@exp/web`, `@exp/marketing` (and future `@exp/db-schema`, etc.).
+Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing` (and future `@exp/db-schema`, etc.).
 
 ## Commands
 
@@ -39,6 +41,8 @@ All commands run from the repo root unless noted.
 bun install                        # Install workspace deps (run from root)
 bun dev                            # Start web dev server (apps/web, localhost:5173)
 bun run dev:marketing              # Start marketing dev server (apps/marketing)
+bun run dev:push-relay             # Start push relay dev server (apps/push-relay, localhost:4001)
+bun run start:push-relay           # Start push relay in production mode
 bun run build                      # Build web + marketing
 bun run build:web                  # Build only the web app
 bun run typecheck                  # Typecheck the web app
@@ -250,7 +254,8 @@ GOOGLE_CLIENT_ID              # Google OAuth client ID (required for login or Ca
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
 GOOGLE_CALENDAR_ENABLED       # Enable Google Calendar integration (default: false)
-FIREBASE_SERVICE_ACCOUNT_JSON # Firebase service account key (JSON string) for FCM push delivery
+PUSH_RELAY_URL                # URL of the push-relay service (e.g. https://push.yourapp.com)
+PUSH_RELAY_SECRET             # Shared secret — must match RELAY_SECRET on the push-relay service
 ```
 
 ## Integrations
