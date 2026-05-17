@@ -22,6 +22,7 @@ COPY --from=builder /app/package.json .
 COPY --from=builder /app/bun.lock .
 COPY --from=builder /app/bunfig.toml .
 COPY --from=builder /app/apps/marketing/package.json apps/marketing/package.json
+COPY --from=builder /app/apps/push-relay/package.json apps/push-relay/package.json
 COPY --from=builder /app/packages packages
 RUN bun install --frozen-lockfile
 RUN touch apps/web/.env
