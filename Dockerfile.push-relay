@@ -1,0 +1,33 @@
+FROM oven/bun:1 AS builder
+WORKDIR /app
+
+# Copy workspace manifests needed for bun install
+COPY package.json bun.lock bunfig.toml ./
+COPY apps/push-relay/package.json apps/push-relay/package.json
+COPY packages/tsconfig/package.json packages/tsconfig/package.json
+# Stub out other workspace package.json files so bun install resolves correctly
+COPY apps/web/package.json apps/web/package.json
+COPY apps/marketing/package.json apps/marketing/package.json
+COPY packages/db-schema/package.json packages/db-schema/package.json
+COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
+
+RUN bun install --frozen-lockfile
+
+COPY packages/tsconfig packages/tsconfig
+COPY apps/push-relay apps/push-relay
+
+FROM oven/bun:1
+WORKDIR /app
+
+COPY --from=builder /app/node_modules node_modules
+COPY --from=builder /app/apps/push-relay apps/push-relay
+COPY --from=builder /app/packages/tsconfig packages/tsconfig
+COPY --from=builder /app/package.json .
+COPY --from=builder /app/bunfig.toml .
+
+EXPOSE 4001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD bun -e "fetch('http://localhost:4001/healthz').then(r=>process.exit(r.ok?0:1))"
+
+CMD ["bun", "apps/push-relay/src/index.ts"]
