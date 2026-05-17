@@ -68,7 +68,44 @@ git clone https://github.com/Niach/exponential
 cd exponential
 `}</DocsCode>
 
-          <h3>2. Bring the stack up</h3>
+          <h3>2. Pick your sign-in method</h3>
+          <p>
+            Three options, and they can be combined. Email and password is
+            on by default, so you can skip this step and come back to it
+            later if you just want to kick the tyres.
+          </p>
+          <p>
+            <strong>Email &amp; password.</strong> Enabled out of the box. To
+            turn it off later, set <code>AUTH_PASSWORD_ENABLED=false</code>.
+          </p>
+          <p>
+            <strong>OIDC (Authentik, Keycloak, Zitadel, …).</strong> Configure
+            one or more providers as a JSON array. Each entry needs an{` `}
+            <code>id</code>, <code>name</code>, your client credentials, and
+            the provider's discovery URL.
+          </p>
+          <DocsCode language="env">{`
+OIDC_PROVIDERS='[{"id":"authentik","name":"Authentik","clientId":"...","clientSecret":"...","discoveryUrl":"https://auth.example.com/application/o/app/.well-known/openid-configuration"}]'
+`}</DocsCode>
+          <p>
+            The authorized redirect URI in your IdP is{` `}
+            <code>{`\${BETTER_AUTH_URL}/api/auth/oauth2/callback/<id>`}</code>.
+            Optional <code>adminGroups</code> + <code>groupsClaim</code>{` `}
+            promote users to admin based on a claim from the ID token.
+          </p>
+          <p>
+            <strong>Google sign-in.</strong> Same Google OAuth client you'd
+            use for the Calendar integration. Setting both client vars and
+            flipping the flag adds a "Sign in with Google" button to the
+            login screen.
+          </p>
+          <DocsCode language="env">{`
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_LOGIN_ENABLED=true
+`}</DocsCode>
+
+          <h3>3. Bring the stack up</h3>
           <p>
             <code>bun install</code> sets up dependencies,{` `}
             <code>backend:up</code> starts the four containers, and{` `}
@@ -81,25 +118,20 @@ bun run backend:up
 bun run storage:init
 `}</DocsCode>
 
-          <h3>3. Configure</h3>
+          <h3>4. Configure</h3>
           <p>
             Copy the example env file and fill in the three values you
             actually need: the database URL (default works for local), a
-            session secret, and the S3 keys from the previous step.
+            session secret, and the S3 keys from the previous step. Add the
+            sign-in env vars from step 2 here too.
           </p>
           <DocsCode language="shell">{`
 cp apps/web/.env.example .env
 # generate a 32-character session secret
 openssl rand -hex 32
 `}</DocsCode>
-          <DocsCallout kind="tip" title="Sign-in methods">
-            Email and password works out of the box. To add Google sign-in or
-            an OIDC provider (Authentik, Keycloak, etc.) later, set a handful
-            of env vars — the full list is in{` `}
-            <code>apps/web/.env.example</code>.
-          </DocsCallout>
 
-          <h3>4. Migrate &amp; run</h3>
+          <h3>5. Migrate &amp; run</h3>
           <DocsCode language="shell">{`
 bun run migrate
 docker exec -i exponential-postgres-1 \\
@@ -123,11 +155,6 @@ bun dev
           <DocsCode language="shell">{`
 docker build -f Dockerfile -t exponential-web:latest .
 `}</DocsCode>
-          <DocsCallout kind="note" title="Known-working hosts">
-            The reference deployment runs the web container on Portainer
-            (triggered by tagged Gitea releases) and the marketing site +
-            push-relay on Coolify. Any Docker host with Caddy in front works.
-          </DocsCallout>
         </DocsSection>
 
         <DocsSection id="push" num="02" label="Push notifications">
@@ -136,22 +163,40 @@ docker build -f Dockerfile -t exponential-web:latest .
             Native push to phones is handled by a small companion service,
             the <strong>push-relay</strong>, that wraps Firebase Cloud
             Messaging. The web app posts payloads to it; the relay
-            multicasts to your devices. Running it separately means push
-            can scale and fail independently of the main app.
+            multicasts to your devices.
           </p>
 
-          <h3>1. Get Firebase credentials</h3>
+          <h3>Use the public relay</h3>
+          <p>
+            A public instance runs at{` `}
+            <code>https://push.exponential.straehhuber.com</code> and is what
+            the official Android and iOS builds talk to by default. The
+            quickest path is to point your web deployment at it and you're
+            done — no Firebase project, no extra container.
+          </p>
+          <DocsCode language="env">{`
+PUSH_RELAY_URL=https://push.exponential.straehhuber.com
+`}</DocsCode>
+          <DocsCallout kind="note" title="What the public relay sees">
+            The relay receives the FCM device token, the notification title
+            and body, and the data payload — typically just an issue ID. It
+            never sees your database, your auth state, or your users'
+            credentials, and it forwards straight to Google's FCM.
+          </DocsCallout>
+
+          <h3>Or run your own</h3>
+          <p>
+            If you'd rather not depend on the public relay — different trust
+            model, different Firebase project, your own region — host one
+            yourself. The image is in the repo. You'll also need to{` `}
+            <strong>build the mobile apps yourself with your own FCM
+            credentials</strong>; the published Android/iOS binaries are
+            wired to the public Firebase project and won't deliver
+            notifications through your relay.
+          </p>
           <p>
             Create a Firebase project, generate a service-account key from
-            the project settings, and save the JSON file. You'll paste it
-            into the relay as a single env var.
-          </p>
-
-          <h3>2. Run the relay</h3>
-          <p>
-            Build the image from the repo root using{` `}
-            <code>Dockerfile.push-relay</code> and expose port 4001 behind
-            your reverse proxy.
+            its settings, then run the relay:
           </p>
           <DocsCode language="shell">{`
 docker build -f Dockerfile.push-relay -t push-relay:latest .
@@ -159,30 +204,21 @@ docker run -d \\
   -p 4001:4001 \\
   -e FIREBASE_SERVICE_ACCOUNT_JSON='<single-line JSON>' \\
   push-relay:latest
-`}</DocsCode>
-          <p>
-            Verify it's healthy:
-          </p>
-          <DocsCode language="shell">{`
-curl https://push.yourapp.com/healthz
-# => {"ok":true}
-`}</DocsCode>
 
-          <h3>3. Point the web app at it</h3>
+# verify
+curl https://push.yourapp.com/healthz   # => {"ok":true}
+`}</DocsCode>
           <p>
-            Set <code>PUSH_RELAY_URL</code> on the web deployment and
-            redeploy. From then on, issue events that target a user with a
-            registered device send a push.
+            Point the web app at your relay:
           </p>
           <DocsCode language="env">{`
 PUSH_RELAY_URL=https://push.yourapp.com
 `}</DocsCode>
-
           <DocsCallout kind="warn" title="Open by default">
             The reference relay leaves <code>/send</code> unauthenticated so
             anything inside your trust boundary can call it. If you expose
-            the relay to the public internet, restrict it by network policy
-            or re-add the bearer-token middleware in{` `}
+            it to the public internet, restrict it by network policy or
+            re-add the bearer-token middleware in{` `}
             <code>apps/push-relay/src/index.ts</code>.
           </DocsCallout>
         </DocsSection>
