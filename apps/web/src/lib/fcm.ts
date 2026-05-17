@@ -4,24 +4,19 @@ import { fcmTokens } from "@/db/schema"
 
 // ── Relay config (lazy singleton) ─────────────────────────────────────────────
 
-type RelayConfig = { url: string; secret: string }
+let relayUrl: string | null | undefined
 
-let relayConfig: RelayConfig | null | undefined
-
-function getRelayConfig(): RelayConfig | null {
-  if (relayConfig !== undefined) return relayConfig
+function getRelayUrl(): string | null {
+  if (relayUrl !== undefined) return relayUrl
 
   const url = process.env.PUSH_RELAY_URL
-  const secret = process.env.PUSH_RELAY_SECRET
-  if (!url || !secret) {
-    console.warn(
-      `[fcm] PUSH_RELAY_URL or PUSH_RELAY_SECRET not set — push notifications disabled`
-    )
-    relayConfig = null
-    return relayConfig
+  if (!url) {
+    console.warn(`[fcm] PUSH_RELAY_URL not set — push notifications disabled`)
+    relayUrl = null
+    return relayUrl
   }
-  relayConfig = { url, secret }
-  return relayConfig
+  relayUrl = url
+  return relayUrl
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -38,8 +33,8 @@ export async function sendToUser(
   userId: string,
   payload: FcmPayload
 ): Promise<void> {
-  const cfg = getRelayConfig()
-  if (!cfg) return
+  const url = getRelayUrl()
+  if (!url) return
 
   const rows = await db
     .select({ token: fcmTokens.token })
@@ -52,12 +47,9 @@ export async function sendToUser(
 
   let invalidTokens: string[] = []
   try {
-    const res = await fetch(`${cfg.url}/send`, {
+    const res = await fetch(`${url}/send`, {
       method: `POST`,
-      headers: {
-        "Content-Type": `application/json`,
-        Authorization: `Bearer ${cfg.secret}`,
-      },
+      headers: { "Content-Type": `application/json` },
       body: JSON.stringify({
         tokens,
         notification: { title: payload.title, body: payload.body },

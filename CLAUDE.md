@@ -255,7 +255,6 @@ GOOGLE_CLIENT_SECRET          # Google OAuth client secret
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
 GOOGLE_CALENDAR_ENABLED       # Enable Google Calendar integration (default: false)
 PUSH_RELAY_URL                # URL of the push-relay service (e.g. https://push.yourapp.com)
-PUSH_RELAY_SECRET             # Shared secret — must match RELAY_SECRET on the push-relay service
 ```
 
 ## Integrations
