@@ -2,6 +2,7 @@ import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
+  selectCommentSchema,
   selectIssueLabelSchema,
   selectIssueSchema,
   selectLabelSchema,
@@ -127,6 +128,19 @@ export const userCollection = createCollection(
       columnMapper,
     },
     schema: selectUserSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const commentCollection = createCollection(
+  electricCollectionOptions({
+    id: `comments`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/comments`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectCommentSchema,
     getKey: (item) => item.id,
   })
 )

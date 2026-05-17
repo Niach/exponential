@@ -14,6 +14,7 @@ import { usersRouter } from "@/lib/trpc/users"
 import { integrationsRouter } from "@/lib/trpc/integrations"
 import { adminRouter } from "@/lib/trpc/admin"
 import { pushTokensRouter } from "@/lib/trpc/push-tokens"
+import { commentsRouter } from "@/lib/trpc/comments"
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   issues: issuesRouter,
   issueLabels: issueLabelsRouter,
   labels: labelsRouter,
+  comments: commentsRouter,
   workspaceInvites: workspaceInvitesRouter,
   workspaceMembers: workspaceMembersRouter,
   users: usersRouter,

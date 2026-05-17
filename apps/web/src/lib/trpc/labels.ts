@@ -2,7 +2,7 @@ import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { labels } from "@/db/schema"
-import { assertWorkspaceMember } from "@/lib/workspace-membership"
+import { assertCanMutateWorkspaceResources } from "@/lib/workspace-membership"
 
 const labelNameSchema = z.string().min(1).max(255)
 const labelColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
@@ -17,7 +17,10 @@ export const labelsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+      await assertCanMutateWorkspaceResources(
+        ctx.session.user.id,
+        input.workspaceId
+      )
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [label] = await tx
@@ -43,7 +46,10 @@ export const labelsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+      await assertCanMutateWorkspaceResources(
+        ctx.session.user.id,
+        input.workspaceId
+      )
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const updates: { name?: string; color?: string } = {}
@@ -74,7 +80,10 @@ export const labelsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+      await assertCanMutateWorkspaceResources(
+        ctx.session.user.id,
+        input.workspaceId
+      )
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx

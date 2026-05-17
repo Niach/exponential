@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/popover"
 import { IssueEditorDialogShell } from "@/components/issue-editor-dialog-shell"
 import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
+import { CommentThread } from "@/components/comment-thread"
+import { authClient } from "@/lib/auth-client"
 import {
   RecurrenceEditor,
   type RecurrenceValue,
@@ -49,6 +51,11 @@ export function EditIssueDialog({
   users,
   workspaceId,
 }: EditIssueDialogProps) {
+  const { data: session } = authClient.useSession()
+  const currentUserId = session?.user?.id ?? null
+  const isAdmin = Boolean(
+    (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin
+  )
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
   const lastSavedDescriptionRef = useRef(
@@ -379,16 +386,26 @@ export function EditIssueDialog({
       chipRowExtras={recurrenceChip}
       overflowMenuItems={overflowMenuItems}
       footer={
-        <div className="flex items-center px-4 py-3 border-t border-border">
-          <IssueEditorAttachmentRail
-            attachmentStatus={attachmentStatus}
-            images={imageOccurrences}
-            onFiles={handleImageFiles}
-            onRemove={handleRemoveImageOccurrence}
-            uploading={activeUploadCount > 0}
-            disabled={activeUploadCount > 0}
-          />
-        </div>
+        <>
+          {currentUserId && (
+            <CommentThread
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              issueId={issue.id}
+              users={users}
+            />
+          )}
+          <div className="flex items-center px-4 py-3 border-t border-border">
+            <IssueEditorAttachmentRail
+              attachmentStatus={attachmentStatus}
+              images={imageOccurrences}
+              onFiles={handleImageFiles}
+              onRemove={handleRemoveImageOccurrence}
+              uploading={activeUploadCount > 0}
+              disabled={activeUploadCount > 0}
+            />
+          </div>
+        </>
       }
     />
   )

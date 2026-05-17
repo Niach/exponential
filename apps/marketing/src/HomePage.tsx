@@ -24,12 +24,19 @@ export function HomePage() {
             <em>on your own machines.</em>
           </h1>
           <p className="hero-sub">
-            Exponential is a real-time, self-hosted issue tracker. Open source,
-            MIT-licensed, and yours end-to-end.
+            Exponential is a real-time issue tracker. Self-host the stack on
+            your own machines, or skip setup and use the free cloud instance.
+            Open source, MIT-licensed, yours end-to-end.
           </p>
           <div className="hero-cta">
             <a className="btn btn-primary" href="#install">
               <IcDocker size={14} /> docker compose up
+            </a>
+            <a
+              className="btn btn-ghost"
+              href="https://issues.straehhuber.com/auth/login"
+            >
+              Use the free cloud <IcArrow size={12} />
             </a>
             <a
               className="btn btn-ghost"

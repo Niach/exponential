@@ -5,6 +5,7 @@ import { and, eq, isNull } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
+import { workspaces as workspacesTable } from "@/db/schema"
 
 export const workspaceInvitesRouter = router({
   create: authedProcedure
@@ -15,6 +16,17 @@ export const workspaceInvitesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const [target] = await ctx.db
+        .select({ isPublic: workspacesTable.isPublic })
+        .from(workspacesTable)
+        .where(eq(workspacesTable.id, input.workspaceId))
+        .limit(1)
+      if (target?.isPublic) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `The public workspace does not use invites`,
+        })
+      }
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId, [
         `owner`,
       ])

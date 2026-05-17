@@ -6,9 +6,11 @@ import {
   labels,
   projects,
   workspaceMembers,
+  workspaces,
 } from "@/db/schema"
 import type { WorkspaceMember } from "@/db/schema"
 import type { WorkspaceRole } from "@/lib/domain"
+import { isUserAdmin } from "@/lib/admin"
 
 type WorkspaceMemberRecord = Pick<
   WorkspaceMember,
@@ -58,6 +60,26 @@ export function assertMatchingWorkspaceIds(
   }
 }
 
+let publicWorkspaceIdCache: string | null | undefined = undefined
+
+export async function getPublicWorkspaceId(): Promise<string | null> {
+  if (publicWorkspaceIdCache !== undefined) {
+    return publicWorkspaceIdCache
+  }
+  const db = await getDb()
+  const [row] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.isPublic, true))
+    .limit(1)
+  publicWorkspaceIdCache = row?.id ?? null
+  return publicWorkspaceIdCache
+}
+
+export function invalidatePublicWorkspaceCache() {
+  publicWorkspaceIdCache = undefined
+}
+
 export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
   const db = await getDb()
   const rows = await db
@@ -65,7 +87,12 @@ export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
     .from(workspaceMembers)
     .where(eq(workspaceMembers.userId, userId))
 
-  return rows.map((row) => row.workspaceId)
+  const ids = rows.map((row) => row.workspaceId)
+  const publicId = await getPublicWorkspaceId()
+  if (publicId && !ids.includes(publicId)) {
+    ids.push(publicId)
+  }
+  return ids
 }
 
 export async function getUserProjectIds(userId: string): Promise<string[]> {
@@ -230,6 +257,114 @@ export async function getAttachmentWorkspaceContext(attachmentId: string) {
   return attachmentContext
 }
 
+async function getWorkspaceById(workspaceId: string) {
+  const db = await getDb()
+  const [workspace] = await db
+    .select({
+      id: workspaces.id,
+      isPublic: workspaces.isPublic,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1)
+  return workspace
+}
+
+// Resolves whether the user can read/use a workspace. Returns:
+// - { kind: 'member', workspace, member } when the user is a member
+// - { kind: 'public', workspace } when the workspace is public and user is authed
+// - throws FORBIDDEN/NOT_FOUND otherwise
+export async function resolveWorkspaceAccess(
+  userId: string,
+  workspaceId: string
+) {
+  const workspace = await getWorkspaceById(workspaceId)
+  if (!workspace) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+  }
+  const member = await getWorkspaceMember(userId, workspaceId)
+  if (member) {
+    return { kind: `member` as const, workspace, member }
+  }
+  if (workspace.isPublic) {
+    return { kind: `public` as const, workspace }
+  }
+  throw new TRPCError({
+    code: `FORBIDDEN`,
+    message: `Not a member of this workspace`,
+  })
+}
+
+// Allowed if: workspace is public + user is authed, OR user is a workspace member.
+export async function assertCanCreateIssueInProject(
+  userId: string,
+  projectId: string
+) {
+  const project = await getProjectWorkspaceId(projectId)
+  await resolveWorkspaceAccess(userId, project.workspaceId)
+  return project
+}
+
+// Allowed if: user is workspace member, OR (workspace is public AND user is creator or admin).
+export async function assertCanMutateIssue(userId: string, issueId: string) {
+  const issueContext = await getIssueWorkspaceContext(issueId)
+  const workspace = await getWorkspaceById(issueContext.workspaceId)
+  if (!workspace) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+  }
+
+  if (workspace.isPublic) {
+    const db = await getDb()
+    const [issue] = await db
+      .select({ creatorId: issues.creatorId })
+      .from(issues)
+      .where(eq(issues.id, issueId))
+      .limit(1)
+    if (!issue) {
+      throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+    }
+    if (issue.creatorId === userId) return issueContext
+    if (await isUserAdmin(userId)) return issueContext
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Only the issue creator or an admin can modify this issue`,
+    })
+  }
+
+  await assertWorkspaceMember(userId, issueContext.workspaceId)
+  return issueContext
+}
+
+// Allowed if: user is workspace member OR workspace is public + user is authed.
+export async function assertCanCommentInWorkspace(
+  userId: string,
+  workspaceId: string
+) {
+  return resolveWorkspaceAccess(userId, workspaceId)
+}
+
+// For mutations on workspace-level resources (projects, labels, members, invites).
+// In a public workspace, only admins may mutate; in private workspaces, the
+// requested role is enforced via assertWorkspaceMember.
+export async function assertCanMutateWorkspaceResources(
+  userId: string,
+  workspaceId: string,
+  requiredRoles?: WorkspaceRole[]
+) {
+  const workspace = await getWorkspaceById(workspaceId)
+  if (!workspace) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+  }
+  if (workspace.isPublic) {
+    if (await isUserAdmin(userId)) return
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Only admins can modify the public workspace`,
+    })
+  }
+  await assertWorkspaceMember(userId, workspaceId, requiredRoles)
+}
+
 export async function assertIssueLabelWorkspaceMatch(
   userId: string,
   issueId: string,
@@ -247,7 +382,7 @@ export async function assertIssueLabelWorkspaceMatch(
 
   const issueContext = await getIssueWorkspaceContext(issueId)
   assertMatchingWorkspaceIds(issueContext.workspaceId, label?.workspaceId)
-  await assertWorkspaceMember(userId, issueContext.workspaceId)
+  await resolveWorkspaceAccess(userId, issueContext.workspaceId)
 
   return {
     issue: issueContext,

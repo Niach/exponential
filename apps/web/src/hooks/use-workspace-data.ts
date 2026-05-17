@@ -67,13 +67,20 @@ export function useWorkspaceMemberships(userId?: string) {
       return []
     }
 
-    return memberships
+    const explicit = memberships
       .map((membership) =>
         allWorkspaces.find(
           (workspace) => workspace.id === membership.workspaceId
         )
       )
       .filter(isDefined)
+    // The public workspace is visible to all authed users without a
+    // membership row. Append it once so it shows up in the switcher.
+    const publicWorkspace = allWorkspaces.find((w) => w.isPublic)
+    if (publicWorkspace && !explicit.some((w) => w.id === publicWorkspace.id)) {
+      explicit.push(publicWorkspace)
+    }
+    return explicit
   }, [allWorkspaces, memberships])
 
   return {

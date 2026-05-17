@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm"
 import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
+import { maybePromoteNewUser } from "@/lib/bootstrap-cloud"
 
 export { parseOidcProviders, type OidcProviderConfig }
 
@@ -86,6 +87,11 @@ export const auth = betterAuth({
   trustedOrigins: (process.env.BETTER_AUTH_TRUSTED_ORIGINS || ``)
     .split(`,`)
     .filter(Boolean),
+  rateLimit: {
+    enabled: process.env.NODE_ENV === `production`,
+    window: 60,
+    max: 30,
+  },
   socialProviders: googleSocialEnabled
     ? {
         google: {
@@ -121,6 +127,22 @@ export const auth = betterAuth({
           ? `[better-auth][${level}] ${message} ${JSON.stringify(args)}\n`
           : `[better-auth][${level}] ${message}\n`
       process.stderr.write(payload)
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          try {
+            await maybePromoteNewUser(user.id, user.email)
+          } catch (err) {
+            console.error(
+              `[auth] maybePromoteNewUser failed for ${user.email}:`,
+              err
+            )
+          }
+        },
+      },
     },
   },
   hooks: {

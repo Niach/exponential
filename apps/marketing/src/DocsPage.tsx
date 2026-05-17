@@ -9,10 +9,11 @@ import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { IcDocker, IcGithub } from "./components/icons"
 
 const SECTIONS: DocsSectionType[] = [
-  { id: `installation`, num: `01`, label: `Installation` },
-  { id: `push`, num: `02`, label: `Push notifications` },
-  { id: `integrations`, num: `03`, label: `Integrations` },
-  { id: `mobile`, num: `04`, label: `Mobile apps` },
+  { id: `cloud-or-self-host`, num: `01`, label: `Cloud or self-host?` },
+  { id: `installation`, num: `02`, label: `Installation` },
+  { id: `push`, num: `03`, label: `Push notifications` },
+  { id: `integrations`, num: `04`, label: `Integrations` },
+  { id: `mobile`, num: `05`, label: `Mobile apps` },
 ]
 
 export function DocsPage() {
@@ -52,7 +53,39 @@ export function DocsPage() {
       </section>
 
       <DocsLayout sections={SECTIONS}>
-        <DocsSection id="installation" num="01" label="Installation">
+        <DocsSection
+          id="cloud-or-self-host"
+          num="01"
+          label="Cloud or self-host?"
+        >
+          <h2>Cloud or self-host?</h2>
+          <p>
+            Same code on both sides — pick whichever fits.
+          </p>
+          <p>
+            <strong>Free cloud at{` `}
+              <a href="https://issues.straehhuber.com">issues.straehhuber.com</a>.
+            </strong>{` `}
+            Sign in with Google, create a workspace, invite teammates. No
+            install, no operator burden. Limited to Google sign-in for now.
+          </p>
+          <p>
+            <strong>Self-host.</strong> One <code>docker compose up</code>{` `}
+            on a Linux box and you have the full stack on your network —
+            Postgres, Electric, S3-compatible attachment storage. Your
+            choice of sign-in method, your data on your disks.
+          </p>
+          <p>
+            Either way, there is one shared{` `}
+            <a href="https://issues.straehhuber.com/feedback">public feedback workspace</a>
+            {` `}
+            on the cloud where you can file bugs and feature requests. Self-
+            hosted instances expose a "Send feedback" button that deep-links
+            here, so issues stay in one place no matter how you run it.
+          </p>
+        </DocsSection>
+
+        <DocsSection id="installation" num="02" label="Installation">
           <h2>Installation</h2>
           <p>
             Exponential ships as a single <code>docker compose</code> file.
@@ -157,7 +190,7 @@ docker build -f Dockerfile -t exponential-web:latest .
 `}</DocsCode>
         </DocsSection>
 
-        <DocsSection id="push" num="02" label="Push notifications">
+        <DocsSection id="push" num="03" label="Push notifications">
           <h2>Push notifications</h2>
           <p>
             Native push to phones is handled by a small companion service,
@@ -223,7 +256,7 @@ PUSH_RELAY_URL=https://push.yourapp.com
           </DocsCallout>
         </DocsSection>
 
-        <DocsSection id="integrations" num="03" label="Integrations">
+        <DocsSection id="integrations" num="04" label="Integrations">
           <h2>Integrations</h2>
           <p>
             Integrations are opt-in and per-user. Each one is configured
@@ -271,7 +304,7 @@ MCP_USER_EMAIL=you@example.com
           </p>
         </DocsSection>
 
-        <DocsSection id="mobile" num="04" label="Mobile apps">
+        <DocsSection id="mobile" num="05" label="Mobile apps">
           <h2>Mobile apps</h2>
           <p>
             Native mobile clients connect to the same instance you just set

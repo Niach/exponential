@@ -161,6 +161,17 @@ export const adminRouter = router({
   deleteWorkspace: adminProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const [target] = await ctx.db
+        .select({ isPublic: workspaces.isPublic })
+        .from(workspaces)
+        .where(eq(workspaces.id, input.workspaceId))
+        .limit(1)
+      if (target?.isPublic) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `The public workspace cannot be deleted`,
+        })
+      }
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))

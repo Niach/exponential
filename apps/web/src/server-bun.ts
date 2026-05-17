@@ -33,13 +33,50 @@ const cert = process.env.NITRO_SSL_CERT
 const key = process.env.NITRO_SSL_KEY
 
 const nitroApp = useNitroApp()
-let _fetch: (req: Request) => Response | Promise<Response> = nitroApp.fetch
+const securityHeadersEnabled = process.env.SECURITY_HEADERS_ENABLED === `true`
+
+// Conservative CSP that allows TanStack Start's inline hydration script,
+// Google OAuth redirects (image avatars from googleusercontent), and
+// Electric long-poll requests against the same origin. Tightening to
+// nonce-based scripts requires a Start-internal change and is left as
+// follow-up.
+const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy": [
+    `default-src 'self'`,
+    `script-src 'self' 'unsafe-inline'`,
+    `style-src 'self' 'unsafe-inline'`,
+    `img-src 'self' data: blob: https://*.googleusercontent.com`,
+    `font-src 'self' data:`,
+    `connect-src 'self' https: wss:`,
+    `frame-src 'self' https://accounts.google.com`,
+    `frame-ancestors 'none'`,
+    `base-uri 'self'`,
+    `form-action 'self' https://accounts.google.com`,
+  ].join(`; `),
+  "Referrer-Policy": `strict-origin-when-cross-origin`,
+  "X-Content-Type-Options": `nosniff`,
+  "X-Frame-Options": `SAMEORIGIN`,
+  "Strict-Transport-Security": `max-age=63072000; includeSubDomains`,
+}
+
+function withSecurityHeaders(response: Response): Response {
+  if (!securityHeadersEnabled) return response
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    if (!response.headers.has(key)) {
+      response.headers.set(key, value)
+    }
+  }
+  return response
+}
+
+let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
+  withSecurityHeaders(await nitroApp.fetch(req))
 const ws = hasWebSocket
   ? wsAdapter({ resolve: resolveWebsocketHooks })
   : undefined
 
 if (hasWebSocket && ws) {
-  _fetch = (req: Request) => {
+  _fetch = async (req: Request) => {
     if (req.headers.get(`upgrade`) === `websocket`) {
       const upgraded = ws.handleUpgrade(
         req,
@@ -50,7 +87,7 @@ if (hasWebSocket && ws) {
       // the guard above ensures we only get here on websocket requests.
       return upgraded as Response | Promise<Response>
     }
-    return nitroApp.fetch(req)
+    return withSecurityHeaders(await nitroApp.fetch(req))
   }
 }
 

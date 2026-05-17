@@ -57,6 +57,20 @@
       "when": 1777674060295,
       "tag": "0007_cynical_fenris",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779028737217,
+      "tag": "0008_overjoyed_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779029252276,
+      "tag": "0009_salty_pete_wisdom",
+      "breakpoints": true
     }
   ]
 }

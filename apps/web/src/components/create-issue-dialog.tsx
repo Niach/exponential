@@ -46,6 +46,7 @@ interface CreateIssueDialogProps {
   defaultStatus?: IssueStatus
   onOpenChange: (open: boolean) => void
   open: boolean
+  prefill?: { title?: string; description?: string }
   projectColor: string
   projectId: string
   projectPrefix: string
@@ -76,14 +77,15 @@ export function CreateIssueDialog({
   defaultStatus,
   onOpenChange,
   open,
+  prefill,
   projectColor,
   projectId,
   projectPrefix,
   users,
   workspaceId,
 }: CreateIssueDialogProps) {
-  const [title, setTitle] = useState(``)
-  const [description, setDescription] = useState(``)
+  const [title, setTitle] = useState(prefill?.title ?? ``)
+  const [description, setDescription] = useState(prefill?.description ?? ``)
   const [status, setStatus] = useState<IssueStatus>(defaultStatus ?? `backlog`)
   const [priority, setPriority] = useState<IssuePriority>(`none`)
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
@@ -108,8 +110,16 @@ export function CreateIssueDialog({
   useEffect(() => {
     if (open) {
       setStatus(defaultStatus ?? `backlog`)
+      if (prefill?.title) {
+        setTitle(prefill.title)
+      }
+      if (prefill?.description) {
+        descriptionRef.current = prefill.description
+        setDescription(prefill.description)
+        editorRef.current?.setMarkdown(prefill.description)
+      }
     }
-  }, [defaultStatus, open])
+  }, [defaultStatus, open, prefill?.title, prefill?.description])
 
   useEffect(() => {
     return () => {

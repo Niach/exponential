@@ -18,6 +18,7 @@ import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oau
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
+import { Route as AuthenticatedFeedbackRouteImport } from './routes/_authenticated/feedback'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
@@ -29,6 +30,7 @@ import { Route as ApiShapesProjectsRouteImport } from './routes/api/shapes/proje
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
+import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
@@ -83,6 +85,11 @@ const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
   id: '/api/auth-config',
   path: '/api/auth-config',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedFeedbackRoute = AuthenticatedFeedbackRouteImport.update({
+  id: '/feedback',
+  path: '/feedback',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
   id: '/admin',
@@ -139,6 +146,11 @@ const ApiShapesIssuesRoute = ApiShapesIssuesRouteImport.update({
 const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
   id: '/api/shapes/issue-labels',
   path: '/api/shapes/issue-labels',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
+  id: '/api/shapes/comments',
+  path: '/api/shapes/comments',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -202,6 +214,7 @@ const AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/feedback': typeof AuthenticatedFeedbackRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -215,6 +228,7 @@ export interface FileRoutesByFullPath {
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -232,6 +246,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/feedback': typeof AuthenticatedFeedbackRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -244,6 +259,7 @@ export interface FileRoutesByTo {
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -264,6 +280,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/_authenticated/feedback': typeof AuthenticatedFeedbackRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -277,6 +294,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
@@ -297,6 +315,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/feedback'
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -310,6 +329,7 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/shapes/comments'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -327,6 +347,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/feedback'
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -339,6 +360,7 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/shapes/comments'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -358,6 +380,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/_authenticated/admin'
+    | '/_authenticated/feedback'
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -371,6 +394,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/shapes/comments'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
@@ -399,6 +423,7 @@ export interface RootRouteChildren {
   InviteTokenRoute: typeof InviteTokenRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
@@ -476,6 +501,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/feedback': {
+      id: '/_authenticated/feedback'
+      path: '/feedback'
+      fullPath: '/feedback'
+      preLoaderRoute: typeof AuthenticatedFeedbackRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/admin': {
       id: '/_authenticated/admin'
       path: '/admin'
@@ -551,6 +583,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/issue-labels'
       fullPath: '/api/shapes/issue-labels'
       preLoaderRoute: typeof ApiShapesIssueLabelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/comments': {
+      id: '/api/shapes/comments'
+      path: '/api/shapes/comments'
+      fullPath: '/api/shapes/comments'
+      preLoaderRoute: typeof ApiShapesCommentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -667,12 +706,14 @@ const AuthenticatedWWorkspaceSlugRouteRouteWithChildren =
 
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
+  AuthenticatedFeedbackRoute: typeof AuthenticatedFeedbackRoute
   AuthenticatedWWorkspaceSlugRouteRoute: typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
   AuthenticatedAccountIntegrationsRoute: typeof AuthenticatedAccountIntegrationsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
+  AuthenticatedFeedbackRoute: AuthenticatedFeedbackRoute,
   AuthenticatedWWorkspaceSlugRouteRoute:
     AuthenticatedWWorkspaceSlugRouteRouteWithChildren,
   AuthenticatedAccountIntegrationsRoute: AuthenticatedAccountIntegrationsRoute,
@@ -694,6 +735,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteTokenRoute: InviteTokenRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,

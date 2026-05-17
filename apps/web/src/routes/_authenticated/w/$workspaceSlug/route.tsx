@@ -10,6 +10,7 @@ import {
 import { authClient } from "@/lib/auth-client"
 import { trpc } from "@/lib/trpc-client"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
+import { FeedbackButton } from "@/components/feedback-button"
 import {
   Sidebar,
   SidebarContent,
@@ -106,6 +107,11 @@ function WorkspaceLayout() {
                 <span className="text-sm font-semibold truncate">
                   {workspace?.name ?? workspaceSlug}
                 </span>
+                {workspace?.isPublic && (
+                  <span className="rounded bg-accent px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground uppercase tracking-wide">
+                    Public
+                  </span>
+                )}
                 <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0" />
               </SidebarMenuButton>
             </DropdownMenuTrigger>
@@ -206,6 +212,9 @@ function WorkspaceLayout() {
         </SidebarContent>
 
         <SidebarFooter>
+          <SidebarMenu>
+            <FeedbackButton />
+          </SidebarMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <SidebarMenuButton className="w-full" aria-label="User menu">

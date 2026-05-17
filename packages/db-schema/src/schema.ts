@@ -20,6 +20,7 @@ import { sql, type InferSelectModel } from "drizzle-orm"
 import { createSchemaFactory } from "drizzle-zod"
 import { z } from "zod"
 import {
+  commentBodySchema,
   issueDescriptionSchema,
   issuePrioritySchema,
   issuePriorityValues,
@@ -98,6 +99,7 @@ export const workspaces = pgTable(`workspaces`, {
   name: varchar({ length: 255 }).notNull(),
   slug: varchar({ length: 255 }).notNull().unique(),
   iconUrl: text(`icon_url`),
+  isPublic: boolean(`is_public`).notNull().default(false),
   ...timestamps,
 })
 
@@ -248,6 +250,9 @@ export const comments = pgTable(
     issueId: uuid(`issue_id`)
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
     authorId: text(`author_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
@@ -255,7 +260,10 @@ export const comments = pgTable(
     editedAt: timestamp(`edited_at`, { withTimezone: true }),
     ...timestamps,
   },
-  (table) => [index(`idx_comments_issue`).on(table.issueId)]
+  (table) => [
+    index(`idx_comments_issue`).on(table.issueId),
+    index(`idx_comments_workspace`).on(table.workspaceId),
+  ]
 )
 
 export const attachments = pgTable(
@@ -402,7 +410,9 @@ export const selectIssueLabelSchema = createSelectSchema(issueLabels)
 
 export const selectUserSchema = createSelectSchema(users)
 
-export const selectCommentSchema = createSelectSchema(comments)
+export const selectCommentSchema = createSelectSchema(comments, {
+  body: commentBodySchema,
+})
 export const createCommentSchema = createInsertSchema(comments).omit({
   id: true,
   createdAt: true,

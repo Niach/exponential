@@ -22,6 +22,12 @@ export function SiteHeader() {
           >
             <IcGithub size={14} /> GitHub
           </a>
+          <a
+            className="btn btn-ghost btn-sm"
+            href="https://issues.straehhuber.com/auth/login"
+          >
+            Sign in
+          </a>
           <a className="btn btn-primary btn-sm" href="/#install">
             Self-host <IcArrow size={12} />
           </a>
@@ -42,7 +48,13 @@ export function SiteFooter() {
             <ExpLogo size={16} />
             <span>Exponential</span>
           </span>
-          <span style={{ display: `inline-flex`, gap: 16 }}>
+          <span style={{ display: `inline-flex`, gap: 16, flexWrap: `wrap` }}>
+            <a
+              href="https://issues.straehhuber.com/feedback"
+              style={{ color: `inherit` }}
+            >
+              Send feedback
+            </a>
             <a href="/privacy/" style={{ color: `inherit` }}>
               Privacy
             </a>

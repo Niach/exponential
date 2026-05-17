@@ -4,8 +4,8 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issues, issueLabels, labels } from "@/db/schema"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import {
-  assertProjectMember,
-  getIssueWorkspaceContext,
+  assertCanCreateIssueInProject,
+  assertCanMutateIssue,
 } from "@/lib/workspace-membership"
 import {
   addRecurrence,
@@ -66,7 +66,7 @@ export const issuesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await assertProjectMember(
+      const project = await assertCanCreateIssueInProject(
         ctx.session.user.id,
         input.projectId
       )
@@ -159,8 +159,7 @@ export const issuesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      const issueContext = await getIssueWorkspaceContext(id)
-      await assertProjectMember(ctx.session.user.id, issueContext.projectId)
+      await assertCanMutateIssue(ctx.session.user.id, id)
 
       if (
         updates.recurrenceInterval !== undefined ||
@@ -373,8 +372,7 @@ export const issuesRouter = router({
   delete: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const issueContext = await getIssueWorkspaceContext(input.id)
-      await assertProjectMember(ctx.session.user.id, issueContext.projectId)
+      await assertCanMutateIssue(ctx.session.user.id, input.id)
 
       const storageKeys: Array<string> = []
       let googleCalendarEventId: string | null = null

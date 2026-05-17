@@ -13,3 +13,12 @@ export async function assertAdmin(userId: string) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Admin access required` })
   }
 }
+
+export async function isUserAdmin(userId: string): Promise<boolean> {
+  const [u] = await db
+    .select({ isAdmin: users.isAdmin })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  return Boolean(u?.isAdmin)
+}

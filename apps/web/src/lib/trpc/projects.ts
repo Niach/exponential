@@ -4,7 +4,7 @@ import { projects } from "@/db/schema"
 import { eq } from "drizzle-orm"
 import {
   assertProjectMember,
-  assertWorkspaceMember,
+  assertCanMutateWorkspaceResources,
   assertWorkspaceOwner,
 } from "@/lib/workspace-membership"
 
@@ -32,7 +32,10 @@ export const projectsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+      await assertCanMutateWorkspaceResources(
+        ctx.session.user.id,
+        input.workspaceId
+      )
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)

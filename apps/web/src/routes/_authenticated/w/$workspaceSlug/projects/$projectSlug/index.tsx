@@ -9,11 +9,20 @@ import type { IssueFilters } from "@/lib/filters"
 import { emptyFilters } from "@/lib/filters"
 import type { IssueStatus } from "@/lib/domain"
 
+type ProjectSearch = {
+  description?: string
+  new?: 1
+  title?: string
+}
+
 export const Route = createFileRoute(
   `/_authenticated/w/$workspaceSlug/projects/$projectSlug/`
 )({
-  validateSearch: (search: Record<string, unknown>): { new?: 1 } => ({
+  validateSearch: (search: Record<string, unknown>): ProjectSearch => ({
     new: search.new === 1 || search.new === `1` ? 1 : undefined,
+    title: typeof search.title === `string` ? search.title : undefined,
+    description:
+      typeof search.description === `string` ? search.description : undefined,
   }),
   component: ProjectPage,
 })
@@ -24,13 +33,20 @@ function ProjectPage() {
   const navigate = Route.useNavigate()
   const [createIssueOpen, setCreateIssueOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<IssueStatus | undefined>()
+  const [prefill, setPrefill] = useState<
+    { title?: string; description?: string } | undefined
+  >(undefined)
 
   useEffect(() => {
-    if (search.new === 1) {
+    if (search.new === 1 || search.title || search.description) {
       setCreateIssueOpen(true)
+      setPrefill({
+        title: search.title,
+        description: search.description,
+      })
       void navigate({ search: {}, replace: true })
     }
-  }, [search.new, navigate])
+  }, [search.new, search.title, search.description, navigate])
   const [filters, setFilters] = useState<IssueFilters>(emptyFilters)
   const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
 
@@ -87,12 +103,16 @@ function ProjectPage() {
 
       <CreateIssueDialog
         open={createIssueOpen}
-        onOpenChange={setCreateIssueOpen}
+        onOpenChange={(next) => {
+          setCreateIssueOpen(next)
+          if (!next) setPrefill(undefined)
+        }}
         projectId={project.id}
         projectPrefix={project.prefix}
         projectColor={project.color}
         workspaceId={workspace.id}
         defaultStatus={defaultStatus}
+        prefill={prefill}
         users={users}
       />
 

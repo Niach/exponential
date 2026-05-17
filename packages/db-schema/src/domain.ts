@@ -40,6 +40,17 @@ export const issueDescriptionSchema = z.object({
 
 export type IssueDescription = z.infer<typeof issueDescriptionSchema>
 
+export const commentBodySchema = z.object({
+  text: z.string().min(1).max(10_000),
+})
+
+export type CommentBody = z.infer<typeof commentBodySchema>
+
+export function getCommentBodyText(body: unknown): string {
+  const parsed = commentBodySchema.safeParse(body)
+  return parsed.success ? parsed.data.text : ``
+}
+
 export const issueStatusOrder: IssueStatus[] = [
   `in_progress`,
   `todo`,

@@ -1,9 +1,26 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { workspaceMembers } from "@/db/schema"
+import { workspaceMembers, workspaces } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
+
+async function assertNotPublicWorkspace(
+  db: typeof import("@/db/connection").db,
+  workspaceId: string
+) {
+  const [target] = await db
+    .select({ isPublic: workspaces.isPublic })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1)
+  if (target?.isPublic) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Membership on the public workspace cannot be modified`,
+    })
+  }
+}
 
 export const workspaceMembersRouter = router({
   updateRole: authedProcedure
@@ -24,6 +41,7 @@ export const workspaceMembersRouter = router({
         throw new TRPCError({ code: `NOT_FOUND`, message: `Member not found` })
       }
 
+      await assertNotPublicWorkspace(ctx.db, target.workspaceId)
       await assertWorkspaceMember(ctx.session.user.id, target.workspaceId, [
         `owner`,
       ])
@@ -53,6 +71,8 @@ export const workspaceMembersRouter = router({
       if (!target) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `Member not found` })
       }
+
+      await assertNotPublicWorkspace(ctx.db, target.workspaceId)
 
       const isSelfRemove = target.userId === ctx.session.user.id
       if (!isSelfRemove) {
