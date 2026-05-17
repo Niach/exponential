@@ -12,6 +12,7 @@ export function SiteHeader() {
         <nav className="nav">
           <a href="/#features">Features</a>
           <a href="/#install">Self-host</a>
+          <a href="/docs/">Docs</a>
           <a href="/#open-source">Open source</a>
         </nav>
         <div className="topbar-right">
