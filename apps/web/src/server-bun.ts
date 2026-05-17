@@ -25,6 +25,15 @@ import { trapUnhandledErrors } from "nitro/~internal/runtime/error/hooks"
 import { resolveWebsocketHooks } from "nitro/~internal/runtime/app"
 // @ts-expect-error — virtual feature-flag module emitted by Nitro per build.
 import { hasWebSocket } from "#nitro-internal-virtual/feature-flags"
+import { bootstrapCloud } from "@/lib/bootstrap-cloud"
+
+// Fire-and-forget: seed the public workspace and promote initial admins.
+// Idempotent; errors are logged inside bootstrapCloud(). Calling from
+// server-bun.ts keeps the entire boostrap module (and its drizzle/pg deps)
+// out of the client bundle.
+bootstrapCloud().catch(() => {
+  // already logged
+})
 
 const port =
   Number.parseInt(process.env.NITRO_PORT || process.env.PORT || ``) || 3000
@@ -44,9 +53,9 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy": [
     `default-src 'self'`,
     `script-src 'self' 'unsafe-inline'`,
-    `style-src 'self' 'unsafe-inline'`,
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `img-src 'self' data: blob: https://*.googleusercontent.com`,
-    `font-src 'self' data:`,
+    `font-src 'self' data: https://fonts.gstatic.com`,
     `connect-src 'self' https: wss:`,
     `frame-src 'self' https://accounts.google.com`,
     `frame-ancestors 'none'`,
