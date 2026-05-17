@@ -60,19 +60,6 @@ const app = new Hono()
 // Unauthenticated health check for Docker HEALTHCHECK / uptime monitors
 app.get(`/healthz`, (c) => c.json({ ok: true }))
 
-// Auth middleware scoped to /send only
-app.use(`/send`, async (c, next) => {
-  const secret = process.env.RELAY_SECRET
-  if (!secret) {
-    return c.json({ error: `RELAY_SECRET not configured` }, 500)
-  }
-  const auth = c.req.header(`Authorization`)
-  if (auth !== `Bearer ${secret}`) {
-    return c.json({ error: `Unauthorized` }, 401)
-  }
-  await next()
-})
-
 app.post(`/send`, async (c) => {
   const firebase = getFirebaseApp()
   if (!firebase) {
