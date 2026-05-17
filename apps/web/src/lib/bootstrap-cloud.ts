@@ -1,10 +1,13 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { projects, workspaces } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { invalidatePublicWorkspaceCache } from "@/lib/workspace-membership"
+// Vite's ?raw suffix inlines file contents as a string at build time. We
+// do this so the server bundle ships the SQL alongside the JS, no fs reads
+// required at runtime (which Vite also can't tree-shake for browser builds).
+import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
+import publicWorkspaceSql from "@/db/out/custom/0002_public_workspace.sql?raw"
 
 const PUBLIC_WORKSPACE_SLUG = `feedback`
 const PUBLIC_WORKSPACE_NAME = `Exponential Feedback`
@@ -71,30 +74,16 @@ async function promoteInitialAdmins() {
 // index. Apply them on every boot — every statement is idempotent
 // (CREATE OR REPLACE / CREATE … IF NOT EXISTS).
 async function applyCustomSql() {
-  const candidates = [
-    join(process.cwd(), `apps/web/src/db/out/custom`),
-    join(process.cwd(), `src/db/out/custom`),
-  ]
-  const files = [`0001_triggers.sql`, `0002_public_workspace.sql`]
-  for (const file of files) {
-    let content: string | null = null
-    for (const dir of candidates) {
-      try {
-        content = readFileSync(join(dir, file), `utf-8`)
-        break
-      } catch {
-        // try next candidate
-      }
-    }
-    if (!content) {
-      console.warn(`[bootstrap-cloud] custom SQL not found: ${file}`)
-      continue
-    }
+  for (const [name, content] of [
+    [`0001_triggers.sql`, triggersSql],
+    [`0002_public_workspace.sql`, publicWorkspaceSql],
+  ] as const) {
+    if (!content) continue
     try {
       await db.execute(sql.raw(content))
     } catch (err) {
       // Triggers may already exist; surface but don't abort.
-      console.warn(`[bootstrap-cloud] applying ${file} produced:`, err)
+      console.warn(`[bootstrap-cloud] applying ${name} produced:`, err)
     }
   }
 }
