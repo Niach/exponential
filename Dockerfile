@@ -1,4 +1,4 @@
-FROM oven/bun:1 AS builder
+FROM oven/bun:1.3.10-alpine AS builder
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/web/package.json apps/web/package.json
@@ -9,7 +9,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 RUN bun --filter @exp/web build
 
-FROM oven/bun:1
+FROM oven/bun:1.3.10-alpine
 WORKDIR /app
 COPY --from=builder /app/apps/web/.output .output
 COPY --from=builder /app/apps/web/src/db apps/web/src/db
