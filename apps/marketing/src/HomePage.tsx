@@ -1,4 +1,5 @@
 import { ProductBoard } from "./components/ProductBoard"
+import { ProductMobile } from "./components/ProductMobile"
 import {
   CopyBlock,
   FeatureGrid,
@@ -7,7 +8,7 @@ import {
   SectionTag,
 } from "./components/Sections"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
-import { IcDocker, IcGithub } from "./components/icons"
+import { IcArrow, IcDocker, IcGithub, IcZap } from "./components/icons"
 
 export function HomePage() {
   return (
@@ -71,6 +72,82 @@ export function HomePage() {
       </section>
 
       <section
+        id="mobile"
+        style={{
+          background: `color-mix(in oklch, var(--bg-elev) 50%, var(--bg))`,
+          borderTop: `1px solid var(--border)`,
+          borderBottom: `1px solid var(--border)`,
+        }}
+      >
+        <div className="shell">
+          <SectionTag num="02" label="Native mobile" />
+          <div className="mobile-grid">
+            <div className="mobile-copy">
+              <h2 className="section-title">Your tracker, in your pocket.</h2>
+              <p className="section-sub">
+                Native apps for Android and iOS connect to the same instance
+                you self-host. The same data, the same auth, live across every
+                device — with push notifications routed through your own relay.
+              </p>
+              <ul className="mobile-bullets">
+                <li>
+                  <span className="mobile-bullet-icon">
+                    <IcZap size={14} />
+                  </span>
+                  <div>
+                    <strong>Real-time, everywhere.</strong>
+                    <p>
+                      Edits made on the web ripple through every phone in the
+                      room. No pull-to-refresh.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <span className="mobile-bullet-icon">
+                    <IcDocker size={14} />
+                  </span>
+                  <div>
+                    <strong>Your relay, your tokens.</strong>
+                    <p>
+                      Push is delivered through your own push-relay service —
+                      a small companion container — backed by Firebase.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <span className="mobile-bullet-icon">
+                    <IcGithub size={14} />
+                  </span>
+                  <div>
+                    <strong>Build it yourself.</strong>
+                    <p>
+                      Android source ships in the repo; tag a release and CI
+                      builds the APK. iOS in active development.
+                    </p>
+                  </div>
+                </li>
+              </ul>
+              <div className="mobile-cta">
+                <a className="btn btn-primary" href="/docs/#mobile">
+                  Read the docs <IcArrow size={12} />
+                </a>
+                <a
+                  className="btn btn-ghost"
+                  href="https://github.com/Niach/exponential/tree/master/apps/android"
+                >
+                  <IcGithub size={14} /> Android source
+                </a>
+              </div>
+            </div>
+            <div className="mobile-stage">
+              <div className="mobile-stage-glow" aria-hidden />
+              <ProductMobile animate />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
         id="install"
         style={{
           background: `color-mix(in oklch, var(--bg-elev) 60%, var(--bg))`,
@@ -79,7 +156,7 @@ export function HomePage() {
         }}
       >
         <div className="shell">
-          <SectionTag num="02" label="Self-host" />
+          <SectionTag num="03" label="Self-host" />
           <div className="host-grid">
             <div>
               <h2 className="section-title">Up and running in minutes.</h2>
@@ -126,7 +203,7 @@ export function HomePage() {
 
       <section id="open-source">
         <div className="shell">
-          <SectionTag num="03" label="Open source" />
+          <SectionTag num="04" label="Open source" />
           <div className="oss-solo">
             <RepoCard />
           </div>
