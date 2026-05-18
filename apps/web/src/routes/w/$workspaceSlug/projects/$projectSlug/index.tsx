@@ -5,6 +5,7 @@ import { EditIssueDialog } from "@/components/edit-issue-dialog"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
+import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import type { IssueFilters } from "@/lib/filters"
 import { emptyFilters } from "@/lib/filters"
 import type { IssueStatus } from "@/lib/domain"
@@ -16,7 +17,7 @@ type ProjectSearch = {
 }
 
 export const Route = createFileRoute(
-  `/_authenticated/w/$workspaceSlug/projects/$projectSlug/`
+  `/w/$workspaceSlug/projects/$projectSlug/`
 )({
   validateSearch: (search: Record<string, unknown>): ProjectSearch => ({
     new: search.new === 1 || search.new === `1` ? 1 : undefined,
@@ -67,7 +68,10 @@ function ProjectPage() {
     workspaceSlug,
   })
 
+  const permissions = useWorkspacePermissions(workspace)
+
   const handleNewIssue = (status?: IssueStatus) => {
+    if (!permissions.canCreate) return
     setDefaultStatus(status)
     setCreateIssueOpen(true)
   }
@@ -87,6 +91,7 @@ function ProjectPage() {
         onFiltersChange={setFilters}
         labels={labelList}
         onNewIssue={() => handleNewIssue()}
+        canCreate={permissions.canCreate}
       />
 
       <div className="flex-1 overflow-auto">
@@ -98,6 +103,8 @@ function ProjectPage() {
           userMap={userMap}
           onNewIssue={handleNewIssue}
           onIssueClick={(issue) => setEditingIssueId(issue.id)}
+          canCreate={permissions.canCreate}
+          canMutateIssue={permissions.canMutateIssue}
         />
       </div>
 
@@ -118,10 +125,6 @@ function ProjectPage() {
 
       {editingIssue && (
         <EditIssueDialog
-          // key forces a fresh component tree (and fresh local state)
-          // whenever the dialog is opened for a different issue, so there
-          // is no chance of stale title/description state from a previous
-          // issue leaking into the next one.
           key={editingIssue.id}
           open
           onOpenChange={(open) => {
@@ -135,6 +138,7 @@ function ProjectPage() {
           workspaceId={workspace.id}
           issueLabelIds={editingIssueLabelIds}
           users={users}
+          readOnly={!permissions.canMutateIssue(editingIssue)}
         />
       )}
     </div>

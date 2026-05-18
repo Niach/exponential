@@ -39,6 +39,7 @@ interface EditIssueDialogProps {
   projectPrefix: string
   users: User[]
   workspaceId: string
+  readOnly?: boolean
 }
 
 export function EditIssueDialog({
@@ -50,6 +51,7 @@ export function EditIssueDialog({
   projectPrefix,
   users,
   workspaceId,
+  readOnly = false,
 }: EditIssueDialogProps) {
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user?.id ?? null
@@ -87,6 +89,7 @@ export function EditIssueDialog({
   }, [issue.id])
 
   const handleTitleBlur = async () => {
+    if (readOnly) return
     const trimmed = title.trim()
 
     if (trimmed && trimmed !== issue.title) {
@@ -103,6 +106,7 @@ export function EditIssueDialog({
   }
 
   const queueDescriptionSave = async (nextDescription: string) => {
+    if (readOnly) return
     const normalizedDescription = normalizeIssueDescriptionText(nextDescription)
 
     if (normalizedDescription === lastSavedDescriptionRef.current) {
@@ -187,6 +191,7 @@ export function EditIssueDialog({
     issue.recurrenceInterval !== null && issue.recurrenceUnit !== null
 
   const handleRecurrenceChange = async (next: RecurrenceValue | null) => {
+    if (readOnly) return
     if (!next) {
       await trpc.issues.update.mutate({
         id: issue.id,
@@ -321,6 +326,7 @@ export function EditIssueDialog({
       }}
       status={issue.status}
       onStatusChange={async (status) => {
+        if (readOnly) return
         await trpc.issues.update.mutate({
           id: issue.id,
           status,
@@ -328,6 +334,7 @@ export function EditIssueDialog({
       }}
       priority={issue.priority}
       onPriorityChange={async (priority) => {
+        if (readOnly) return
         await trpc.issues.update.mutate({
           id: issue.id,
           priority,
@@ -336,6 +343,7 @@ export function EditIssueDialog({
       workspaceId={workspaceId}
       selectedLabelIds={issueLabelIds}
       onToggleLabel={async (labelId) => {
+        if (readOnly) return
         if (issueLabelIds.includes(labelId)) {
           await trpc.issueLabels.remove.mutate({
             issueId: issue.id,
@@ -352,6 +360,7 @@ export function EditIssueDialog({
       users={users}
       assigneeId={issue.assigneeId}
       onAssigneeChange={async (assigneeId) => {
+        if (readOnly) return
         await trpc.issues.update.mutate({
           id: issue.id,
           assigneeId,
@@ -359,6 +368,7 @@ export function EditIssueDialog({
       }}
       dueDate={dueDate}
       onDueDateSelect={async (date) => {
+        if (readOnly) return
         await trpc.issues.update.mutate({
           id: issue.id,
           dueDate: formatDateForMutation(date),
@@ -370,6 +380,7 @@ export function EditIssueDialog({
       dueTime={issue.dueTime ?? null}
       endTime={issue.endTime ?? null}
       onDueTimeChange={async (time) => {
+        if (readOnly) return
         await trpc.issues.update.mutate({
           id: issue.id,
           dueTime: time,
@@ -378,6 +389,7 @@ export function EditIssueDialog({
         })
       }}
       onEndTimeChange={async (time) => {
+        if (readOnly) return
         await trpc.issues.update.mutate({
           id: issue.id,
           endTime: time,

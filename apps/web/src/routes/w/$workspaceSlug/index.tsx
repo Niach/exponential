@@ -5,7 +5,7 @@ import {
   useWorkspaceProjects,
 } from "@/hooks/use-workspace-data"
 
-export const Route = createFileRoute(`/_authenticated/w/$workspaceSlug/`)({
+export const Route = createFileRoute(`/w/$workspaceSlug/`)({
   component: WorkspaceIndexPage,
 })
 

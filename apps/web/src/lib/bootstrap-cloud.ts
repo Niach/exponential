@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { projects, workspaces } from "@/db/schema"
+import { projects, workspaceMembers, workspaces } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { invalidatePublicWorkspaceCache } from "@/lib/workspace-membership"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
@@ -28,31 +28,61 @@ async function ensurePublicWorkspace() {
   const [existing] = await db
     .select({ id: workspaces.id })
     .from(workspaces)
-    .where(eq(workspaces.isPublic, true))
+    .where(eq(workspaces.slug, PUBLIC_WORKSPACE_SLUG))
     .limit(1)
 
+  let workspaceId: string
   if (existing) {
-    return existing.id
+    workspaceId = existing.id
+  } else {
+    const [workspace] = await db
+      .insert(workspaces)
+      .values({
+        name: PUBLIC_WORKSPACE_NAME,
+        slug: PUBLIC_WORKSPACE_SLUG,
+        isPublic: true,
+        publicWritePolicy: `everyone`,
+      })
+      .returning({ id: workspaces.id })
+
+    await db.insert(projects).values({
+      workspaceId: workspace.id,
+      name: PUBLIC_PROJECT_NAME,
+      slug: PUBLIC_PROJECT_SLUG,
+      prefix: PUBLIC_PROJECT_PREFIX,
+    })
+
+    invalidatePublicWorkspaceCache()
+    workspaceId = workspace.id
   }
 
-  const [workspace] = await db
-    .insert(workspaces)
-    .values({
-      name: PUBLIC_WORKSPACE_NAME,
-      slug: PUBLIC_WORKSPACE_SLUG,
-      isPublic: true,
-    })
-    .returning({ id: workspaces.id })
+  // Idempotently align the Feedback workspace's flags with the intended state
+  // even if it predates the publicWritePolicy column (or was migrated with the
+  // default 'members'). Public + everyone is the feedback workspace's contract.
+  await db
+    .update(workspaces)
+    .set({ isPublic: true, publicWritePolicy: `everyone` })
+    .where(eq(workspaces.id, workspaceId))
 
-  await db.insert(projects).values({
-    workspaceId: workspace.id,
-    name: PUBLIC_PROJECT_NAME,
-    slug: PUBLIC_PROJECT_SLUG,
-    prefix: PUBLIC_PROJECT_PREFIX,
-  })
+  return workspaceId
+}
 
-  invalidatePublicWorkspaceCache()
-  return workspace.id
+async function addAdminsAsPublicWorkspaceOwners(publicWorkspaceId: string) {
+  const adminRows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.isAdmin, true))
+  if (adminRows.length === 0) return
+  for (const admin of adminRows) {
+    await db
+      .insert(workspaceMembers)
+      .values({
+        workspaceId: publicWorkspaceId,
+        userId: admin.id,
+        role: `owner`,
+      })
+      .onConflictDoNothing()
+  }
 }
 
 async function promoteInitialAdmins() {
@@ -95,8 +125,9 @@ export function bootstrapCloud(): Promise<void> {
   bootstrapPromise = (async () => {
     try {
       await applyCustomSql()
-      await ensurePublicWorkspace()
+      const publicWorkspaceId = await ensurePublicWorkspace()
       await promoteInitialAdmins()
+      await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
     } catch (err) {
       console.error(`[bootstrap-cloud] failed:`, err)
       bootstrapPromise = null
@@ -108,7 +139,8 @@ export function bootstrapCloud(): Promise<void> {
 
 // Promote a single newly-created user if their email matches the admin list.
 // Used by Better Auth's user.create.after hook so first-sign-in promotion
-// doesn't need to wait for a server restart.
+// doesn't need to wait for a server restart. Also adds the freshly-promoted
+// admin as an owner of every public workspace.
 export async function maybePromoteNewUser(userId: string, email: string) {
   const emails = parseAdminEmails()
   if (emails.length === 0) return
@@ -117,6 +149,17 @@ export async function maybePromoteNewUser(userId: string, email: string) {
     .update(users)
     .set({ isAdmin: true, updatedAt: new Date() })
     .where(eq(users.id, userId))
+
+  const publicWorkspaces = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.isPublic, true))
+  for (const ws of publicWorkspaces) {
+    await db
+      .insert(workspaceMembers)
+      .values({ workspaceId: ws.id, userId, role: `owner` })
+      .onConflictDoNothing()
+  }
 }
 
 // Useful for tests / admin tools.

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getUserIdsInWorkspaces,
+  getReadableUserIdsInWorkspaces,
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
@@ -11,7 +11,7 @@ export const Route = createFileRoute(`/api/shapes/users`)({
       GET: createShapeRouteHandler({
         table: `users`,
         getWhere: async (userId) => {
-          const sharedUserIds = await getUserIdsInWorkspaces(userId)
+          const sharedUserIds = await getReadableUserIdsInWorkspaces(userId)
           return buildWhereClause(`id`, sharedUserIds)
         },
       }),

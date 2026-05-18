@@ -1,10 +1,51 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { router, authedProcedure, generateTxId } from "@/lib/trpc"
+import {
+  router,
+  authedProcedure,
+  publicProcedure,
+  generateTxId,
+} from "@/lib/trpc"
 import { workspaces, workspaceMembers } from "@/db/schema"
+import { publicWritePolicySchema } from "@exp/db-schema/domain"
 import { and, eq } from "drizzle-orm"
 import { randomBytes } from "crypto"
-import { assertWorkspaceOwner } from "@/lib/workspace-membership"
+import {
+  assertWorkspaceOwner,
+  getWorkspaceMember,
+  invalidatePublicWorkspaceCache,
+} from "@/lib/workspace-membership"
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize(`NFKD`)
+    .replace(/[̀-ͯ]/g, ``)
+    .replace(/[^a-z0-9]+/g, `-`)
+    .replace(/^-+|-+$/g, ``)
+    .slice(0, 48)
+}
+
+type DbOrTx = {
+  select: typeof import(`@/db/connection`).db.select
+}
+
+async function uniqueSlug(tx: DbOrTx, base: string): Promise<string> {
+  const root = slugify(base) || `workspace`
+  let candidate = root
+  let suffix = 0
+  while (suffix < 5) {
+    const [existing] = await tx
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.slug, candidate))
+      .limit(1)
+    if (!existing) return candidate
+    suffix += 1
+    candidate = `${root}-${suffix}`
+  }
+  return `${root}-${randomBytes(3).toString(`hex`)}`
+}
 
 export const workspacesRouter = router({
   ensureDefault: authedProcedure.mutation(async ({ ctx }) => {
@@ -60,33 +101,123 @@ export const workspacesRouter = router({
     })
   }),
 
+  create: authedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(255),
+        slug: z
+          .string()
+          .min(1)
+          .max(48)
+          .regex(/^[a-z0-9-]+$/, `Slug must be lowercase letters, digits, or -`)
+          .optional(),
+        iconUrl: z.string().url().max(2048).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+
+      return await ctx.db.transaction(async (tx) => {
+        const slug = input.slug
+          ? await (async () => {
+              const [existing] = await tx
+                .select({ id: workspaces.id })
+                .from(workspaces)
+                .where(eq(workspaces.slug, input.slug!))
+                .limit(1)
+              if (existing) {
+                throw new TRPCError({
+                  code: `CONFLICT`,
+                  message: `Slug already in use`,
+                })
+              }
+              return input.slug!
+            })()
+          : await uniqueSlug(tx, input.name)
+
+        const txId = await generateTxId(tx)
+        const [workspace] = await tx
+          .insert(workspaces)
+          .values({
+            name: input.name,
+            slug,
+            iconUrl: input.iconUrl,
+          })
+          .returning()
+
+        await tx.insert(workspaceMembers).values({
+          workspaceId: workspace.id,
+          userId,
+          role: `owner`,
+        })
+
+        return { workspace, txId }
+      })
+    }),
+
   update: authedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
+        isPublic: z.boolean().optional(),
+        publicWritePolicy: publicWritePolicySchema.optional(),
+        iconUrl: z.string().url().max(2048).nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
-      const [target] = await ctx.db
-        .select({ isPublic: workspaces.isPublic })
-        .from(workspaces)
-        .where(eq(workspaces.id, id))
-        .limit(1)
-      if (target?.isPublic) {
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `The public workspace cannot be renamed`,
-        })
-      }
       await assertWorkspaceOwner(ctx.session.user.id, id)
 
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const [workspace] = await tx
+          .update(workspaces)
+          .set({ ...updates, updatedAt: new Date() })
+          .where(eq(workspaces.id, id))
+          .returning()
+        return { workspace, txId }
+      })
+
+      if (input.isPublic !== undefined) {
+        invalidatePublicWorkspaceCache()
+      }
+
+      return result
+    }),
+
+  // Public read of minimal workspace metadata by slug. Used by the route guard
+  // to decide whether anonymous viewing is permitted. Returns NOT_FOUND for
+  // private workspaces the caller can't access, to avoid leaking existence.
+  getBySlug: publicProcedure
+    .input(z.object({ slug: z.string().min(1).max(255) }))
+    .query(async ({ ctx, input }) => {
       const [workspace] = await ctx.db
-        .update(workspaces)
-        .set(updates)
-        .where(eq(workspaces.id, id))
-        .returning()
-      return { workspace }
+        .select({
+          id: workspaces.id,
+          name: workspaces.name,
+          slug: workspaces.slug,
+          iconUrl: workspaces.iconUrl,
+          isPublic: workspaces.isPublic,
+          publicWritePolicy: workspaces.publicWritePolicy,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.slug, input.slug))
+        .limit(1)
+
+      if (!workspace) {
+        throw new TRPCError({ code: `NOT_FOUND` })
+      }
+      if (workspace.isPublic) return workspace
+
+      const userId = ctx.session?.user?.id
+      if (!userId) {
+        throw new TRPCError({ code: `NOT_FOUND` })
+      }
+      const member = await getWorkspaceMember(userId, workspace.id)
+      if (!member) {
+        throw new TRPCError({ code: `NOT_FOUND` })
+      }
+      return workspace
     }),
 })

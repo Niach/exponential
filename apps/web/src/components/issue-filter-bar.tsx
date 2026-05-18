@@ -18,6 +18,7 @@ interface IssueFilterBarProps {
   onFiltersChange: (filters: IssueFilters) => void
   labels: Label[]
   onNewIssue: () => void
+  canCreate?: boolean
 }
 
 export function IssueFilterBar({
@@ -25,6 +26,7 @@ export function IssueFilterBar({
   onFiltersChange,
   labels,
   onNewIssue,
+  canCreate = true,
 }: IssueFilterBarProps) {
   const activeTab = deriveActiveTab(filters.statuses)
 
@@ -42,14 +44,16 @@ export function IssueFilterBar({
             onFiltersChange={onFiltersChange}
             labels={labels}
           />
-          <Button
-            size="xs"
-            className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white ml-1"
-            onClick={onNewIssue}
-          >
-            <Plus className="size-3" />
-            New Issue
-          </Button>
+          {canCreate && (
+            <Button
+              size="xs"
+              className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white ml-1"
+              onClick={onNewIssue}
+            >
+              <Plus className="size-3" />
+              New Issue
+            </Button>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-1 -mx-3 px-3 md:mx-0 md:px-0 overflow-x-auto">

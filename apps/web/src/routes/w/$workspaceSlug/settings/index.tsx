@@ -1,17 +1,25 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth-client"
 import {
   useWorkspaceBySlug,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
+import { WorkspaceGeneralSection } from "@/components/workspace-general-section"
 import { WorkspaceInviteSection } from "@/components/workspace-invite-section"
 import { WorkspaceLabelsSection } from "@/components/workspace-labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace-members-section"
 import { Separator } from "@/components/ui/separator"
 
-export const Route = createFileRoute(
-  `/_authenticated/w/$workspaceSlug/settings/`
-)({
+export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({
+  beforeLoad: async () => {
+    const result = await authClient.getSession()
+    if (!result.data?.session) {
+      throw redirect({
+        to: `/auth/login`,
+        search: { redirect: undefined },
+      })
+    }
+  },
   component: WorkspaceSettings,
 })
 
@@ -36,6 +44,10 @@ function WorkspaceSettings() {
       </div>
 
       <Separator />
+
+      {workspace && isOwner && (
+        <WorkspaceGeneralSection workspace={workspace} />
+      )}
 
       {workspace && isOwner && (
         <WorkspaceInviteSection workspaceId={workspace.id} />

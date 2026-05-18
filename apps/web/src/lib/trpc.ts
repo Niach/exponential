@@ -30,6 +30,11 @@ export const isAuthed = middleware(async ({ ctx, next }) => {
 
 export const authedProcedure = procedure.use(isAuthed)
 
+// Public procedure — no auth required. `ctx.session` may be null. Use sparingly,
+// for endpoints that must serve both anonymous and authed callers (e.g., the
+// public-workspace route guard).
+export const publicProcedure = procedure
+
 export const isAdmin = middleware(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
     throw new TRPCError({ code: `UNAUTHORIZED` })

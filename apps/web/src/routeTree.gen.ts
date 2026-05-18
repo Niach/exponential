@@ -21,7 +21,9 @@ import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedFeedbackRouteImport } from './routes/_authenticated/feedback'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
+import { Route as WWorkspaceSlugRouteRouteImport } from './routes/w/$workspaceSlug/route'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
+import { Route as WWorkspaceSlugIndexRouteImport } from './routes/w/$workspaceSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiShapesWorkspacesRouteImport } from './routes/api/shapes/workspaces'
@@ -38,11 +40,9 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAccountIntegrationsRouteImport } from './routes/_authenticated/account/integrations'
-import { Route as AuthenticatedWWorkspaceSlugRouteRouteImport } from './routes/_authenticated/w/$workspaceSlug/route'
-import { Route as AuthenticatedWWorkspaceSlugIndexRouteImport } from './routes/_authenticated/w/$workspaceSlug/index'
+import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
-import { Route as AuthenticatedWWorkspaceSlugSettingsIndexRouteImport } from './routes/_authenticated/w/$workspaceSlug/settings/index'
-import { Route as AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/_authenticated/w/$workspaceSlug/projects/$projectSlug/index'
+import { Route as WWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/index'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -105,10 +105,20 @@ const Char91DotwellKnownChar93OauthAuthorizationServerRoute =
     path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
+const WWorkspaceSlugRouteRoute = WWorkspaceSlugRouteRouteImport.update({
+  id: '/w/$workspaceSlug',
+  path: '/w/$workspaceSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => AuthenticatedRoute,
+} as any)
+const WWorkspaceSlugIndexRoute = WWorkspaceSlugIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WWorkspaceSlugRouteRoute,
 } as any)
 const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   id: '/',
@@ -195,39 +205,28 @@ const AuthenticatedAccountIntegrationsRoute =
     path: '/account/integrations',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedWWorkspaceSlugRouteRoute =
-  AuthenticatedWWorkspaceSlugRouteRouteImport.update({
-    id: '/w/$workspaceSlug',
-    path: '/w/$workspaceSlug',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedWWorkspaceSlugIndexRoute =
-  AuthenticatedWWorkspaceSlugIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedWWorkspaceSlugRouteRoute,
+const WWorkspaceSlugSettingsIndexRoute =
+  WWorkspaceSlugSettingsIndexRouteImport.update({
+    id: '/settings/',
+    path: '/settings/',
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   id: '/api/issues/$issueId/images',
   path: '/api/issues/$issueId/images',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedWWorkspaceSlugSettingsIndexRoute =
-  AuthenticatedWWorkspaceSlugSettingsIndexRouteImport.update({
-    id: '/settings/',
-    path: '/settings/',
-    getParentRoute: () => AuthenticatedWWorkspaceSlugRouteRoute,
-  } as any)
-const AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute =
-  AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRouteImport.update({
+const WWorkspaceSlugProjectsProjectSlugIndexRoute =
+  WWorkspaceSlugProjectsProjectSlugIndexRouteImport.update({
     id: '/projects/$projectSlug/',
     path: '/projects/$projectSlug/',
-    getParentRoute: () => AuthenticatedWWorkspaceSlugRouteRoute,
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteRouteWithChildren
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/feedback': typeof AuthenticatedFeedbackRoute
@@ -238,7 +237,6 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
   '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -255,10 +253,10 @@ export interface FileRoutesByFullPath {
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
+  '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/w/$workspaceSlug/': typeof AuthenticatedWWorkspaceSlugIndexRoute
-  '/w/$workspaceSlug/settings/': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug/': typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
+  '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -288,16 +286,17 @@ export interface FileRoutesByTo {
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
+  '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugIndexRoute
-  '/w/$workspaceSlug/settings': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
-  '/w/$workspaceSlug/projects/$projectSlug': typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsIndexRoute
+  '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteRouteWithChildren
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/feedback': typeof AuthenticatedFeedbackRoute
@@ -308,7 +307,6 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/_authenticated/w/$workspaceSlug': typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
   '/_authenticated/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -325,16 +323,17 @@ export interface FileRoutesById {
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
+  '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
-  '/_authenticated/w/$workspaceSlug/': typeof AuthenticatedWWorkspaceSlugIndexRoute
-  '/_authenticated/w/$workspaceSlug/settings/': typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
-  '/_authenticated/w/$workspaceSlug/projects/$projectSlug/': typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
+  '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/admin'
+    | '/w/$workspaceSlug'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/feedback'
@@ -345,7 +344,6 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
-    | '/w/$workspaceSlug'
     | '/account/integrations'
     | '/admin/users'
     | '/admin/workspaces'
@@ -362,8 +360,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
     | '/admin/'
-    | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/'
+    | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
   fileRoutesByTo: FileRoutesByTo
@@ -395,8 +393,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
     | '/admin'
-    | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug'
+    | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/settings'
     | '/w/$workspaceSlug/projects/$projectSlug'
   id:
@@ -404,6 +402,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/_authenticated/admin'
+    | '/w/$workspaceSlug'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/_authenticated/feedback'
@@ -414,7 +413,6 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/invite/$token'
-    | '/_authenticated/w/$workspaceSlug'
     | '/_authenticated/account/integrations'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/workspaces'
@@ -431,15 +429,16 @@ export interface FileRouteTypes {
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
     | '/_authenticated/admin/'
+    | '/w/$workspaceSlug/'
     | '/api/issues/$issueId/images'
-    | '/_authenticated/w/$workspaceSlug/'
-    | '/_authenticated/w/$workspaceSlug/settings/'
-    | '/_authenticated/w/$workspaceSlug/projects/$projectSlug/'
+    | '/w/$workspaceSlug/settings/'
+    | '/w/$workspaceSlug/projects/$projectSlug/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  WWorkspaceSlugRouteRoute: typeof WWorkspaceSlugRouteRouteWithChildren
   Char91DotwellKnownChar93OauthAuthorizationServerRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ApiAuthConfigRoute: typeof ApiAuthConfigRoute
@@ -550,12 +549,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/w/$workspaceSlug': {
+      id: '/w/$workspaceSlug'
+      path: '/w/$workspaceSlug'
+      fullPath: '/w/$workspaceSlug'
+      preLoaderRoute: typeof WWorkspaceSlugRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/admin': {
       id: '/_authenticated/admin'
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AuthenticatedAdminRouteRouteImport
       parentRoute: typeof AuthenticatedRoute
+    }
+    '/w/$workspaceSlug/': {
+      id: '/w/$workspaceSlug/'
+      path: '/'
+      fullPath: '/w/$workspaceSlug/'
+      preLoaderRoute: typeof WWorkspaceSlugIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
     }
     '/_authenticated/admin/': {
       id: '/_authenticated/admin/'
@@ -669,19 +682,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountIntegrationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/w/$workspaceSlug': {
-      id: '/_authenticated/w/$workspaceSlug'
-      path: '/w/$workspaceSlug'
-      fullPath: '/w/$workspaceSlug'
-      preLoaderRoute: typeof AuthenticatedWWorkspaceSlugRouteRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/w/$workspaceSlug/': {
-      id: '/_authenticated/w/$workspaceSlug/'
-      path: '/'
-      fullPath: '/w/$workspaceSlug/'
-      preLoaderRoute: typeof AuthenticatedWWorkspaceSlugIndexRouteImport
-      parentRoute: typeof AuthenticatedWWorkspaceSlugRouteRoute
+    '/w/$workspaceSlug/settings/': {
+      id: '/w/$workspaceSlug/settings/'
+      path: '/settings'
+      fullPath: '/w/$workspaceSlug/settings/'
+      preLoaderRoute: typeof WWorkspaceSlugSettingsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
     }
     '/api/issues/$issueId/images': {
       id: '/api/issues/$issueId/images'
@@ -690,19 +696,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIssuesIssueIdImagesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/w/$workspaceSlug/settings/': {
-      id: '/_authenticated/w/$workspaceSlug/settings/'
-      path: '/settings'
-      fullPath: '/w/$workspaceSlug/settings/'
-      preLoaderRoute: typeof AuthenticatedWWorkspaceSlugSettingsIndexRouteImport
-      parentRoute: typeof AuthenticatedWWorkspaceSlugRouteRoute
-    }
-    '/_authenticated/w/$workspaceSlug/projects/$projectSlug/': {
-      id: '/_authenticated/w/$workspaceSlug/projects/$projectSlug/'
+    '/w/$workspaceSlug/projects/$projectSlug/': {
+      id: '/w/$workspaceSlug/projects/$projectSlug/'
       path: '/projects/$projectSlug'
       fullPath: '/w/$workspaceSlug/projects/$projectSlug/'
-      preLoaderRoute: typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRouteImport
-      parentRoute: typeof AuthenticatedWWorkspaceSlugRouteRoute
+      preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
     }
   }
 }
@@ -725,39 +724,15 @@ const AuthenticatedAdminRouteRouteWithChildren =
     AuthenticatedAdminRouteRouteChildren,
   )
 
-interface AuthenticatedWWorkspaceSlugRouteRouteChildren {
-  AuthenticatedWWorkspaceSlugIndexRoute: typeof AuthenticatedWWorkspaceSlugIndexRoute
-  AuthenticatedWWorkspaceSlugSettingsIndexRoute: typeof AuthenticatedWWorkspaceSlugSettingsIndexRoute
-  AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute: typeof AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute
-}
-
-const AuthenticatedWWorkspaceSlugRouteRouteChildren: AuthenticatedWWorkspaceSlugRouteRouteChildren =
-  {
-    AuthenticatedWWorkspaceSlugIndexRoute:
-      AuthenticatedWWorkspaceSlugIndexRoute,
-    AuthenticatedWWorkspaceSlugSettingsIndexRoute:
-      AuthenticatedWWorkspaceSlugSettingsIndexRoute,
-    AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute:
-      AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute,
-  }
-
-const AuthenticatedWWorkspaceSlugRouteRouteWithChildren =
-  AuthenticatedWWorkspaceSlugRouteRoute._addFileChildren(
-    AuthenticatedWWorkspaceSlugRouteRouteChildren,
-  )
-
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedFeedbackRoute: typeof AuthenticatedFeedbackRoute
-  AuthenticatedWWorkspaceSlugRouteRoute: typeof AuthenticatedWWorkspaceSlugRouteRouteWithChildren
   AuthenticatedAccountIntegrationsRoute: typeof AuthenticatedAccountIntegrationsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
   AuthenticatedFeedbackRoute: AuthenticatedFeedbackRoute,
-  AuthenticatedWWorkspaceSlugRouteRoute:
-    AuthenticatedWWorkspaceSlugRouteRouteWithChildren,
   AuthenticatedAccountIntegrationsRoute: AuthenticatedAccountIntegrationsRoute,
 }
 
@@ -765,9 +740,26 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
   AuthenticatedRouteChildren,
 )
 
+interface WWorkspaceSlugRouteRouteChildren {
+  WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
+  WWorkspaceSlugSettingsIndexRoute: typeof WWorkspaceSlugSettingsIndexRoute
+  WWorkspaceSlugProjectsProjectSlugIndexRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
+}
+
+const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
+  WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
+  WWorkspaceSlugSettingsIndexRoute: WWorkspaceSlugSettingsIndexRoute,
+  WWorkspaceSlugProjectsProjectSlugIndexRoute:
+    WWorkspaceSlugProjectsProjectSlugIndexRoute,
+}
+
+const WWorkspaceSlugRouteRouteWithChildren =
+  WWorkspaceSlugRouteRoute._addFileChildren(WWorkspaceSlugRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  WWorkspaceSlugRouteRoute: WWorkspaceSlugRouteRouteWithChildren,
   Char91DotwellKnownChar93OauthAuthorizationServerRoute:
     Char91DotwellKnownChar93OauthAuthorizationServerRoute,
   Char91DotwellKnownChar93OauthProtectedResourceRoute:

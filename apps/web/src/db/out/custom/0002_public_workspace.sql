@@ -1,6 +1,3 @@
--- Enforce a single public workspace per instance.
--- The partial unique index only constrains rows where is_public = true,
--- so any number of rows with is_public = false are allowed.
-CREATE UNIQUE INDEX IF NOT EXISTS workspaces_single_public
-  ON workspaces ((is_public))
-  WHERE is_public = true;
+-- Public workspaces are now a generic per-workspace flag, not a singleton.
+-- Drop the partial unique index introduced earlier; any workspace can be public.
+DROP INDEX IF EXISTS workspaces_single_public;

@@ -60,24 +60,67 @@ export function assertMatchingWorkspaceIds(
   }
 }
 
-let publicWorkspaceIdCache: string | null | undefined = undefined
+let publicWorkspaceIdsCache: string[] | undefined = undefined
 
-export async function getPublicWorkspaceId(): Promise<string | null> {
-  if (publicWorkspaceIdCache !== undefined) {
-    return publicWorkspaceIdCache
+export async function getPublicWorkspaceIds(): Promise<string[]> {
+  if (publicWorkspaceIdsCache !== undefined) {
+    return publicWorkspaceIdsCache
   }
   const db = await getDb()
-  const [row] = await db
+  const rows = await db
     .select({ id: workspaces.id })
     .from(workspaces)
     .where(eq(workspaces.isPublic, true))
-    .limit(1)
-  publicWorkspaceIdCache = row?.id ?? null
-  return publicWorkspaceIdCache
+  publicWorkspaceIdsCache = rows.map((row) => row.id)
+  return publicWorkspaceIdsCache
+}
+
+// Resolves the set of workspace ids readable by a caller — used by shape
+// proxies. Authed users see their own memberships plus all public workspaces;
+// anonymous callers see only public workspaces.
+export async function getReadableWorkspaceIds(
+  userId: string | null
+): Promise<string[]> {
+  if (userId) return getUserWorkspaceIds(userId)
+  return getPublicWorkspaceIds()
+}
+
+export async function getReadableProjectIds(
+  userId: string | null
+): Promise<string[]> {
+  if (userId) return getUserProjectIds(userId)
+  return getPublicProjectIds()
+}
+
+export async function getReadableUserIdsInWorkspaces(
+  userId: string | null
+): Promise<string[]> {
+  if (userId) return getUserIdsInWorkspaces(userId)
+  // Anonymous callers see member identities only for public workspaces, so
+  // assignee/creator chips render.
+  const publicIds = await getPublicWorkspaceIds()
+  if (publicIds.length === 0) return []
+  const db = await getDb()
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(inArray(workspaceMembers.workspaceId, publicIds))
+  return [...new Set(rows.map((row) => row.userId))]
+}
+
+export async function getPublicProjectIds(): Promise<string[]> {
+  const publicIds = await getPublicWorkspaceIds()
+  if (publicIds.length === 0) return []
+  const db = await getDb()
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(inArray(projects.workspaceId, publicIds))
+  return rows.map((row) => row.id)
 }
 
 export function invalidatePublicWorkspaceCache() {
-  publicWorkspaceIdCache = undefined
+  publicWorkspaceIdsCache = undefined
 }
 
 export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
@@ -88,9 +131,9 @@ export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
     .where(eq(workspaceMembers.userId, userId))
 
   const ids = rows.map((row) => row.workspaceId)
-  const publicId = await getPublicWorkspaceId()
-  if (publicId && !ids.includes(publicId)) {
-    ids.push(publicId)
+  const publicIds = await getPublicWorkspaceIds()
+  for (const publicId of publicIds) {
+    if (!ids.includes(publicId)) ids.push(publicId)
   }
   return ids
 }
@@ -263,6 +306,7 @@ async function getWorkspaceById(workspaceId: string) {
     .select({
       id: workspaces.id,
       isPublic: workspaces.isPublic,
+      publicWritePolicy: workspaces.publicWritePolicy,
     })
     .from(workspaces)
     .where(eq(workspaces.id, workspaceId))
@@ -295,23 +339,39 @@ export async function resolveWorkspaceAccess(
   })
 }
 
-// Allowed if: workspace is public + user is authed, OR user is a workspace member.
+// Allowed if:
+// - Private workspace → user must be a workspace member.
+// - Public workspace with publicWritePolicy=members → user must be a workspace member.
+// - Public workspace with publicWritePolicy=everyone → any authed user.
 export async function assertCanCreateIssueInProject(
   userId: string,
   projectId: string
 ) {
   const project = await getProjectWorkspaceId(projectId)
-  await resolveWorkspaceAccess(userId, project.workspaceId)
+  const workspace = await getWorkspaceById(project.workspaceId)
+  if (!workspace) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+  }
+  if (workspace.isPublic && workspace.publicWritePolicy === `everyone`) {
+    await resolveWorkspaceAccess(userId, project.workspaceId)
+    return project
+  }
+  await assertWorkspaceMember(userId, project.workspaceId)
   return project
 }
 
-// Allowed if: user is workspace member, OR (workspace is public AND user is creator or admin).
+// Update is always tightly scoped — even in public workspaces, only the issue
+// creator, a workspace member, or an instance admin may mutate. This is true
+// regardless of publicWritePolicy: the policy gates create, not update.
 export async function assertCanMutateIssue(userId: string, issueId: string) {
   const issueContext = await getIssueWorkspaceContext(issueId)
   const workspace = await getWorkspaceById(issueContext.workspaceId)
   if (!workspace) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
   }
+
+  const member = await getWorkspaceMember(userId, issueContext.workspaceId)
+  if (member) return issueContext
 
   if (workspace.isPublic) {
     const db = await getDb()
@@ -327,15 +387,19 @@ export async function assertCanMutateIssue(userId: string, issueId: string) {
     if (await isUserAdmin(userId)) return issueContext
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: `Only the issue creator or an admin can modify this issue`,
+      message: `Only the issue creator or a workspace member can modify this issue`,
     })
   }
 
-  await assertWorkspaceMember(userId, issueContext.workspaceId)
-  return issueContext
+  throw new TRPCError({
+    code: `FORBIDDEN`,
+    message: `Not a member of this workspace`,
+  })
 }
 
-// Allowed if: user is workspace member OR workspace is public + user is authed.
+// Comments are intentionally open: any authed user who can read a workspace
+// can comment on its issues. Members can always comment; in public workspaces,
+// any authed user can comment regardless of publicWritePolicy.
 export async function assertCanCommentInWorkspace(
   userId: string,
   workspaceId: string
@@ -382,7 +446,8 @@ export async function assertIssueLabelWorkspaceMatch(
 
   const issueContext = await getIssueWorkspaceContext(issueId)
   assertMatchingWorkspaceIds(issueContext.workspaceId, label?.workspaceId)
-  await resolveWorkspaceAccess(userId, issueContext.workspaceId)
+  // Labels modify the issue, so route through the same gate as issue mutation.
+  await assertCanMutateIssue(userId, issueId)
 
   return {
     issue: issueContext,

@@ -29,11 +29,12 @@ describe(`shape route handler`, () => {
     proxyElectricRequest.mockReset()
   })
 
-  it(`returns 401 for unauthenticated requests`, async () => {
+  it(`returns 401 for unauthenticated requests when requireAuth is true`, async () => {
     getSession.mockResolvedValue(null)
 
     const handler = createShapeRouteHandler({
       table: `users`,
+      requireAuth: true,
     })
 
     const response = await handler({
@@ -41,6 +42,26 @@ describe(`shape route handler`, () => {
     })
 
     expect(response.status).toBe(401)
+  })
+
+  it(`forwards anonymous requests to getWhere with a null userId`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    getSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(originUrl)
+    proxyElectricRequest.mockResolvedValue(new Response(`ok`))
+
+    const getWhere = vi.fn().mockResolvedValue(`"is_public" = true`)
+    const handler = createShapeRouteHandler({
+      table: `workspaces`,
+      getWhere,
+    })
+
+    await handler({
+      request: new Request(`https://example.com/api/shapes/workspaces`),
+    })
+
+    expect(getWhere).toHaveBeenCalledWith(null)
+    expect(originUrl.searchParams.get(`where`)).toBe(`"is_public" = true`)
   })
 
   it(`applies the scoped where clause before proxying`, async () => {

@@ -78,6 +78,13 @@
       "when": 1779096977754,
       "tag": "0010_same_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779130436858,
+      "tag": "0011_goofy_abomination",
+      "breakpoints": true
     }
   ]
 }

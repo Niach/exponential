@@ -10,7 +10,9 @@ export const Route = createFileRoute(`/api/shapes/workspace-invites`)({
     handlers: {
       GET: createShapeRouteHandler({
         table: `workspace_invites`,
+        requireAuth: true,
         getWhere: async (userId) => {
+          if (!userId) return null
           const workspaceIds = await getUserWorkspaceIds(userId)
           return buildWhereClause(`workspace_id`, workspaceIds)
         },

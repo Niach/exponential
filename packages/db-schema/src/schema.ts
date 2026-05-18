@@ -26,6 +26,7 @@ import {
   issuePriorityValues,
   issueStatusSchema,
   issueStatusValues,
+  publicWritePolicyValues,
   recurrenceUnitSchema,
   recurrenceUnitValues,
   workspaceRoleSchema,
@@ -67,6 +68,11 @@ export const workspaceMemberRoleEnum = pgEnum(
   workspaceRoleValues
 )
 
+export const publicWritePolicyEnum = pgEnum(
+  `public_write_policy`,
+  publicWritePolicyValues
+)
+
 export const recurrenceUnitEnum = pgEnum(
   `recurrence_unit`,
   recurrenceUnitValues
@@ -100,6 +106,9 @@ export const workspaces = pgTable(`workspaces`, {
   slug: varchar({ length: 255 }).notNull().unique(),
   iconUrl: text(`icon_url`),
   isPublic: boolean(`is_public`).notNull().default(false),
+  publicWritePolicy: publicWritePolicyEnum(`public_write_policy`)
+    .notNull()
+    .default(`members`),
   ...timestamps,
 })
 

@@ -6,7 +6,7 @@ import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
 
 async function assertNotPublicWorkspace(
-  db: typeof import("@/db/connection").db,
+  db: typeof import(`@/db/connection`).db,
   workspaceId: string
 ) {
   const [target] = await db

@@ -16,10 +16,11 @@ import {
   recurrenceUnitValues,
 } from "@/lib/domain"
 import {
-  assertProjectMember,
-  assertWorkspaceMember,
   getIssueWorkspaceContext,
+  getProjectWorkspaceId,
+  getPublicWorkspaceIds,
   getUserWorkspaceIds,
+  resolveWorkspaceAccess,
 } from "@/lib/workspace-membership"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
@@ -84,7 +85,7 @@ export function registerExponentialTools(
     },
     async () => {
       try {
-        const rows = await db
+        const memberRows = await db
           .select({
             id: workspaces.id,
             name: workspaces.name,
@@ -101,7 +102,29 @@ export function registerExponentialTools(
           )
           .where(eq(workspaceMembers.userId, user.id))
           .orderBy(asc(workspaces.name))
-        return ok(rows)
+
+        const memberIds = new Set(memberRows.map((row) => row.id))
+        const publicIds = await getPublicWorkspaceIds()
+        const extraIds = publicIds.filter((id) => !memberIds.has(id))
+        const publicOnly: typeof memberRows = []
+        if (extraIds.length > 0) {
+          const publicRows = await db
+            .select({
+              id: workspaces.id,
+              name: workspaces.name,
+              slug: workspaces.slug,
+              iconUrl: workspaces.iconUrl,
+              createdAt: workspaces.createdAt,
+              updatedAt: workspaces.updatedAt,
+            })
+            .from(workspaces)
+            .where(inArray(workspaces.id, extraIds))
+            .orderBy(asc(workspaces.name))
+          for (const row of publicRows) {
+            publicOnly.push({ ...row, role: `public` as never })
+          }
+        }
+        return ok([...memberRows, ...publicOnly])
       } catch (e) {
         return err(e)
       }
@@ -117,7 +140,7 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
-        await assertWorkspaceMember(user.id, id)
+        await resolveWorkspaceAccess(user.id, id)
         const [row] = await db
           .select()
           .from(workspaces)
@@ -148,7 +171,7 @@ export function registerExponentialTools(
       try {
         let allowedWorkspaceIds: Array<string>
         if (workspaceId) {
-          await assertWorkspaceMember(user.id, workspaceId)
+          await resolveWorkspaceAccess(user.id, workspaceId)
           allowedWorkspaceIds = [workspaceId]
         } else {
           allowedWorkspaceIds = await getUserWorkspaceIds(user.id)
@@ -180,7 +203,8 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
-        await assertProjectMember(user.id, id)
+        const project = await getProjectWorkspaceId(id)
+        await resolveWorkspaceAccess(user.id, project.workspaceId)
         const [row] = await db
           .select()
           .from(projects)
@@ -283,12 +307,13 @@ export function registerExponentialTools(
         let allowedProjectIds: Array<string>
 
         if (projectId) {
-          await assertProjectMember(user.id, projectId)
+          const project = await getProjectWorkspaceId(projectId)
+          await resolveWorkspaceAccess(user.id, project.workspaceId)
           allowedProjectIds = [projectId]
         } else {
           let workspaceIds: Array<string>
           if (workspaceId) {
-            await assertWorkspaceMember(user.id, workspaceId)
+            await resolveWorkspaceAccess(user.id, workspaceId)
             workspaceIds = [workspaceId]
           } else {
             workspaceIds = await getUserWorkspaceIds(user.id)
@@ -347,7 +372,7 @@ export function registerExponentialTools(
     async ({ id }) => {
       try {
         const ctxIssue = await getIssueWorkspaceContext(id)
-        await assertWorkspaceMember(user.id, ctxIssue.workspaceId)
+        await resolveWorkspaceAccess(user.id, ctxIssue.workspaceId)
         const [issue] = await db
           .select()
           .from(issues)
@@ -463,7 +488,7 @@ export function registerExponentialTools(
     },
     async ({ workspaceId }) => {
       try {
-        await assertWorkspaceMember(user.id, workspaceId)
+        await resolveWorkspaceAccess(user.id, workspaceId)
         const rows = await db
           .select()
           .from(labels)
@@ -491,7 +516,7 @@ export function registerExponentialTools(
           .where(eq(labels.id, id))
           .limit(1)
         if (!label) return err(new Error(`Label not found`))
-        await assertWorkspaceMember(user.id, label.workspaceId)
+        await resolveWorkspaceAccess(user.id, label.workspaceId)
         return ok(label)
       } catch (e) {
         return err(e)

@@ -12,7 +12,7 @@ import { isUserAdmin } from "@/lib/admin"
 import { fireAndForgetCommentNotify } from "@/lib/notifications"
 
 async function loadCommentForMutation(
-  db: typeof import("@/db/connection").db,
+  db: typeof import(`@/db/connection`).db,
   commentId: string
 ) {
   const [row] = await db

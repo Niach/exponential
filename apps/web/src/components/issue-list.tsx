@@ -31,6 +31,8 @@ interface IssueListProps {
   userMap: Map<string, User>
   onNewIssue: (status?: IssueStatus) => void
   onIssueClick: (issue: Issue) => void
+  canCreate?: boolean
+  canMutateIssue?: (issue: Issue) => boolean
 }
 
 export function IssueList({
@@ -41,6 +43,8 @@ export function IssueList({
   userMap,
   onNewIssue,
   onIssueClick,
+  canCreate = true,
+  canMutateIssue,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
@@ -103,23 +107,28 @@ export function IssueList({
                   {group.issues.length}
                 </span>
               </div>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="hidden md:inline-flex text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onNewIssue(group.status)
-                }}
-              >
-                <Plus className="size-3" />
-              </Button>
+              {canCreate && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="hidden md:inline-flex text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onNewIssue(group.status)
+                  }}
+                >
+                  <Plus className="size-3" />
+                </Button>
+              )}
             </div>
 
             {/* Issue rows */}
             <CollapsiblePrimitive.Content className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
               {group.issues.map((issue) => {
                 const issueLabels = issueLabelMap.get(issue.id) ?? []
+                const rowCanMutate = canMutateIssue
+                  ? canMutateIssue(issue)
+                  : true
                 return (
                   <IssueRowContextMenu
                     key={issue.id}
@@ -138,6 +147,9 @@ export function IssueList({
                       <div
                         className="flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
+                        style={
+                          rowCanMutate ? undefined : { pointerEvents: `none` }
+                        }
                       >
                         <PriorityDropdown
                           issueId={issue.id}
@@ -150,6 +162,9 @@ export function IssueList({
                       <div
                         className="flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
+                        style={
+                          rowCanMutate ? undefined : { pointerEvents: `none` }
+                        }
                       >
                         <StatusDropdown
                           issueId={issue.id}
@@ -182,6 +197,9 @@ export function IssueList({
                       <div
                         className="hidden md:flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
+                        style={
+                          rowCanMutate ? undefined : { pointerEvents: `none` }
+                        }
                       >
                         <AssigneeDropdown
                           issueId={issue.id}
@@ -193,6 +211,9 @@ export function IssueList({
                       <div
                         className="flex items-center justify-end"
                         onClick={(e) => e.stopPropagation()}
+                        style={
+                          rowCanMutate ? undefined : { pointerEvents: `none` }
+                        }
                       >
                         <DueDateDropdown
                           issueId={issue.id}
