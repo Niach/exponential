@@ -137,6 +137,8 @@ html {
 /* ── Tiptap editor ── */
 .tiptap-wrapper {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tiptap-content {
@@ -147,6 +149,9 @@ html {
   min-height: 3.5rem;
   outline: none;
   color: oklch(0.985 0 0);
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .tiptap-content p {
@@ -240,7 +245,6 @@ html {
 .tiptap-content .editor-image-node {
   position: relative;
   display: block;
-  width: fit-content;
   max-width: 100%;
   margin: 0.75rem 0;
   line-height: 0;

@@ -369,7 +369,7 @@ export function IssueEditorDialogShell({
 
         {titleInput}
 
-        <div className="flex-1 min-h-0 overflow-y-auto">{editor}</div>
+        <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">{editor}</div>
 
         <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-t border-border shrink-0">
           {chipNodes}
@@ -435,7 +435,7 @@ export function IssueEditorDialogShell({
       </div>
 
       {titleInput}
-      {editor}
+      <div className="min-w-0">{editor}</div>
 
       <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
         {chipNodes}
