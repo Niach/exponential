@@ -10,7 +10,7 @@ app that pulls this image. Coolify's control plane is home-LAN-only, so
 manually from a LAN-connected machine:
 
 ```
-coolify deploy uuid <issues-web-img-uuid>
+coolify deploy uuid <exponential-web-uuid>
 ```
 
 Or click "Deploy" in the Coolify UI.
