@@ -27,7 +27,8 @@ function slugify(input: string): string {
 }
 
 type DbOrTx = {
-  select: typeof import(`@/db/connection`).db.select
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  select: typeof import("@/db/connection").db.select
 }
 
 async function uniqueSlug(tx: DbOrTx, base: string): Promise<string> {

@@ -12,7 +12,8 @@ import { isUserAdmin } from "@/lib/admin"
 import { fireAndForgetCommentNotify } from "@/lib/notifications"
 
 async function loadCommentForMutation(
-  db: typeof import(`@/db/connection`).db,
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  db: typeof import("@/db/connection").db,
   commentId: string
 ) {
   const [row] = await db

@@ -6,7 +6,8 @@ import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
 
 async function assertNotPublicWorkspace(
-  db: typeof import(`@/db/connection`).db,
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  db: typeof import("@/db/connection").db,
   workspaceId: string
 ) {
   const [target] = await db
