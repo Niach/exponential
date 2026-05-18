@@ -71,6 +71,13 @@
       "when": 1779029252276,
       "tag": "0009_salty_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779096977754,
+      "tag": "0010_same_cobalt_man",
+      "breakpoints": true
     }
   ]
 }

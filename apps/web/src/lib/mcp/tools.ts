@@ -24,7 +24,7 @@ import {
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
 import { err, ok } from "./helpers"
-import type { McpUser } from "./middleware"
+import type { McpUser } from "./server"
 
 function buildCtx(user: McpUser, request: Request): Context {
   const now = new Date()

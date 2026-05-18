@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { bearer, genericOAuth } from "better-auth/plugins"
+import { bearer, genericOAuth, mcp } from "better-auth/plugins"
 import { createAuthMiddleware } from "better-auth/api"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { eq, and } from "drizzle-orm"
@@ -196,6 +196,12 @@ export const auth = betterAuth({
   plugins: [
     tanstackStartCookies(),
     bearer(),
+    mcp({
+      loginPage: `/auth/login`,
+      resource: process.env.BETTER_AUTH_URL
+        ? `${process.env.BETTER_AUTH_URL.replace(/\/$/, ``)}/api/mcp`
+        : undefined,
+    }),
     ...(oidcProviders.length > 0
       ? [
           genericOAuth({

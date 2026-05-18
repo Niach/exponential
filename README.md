@@ -13,7 +13,7 @@ Most issue trackers are SaaS. Exponential is a small, sharp, self-hostable alter
 - **Workspaces** with multi-user membership and email invites
 - **Auth** — email/password and OIDC (Authentik, Keycloak, anything that speaks OIDC)
 - **Google Calendar integration** — opt-in per user; due dates round-trip as all-day events ([scope: `calendar.events`](https://developers.google.com/identity/protocols/oauth2/scopes#calendar))
-- **MCP server** — exposes issue/label/project tools to Claude Code, Cursor, etc. via static Bearer auth
+- **MCP server** — exposes issue/label/project tools to Claude Code, Cursor, etc. via OAuth 2.1 (DCR + PKCE); each client logs in as a real Exponential user
 - **Keyboard-friendly** — context menus, inline status/priority/label editing, save-on-blur
 
 ## Quick start
@@ -78,7 +78,6 @@ See [`.env.example`](./.env.example) for the full list. Highlights:
 | `S3_*` | yes | Attachment storage (Garage by default) |
 | `AUTH_OIDC_ENABLED` + `OIDC_*` | optional | Enable OIDC login |
 | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | optional | Enable Google Calendar integration |
-| `MCP_API_TOKEN` + `MCP_USER_EMAIL` | optional | Enable MCP server |
 
 After schema changes, regenerate + apply migrations:
 
@@ -129,6 +128,16 @@ bun run build         # outputs dist/ for Cloudflare Pages
 - **Collections** in `src/lib/collections.ts` use `snakeCamelMapper()` so `useLiveQuery` filters work against camelCase fields
 - **Google Calendar sync** is fire-and-forget after each issue mutation commits — failures persist to `issues.googleCalendarLastSyncError` but never block the mutation
 - **MCP** delegates every operation through the same tRPC routers as the UI, so write-path authorization stays single-source
+
+## Connecting an MCP client
+
+Add `https://<your-instance>/api/mcp` as a custom HTTP MCP server (Claude Desktop, Claude Code, Cursor, etc.). On first use the client opens a browser, you log into your Exponential instance, and every tool call from then on runs as your user. No tokens to copy or rotate.
+
+For example, with Claude Code:
+
+```sh
+claude mcp add --transport http exponential https://app.exponential.at/api/mcp
+```
 
 For deeper guidance, see [`CLAUDE.md`](./CLAUDE.md).
 

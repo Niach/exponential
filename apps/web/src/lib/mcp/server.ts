@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { users } from "@/db/auth-schema"
 import { registerExponentialTools } from "./tools"
-import type { McpUser } from "./middleware"
+
+export type McpUser = typeof users.$inferSelect
 
 export function createExponentialMcpServer(user: McpUser, request: Request) {
   const server = new McpServer({

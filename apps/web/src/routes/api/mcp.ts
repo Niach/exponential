@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
-import { mcpAuthenticate } from "@/lib/mcp/middleware"
+import { withMcpAuth } from "better-auth/plugins"
+import { eq } from "drizzle-orm"
+import { db } from "@/db/connection"
+import { users } from "@/db/auth-schema"
+import { auth } from "@/lib/auth"
+import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
 
 const methodNotAllowed = () =>
@@ -16,11 +21,22 @@ const methodNotAllowed = () =>
     }
   )
 
-const handle = async ({ request }: { request: Request }) => {
-  const auth = await mcpAuthenticate(request)
-  if (`errorResponse` in auth) return auth.errorResponse
+const handle = withMcpAuth(auth, async (request, session) => {
+  if (!session.userId) {
+    return jsonResponse(401, { error: `Token has no user` })
+  }
 
-  const server = createExponentialMcpServer(auth.user, request)
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, session.userId))
+    .limit(1)
+
+  if (!user) {
+    return jsonResponse(401, { error: `User not found for token` })
+  }
+
+  const server = createExponentialMcpServer(user, request)
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
@@ -33,12 +49,12 @@ const handle = async ({ request }: { request: Request }) => {
     await transport.close().catch(() => {})
     await server.close().catch(() => {})
   }
-}
+})
 
 export const Route = createFileRoute(`/api/mcp`)({
   server: {
     handlers: {
-      POST: handle,
+      POST: ({ request }) => handle(request),
       GET: methodNotAllowed,
       DELETE: methodNotAllowed,
     },

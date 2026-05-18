@@ -19,6 +19,8 @@ import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oa
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedFeedbackRouteImport } from './routes/_authenticated/feedback'
+import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
@@ -91,6 +93,18 @@ const AuthenticatedFeedbackRoute = AuthenticatedFeedbackRouteImport.update({
   path: '/feedback',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const Char91DotwellKnownChar93OauthProtectedResourceRoute =
+  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
+    id: '/.well-known/oauth-protected-resource',
+    path: '/.well-known/oauth-protected-resource',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const Char91DotwellKnownChar93OauthAuthorizationServerRoute =
+  Char91DotwellKnownChar93OauthAuthorizationServerRouteImport.update({
+    id: '/.well-known/oauth-authorization-server',
+    path: '/.well-known/oauth-authorization-server',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -214,6 +228,8 @@ const AuthenticatedWWorkspaceSlugProjectsProjectSlugIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/feedback': typeof AuthenticatedFeedbackRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
@@ -246,6 +262,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/feedback': typeof AuthenticatedFeedbackRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
@@ -280,6 +298,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
+  '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/feedback': typeof AuthenticatedFeedbackRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
@@ -315,6 +335,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/.well-known/oauth-authorization-server'
+    | '/.well-known/oauth-protected-resource'
     | '/feedback'
     | '/api/auth-config'
     | '/api/mcp'
@@ -347,6 +369,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/.well-known/oauth-authorization-server'
+    | '/.well-known/oauth-protected-resource'
     | '/feedback'
     | '/api/auth-config'
     | '/api/mcp'
@@ -380,6 +404,8 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/_authenticated/admin'
+    | '/.well-known/oauth-authorization-server'
+    | '/.well-known/oauth-protected-resource'
     | '/_authenticated/feedback'
     | '/api/auth-config'
     | '/api/mcp'
@@ -414,6 +440,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  Char91DotwellKnownChar93OauthAuthorizationServerRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
+  Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ApiAuthConfigRoute: typeof ApiAuthConfigRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
@@ -507,6 +535,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/feedback'
       preLoaderRoute: typeof AuthenticatedFeedbackRouteImport
       parentRoute: typeof AuthenticatedRoute
+    }
+    '/.well-known/oauth-protected-resource': {
+      id: '/.well-known/oauth-protected-resource'
+      path: '/.well-known/oauth-protected-resource'
+      fullPath: '/.well-known/oauth-protected-resource'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/oauth-authorization-server': {
+      id: '/.well-known/oauth-authorization-server'
+      path: '/.well-known/oauth-authorization-server'
+      fullPath: '/.well-known/oauth-authorization-server'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin': {
       id: '/_authenticated/admin'
@@ -726,6 +768,10 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  Char91DotwellKnownChar93OauthAuthorizationServerRoute:
+    Char91DotwellKnownChar93OauthAuthorizationServerRoute,
+  Char91DotwellKnownChar93OauthProtectedResourceRoute:
+    Char91DotwellKnownChar93OauthProtectedResourceRoute,
   ApiAuthConfigRoute: ApiAuthConfigRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,
