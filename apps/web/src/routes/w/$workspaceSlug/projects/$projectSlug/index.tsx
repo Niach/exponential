@@ -105,6 +105,7 @@ function ProjectPage() {
           onIssueClick={(issue) => setEditingIssueId(issue.id)}
           canCreate={permissions.canCreate}
           canMutateIssue={permissions.canMutateIssue}
+          canModerate={permissions.isModerator}
         />
       </div>
 
@@ -121,6 +122,7 @@ function ProjectPage() {
         defaultStatus={defaultStatus}
         prefill={prefill}
         users={users}
+        restrictModeration={!permissions.isModerator && workspace.isPublic}
       />
 
       {editingIssue && (
@@ -139,6 +141,7 @@ function ProjectPage() {
           issueLabelIds={editingIssueLabelIds}
           users={users}
           readOnly={!permissions.canMutateIssue(editingIssue)}
+          restrictModeration={!permissions.isModerator && workspace.isPublic}
         />
       )}
     </div>

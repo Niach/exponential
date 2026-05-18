@@ -63,6 +63,10 @@ interface IssueEditorDialogShellProps {
   closeDisabled?: boolean
   description: string
   disabled?: boolean
+  // When true, disables status / priority / assignee / due-date / overflow
+  // controls while keeping title, description, labels, and image upload
+  // available. Used for non-moderator contributors in public workspaces.
+  restrictModeration?: boolean
   dialogTestId?: string
   dueDate: Date | undefined
   editorRef?: Ref<MarkdownEditorRef>
@@ -106,6 +110,7 @@ export function IssueEditorDialogShell({
   closeDisabled,
   description,
   disabled,
+  restrictModeration,
   dialogTestId,
   dueDate,
   editorRef,
@@ -180,11 +185,12 @@ export function IssueEditorDialogShell({
     />
   )
 
+  const moderationDisabled = disabled || restrictModeration
   const chipNodes = (
     <>
       <OptionDropdownMenu
         value={status}
-        disabled={disabled}
+        disabled={moderationDisabled}
         options={statuses}
         onSelect={onStatusChange}
         renderTrigger={(selected) => (
@@ -192,7 +198,7 @@ export function IssueEditorDialogShell({
             variant="ghost"
             size="xs"
             className="text-muted-foreground shrink-0"
-            disabled={disabled}
+            disabled={moderationDisabled}
           >
             <StatusIcon status={selected.value} className="!h-3 !w-3" />
             {selected.label}
@@ -202,7 +208,7 @@ export function IssueEditorDialogShell({
 
       <OptionDropdownMenu
         value={priority}
-        disabled={disabled}
+        disabled={moderationDisabled}
         options={priorities}
         onSelect={onPriorityChange}
         renderTrigger={(selected) => (
@@ -210,7 +216,7 @@ export function IssueEditorDialogShell({
             variant="ghost"
             size="xs"
             className="text-muted-foreground shrink-0"
-            disabled={disabled}
+            disabled={moderationDisabled}
           >
             <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
             {selected.label}
@@ -219,7 +225,7 @@ export function IssueEditorDialogShell({
       />
 
       <AssigneePicker
-        disabled={disabled}
+        disabled={moderationDisabled}
         users={users}
         selectedUserId={assigneeId}
         onSelect={onAssigneeChange}
@@ -239,7 +245,7 @@ export function IssueEditorDialogShell({
               variant="ghost"
               size="xs"
               className="text-muted-foreground shrink-0"
-              disabled={disabled}
+              disabled={moderationDisabled}
             >
               <CalendarDays className="size-3" />
               {dueDate
@@ -302,7 +308,7 @@ export function IssueEditorDialogShell({
               variant="ghost"
               size="icon-xs"
               aria-label="More options"
-              disabled={disabled}
+              disabled={moderationDisabled}
               className="text-muted-foreground shrink-0"
             >
               <MoreHorizontal className="size-3" />

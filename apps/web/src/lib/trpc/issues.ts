@@ -3,9 +3,11 @@ import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issues, issueLabels, labels } from "@/db/schema"
 import { and, eq, inArray, sql } from "drizzle-orm"
+import { workspaces } from "@/db/schema"
 import {
   assertCanCreateIssueInProject,
   assertCanMutateIssue,
+  isWorkspaceModerator,
 } from "@/lib/workspace-membership"
 import {
   addRecurrence,
@@ -71,6 +73,22 @@ export const issuesRouter = router({
         input.projectId
       )
 
+      // Non-moderators submitting to a public workspace can only set
+      // title/description/labels — clamp the moderation fields so a stale or
+      // tampered client can't bypass the UI restrictions.
+      const [workspace] = await ctx.db
+        .select({
+          isPublic: workspaces.isPublic,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.id, project.workspaceId))
+        .limit(1)
+      const moderator = await isWorkspaceModerator(
+        ctx.session.user.id,
+        project.workspaceId
+      )
+      const restrictModeration = Boolean(workspace?.isPublic) && !moderator
+
       assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
 
       if (input.description && hasMarkdownImages(input.description.text)) {
@@ -87,15 +105,19 @@ export const issuesRouter = router({
           .values({
             projectId: input.projectId,
             title: input.title,
-            status: input.status ?? `backlog`,
-            priority: input.priority ?? `none`,
-            assigneeId: input.assigneeId ?? null,
+            status: restrictModeration ? `backlog` : (input.status ?? `backlog`),
+            priority: restrictModeration ? `none` : (input.priority ?? `none`),
+            assigneeId: restrictModeration ? null : (input.assigneeId ?? null),
             description: input.description ?? null,
-            dueDate: input.dueDate ?? null,
-            dueTime: input.dueTime ?? null,
-            endTime: input.endTime ?? null,
-            recurrenceInterval: input.recurrenceInterval ?? null,
-            recurrenceUnit: input.recurrenceUnit ?? null,
+            dueDate: restrictModeration ? null : (input.dueDate ?? null),
+            dueTime: restrictModeration ? null : (input.dueTime ?? null),
+            endTime: restrictModeration ? null : (input.endTime ?? null),
+            recurrenceInterval: restrictModeration
+              ? null
+              : (input.recurrenceInterval ?? null),
+            recurrenceUnit: restrictModeration
+              ? null
+              : (input.recurrenceUnit ?? null),
             creatorId: ctx.session.user.id,
           })
           .returning()
@@ -159,7 +181,30 @@ export const issuesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      await assertCanMutateIssue(ctx.session.user.id, id)
+      const issueContext = await assertCanMutateIssue(ctx.session.user.id, id)
+
+      // Non-moderators (e.g., a non-member who created the issue in a public
+      // workspace) may only touch title/description; strip moderation fields
+      // before applying so a stale or tampered client can't bypass UI gating.
+      const [workspace] = await ctx.db
+        .select({ isPublic: workspaces.isPublic })
+        .from(workspaces)
+        .where(eq(workspaces.id, issueContext.workspaceId))
+        .limit(1)
+      const moderator = await isWorkspaceModerator(
+        ctx.session.user.id,
+        issueContext.workspaceId
+      )
+      if (workspace?.isPublic && !moderator) {
+        delete (updates as Record<string, unknown>).status
+        delete (updates as Record<string, unknown>).priority
+        delete (updates as Record<string, unknown>).assigneeId
+        delete (updates as Record<string, unknown>).dueDate
+        delete (updates as Record<string, unknown>).dueTime
+        delete (updates as Record<string, unknown>).endTime
+        delete (updates as Record<string, unknown>).recurrenceInterval
+        delete (updates as Record<string, unknown>).recurrenceUnit
+      }
 
       if (
         updates.recurrenceInterval !== undefined ||

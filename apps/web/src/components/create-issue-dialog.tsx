@@ -52,6 +52,7 @@ interface CreateIssueDialogProps {
   projectPrefix: string
   users: User[]
   workspaceId: string
+  restrictModeration?: boolean
 }
 
 function revokeDraftImages(images: DraftImage[]) {
@@ -83,6 +84,7 @@ export function CreateIssueDialog({
   projectPrefix,
   users,
   workspaceId,
+  restrictModeration = false,
 }: CreateIssueDialogProps) {
   const [title, setTitle] = useState(prefill?.title ?? ``)
   const [description, setDescription] = useState(prefill?.description ?? ``)
@@ -435,6 +437,7 @@ export function CreateIssueDialog({
       projectPrefix={projectPrefix}
       projectColor={projectColor}
       dialogTestId="issue-editor-create"
+      restrictModeration={restrictModeration}
       formProps={{ onSubmit: handleSubmit }}
       primaryAction={{
         type: `submit`,

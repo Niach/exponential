@@ -339,6 +339,20 @@ export async function resolveWorkspaceAccess(
   })
 }
 
+// A "moderator" is a workspace member or an instance admin. In public
+// workspaces moderators retain full edit/set rights on issue fields
+// (status/priority/assignee/dueDate); non-moderators are restricted to
+// title/description/labels even when they're allowed to mutate (e.g., on
+// issues they created).
+export async function isWorkspaceModerator(
+  userId: string,
+  workspaceId: string
+): Promise<boolean> {
+  const member = await getWorkspaceMember(userId, workspaceId)
+  if (member) return true
+  return isUserAdmin(userId)
+}
+
 // Allowed if:
 // - Private workspace → user must be a workspace member.
 // - Public workspace with publicWritePolicy=members → user must be a workspace member.

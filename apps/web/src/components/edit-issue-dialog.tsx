@@ -40,6 +40,7 @@ interface EditIssueDialogProps {
   users: User[]
   workspaceId: string
   readOnly?: boolean
+  restrictModeration?: boolean
 }
 
 export function EditIssueDialog({
@@ -52,6 +53,7 @@ export function EditIssueDialog({
   users,
   workspaceId,
   readOnly = false,
+  restrictModeration = false,
 }: EditIssueDialogProps) {
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user?.id ?? null
@@ -306,6 +308,7 @@ export function EditIssueDialog({
       projectColor={projectColor}
       dialogTestId="issue-editor-edit"
       disabled={readOnly}
+      restrictModeration={restrictModeration}
       headerContent={
         <span className="text-sm font-mono">{issue.identifier}</span>
       }
@@ -321,7 +324,7 @@ export function EditIssueDialog({
         void handleDescriptionBlur()
       }}
       imageUpload={{
-        enabled: true,
+        enabled: !readOnly,
         uploading: activeUploadCount > 0,
         onFiles: handleImageFiles,
       }}
@@ -412,10 +415,10 @@ export function EditIssueDialog({
             <IssueEditorAttachmentRail
               attachmentStatus={attachmentStatus}
               images={imageOccurrences}
-              onFiles={handleImageFiles}
-              onRemove={handleRemoveImageOccurrence}
+              onFiles={readOnly ? undefined : handleImageFiles}
+              onRemove={readOnly ? undefined : handleRemoveImageOccurrence}
               uploading={activeUploadCount > 0}
-              disabled={activeUploadCount > 0}
+              disabled={readOnly || activeUploadCount > 0}
             />
           </div>
         </>

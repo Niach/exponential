@@ -7,6 +7,9 @@ export interface WorkspacePermissions {
   isAuthed: boolean
   isMember: boolean
   isAdmin: boolean
+  // Member OR admin. Only moderators can set issue status (other than backlog),
+  // priority, assignee, due date, or recurrence in public workspaces.
+  isModerator: boolean
   canCreate: boolean
   canMutateIssue: (issue: Pick<Issue, `creatorId`>) => boolean
 }
@@ -27,6 +30,7 @@ export function useWorkspacePermissions(
     const isMember = Boolean(
       currentUserId && members.some((m) => m.userId === currentUserId)
     )
+    const isModerator = isMember || isAdmin
     const canCreate = isAuthed
       ? isMember ||
         Boolean(workspace?.isPublic && workspace?.publicWritePolicy === `everyone`)
@@ -38,7 +42,14 @@ export function useWorkspacePermissions(
       if (isAdmin) return true
       return false
     }
-    return { isAuthed, isMember, isAdmin, canCreate, canMutateIssue }
+    return {
+      isAuthed,
+      isMember,
+      isAdmin,
+      isModerator,
+      canCreate,
+      canMutateIssue,
+    }
   }, [
     currentUserId,
     isAdmin,

@@ -33,6 +33,10 @@ interface IssueListProps {
   onIssueClick: (issue: Issue) => void
   canCreate?: boolean
   canMutateIssue?: (issue: Issue) => boolean
+  // Moderator-only row controls (status, priority, assignee, due date) are
+  // disabled when false. Title/description/labels remain mutable by anyone
+  // whose canMutateIssue is true.
+  canModerate?: boolean
 }
 
 export function IssueList({
@@ -45,6 +49,7 @@ export function IssueList({
   onIssueClick,
   canCreate = true,
   canMutateIssue,
+  canModerate = true,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
@@ -129,6 +134,7 @@ export function IssueList({
                 const rowCanMutate = canMutateIssue
                   ? canMutateIssue(issue)
                   : true
+                const moderatorRowCanMutate = rowCanMutate && canModerate
                 return (
                   <IssueRowContextMenu
                     key={issue.id}
@@ -151,7 +157,7 @@ export function IssueList({
                         <PriorityDropdown
                           issueId={issue.id}
                           priority={issue.priority}
-                          disabled={!rowCanMutate}
+                          disabled={!moderatorRowCanMutate}
                         />
                       </div>
                       <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate">
@@ -164,7 +170,7 @@ export function IssueList({
                         <StatusDropdown
                           issueId={issue.id}
                           status={issue.status}
-                          disabled={!rowCanMutate}
+                          disabled={!moderatorRowCanMutate}
                         />
                       </div>
                       <span className="flex items-center gap-1.5 text-sm truncate ml-2 min-w-0">
@@ -199,7 +205,7 @@ export function IssueList({
                           assigneeId={issue.assigneeId}
                           users={users}
                           userMap={userMap}
-                          disabled={!rowCanMutate}
+                          disabled={!moderatorRowCanMutate}
                         />
                       </div>
                       <div
@@ -209,7 +215,7 @@ export function IssueList({
                         <DueDateDropdown
                           issueId={issue.id}
                           dueDate={issue.dueDate}
-                          disabled={!rowCanMutate}
+                          disabled={!moderatorRowCanMutate}
                         />
                       </div>
                     </div>
