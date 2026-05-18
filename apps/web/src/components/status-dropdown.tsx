@@ -29,13 +29,16 @@ export function StatusIcon({
 export function StatusDropdown({
   issueId,
   status,
+  disabled,
 }: {
   issueId: string
   status: IssueStatus
+  disabled?: boolean
 }) {
   return (
     <OptionDropdownMenu
       value={status}
+      disabled={disabled}
       options={statuses}
       onSelect={async (nextStatus) => {
         await trpc.issues.update.mutate({
@@ -50,6 +53,7 @@ export function StatusDropdown({
           <Button
             variant="ghost"
             className="h-5 w-5 p-0"
+            disabled={disabled}
             aria-label={`Change status (current: ${selected.label})`}
           >
             <Icon className={`h-3.5 w-3.5 ${selected.color}`} />

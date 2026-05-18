@@ -24,6 +24,7 @@ interface AssigneeDropdownProps {
   assigneeId: string | null
   users: User[]
   userMap: Map<string, User>
+  disabled?: boolean
 }
 
 export function AssigneeDropdown({
@@ -31,6 +32,7 @@ export function AssigneeDropdown({
   assigneeId,
   users,
   userMap,
+  disabled,
 }: AssigneeDropdownProps) {
   const [open, setOpen] = useState(false)
   const assignee = assigneeId ? userMap.get(assigneeId) : undefined
@@ -41,9 +43,13 @@ export function AssigneeDropdown({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={disabled ? undefined : setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="h-5 w-5 p-0">
+        <Button
+          variant="ghost"
+          className="h-5 w-5 p-0"
+          disabled={disabled}
+        >
           {assignee ? (
             <Avatar className="size-5">
               {assignee.image && (

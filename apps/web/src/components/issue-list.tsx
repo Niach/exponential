@@ -147,13 +147,11 @@ export function IssueList({
                       <div
                         className="flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
-                        style={
-                          rowCanMutate ? undefined : { pointerEvents: `none` }
-                        }
                       >
                         <PriorityDropdown
                           issueId={issue.id}
                           priority={issue.priority}
+                          disabled={!rowCanMutate}
                         />
                       </div>
                       <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate">
@@ -162,13 +160,11 @@ export function IssueList({
                       <div
                         className="flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
-                        style={
-                          rowCanMutate ? undefined : { pointerEvents: `none` }
-                        }
                       >
                         <StatusDropdown
                           issueId={issue.id}
                           status={issue.status}
+                          disabled={!rowCanMutate}
                         />
                       </div>
                       <span className="flex items-center gap-1.5 text-sm truncate ml-2 min-w-0">
@@ -197,27 +193,23 @@ export function IssueList({
                       <div
                         className="hidden md:flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
-                        style={
-                          rowCanMutate ? undefined : { pointerEvents: `none` }
-                        }
                       >
                         <AssigneeDropdown
                           issueId={issue.id}
                           assigneeId={issue.assigneeId}
                           users={users}
                           userMap={userMap}
+                          disabled={!rowCanMutate}
                         />
                       </div>
                       <div
                         className="flex items-center justify-end"
                         onClick={(e) => e.stopPropagation()}
-                        style={
-                          rowCanMutate ? undefined : { pointerEvents: `none` }
-                        }
                       >
                         <DueDateDropdown
                           issueId={issue.id}
                           dueDate={issue.dueDate}
+                          disabled={!rowCanMutate}
                         />
                       </div>
                     </div>

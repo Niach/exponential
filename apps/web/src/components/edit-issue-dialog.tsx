@@ -305,6 +305,7 @@ export function EditIssueDialog({
       projectPrefix={projectPrefix}
       projectColor={projectColor}
       dialogTestId="issue-editor-edit"
+      disabled={readOnly}
       headerContent={
         <span className="text-sm font-mono">{issue.identifier}</span>
       }

@@ -13,9 +13,14 @@ import { formatDateForMutation } from "@/lib/domain"
 interface DueDateDropdownProps {
   issueId: string
   dueDate: string | null
+  disabled?: boolean
 }
 
-export function DueDateDropdown({ issueId, dueDate }: DueDateDropdownProps) {
+export function DueDateDropdown({
+  issueId,
+  dueDate,
+  disabled,
+}: DueDateDropdownProps) {
   const dateValue = dueDate ? new Date(dueDate + `T00:00:00`) : undefined
 
   const handleSelect = async (date: Date | undefined) => {
@@ -28,7 +33,11 @@ export function DueDateDropdown({ issueId, dueDate }: DueDateDropdownProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="h-5 w-full p-0 justify-end gap-1">
+        <Button
+          variant="ghost"
+          className="h-5 w-full p-0 justify-end gap-1"
+          disabled={disabled}
+        >
           <CalendarDays
             className={`size-3 shrink-0 ${dueDate ? `text-muted-foreground` : `text-muted-foreground/30`}`}
           />

@@ -29,13 +29,16 @@ export function PriorityIcon({
 export function PriorityDropdown({
   issueId,
   priority,
+  disabled,
 }: {
   issueId: string
   priority: IssuePriority
+  disabled?: boolean
 }) {
   return (
     <OptionDropdownMenu
       value={priority}
+      disabled={disabled}
       options={priorities}
       onSelect={async (nextPriority) => {
         await trpc.issues.update.mutate({
@@ -50,6 +53,7 @@ export function PriorityDropdown({
           <Button
             variant="ghost"
             className="h-5 w-5 p-0"
+            disabled={disabled}
             aria-label={`Change priority (current: ${selected.label})`}
           >
             <Icon className={`h-3.5 w-3.5 ${selected.color}`} />
