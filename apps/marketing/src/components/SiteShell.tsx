@@ -24,7 +24,7 @@ export function SiteHeader() {
           </a>
           <a
             className="btn btn-ghost btn-sm"
-            href="https://issues.straehhuber.com/auth/login"
+            href="https://app.exponential.at/auth/login"
           >
             Sign in
           </a>
@@ -50,7 +50,7 @@ export function SiteFooter() {
           </span>
           <span style={{ display: `inline-flex`, gap: 16, flexWrap: `wrap` }}>
             <a
-              href="https://issues.straehhuber.com/feedback"
+              href="https://app.exponential.at/feedback"
               style={{ color: `inherit` }}
             >
               Send feedback

@@ -68,9 +68,15 @@ You can also run a script directly inside a workspace: `bun --filter @exp/web <s
 
 ## Deploys
 
-- **Web**: tag `vX.Y.Z` triggers `.gitea/workflows/build-release.yml` — builds the root `Dockerfile` (context `.`), pushes to the Gitea registry, then redeploys the Portainer stack.
-- **Marketing**: Coolify watches the repo. After the monorepo move the Coolify app's source/base directory is `apps/marketing/` (was `marketing/`). The Coolify start command must not include `serve -s`.
+Three production targets run on Coolify (`coolify.home.straehhuber.com`, Hetzner host `46.225.140.133`), one self-host target on the home Portainer stack.
+
+- **Web cloud (`app.exponential.at`)** — Coolify app `issues-web-img` (uuid `hzoe7vty1rzjypyymsaqw2w6`), a *dockerimage* app pulling `ghcr.io/niach/exponential-web:latest`. The image is built by `.github/workflows/build-issues-web.yml` on every push to `master` and on `v*.*.*` / `v*.*.*-dev` tags. **Coolify is home-LAN-only, so there is no auto-redeploy webhook** — after a green Actions run, redeploy manually from a LAN-connected machine: `coolify deploy uuid hzoe7vty1rzjypyymsaqw2w6` (or click "Deploy" in the Coolify UI).
+- **Marketing (`exponential.at`)** — Coolify app `marketing-exponential` (uuid `tcco4mztg1whf3yjmib2u9ph`). Coolify watches `master` and rebuilds via Nixpacks; base directory `/`, build `cd apps/marketing && bun run build`, start `npx -y serve apps/marketing/dist -l 80`. Auto-redeploys on push.
+- **Push relay (`push.exponential.at`)** — Coolify app `push-relay-exponential` (uuid `u1299kfvca23s99opeizsnmh`). Coolify watches `master` and builds `Dockerfile.push-relay` (context `.`). Auto-redeploys on push.
+- **Self-host (on-prem)**: tag `vX.Y.Z` triggers `.gitea/workflows/build-release.yml` — builds the root `Dockerfile` (context `.`), pushes to the Gitea registry, then redeploys the Portainer stack.
 - **Android**: tag `android-vX.Y.Z` triggers `.gitea/workflows/build-android.yml` — builds debug + release (unsigned) APKs and uploads them as artifacts. Signing for distribution still needs a keystore + signing config in `app/build.gradle.kts`.
+
+DNS for `exponential.at` is on Cloudflare (zone-only, gray-cloud A records → Hetzner host) so Traefik's Let's Encrypt HTTP-01 challenge keeps working.
 
 After schema changes, always: `bun run migrate:generate && bun run migrate`
 

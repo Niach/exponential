@@ -34,7 +34,7 @@ export function HomePage() {
             </a>
             <a
               className="btn btn-ghost"
-              href="https://issues.straehhuber.com/auth/login"
+              href="https://app.exponential.at/auth/login"
             >
               Use the free cloud <IcArrow size={12} />
             </a>

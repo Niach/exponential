@@ -1,7 +1,7 @@
 name: Build issues-web image
 
 # Builds the root Dockerfile and publishes to ghcr.io/niach/exponential-web.
-# Coolify (issues.straehhuber.com) pulls this image as a dockerimage app —
+# Coolify (app.exponential.at) pulls this image as a dockerimage app —
 # triggered manually via `coolify deploy uuid <uuid>` after each green build.
 
 on:

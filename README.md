@@ -46,7 +46,7 @@ This is a bun workspace.
 │   ├── lib/              # auth, trpc routers, electric collections, google-calendar, mcp
 │   ├── components/       # shadcn primitives + business components
 │   └── routes/           # TanStack Router file routes (incl. /api/trpc, /api/shapes, /api/auth)
-├── marketing/            # standalone Vite app for exponential.straehhuber.com
+├── marketing/            # standalone Vite app for exponential.at
 │   └── src/              # home + privacy + terms, deployed to Cloudflare Pages
 ├── docker-compose.yaml   # postgres:54321, electric:30000, garage:3900, caddy:3000
 ├── Dockerfile            # production app image

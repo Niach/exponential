@@ -64,7 +64,7 @@ export function DocsPage() {
           </p>
           <p>
             <strong>Free cloud at{` `}
-              <a href="https://issues.straehhuber.com">issues.straehhuber.com</a>.
+              <a href="https://app.exponential.at">app.exponential.at</a>.
             </strong>{` `}
             Sign in with Google, create a workspace, invite teammates. No
             install, no operator burden. Limited to Google sign-in for now.
@@ -77,7 +77,7 @@ export function DocsPage() {
           </p>
           <p>
             Either way, there is one shared{` `}
-            <a href="https://issues.straehhuber.com/feedback">public feedback workspace</a>
+            <a href="https://app.exponential.at/feedback">public feedback workspace</a>
             {` `}
             on the cloud where you can file bugs and feature requests. Self-
             hosted instances expose a "Send feedback" button that deep-links
@@ -202,13 +202,13 @@ docker build -f Dockerfile -t exponential-web:latest .
           <h3>Use the public relay</h3>
           <p>
             A public instance runs at{` `}
-            <code>https://push.exponential.straehhuber.com</code> and is what
+            <code>https://push.exponential.at</code> and is what
             the official Android and iOS builds talk to by default. The
             quickest path is to point your web deployment at it and you're
             done — no Firebase project, no extra container.
           </p>
           <DocsCode language="env">{`
-PUSH_RELAY_URL=https://push.exponential.straehhuber.com
+PUSH_RELAY_URL=https://push.exponential.at
 `}</DocsCode>
           <DocsCallout kind="note" title="What the public relay sees">
             The relay receives the FCM device token, the notification title
