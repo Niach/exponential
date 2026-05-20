@@ -35,8 +35,12 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -99,7 +103,7 @@ fun WorkspaceSettingsScreen(
                     ),
                 )
                 TabRow(selectedTabIndex = selectedTab) {
-                    listOf("Members", "Invites", "Labels").forEachIndexed { i, label ->
+                    listOf("General", "Members", "Invites", "Labels").forEachIndexed { i, label ->
                         Tab(
                             selected = selectedTab == i,
                             onClick = { selectedTab = i },
@@ -111,7 +115,7 @@ fun WorkspaceSettingsScreen(
         },
         floatingActionButton = {
             when (selectedTab) {
-                1 -> ExtendedFloatingActionButton(
+                2 -> ExtendedFloatingActionButton(
                     onClick = { viewModel.createInvite() },
                     icon = { Icon(Icons.Filled.Add, null) },
                     text = { Text("New invite") },
@@ -123,23 +127,90 @@ fun WorkspaceSettingsScreen(
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (selectedTab) {
-                0 -> MembersTab(
+                0 -> GeneralTab(
+                    workspace = state.workspace,
+                    onTogglePublic = viewModel::setPublic,
+                    onSetPolicy = viewModel::setPublicWritePolicy,
+                )
+                1 -> MembersTab(
                     rows = state.members,
                     currentUserId = state.currentUserId,
                     onChangeRole = viewModel::updateRole,
                     onRemove = viewModel::removeMember,
                 )
-                1 -> InvitesTab(
+                2 -> InvitesTab(
                     invites = state.invites,
                     instanceUrl = state.instanceUrl,
                     onRevoke = viewModel::revokeInvite,
                 )
-                2 -> LabelsTab(
+                3 -> LabelsTab(
                     labels = state.labels,
                     onRename = viewModel::renameLabel,
                     onDelete = viewModel::deleteLabel,
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GeneralTab(
+    workspace: com.exponential.app.data.db.WorkspaceEntity?,
+    onTogglePublic: (Boolean) -> Unit,
+    onSetPolicy: (String) -> Unit,
+) {
+    if (workspace == null) {
+        Text(
+            "Loading…",
+            modifier = Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val policy = workspace.publicWritePolicy ?: "members"
+    Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Public workspace", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Anyone with the link can read this workspace.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = workspace.isPublic,
+                onCheckedChange = onTogglePublic,
+            )
+        }
+        if (workspace.isPublic) {
+            Spacer(Modifier.height(16.dp))
+            Text("Who can create issues?", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(8.dp))
+            SingleChoiceSegmentedButtonRow {
+                listOf(
+                    "members" to "Members only",
+                    "everyone" to "Anyone signed in",
+                ).forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = policy == value,
+                        onClick = { onSetPolicy(value) },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 2),
+                    ) { Text(label) }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (policy == "everyone")
+                    "Signed-in users can create issues; non-members may only set title, description, and labels."
+                else "Only workspace members can create or edit issues.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

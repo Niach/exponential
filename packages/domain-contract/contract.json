@@ -1,0 +1,22 @@
+{
+  "$schema": "./schema.json",
+  "description": "Canonical enum values shared by the web, iOS, and Android clients. Regenerate the per-language constants with `bun run --filter @exp/domain-contract generate`. The committed generated files (apps/ios/.../Domain.generated.swift, apps/android/.../Domain.generated.kt) are checked in so mobile builds don't need a Node runtime.",
+  "issueStatus": {
+    "values": ["backlog", "todo", "in_progress", "done", "cancelled"],
+    "displayOrder": ["in_progress", "todo", "backlog", "done", "cancelled"]
+  },
+  "issuePriority": {
+    "values": ["none", "urgent", "high", "medium", "low"],
+    "displayOrder": ["urgent", "high", "medium", "low", "none"]
+  },
+  "recurrenceUnit": {
+    "values": ["day", "week", "month"]
+  },
+  "workspaceRole": {
+    "values": ["owner", "member"]
+  },
+  "publicWritePolicy": {
+    "values": ["members", "everyone"]
+  },
+  "recurrenceIntervals": [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
+}

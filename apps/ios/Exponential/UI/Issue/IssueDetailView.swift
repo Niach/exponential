@@ -87,6 +87,7 @@ struct IssueDetailView: View {
                                             .foregroundStyle(.white)
                                     }
                                 }
+                                .disabled(!vm.permissions.isModerator)
                             }
 
                             Divider().background(Color.white.opacity(0.06))
@@ -111,6 +112,7 @@ struct IssueDetailView: View {
                                             .foregroundStyle(.white)
                                     }
                                 }
+                                .disabled(!vm.permissions.isModerator)
                             }
 
                             Divider().background(Color.white.opacity(0.06))
@@ -141,17 +143,21 @@ struct IssueDetailView: View {
                                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                     }
                                 }
+                                .disabled(!vm.permissions.isModerator)
                             }
 
                         }
                         .padding(.vertical, 4)
                         .glassSection()
+                        .opacity(vm.permissions.isModerator ? 1 : 0.55)
 
                         // Due date — inline calendar
                         DueDatePicker(date: Binding(
                             get: { parseDate(issue.dueDate) },
                             set: { newDate in Task { await vm.setDueDate(newDate) } }
                         ))
+                        .disabled(!vm.permissions.isModerator)
+                        .opacity(vm.permissions.isModerator ? 1 : 0.55)
 
                         // Times (only when a due date is set; matches the
                         // server-side semantics where dueTime depends on dueDate).
@@ -161,20 +167,23 @@ struct IssueDetailView: View {
                                     TimeFieldButton(
                                         value: issue.dueTime,
                                         placeholder: "—",
-                                        onChange: { Task { await vm.setDueTime($0) } }
+                                        onChange: { value in Task { await vm.setDueTime(value) } }
                                     )
+                                    .disabled(!vm.permissions.isModerator)
                                 }
                                 Divider().background(Color.white.opacity(0.06))
                                 detailRow(label: "End time") {
                                     TimeFieldButton(
                                         value: issue.endTime,
                                         placeholder: "—",
-                                        onChange: { Task { await vm.setEndTime($0) } }
+                                        onChange: { value in Task { await vm.setEndTime(value) } }
                                     )
+                                    .disabled(!vm.permissions.isModerator)
                                 }
                             }
                             .padding(.vertical, 4)
                             .glassSection()
+                            .opacity(vm.permissions.isModerator ? 1 : 0.55)
                         }
 
                         // Recurrence
@@ -206,10 +215,12 @@ struct IssueDetailView: View {
                                                 : .white
                                         )
                                 }
+                                .disabled(!vm.permissions.isModerator)
                             }
                         }
                         .padding(.vertical, 4)
                         .glassSection()
+                        .opacity(vm.permissions.isModerator ? 1 : 0.55)
 
                         // Labels
                         VStack(alignment: .leading, spacing: 8) {
@@ -245,6 +256,9 @@ struct IssueDetailView: View {
                                 .font(.callout)
                                 .foregroundStyle(.red)
                         }
+
+                        // Comments
+                        CommentThreadView(issueId: issue.id)
 
                         // Delete button
                         Button(role: .destructive) {
@@ -289,7 +303,8 @@ struct IssueDetailView: View {
                     issueId: issueId,
                     db: deps.db,
                     issuesApi: deps.issuesApi,
-                    labelsApi: deps.labelsApi
+                    labelsApi: deps.labelsApi,
+                    auth: deps.auth
                 )
                 viewModel = vm
                 vm.startObserving()

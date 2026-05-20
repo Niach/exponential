@@ -5,6 +5,7 @@ struct WorkspaceSettingsView: View {
     let workspaceId: String
 
     @Environment(AppDependencies.self) private var deps
+    @State private var workspace: WorkspaceEntity?
     @State private var members: [WorkspaceMemberEntity] = []
     @State private var invites: [WorkspaceInviteEntity] = []
     @State private var labels: [LabelEntity] = []
@@ -17,6 +18,12 @@ struct WorkspaceSettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    // General — public toggle + write policy
+                    WorkspaceGeneralSection(
+                        workspace: workspace,
+                        workspacesApi: deps.workspacesApi
+                    )
+
                     // Members section
                     WorkspaceMembersSection(
                         members: members,
@@ -51,6 +58,14 @@ struct WorkspaceSettingsView: View {
 
     private func startObserving() {
         observationTask = Task {
+            Task {
+                let obs = ValueObservation.tracking { db in
+                    try WorkspaceEntity.fetchOne(db, key: workspaceId)
+                }
+                for try await item in obs.values(in: deps.db.dbPool) {
+                    await MainActor.run { workspace = item }
+                }
+            }
             Task {
                 let obs = ValueObservation.tracking { db in
                     try WorkspaceMemberEntity.filter(Column("workspace_id") == workspaceId).fetchAll(db)

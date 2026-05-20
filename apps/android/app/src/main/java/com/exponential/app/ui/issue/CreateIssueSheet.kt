@@ -72,6 +72,7 @@ fun CreateIssueSheet(
     isCreating: Boolean,
     error: String?,
     users: List<UserEntity>,
+    isModerator: Boolean,
     onDismiss: () -> Unit,
     onCreate: (CreateIssuePayload) -> Unit,
 ) {
@@ -134,7 +135,7 @@ fun CreateIssueSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 androidx.compose.foundation.layout.Box {
-                    OutlinedButton(onClick = { statusMenuOpen = true }) {
+                    OutlinedButton(onClick = { statusMenuOpen = true }, enabled = isModerator) {
                         Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(status.label)
@@ -150,7 +151,7 @@ fun CreateIssueSheet(
                     }
                 }
                 androidx.compose.foundation.layout.Box {
-                    OutlinedButton(onClick = { priorityMenuOpen = true }) {
+                    OutlinedButton(onClick = { priorityMenuOpen = true }, enabled = isModerator) {
                         Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(priority.label)
@@ -166,7 +167,7 @@ fun CreateIssueSheet(
                     }
                 }
                 androidx.compose.foundation.layout.Box {
-                    OutlinedButton(onClick = { assigneeMenuOpen = true }) {
+                    OutlinedButton(onClick = { assigneeMenuOpen = true }, enabled = isModerator) {
                         Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(
@@ -189,20 +190,20 @@ fun CreateIssueSheet(
                         }
                     }
                 }
-                OutlinedButton(onClick = { datePickerOpen = true }) {
+                OutlinedButton(onClick = { datePickerOpen = true }, enabled = isModerator) {
                     Text(dueDate ?: "Due date")
                 }
                 if (dueDate != null) {
-                    OutlinedButton(onClick = { dueTimePickerOpen = true }) {
+                    OutlinedButton(onClick = { dueTimePickerOpen = true }, enabled = isModerator) {
                         Icon(Icons.Filled.Schedule, null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(dueTime ?: "Start time")
                     }
-                    OutlinedButton(onClick = { endTimePickerOpen = true }) {
+                    OutlinedButton(onClick = { endTimePickerOpen = true }, enabled = isModerator) {
                         Text(endTime ?: "End time")
                     }
                 }
-                OutlinedButton(onClick = { recurrenceSheetOpen = true }) {
+                OutlinedButton(onClick = { recurrenceSheetOpen = true }, enabled = isModerator) {
                     Icon(Icons.Filled.Repeat, null, modifier = Modifier.width(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(formatCreateRecurrence(recurrenceInterval, recurrenceUnit))

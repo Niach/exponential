@@ -43,6 +43,8 @@ final class DatabaseManager: Sendable {
                 t.column("name", .text).notNull()
                 t.column("slug", .text).notNull()
                 t.column("icon_url", .text)
+                t.column("is_public", .boolean).notNull().defaults(to: false)
+                t.column("public_write_policy", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -132,12 +134,36 @@ final class DatabaseManager: Sendable {
             }
         }
 
+        migrator.registerMigration("v2_public_workspace") { db in
+            try db.alter(table: "workspace") { t in
+                t.add(column: "is_public", .boolean).notNull().defaults(to: false)
+                t.add(column: "public_write_policy", .text)
+            }
+            // Force a resync of the workspace shape so existing rows pick up
+            // the new columns from Electric.
+            try db.execute(sql: "DELETE FROM electric_offset WHERE shape = 'workspaces'")
+        }
+
+        migrator.registerMigration("v3_comments") { db in
+            try db.create(table: "comment", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("issue_id", .text).notNull().indexed()
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("author_id", .text).notNull()
+                t.column("body", .text)
+                t.column("edited_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 
     func clearAllData() throws {
         try dbPool.write { db in
             try db.execute(sql: "DELETE FROM electric_offset")
+            try db.execute(sql: "DELETE FROM comment")
             try db.execute(sql: "DELETE FROM issue_label")
             try db.execute(sql: "DELETE FROM issue")
             try db.execute(sql: "DELETE FROM label")

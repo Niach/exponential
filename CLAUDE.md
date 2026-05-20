@@ -22,8 +22,13 @@ exponential/
 │   ├── web/        # TanStack Start app (the issue tracker)
 │   ├── push-relay/ # Standalone push notification relay (Hono/Bun, separately deployed)
 │   ├── marketing/  # Marketing site (Vite + React, deployed via Coolify)
-│   └── android/    # Native Kotlin / Jetpack Compose app (in progress)
-├── packages/       # Shared packages (db-schema, api-contracts, …)
+│   ├── ios/        # Native SwiftUI iOS app (Tuist + GRDB)
+│   └── android/    # Native Kotlin / Jetpack Compose app
+├── packages/
+│   ├── db-schema/          # Drizzle schema + shared zod/domain types
+│   ├── domain-contract/    # contract.json — canonical enum values; emits per-language constants
+│   ├── electric-protocol/  # Electric SQL shape protocol fixtures
+│   └── tsconfig/           # Shared TS configs
 ├── docker-compose.yaml
 ├── Caddyfile
 ├── Dockerfile              # Builds the web app image; build context = repo root
@@ -31,7 +36,9 @@ exponential/
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
-Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing` (and future `@exp/db-schema`, etc.).
+Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/tsconfig`.
+
+**Mobile parity:** iOS and Android sync the same nine Electric shapes the web client uses (workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, **comments**). All three clients honor `isPublic` / `publicWritePolicy` field gating via a small `WorkspacePermissions` helper that mirrors `apps/web/src/hooks/use-workspace-permissions.ts`. When changing enum values in `packages/db-schema/src/domain.ts`, also update `packages/domain-contract/contract.json` and run `bun run --filter @exp/domain-contract generate` to refresh the Swift / Kotlin constants.
 
 ## Commands
 
@@ -62,6 +69,8 @@ bun run format                     # Prettier format
 
 bun run android:build              # ./gradlew :app:assembleDebug in apps/android
 bun run android:install            # ./gradlew :app:installDebug
+
+bun run --filter @exp/domain-contract generate  # Regenerate iOS + Android enum constants
 ```
 
 You can also run a script directly inside a workspace: `bun --filter @exp/web <script>` or `cd apps/web && bun run <script>`.

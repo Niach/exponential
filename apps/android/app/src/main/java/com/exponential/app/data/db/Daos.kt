@@ -11,6 +11,9 @@ interface WorkspaceDao {
     @Query("SELECT * FROM workspaces ORDER BY name")
     fun observeAll(): Flow<List<WorkspaceEntity>>
 
+    @Query("SELECT * FROM workspaces WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<WorkspaceEntity?>
+
     @Query("SELECT * FROM workspaces WHERE slug = :slug LIMIT 1")
     fun observeBySlug(slug: String): Flow<WorkspaceEntity?>
 
@@ -126,6 +129,21 @@ interface WorkspaceMemberDao {
     suspend fun deleteById(id: String)
 
     @Query("DELETE FROM workspace_members")
+    suspend fun clear()
+}
+
+@Dao
+interface CommentDao {
+    @Query("SELECT * FROM comments WHERE issue_id = :issueId ORDER BY created_at ASC")
+    fun observeByIssue(issueId: String): Flow<List<CommentEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: CommentEntity)
+
+    @Query("DELETE FROM comments WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM comments")
     suspend fun clear()
 }
 

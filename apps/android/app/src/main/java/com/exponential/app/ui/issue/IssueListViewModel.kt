@@ -8,6 +8,7 @@ import com.exponential.app.data.api.IssueDescription
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.UpdateIssueInput
+import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.IssueDao
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelDao
@@ -18,10 +19,13 @@ import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserDao
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.WorkspaceDao
+import com.exponential.app.data.db.WorkspaceMemberDao
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.WorkspacePermissions
 import com.exponential.app.domain.deriveTab
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.matchesFilters
@@ -64,6 +68,9 @@ class IssueListViewModel @Inject constructor(
     private val issueLabelDao: IssueLabelDao,
     private val labelDao: LabelDao,
     private val userDao: UserDao,
+    private val workspaceDao: WorkspaceDao,
+    private val workspaceMemberDao: WorkspaceMemberDao,
+    private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val issueImagesApi: IssueImagesApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
@@ -85,6 +92,26 @@ class IssueListViewModel @Inject constructor(
     private val issueLabelsForWorkspace = _project.flatMapLatest { project ->
         if (project == null) flowOf(emptyList()) else issueLabelDao.observeByWorkspace(project.workspaceId)
     }
+    private val workspaceForProject = _project.flatMapLatest { project ->
+        if (project == null) flowOf(null) else workspaceDao.observeById(project.workspaceId)
+    }
+    private val membersForWorkspace = _project.flatMapLatest { project ->
+        if (project == null) flowOf(emptyList()) else workspaceMemberDao.observeByWorkspace(project.workspaceId)
+    }
+
+    val permissions: StateFlow<WorkspacePermissions> = combine(
+        workspaceForProject,
+        membersForWorkspace,
+        auth.userId,
+        auth.isAdmin,
+    ) { workspace, members, userId, isAdmin ->
+        WorkspacePermissions.resolve(
+            workspace = workspace,
+            currentUserId = userId,
+            isAdmin = isAdmin,
+            isMember = userId != null && members.any { it.userId == userId },
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
     val state: StateFlow<IssueListState> = combine(
         listOf(
@@ -119,7 +146,7 @@ class IssueListViewModel @Inject constructor(
             val status = IssueStatus.fromWire(issue.status)
             val priority = IssuePriority.fromWire(issue.priority)
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
-            if (!matchesFilters(status, priority, labelIds, filters)) return@mapNotNull null
+            if (!matchesFilters(status, priority, labelIds, issue.assigneeId, filters)) return@mapNotNull null
             val resolvedLabels = labelIds.mapNotNull { labelsById[it] }
             IssueWithLabels(issue, resolvedLabels)
         }
@@ -174,6 +201,11 @@ class IssueListViewModel @Inject constructor(
     fun toggleLabel(labelId: String) {
         val next = _filters.value.labelIds.toMutableSet().apply { if (!add(labelId)) remove(labelId) }
         _filters.value = _filters.value.copy(labelIds = next)
+    }
+
+    fun toggleAssignee(userId: String) {
+        val next = _filters.value.assigneeIds.toMutableSet().apply { if (!add(userId)) remove(userId) }
+        _filters.value = _filters.value.copy(assigneeIds = next)
     }
 
     fun clearFilters() {

@@ -9,6 +9,7 @@ import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.UpdateIssueInput
+import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.IssueDao
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelDao
@@ -18,8 +19,11 @@ import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserDao
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.WorkspaceDao
+import com.exponential.app.data.db.WorkspaceMemberDao
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.WorkspacePermissions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -51,6 +55,9 @@ class IssueDetailViewModel @Inject constructor(
     private val labelDao: LabelDao,
     private val issueLabelDao: IssueLabelDao,
     private val userDao: UserDao,
+    private val workspaceDao: WorkspaceDao,
+    private val workspaceMemberDao: WorkspaceMemberDao,
+    private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
     private val issueImagesApi: IssueImagesApi,
@@ -65,6 +72,26 @@ class IssueDetailViewModel @Inject constructor(
     private val workspaceLabelsFlow = _project.flatMapLatest { project ->
         if (project == null) flowOf(emptyList()) else labelDao.observeByWorkspace(project.workspaceId)
     }
+    private val workspaceForProject = _project.flatMapLatest { project ->
+        if (project == null) flowOf(null) else workspaceDao.observeById(project.workspaceId)
+    }
+    private val membersForWorkspace = _project.flatMapLatest { project ->
+        if (project == null) flowOf(emptyList()) else workspaceMemberDao.observeByWorkspace(project.workspaceId)
+    }
+
+    val permissions: StateFlow<WorkspacePermissions> = combine(
+        workspaceForProject,
+        membersForWorkspace,
+        auth.userId,
+        auth.isAdmin,
+    ) { workspace, members, userId, isAdmin ->
+        WorkspacePermissions.resolve(
+            workspace = workspace,
+            currentUserId = userId,
+            isAdmin = isAdmin,
+            isMember = userId != null && members.any { it.userId == userId },
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
     val state: StateFlow<IssueDetailState> = combine(
         issueFlow,

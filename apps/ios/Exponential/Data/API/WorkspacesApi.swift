@@ -10,7 +10,16 @@ struct WorkspaceResult: Decodable {
     let slug: String
 }
 
+struct UpdateWorkspaceInput: Encodable {
+    let id: String
+    var name: String?
+    var isPublic: Bool?
+    var publicWritePolicy: String?
+    var iconUrl: String?
+}
+
 private struct EmptyInput: Encodable {}
+private struct EmptyResult: Decodable {}
 
 final class WorkspacesApi: Sendable {
     private let trpc: TrpcClient
@@ -22,5 +31,9 @@ final class WorkspacesApi: Sendable {
     func ensureDefault() async throws -> WorkspaceResult {
         let result: EnsureDefaultResult = try await trpc.mutation(path: "workspaces.ensureDefault", input: EmptyInput())
         return result.workspace
+    }
+
+    func update(_ input: UpdateWorkspaceInput) async throws {
+        let _: EmptyResult = try await trpc.mutation(path: "workspaces.update", input: input)
     }
 }

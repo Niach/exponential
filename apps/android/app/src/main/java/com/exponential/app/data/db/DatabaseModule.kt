@@ -17,6 +17,10 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): ExponentialDatabase =
         Room.databaseBuilder(context, ExponentialDatabase::class.java, "exponential.db")
+            .addMigrations(
+                ExponentialDatabase.MIGRATION_2_3,
+                ExponentialDatabase.MIGRATION_3_4,
+            )
             .fallbackToDestructiveMigration()
             .build()
 
@@ -43,6 +47,9 @@ object DatabaseModule {
 
     @Provides
     fun provideWorkspaceInviteDao(db: ExponentialDatabase): WorkspaceInviteDao = db.workspaceInviteDao()
+
+    @Provides
+    fun provideCommentDao(db: ExponentialDatabase): CommentDao = db.commentDao()
 
     @Provides
     fun provideElectricOffsetDao(db: ExponentialDatabase): ElectricOffsetDao = db.electricOffsetDao()

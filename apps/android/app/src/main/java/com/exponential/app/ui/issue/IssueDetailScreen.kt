@@ -69,6 +69,8 @@ fun IssueDetailScreen(
     viewModel: IssueDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val permissions by viewModel.permissions.collectAsState()
+    val isModerator = permissions.isModerator
     val issue = state.issue
     var titleField by remember { mutableStateOf("") }
     var descriptionField by remember { mutableStateOf("") }
@@ -99,8 +101,10 @@ fun IssueDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.delete(onBack) }) {
-                        Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")
+                    if (isModerator) {
+                        IconButton(onClick = { viewModel.delete(onBack) }) {
+                            Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -150,7 +154,7 @@ fun IssueDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Box {
-                    OutlinedButton(onClick = { statusMenuOpen = true }) {
+                    OutlinedButton(onClick = { statusMenuOpen = true }, enabled = isModerator) {
                         Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(status.label)
@@ -166,7 +170,7 @@ fun IssueDetailScreen(
                     }
                 }
                 Box {
-                    OutlinedButton(onClick = { priorityMenuOpen = true }) {
+                    OutlinedButton(onClick = { priorityMenuOpen = true }, enabled = isModerator) {
                         Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(priority.label)
@@ -182,7 +186,7 @@ fun IssueDetailScreen(
                     }
                 }
                 Box {
-                    OutlinedButton(onClick = { assigneeMenuOpen = true }) {
+                    OutlinedButton(onClick = { assigneeMenuOpen = true }, enabled = isModerator) {
                         Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(state.assignee?.name ?: state.assignee?.email ?: "Unassigned", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -201,20 +205,20 @@ fun IssueDetailScreen(
                         }
                     }
                 }
-                OutlinedButton(onClick = { datePickerOpen = true }) {
+                OutlinedButton(onClick = { datePickerOpen = true }, enabled = isModerator) {
                     Text(issue.dueDate ?: "Due date")
                 }
                 if (issue.dueDate != null) {
-                    OutlinedButton(onClick = { dueTimePickerOpen = true }) {
+                    OutlinedButton(onClick = { dueTimePickerOpen = true }, enabled = isModerator) {
                         Icon(Icons.Filled.Schedule, null, modifier = Modifier.width(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(issue.dueTime ?: "Start time")
                     }
-                    OutlinedButton(onClick = { endTimePickerOpen = true }) {
+                    OutlinedButton(onClick = { endTimePickerOpen = true }, enabled = isModerator) {
                         Text(issue.endTime ?: "End time")
                     }
                 }
-                OutlinedButton(onClick = { recurrenceSheetOpen = true }) {
+                OutlinedButton(onClick = { recurrenceSheetOpen = true }, enabled = isModerator) {
                     Icon(Icons.Filled.Repeat, null, modifier = Modifier.width(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(formatRecurrence(issue.recurrenceInterval, issue.recurrenceUnit))
@@ -276,6 +280,9 @@ fun IssueDetailScreen(
                 onUploadImage = { uri -> viewModel.uploadImage(uri) },
                 imageUploadEnabled = true,
             )
+
+            Spacer(Modifier.height(20.dp))
+            CommentThread(issueId = issue.id)
         }
     }
 

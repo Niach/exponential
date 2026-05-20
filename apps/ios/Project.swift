@@ -15,8 +15,8 @@ let project = Project(
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: [
                 "CFBundleDisplayName": "Exponential",
-                "CFBundleShortVersionString": "0.1.0",
-                "CFBundleVersion": "1",
+                "CFBundleShortVersionString": "0.2.0",
+                "CFBundleVersion": "2",
                 "UILaunchScreen": .dictionary([:]),
                 "CFBundleURLTypes": .array([
                     .dictionary([

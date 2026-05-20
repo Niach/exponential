@@ -21,15 +21,22 @@ exponential/
 ├── apps/
 │   ├── web/        # TanStack Start app (the issue tracker)
 │   ├── marketing/  # Marketing site (Vite + React, deployed via Coolify)
-│   └── android/    # Native Kotlin / Jetpack Compose app (in progress)
-├── packages/       # Shared packages (db-schema, api-contracts, …)
+│   ├── ios/        # Native SwiftUI iOS app (Tuist + GRDB)
+│   └── android/    # Native Kotlin / Jetpack Compose app
+├── packages/
+│   ├── db-schema/          # Drizzle schema + shared zod/domain types
+│   ├── domain-contract/    # contract.json — canonical enum values; emits per-language constants
+│   ├── electric-protocol/  # Electric SQL shape protocol fixtures
+│   └── tsconfig/           # Shared TS configs
 ├── docker-compose.yaml
 ├── Caddyfile
 ├── Dockerfile      # Builds the web app image; build context = repo root
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
-Workspace package names: `@exp/web`, `@exp/marketing` (and future `@exp/db-schema`, etc.).
+Workspace package names: `@exp/web`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/tsconfig`.
+
+**Mobile parity:** iOS and Android both sync nine Electric shapes (workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, comments). Permission gating on the issue editor uses `WorkspacePermissions` helpers (`apps/ios/Exponential/Domain/WorkspacePermissions.swift`, `apps/android/.../domain/WorkspacePermissions.kt`) that mirror the canonical web `use-workspace-permissions.ts`. Enum values are emitted from `packages/domain-contract/contract.json`; regenerate with `bun run --filter @exp/domain-contract generate` after editing the contract.
 
 ## Commands
 

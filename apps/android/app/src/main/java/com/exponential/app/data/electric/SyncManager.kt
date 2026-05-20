@@ -1,6 +1,8 @@
 package com.exponential.app.data.electric
 
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.CommentDao
+import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.ElectricOffsetDao
 import com.exponential.app.data.db.IssueDao
 import com.exponential.app.data.db.IssueEntity
@@ -45,6 +47,7 @@ class SyncManager @Inject constructor(
     private val userDao: UserDao,
     private val workspaceMemberDao: WorkspaceMemberDao,
     private val workspaceInviteDao: WorkspaceInviteDao,
+    private val commentDao: CommentDao,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var shapeJobs: List<Job> = emptyList()
@@ -71,6 +74,7 @@ class SyncManager @Inject constructor(
         userDao.clear()
         workspaceMemberDao.clear()
         workspaceInviteDao.clear()
+        commentDao.clear()
     }
 
     private fun cancelShapes() {
@@ -151,6 +155,15 @@ class SyncManager @Inject constructor(
                 onUpdate = { workspaceInviteDao.upsert(it) },
                 onDelete = { workspaceInviteDao.deleteById(it.id) },
                 onRefetch = { workspaceInviteDao.clear() },
+            ),
+            launchShape(
+                shape = "comments",
+                path = "/api/shapes/comments",
+                serializer = CommentEntity.serializer(),
+                onInsert = { commentDao.upsert(it) },
+                onUpdate = { commentDao.upsert(it) },
+                onDelete = { commentDao.deleteById(it.id) },
+                onRefetch = { commentDao.clear() },
             ),
         )
     }

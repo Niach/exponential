@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.UpdateLabelInput
+import com.exponential.app.data.api.UpdateWorkspaceInput
 import com.exponential.app.data.api.WorkspaceInvitesApi
 import com.exponential.app.data.api.WorkspaceMembersApi
+import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.LabelDao
 import com.exponential.app.data.db.LabelEntity
@@ -58,6 +60,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val membersApi: WorkspaceMembersApi,
     private val invitesApi: WorkspaceInvitesApi,
     private val labelsApi: LabelsApi,
+    private val workspacesApi: WorkspacesApi,
 ) : ViewModel() {
 
     private val workspaceFlow = selection.selectedId.flatMapLatest { id ->
@@ -157,4 +160,25 @@ class WorkspaceSettingsViewModel @Inject constructor(
     }
 
     fun consumeTransient() { _transient.value = null }
+
+    fun setPublic(isPublic: Boolean) = viewModelScope.launch {
+        val workspaceId = selection.selectedId.value ?: return@launch
+        runCatching {
+            workspacesApi.update(
+                UpdateWorkspaceInput(
+                    id = workspaceId,
+                    isPublic = isPublic,
+                    // Default policy when first enabling — matches the web flow.
+                    publicWritePolicy = if (isPublic) "members" else null,
+                )
+            )
+        }.onFailure { _transient.value = it.message }
+    }
+
+    fun setPublicWritePolicy(policy: String) = viewModelScope.launch {
+        val workspaceId = selection.selectedId.value ?: return@launch
+        runCatching {
+            workspacesApi.update(UpdateWorkspaceInput(id = workspaceId, publicWritePolicy = policy))
+        }.onFailure { _transient.value = it.message }
+    }
 }

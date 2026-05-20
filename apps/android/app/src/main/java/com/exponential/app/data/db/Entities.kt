@@ -20,6 +20,8 @@ data class WorkspaceEntity(
     val name: String,
     val slug: String,
     @ColumnInfo(name = "icon_url") @SerialName("icon_url") @JsonNames("iconUrl") val iconUrl: String? = null,
+    @ColumnInfo(name = "is_public") @SerialName("is_public") @JsonNames("isPublic") val isPublic: Boolean = false,
+    @ColumnInfo(name = "public_write_policy") @SerialName("public_write_policy") @JsonNames("publicWritePolicy") val publicWritePolicy: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -134,6 +136,22 @@ data class WorkspaceInviteEntity(
     val token: String,
     @ColumnInfo(name = "expires_at") @SerialName("expires_at") @JsonNames("expiresAt") val expiresAt: String,
     @ColumnInfo(name = "accepted_at") @SerialName("accepted_at") @JsonNames("acceptedAt") val acceptedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+@Entity(
+    tableName = "comments",
+    indices = [Index("issue_id"), Index("workspace_id")],
+)
+@Serializable
+data class CommentEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String,
+    @Serializable(with = JsonAsStringSerializer::class) val body: String? = null,
+    @ColumnInfo(name = "edited_at") @SerialName("edited_at") @JsonNames("editedAt") val editedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

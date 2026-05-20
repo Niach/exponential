@@ -22,6 +22,7 @@ final class AppDependencies: @unchecked Sendable {
     let integrationsApi: IntegrationsApi
     let adminApi: AdminApi
     let issueImagesApi: IssueImagesApi
+    let commentsApi: CommentsApi
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -55,6 +56,7 @@ final class AppDependencies: @unchecked Sendable {
         self.integrationsApi = IntegrationsApi(trpc: trpc)
         self.adminApi = AdminApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
+        self.commentsApi = CommentsApi(trpc: trpc)
 
         // Push notifications
         let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)

@@ -88,7 +88,7 @@ final class SyncManager: @unchecked Sendable {
     }
 
     private func launchShapes() {
-        logger.info("Launching live shape sync (8 shapes)")
+        logger.info("Launching live shape sync (9 shapes)")
         let db = self.db
         let auth = self.auth
         let baseUrl: @Sendable () -> String? = { auth.instanceUrl }
@@ -125,6 +125,10 @@ final class SyncManager: @unchecked Sendable {
         shapeTasks.append(makeShapeTask(
             name: "workspace-invites", path: "/api/shapes/workspace-invites", table: "workspace_invite",
             type: WorkspaceInviteEntity.self, db: db, baseUrl: baseUrl, token: token
+        ))
+        shapeTasks.append(makeShapeTask(
+            name: "comments", path: "/api/shapes/comments", table: "comment",
+            type: CommentEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
     }
 

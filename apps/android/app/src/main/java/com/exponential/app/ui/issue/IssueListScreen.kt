@@ -69,6 +69,7 @@ fun IssueListScreen(
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val permissions by viewModel.permissions.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     val openDrawer = LocalDrawerOpener.current
@@ -97,8 +98,10 @@ fun IssueListScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreate = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Create issue")
+            if (permissions.canCreate) {
+                FloatingActionButton(onClick = { showCreate = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = "Create issue")
+                }
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -139,6 +142,7 @@ fun IssueListScreen(
             isCreating = state.isCreating,
             error = state.error,
             users = state.users,
+            isModerator = permissions.isModerator,
             onDismiss = { showCreate = false },
             onCreate = { payload ->
                 viewModel.createIssue(
@@ -163,9 +167,11 @@ fun IssueListScreen(
         IssueFilterSheet(
             filters = state.filters,
             labels = state.labels,
+            users = state.users,
             onToggleStatus = viewModel::toggleStatus,
             onTogglePriority = viewModel::togglePriority,
             onToggleLabel = viewModel::toggleLabel,
+            onToggleAssignee = viewModel::toggleAssignee,
             onClear = viewModel::clearFilters,
             onDismiss = { showFilters = false },
         )

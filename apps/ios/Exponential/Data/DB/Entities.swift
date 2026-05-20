@@ -13,21 +13,47 @@ struct ElectricOffset: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Workspace
 
-struct WorkspaceEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+struct WorkspaceEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     static let databaseTableName = "workspace"
 
     let id: String
     let name: String
     let slug: String
     let iconUrl: String?
+    let isPublic: Bool
+    let publicWritePolicy: String?
     let createdAt: String
     let updatedAt: String
 
     enum CodingKeys: String, CodingKey {
         case id, name, slug
         case iconUrl = "icon_url"
+        case isPublic = "is_public"
+        case publicWritePolicy = "public_write_policy"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// Custom Codable: Electric may deliver `is_public` as JSON boolean (true/false)
+// or as the integer 0/1 (SQLite-style). Decode permissively.
+extension WorkspaceEntity: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        slug = try container.decode(String.self, forKey: .slug)
+        iconUrl = try container.decodeIfPresent(String.self, forKey: .iconUrl)
+        if let boolValue = try? container.decode(Bool.self, forKey: .isPublic) {
+            isPublic = boolValue
+        } else if let intValue = try? container.decode(Int.self, forKey: .isPublic) {
+            isPublic = intValue != 0
+        } else {
+            isPublic = false
+        }
+        publicWritePolicy = try container.decodeIfPresent(String.self, forKey: .publicWritePolicy)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        updatedAt = try container.decode(String.self, forKey: .updatedAt)
     }
 }
 
@@ -256,6 +282,71 @@ struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord, Ident
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+}
+
+// MARK: - Comment
+
+struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    static let databaseTableName = "comment"
+
+    let id: String
+    let issueId: String
+    let workspaceId: String
+    let authorId: String
+    // JSON body — Electric delivers as object (e.g. {"text": "..."}). Stored
+    // as the stringified JSON; UI decodes lazily via getCommentBodyText().
+    let body: String?
+    let editedAt: String?
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, body
+        case issueId = "issue_id"
+        case workspaceId = "workspace_id"
+        case authorId = "author_id"
+        case editedAt = "edited_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension CommentEntity: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        issueId = try container.decode(String.self, forKey: .issueId)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        authorId = try container.decode(String.self, forKey: .authorId)
+        editedAt = try container.decodeIfPresent(String.self, forKey: .editedAt)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        updatedAt = try container.decode(String.self, forKey: .updatedAt)
+
+        // Handle JSONB body: object, string, or null
+        if container.contains(.body) {
+            if let stringValue = try? container.decode(String.self, forKey: .body) {
+                body = stringValue
+            } else if let _ = try? container.decodeNil(forKey: .body) {
+                body = nil
+            } else {
+                let rawJSON = try container.decode(AnyCodableValue.self, forKey: .body)
+                body = rawJSON.jsonString
+            }
+        } else {
+            body = nil
+        }
+    }
+}
+
+// Extract the `{ "text": "..." }` field from a stored comment body.
+func getCommentBodyText(_ body: String?) -> String {
+    guard let body, let data = body.data(using: .utf8) else { return "" }
+    if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+       let text = dict["text"] as? String {
+        return text
+    }
+    // Fallback: if body was stored as a bare string
+    return body
 }
 
 // MARK: - AnyCodableValue (for JSONB handling)

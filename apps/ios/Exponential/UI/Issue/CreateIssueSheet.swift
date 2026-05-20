@@ -24,6 +24,7 @@ struct CreateIssueSheet: View {
     @State private var createMore = false
     @State private var loading = false
     @State private var error: String?
+    @State private var permissions: WorkspacePermissions = .denied
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -71,6 +72,7 @@ struct CreateIssueSheet: View {
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .disabled(!permissions.isModerator)
                             }
 
                             // Priority
@@ -88,6 +90,7 @@ struct CreateIssueSheet: View {
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .disabled(!permissions.isModerator)
                             }
 
                             // Assignee
@@ -109,6 +112,7 @@ struct CreateIssueSheet: View {
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .disabled(!permissions.isModerator)
                             }
 
                             // Recurrence
@@ -137,14 +141,18 @@ struct CreateIssueSheet: View {
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .disabled(!permissions.isModerator)
                             }
 
                         }
                         .padding(16)
                         .glassSection()
+                        .opacity(permissions.isModerator ? 1 : 0.55)
 
                         // Due date — same inline picker as IssueDetailView
                         DueDatePicker(date: $dueDate)
+                            .disabled(!permissions.isModerator)
+                            .opacity(permissions.isModerator ? 1 : 0.55)
 
                         // Times (only when a due date is selected)
                         if dueDate != nil {
@@ -155,6 +163,7 @@ struct CreateIssueSheet: View {
                                         placeholder: "—",
                                         onChange: { dueTime = $0 }
                                     )
+                                    .disabled(!permissions.isModerator)
                                 }
                                 metadataRow(label: "End time", icon: "clock.badge", iconColor: .white.opacity(0.6)) {
                                     TimeFieldButton(
@@ -162,10 +171,12 @@ struct CreateIssueSheet: View {
                                         placeholder: "—",
                                         onChange: { endTime = $0 }
                                     )
+                                    .disabled(!permissions.isModerator)
                                 }
                             }
                             .padding(16)
                             .glassSection()
+                            .opacity(permissions.isModerator ? 1 : 0.55)
                         }
 
                         // Create more toggle
@@ -216,6 +227,18 @@ struct CreateIssueSheet: View {
                     }) {
                         users = loaded
                     }
+                    let workspace: WorkspaceEntity? = (try? await deps.db.dbPool.read({ db -> WorkspaceEntity? in
+                        guard let project = try ProjectEntity.fetchOne(db, key: projectId) else {
+                            return nil
+                        }
+                        return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
+                    })) ?? nil
+                    permissions = WorkspacePermissions.resolve(
+                        workspace: workspace,
+                        currentUserId: deps.auth.userId,
+                        isAdmin: deps.auth.isAdmin,
+                        dbPool: deps.db.dbPool
+                    )
                 }
             }
         }

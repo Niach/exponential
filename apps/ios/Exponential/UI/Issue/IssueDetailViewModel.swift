@@ -11,18 +11,21 @@ final class IssueDetailViewModel {
     var editingDescription: String = ""
     var saving = false
     var error: String?
+    var permissions: WorkspacePermissions = .denied
 
     private let issueId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
     private let labelsApi: LabelsApi
+    private let auth: AuthRepository
     private var observationTask: Task<Void, Never>?
 
-    init(issueId: String, db: DatabaseManager, issuesApi: IssuesApi, labelsApi: LabelsApi) {
+    init(issueId: String, db: DatabaseManager, issuesApi: IssuesApi, labelsApi: LabelsApi, auth: AuthRepository) {
         self.issueId = issueId
         self.db = db
         self.issuesApi = issuesApi
         self.labelsApi = labelsApi
+        self.auth = auth
     }
 
     func startObserving() {
@@ -41,6 +44,7 @@ final class IssueDetailViewModel {
                             self.editingTitle = issue.title
                             self.editingDescription = issue.description ?? ""
                         }
+                        self.refreshPermissions(for: issue)
                     }
                 }
             }
@@ -169,6 +173,21 @@ final class IssueDetailViewModel {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    private func refreshPermissions(for issue: IssueEntity) {
+        let workspace: WorkspaceEntity? = (try? db.dbPool.read { db -> WorkspaceEntity? in
+            guard let project = try ProjectEntity.fetchOne(db, key: issue.projectId) else {
+                return nil
+            }
+            return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
+        }) ?? nil
+        permissions = WorkspacePermissions.resolve(
+            workspace: workspace,
+            currentUserId: auth.userId,
+            isAdmin: auth.isAdmin,
+            dbPool: db.dbPool
+        )
     }
 
     private func formatDate(_ date: Date) -> String {
