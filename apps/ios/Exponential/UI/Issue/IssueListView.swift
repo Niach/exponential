@@ -7,7 +7,6 @@ struct IssueListView: View {
     @Environment(AppDependencies.self) private var deps
     @State private var viewModel: IssueListViewModel?
     @State private var showCreateSheet = false
-    @State private var selectedIssueId: String?
 
     var body: some View {
         ZStack {
@@ -32,12 +31,6 @@ struct IssueListView: View {
         .sheet(isPresented: $showCreateSheet) {
             CreateIssueSheet(projectId: projectId, onCreated: {})
                 .presentationBackground(.ultraThinMaterial)
-        }
-        .sheet(item: $selectedIssueId) { issueId in
-            NavigationStack {
-                IssueDetailView(issueId: issueId)
-            }
-            .presentationBackground(.ultraThinMaterial)
         }
         .onAppear {
             if viewModel == nil {
@@ -201,9 +194,7 @@ struct IssueListView: View {
 
     @ViewBuilder
     private func issueRow(issue: IssueEntity, vm: IssueListViewModel) -> some View {
-        Button {
-            selectedIssueId = issue.id
-        } label: {
+        NavigationLink(value: AppRoute.issue(id: issue.id)) {
             HStack(spacing: 10) {
                 // Priority icon
                 Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
@@ -296,12 +287,6 @@ struct IssueListView: View {
         if Calendar.current.isDateInToday(date) { return .orange }
         return .white.opacity(TextOpacity.tertiary)
     }
-}
-
-// MARK: - String identifiable for sheet
-
-extension String: @retroactive Identifiable {
-    public var id: String { self }
 }
 
 // MARK: - Color from hex

@@ -12,6 +12,7 @@ import type { IssueStatus } from "@/lib/domain"
 
 type ProjectSearch = {
   description?: string
+  edit?: string
   new?: 1
   title?: string
 }
@@ -24,6 +25,7 @@ export const Route = createFileRoute(
     title: typeof search.title === `string` ? search.title : undefined,
     description:
       typeof search.description === `string` ? search.description : undefined,
+    edit: typeof search.edit === `string` ? search.edit : undefined,
   }),
   component: ProjectPage,
 })
@@ -45,11 +47,21 @@ function ProjectPage() {
         title: search.title,
         description: search.description,
       })
-      void navigate({ search: {}, replace: true })
+      void navigate({
+        search: (prev) => ({ ...prev, new: undefined, title: undefined, description: undefined }),
+        replace: true,
+      })
     }
   }, [search.new, search.title, search.description, navigate])
   const [filters, setFilters] = useState<IssueFilters>(emptyFilters)
-  const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
+  // Editing state lives in the URL so the browser back button closes the
+  // editor and the issue is deep-linkable. `?edit=<id>`.
+  const editingIssueId = search.edit ?? null
+  const setEditingIssueId = (id: string | null) => {
+    void navigate({
+      search: (prev) => ({ ...prev, edit: id ?? undefined }),
+    })
+  }
 
   const {
     editingIssue,
