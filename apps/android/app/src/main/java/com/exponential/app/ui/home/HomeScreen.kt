@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.ui.nav.AvatarMenuButton
 import com.exponential.app.ui.nav.LocalDrawerOpener
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +63,7 @@ fun HomeScreen(
                         Icon(Icons.Filled.Menu, contentDescription = "Menu")
                     }
                 },
+                actions = { AvatarMenuButton() },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),

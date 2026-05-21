@@ -59,6 +59,7 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.nav.AvatarMenuButton
 import com.exponential.app.ui.nav.LocalDrawerOpener
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,6 +92,7 @@ fun IssueListScreen(
                             Icon(Icons.Filled.FilterList, contentDescription = "Filters")
                         }
                     }
+                    AvatarMenuButton()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,

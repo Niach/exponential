@@ -367,9 +367,24 @@ function MobileTopbar({
   projects: Project[]
 }) {
   const params = useParams({ strict: false }) as { projectSlug?: string }
+  const { data: session } = authClient.useSession()
+  const navigate = useNavigate()
   const activeProject = params.projectSlug
     ? projects.find((p) => p.slug === params.projectSlug)
     : undefined
+  const isAuthed = Boolean(session?.user)
+  const isAdmin = Boolean((session?.user as { isAdmin?: boolean })?.isAdmin)
+  const userInitials = session?.user?.name
+    ? getInitials(session.user.name)
+    : `?`
+
+  const handleSignOut = async () => {
+    await authClient.signOut()
+    navigate({
+      to: `/auth/login`,
+      search: { redirect: undefined },
+    })
+  }
 
   return (
     <header className="flex items-center gap-2 border-b px-3 md:px-4 h-12">
@@ -383,23 +398,91 @@ function MobileTopbar({
           <span className="truncate">{activeProject.name}</span>
         </div>
       )}
-      {activeProject && (
-        <Button
-          asChild
-          size="icon-xs"
-          variant="ghost"
-          className="ml-auto text-muted-foreground md:hidden"
-        >
-          <Link
-            to="/w/$workspaceSlug/projects/$projectSlug"
-            params={{ workspaceSlug, projectSlug: activeProject.slug }}
-            search={{ new: 1 }}
-            aria-label="New issue"
+      <div className="ml-auto flex items-center gap-1 md:hidden">
+        {activeProject && (
+          <Button
+            asChild
+            size="icon"
+            variant="ghost"
+            className="size-9 text-muted-foreground"
           >
-            <Plus className="size-4" />
-          </Link>
-        </Button>
-      )}
+            <Link
+              to="/w/$workspaceSlug/projects/$projectSlug"
+              params={{ workspaceSlug, projectSlug: activeProject.slug }}
+              search={{ new: 1 }}
+              aria-label="New issue"
+            >
+              <Plus className="size-5" />
+            </Link>
+          </Button>
+        )}
+        {isAuthed && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-9 rounded-full"
+                aria-label="User menu"
+              >
+                <Avatar className="h-7 w-7">
+                  <AvatarFallback className="text-xs">
+                    {userInitials}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {isAdmin && (
+                <DropdownMenuItem
+                  onClick={() => navigate({ to: `/admin/users` })}
+                >
+                  <Shield className="mr-2 h-4 w-4" />
+                  Admin
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onClick={() => navigate({ to: `/account/integrations` })}
+              >
+                <Plug className="mr-2 h-4 w-4" />
+                Integrations
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  navigate({
+                    to: `/w/$workspaceSlug/settings`,
+                    params: { workspaceSlug },
+                  })
+                }
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                Workspace settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {!isAuthed && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-9"
+            aria-label="Sign in"
+            onClick={() =>
+              navigate({
+                to: `/auth/login`,
+                search: { redirect: undefined },
+              })
+            }
+          >
+            <LogIn className="size-4" />
+          </Button>
+        )}
+      </div>
     </header>
   )
 }

@@ -5,6 +5,7 @@ enum AppRoute: Hashable {
     case home
     case project(id: String)
     case issue(id: String)
+    case settings
     case workspaceSettings(workspaceId: String)
     case integrations
     case adminUsers
@@ -31,15 +32,13 @@ struct AppNavigator: View {
 
 struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
-    @State private var selectedTab: BottomTab = .projects
-    @State private var projectsPath = NavigationPath()
-    @State private var settingsPath = NavigationPath()
+    @State private var path = NavigationPath()
     @State private var workspaceState = WorkspaceState()
     @State private var showWorkspaceSwitcher = false
     @State private var observationTask: Task<Void, Never>?
     @State private var syncing = false
 
-    private var workspaceSheetHeight: CGFloat {
+    var workspaceSheetHeight: CGFloat {
         let header: CGFloat = 56
         let rowHeight: CGFloat = 44
         let bottomPadding: CGFloat = 24
@@ -51,27 +50,15 @@ struct MainNavigator: View {
         ZStack {
             AppBackground()
 
-            switch selectedTab {
-            case .projects:
-                NavigationStack(path: $projectsPath) {
-                    HomeView(syncing: syncing)
-                        .navigationDestination(for: AppRoute.self) { destination(for: $0) }
-                }
-            case .settings:
-                NavigationStack(path: $settingsPath) {
-                    SettingsView()
-                        .navigationDestination(for: AppRoute.self) { destination(for: $0) }
-                }
+            NavigationStack(path: $path) {
+                HomeView(
+                    syncing: syncing,
+                    onWorkspaceTap: { showWorkspaceSwitcher = true }
+                )
+                .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
         }
         .environment(workspaceState)
-        .safeAreaInset(edge: .bottom) {
-            BottomBar(
-                selectedTab: $selectedTab,
-                workspace: workspaceState.activeWorkspace,
-                onWorkspaceTap: { showWorkspaceSwitcher = true }
-            )
-        }
         .sheet(isPresented: $showWorkspaceSwitcher) {
             SidebarView(
                 workspaces: workspaceState.workspaces,
@@ -102,8 +89,7 @@ struct MainNavigator: View {
         }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
-                selectedTab = .projects
-                projectsPath.append(AppRoute.issue(id: issueId))
+                path.append(AppRoute.issue(id: issueId))
                 _ = deps.deepLinkBus.consume()
             }
         }
@@ -113,11 +99,13 @@ struct MainNavigator: View {
     private func destination(for route: AppRoute) -> some View {
         switch route {
         case .home:
-            HomeView(syncing: syncing)
+            HomeView(syncing: syncing, onWorkspaceTap: { showWorkspaceSwitcher = true })
         case let .project(id):
             IssueListView(projectId: id)
         case let .issue(id):
             IssueDetailView(issueId: id)
+        case .settings:
+            SettingsView()
         case let .workspaceSettings(workspaceId):
             WorkspaceSettingsView(workspaceId: workspaceId)
         case .integrations:
@@ -146,13 +134,11 @@ struct MainNavigator: View {
         }
         // Handle exp://issue/<issueId>
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
-            selectedTab = .projects
-            projectsPath.append(AppRoute.issue(id: String(issueId)))
+            path.append(AppRoute.issue(id: String(issueId)))
         }
         // Handle exp://invite/<token>
         if url.host == "invite", let token = url.pathComponents.dropFirst().first {
-            selectedTab = .projects
-            projectsPath.append(AppRoute.invite(token: String(token)))
+            path.append(AppRoute.invite(token: String(token)))
         }
     }
 

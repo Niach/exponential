@@ -52,7 +52,7 @@ export function StatusDropdown({
         return (
           <Button
             variant="ghost"
-            className="h-5 w-5 p-0"
+            className="h-8 w-8 md:h-5 md:w-5 p-0"
             disabled={disabled}
             aria-label={`Change status (current: ${selected.label})`}
           >

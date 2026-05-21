@@ -246,6 +246,7 @@ private fun AuthenticatedShell(
         onSelectWorkspace = homeViewModel::selectWorkspace,
         onOpenProject = { id -> navController.navigate("project/$id") },
         onOpenIntegrations = { navController.navigate("integrations") },
+        onOpenSettings = { navController.navigate("settings") },
         onSignOut = onSignOut,
     ) {
         NavHost(navController = navController, startDestination = "home") {

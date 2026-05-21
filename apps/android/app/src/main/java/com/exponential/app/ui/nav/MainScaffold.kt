@@ -1,7 +1,6 @@
 package com.exponential.app.ui.nav
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
@@ -11,8 +10,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.PermanentDrawerSheet
@@ -22,6 +19,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -72,10 +70,24 @@ fun MainScaffold(
     onSelectWorkspace: (String) -> Unit,
     onOpenProject: (String) -> Unit,
     onOpenIntegrations: () -> Unit,
+    onOpenSettings: () -> Unit,
     onSignOut: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     val isExpanded = LocalConfiguration.current.screenWidthDp >= EXPANDED_WIDTH_DP
+
+    // Build the avatar-menu bag once so both shells provide identical state to
+    // screens inside the NavHost via LocalAvatarMenu.
+    val avatarState = remember(workspaces, selectedWorkspace, email) {
+        AvatarMenuState(
+            email = email,
+            workspaces = workspaces,
+            selectedWorkspace = selectedWorkspace,
+            onSelectWorkspace = onSelectWorkspace,
+            onOpenSettings = onOpenSettings,
+            onSignOut = onSignOut,
+        )
+    }
 
     if (isExpanded) {
         ExpandedShell(
@@ -89,6 +101,7 @@ fun MainScaffold(
             onOpenProject = onOpenProject,
             onOpenIntegrations = onOpenIntegrations,
             onSignOut = onSignOut,
+            avatarState = avatarState,
             content = content,
         )
     } else {
@@ -103,6 +116,7 @@ fun MainScaffold(
             onOpenProject = onOpenProject,
             onOpenIntegrations = onOpenIntegrations,
             onSignOut = onSignOut,
+            avatarState = avatarState,
             content = content,
         )
     }
@@ -120,13 +134,11 @@ private fun CompactShell(
     onOpenProject: (String) -> Unit,
     onOpenIntegrations: () -> Unit,
     onSignOut: () -> Unit,
+    avatarState: AvatarMenuState,
     content: @Composable () -> Unit,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val backStack by navController.currentBackStackEntryAsState()
-    val currentRoute = backStack?.destination?.route
-    val showBottomBar = PrimaryDestination.all.any { it.route == currentRoute }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -156,26 +168,15 @@ private fun CompactShell(
             )
         },
     ) {
+        // On compact width the bottom NavigationBar is gone — the only two
+        // tabs (Projects, Settings) became a stack-of-screens accessed from
+        // the avatar menu in the TopAppBar. Drawer remains as an opt-in
+        // workspace/project switcher reached via the hamburger.
         CompositionLocalProvider(
-            LocalDrawerOpener provides { scope.launch { drawerState.open() } }
+            LocalDrawerOpener provides { scope.launch { drawerState.open() } },
+            LocalAvatarMenu provides avatarState,
         ) {
-            Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxSize()) { content() }
-                if (showBottomBar) {
-                    NavigationBar {
-                        PrimaryDestination.all.forEach { destination ->
-                            val selected = backStack?.destination?.hierarchy
-                                ?.any { it.route == destination.route } == true
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { navigateToPrimary(navController, destination) },
-                                icon = { Icon(destination.icon, contentDescription = null) },
-                                label = { Text(destination.label) },
-                            )
-                        }
-                    }
-                }
-            }
+            Box(Modifier.fillMaxSize()) { content() }
         }
     }
 }
@@ -192,6 +193,7 @@ private fun ExpandedShell(
     onOpenProject: (String) -> Unit,
     onOpenIntegrations: () -> Unit,
     onSignOut: () -> Unit,
+    avatarState: AvatarMenuState,
     content: @Composable () -> Unit,
 ) {
     val backStack by navController.currentBackStackEntryAsState()
@@ -215,7 +217,12 @@ private fun ExpandedShell(
     ) {
         // Drawer is always visible at expanded width; opener is a no-op so
         // the menu icon button doesn't try to slide an already-open drawer.
-        CompositionLocalProvider(LocalDrawerOpener provides {}) {
+        // Still provide LocalAvatarMenu so tablets see the same avatar menu
+        // in the TopAppBar as phones do.
+        CompositionLocalProvider(
+            LocalDrawerOpener provides {},
+            LocalAvatarMenu provides avatarState,
+        ) {
             Row(Modifier.fillMaxSize()) {
                 NavigationRail {
                     PrimaryDestination.all.forEach { destination ->

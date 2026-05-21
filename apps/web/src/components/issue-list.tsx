@@ -99,7 +99,7 @@ export function IssueList({
                 <CollapsiblePrimitive.Trigger asChild>
                   <Button
                     variant="ghost"
-                    className="h-5 w-5 p-0 text-muted-foreground"
+                    className="h-8 w-8 md:h-5 md:w-5 p-0 text-muted-foreground"
                   >
                     <ChevronRight
                       className={`size-3 transition-transform duration-200 ${isOpen ? `rotate-90` : ``}`}
@@ -146,7 +146,7 @@ export function IssueList({
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
-                      className="grid grid-cols-[1.25rem_1.25rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem] items-center h-12 md:h-10 px-3 md:px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
+                      className="grid grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem] items-center h-12 md:h-10 px-3 md:px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
                       onClick={() => onIssueClick(issue)}
                       data-testid={`issue-row-${issue.identifier}`}
                     >
