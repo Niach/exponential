@@ -139,9 +139,11 @@ final class DatabaseManager: Sendable {
                 t.add(column: "is_public", .boolean).notNull().defaults(to: false)
                 t.add(column: "public_write_policy", .text)
             }
-            // Force a resync of the workspace shape so existing rows pick up
-            // the new columns from Electric.
-            try db.execute(sql: "DELETE FROM electric_offset WHERE shape = 'workspaces'")
+            // Existing rows keep the column defaults (is_public=false,
+            // public_write_policy=null) until Electric streams the next
+            // workspace update. Forcing a refetch here caused a flapping
+            // sync loop on first launch — the workspace switcher would
+            // briefly empty out between mustRefetch cycles.
         }
 
         migrator.registerMigration("v3_comments") { db in
