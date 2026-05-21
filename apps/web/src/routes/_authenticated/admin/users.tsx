@@ -74,7 +74,7 @@ function AdminUsers() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-6">
+    <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
       <div>
         <h1 className="text-2xl font-bold">Users</h1>
         <p className="text-sm text-muted-foreground">
@@ -90,7 +90,8 @@ function AdminUsers() {
       )}
 
       <div className="rounded-md border">
-        <div className="grid grid-cols-[1fr_140px_120px_100px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
+        {/* Desktop column header */}
+        <div className="hidden md:grid grid-cols-[1fr_140px_120px_100px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
           <div>User</div>
           <div>Providers</div>
           <div>Workspaces</div>
@@ -102,16 +103,16 @@ function AdminUsers() {
           return (
             <div
               key={user.id}
-              className="grid grid-cols-[1fr_140px_120px_100px_40px] items-center gap-3 border-b px-4 py-3 last:border-b-0"
+              className="flex flex-col md:grid md:grid-cols-[1fr_140px_120px_100px_40px] md:items-center gap-3 border-b px-4 py-3 last:border-b-0"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <Avatar className="h-8 w-8">
+                <Avatar className="h-8 w-8 shrink-0">
                   {user.image && <AvatarImage src={user.image} />}
                   <AvatarFallback className="text-xs">
                     {getInitials(user.name || user.email)}
                   </AvatarFallback>
                 </Avatar>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate">
                     {user.name}
                     {isSelf && (
@@ -124,8 +125,59 @@ function AdminUsers() {
                     {user.email}
                   </div>
                 </div>
+                {/* Mobile: switch + menu on the right of the avatar row */}
+                <div className="flex items-center gap-1 md:hidden shrink-0">
+                  <Switch
+                    checked={user.isAdmin}
+                    disabled={busy === user.id}
+                    onCheckedChange={(next) => handleToggleAdmin(user, next)}
+                    aria-label="Admin"
+                  />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        disabled={isSelf}
+                        aria-label="User actions"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => setConfirmDelete(user)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete user
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1">
+              {/* Mobile: meta row beneath the avatar row */}
+              <div className="flex md:hidden items-center gap-2 text-xs text-muted-foreground pl-11">
+                <span>
+                  {user.workspaceCount}{` `}
+                  {user.workspaceCount === 1 ? `workspace` : `workspaces`}
+                </span>
+                <span aria-hidden>·</span>
+                <div className="flex flex-wrap gap-1">
+                  {user.providers.length === 0 ? (
+                    <span>password</span>
+                  ) : (
+                    user.providers.map((p) => (
+                      <Badge key={p} variant="secondary" className="text-xs">
+                        {p}
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </div>
+              {/* Desktop columns */}
+              <div className="hidden md:flex flex-wrap gap-1">
                 {user.providers.length === 0 ? (
                   <span className="text-xs text-muted-foreground">
                     password
@@ -138,17 +190,17 @@ function AdminUsers() {
                   ))
                 )}
               </div>
-              <div className="text-sm tabular-nums">
+              <div className="hidden md:block text-sm tabular-nums">
                 {user.workspaceCount}
               </div>
-              <div>
+              <div className="hidden md:block">
                 <Switch
                   checked={user.isAdmin}
                   disabled={busy === user.id}
                   onCheckedChange={(next) => handleToggleAdmin(user, next)}
                 />
               </div>
-              <div>
+              <div className="hidden md:block">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
