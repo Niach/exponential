@@ -125,6 +125,10 @@
         "zod": "^4.0.14",
       },
     },
+    "packages/domain-contract": {
+      "name": "@exp/domain-contract",
+      "version": "0.0.0",
+    },
     "packages/electric-protocol": {
       "name": "@exp/electric-protocol",
       "version": "0.0.0",
@@ -412,6 +416,8 @@
     "@exodus/bytes": ["@exodus/bytes@1.15.0", "", { "peerDependencies": { "@noble/hashes": "^1.8.0 || ^2.0.0" }, "optionalPeers": ["@noble/hashes"] }, "sha512-UY0nlA+feH81UGSHv92sLEPLCeZFjXOuHhrIo0HQydScuQc8s0A7kL/UdgwgDq8g8ilksmuoF35YVTNphV2aBQ=="],
 
     "@exp/db-schema": ["@exp/db-schema@workspace:packages/db-schema"],
+
+    "@exp/domain-contract": ["@exp/domain-contract@workspace:packages/domain-contract"],
 
     "@exp/electric-protocol": ["@exp/electric-protocol@workspace:packages/electric-protocol"],
 
