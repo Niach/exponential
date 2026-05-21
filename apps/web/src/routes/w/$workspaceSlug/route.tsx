@@ -49,7 +49,9 @@ import {
   Check,
   Plug,
   Shield,
+  Search,
 } from "lucide-react"
+import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { Button } from "@/components/ui/button"
 import type { Project } from "@/db/schema"
 import {
@@ -336,7 +338,11 @@ function WorkspaceLayout() {
       </Sidebar>
 
       <main className="flex-1 flex flex-col min-h-screen">
-        <MobileTopbar workspaceSlug={workspaceSlug} projects={projects} />
+        <MobileTopbar
+          workspaceSlug={workspaceSlug}
+          projects={projects}
+          workspaceId={workspace?.id}
+        />
         <div className="flex-1">
           <Outlet />
         </div>
@@ -362,13 +368,16 @@ function WorkspaceLayout() {
 function MobileTopbar({
   workspaceSlug,
   projects,
+  workspaceId,
 }: {
   workspaceSlug: string
   projects: Project[]
+  workspaceId?: string
 }) {
   const params = useParams({ strict: false }) as { projectSlug?: string }
   const { data: session } = authClient.useSession()
   const navigate = useNavigate()
+  const [searchOpen, setSearchOpen] = useState(false)
   const activeProject = params.projectSlug
     ? projects.find((p) => p.slug === params.projectSlug)
     : undefined
@@ -399,6 +408,17 @@ function MobileTopbar({
         </div>
       )}
       <div className="ml-auto flex items-center gap-1 md:hidden">
+        {workspaceId && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-9 text-muted-foreground"
+            onClick={() => setSearchOpen(true)}
+            aria-label="Search issues"
+          >
+            <Search className="size-5" />
+          </Button>
+        )}
         {activeProject && (
           <Button
             asChild
@@ -483,6 +503,14 @@ function MobileTopbar({
           </Button>
         )}
       </div>
+      {workspaceId && (
+        <IssueSearchSheet
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
+        />
+      )}
     </header>
   )
 }

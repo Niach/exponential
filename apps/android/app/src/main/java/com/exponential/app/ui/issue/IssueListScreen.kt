@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -22,8 +23,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
@@ -33,6 +36,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -74,7 +78,14 @@ fun IssueListScreen(
     val permissions by viewModel.permissions.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
     val openDrawer = LocalDrawerOpener.current
+
+    BackHandler(enabled = showSearch) {
+        showSearch = false
+        query = ""
+    }
 
     Scaffold(
         topBar = {
@@ -86,6 +97,12 @@ fun IssueListScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        showSearch = !showSearch
+                        if (!showSearch) query = ""
+                    }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search")
+                    }
                     BadgedBox(badge = {
                         if (state.filters.count > 0) Badge { Text(state.filters.count.toString()) }
                     }) {
@@ -110,8 +127,41 @@ fun IssueListScreen(
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (showSearch) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    placeholder = { Text("Search issues") },
+                    singleLine = true,
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                )
+            }
             FilterTabsRow(state.tab, onSelect = viewModel::setTab)
-            if (state.groups.isEmpty()) {
+            val filteredGroups = remember(state.groups, query) {
+                if (query.isBlank()) {
+                    state.groups
+                } else {
+                    state.groups
+                        .map { group ->
+                            group.copy(
+                                issues = group.issues.filter {
+                                    it.issue.title.contains(query, ignoreCase = true)
+                                },
+                            )
+                        }
+                        .filter { it.issues.isNotEmpty() }
+                }
+            }
+            if (filteredGroups.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -132,7 +182,7 @@ fun IssueListScreen(
                         contentPadding = PaddingValues(vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        state.groups.forEach { group ->
+                        filteredGroups.forEach { group ->
                             item(key = "header-${group.status.wire}") {
                                 StatusHeader(group.status, group.issues.size)
                             }

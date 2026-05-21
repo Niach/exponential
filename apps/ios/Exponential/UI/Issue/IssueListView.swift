@@ -7,6 +7,7 @@ struct IssueListView: View {
     @Environment(AppDependencies.self) private var deps
     @State private var viewModel: IssueListViewModel?
     @State private var showCreateSheet = false
+    @State private var searchText = ""
 
     var body: some View {
         ZStack {
@@ -59,7 +60,7 @@ struct IssueListView: View {
 
             List {
                 ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                    let statusIssues = vm.issuesForStatus(status)
+                    let statusIssues = filteredIssues(vm.issuesForStatus(status))
                     if !statusIssues.isEmpty {
                         Section {
                             if !vm.collapsedStatuses.contains(status) {
@@ -114,7 +115,14 @@ struct IssueListView: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 16)
             }
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search issues")
         }
+    }
+
+    private func filteredIssues(_ issues: [IssueEntity]) -> [IssueEntity] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return issues }
+        return issues.filter { $0.title.localizedCaseInsensitiveContains(trimmed) }
     }
 
     @ViewBuilder
