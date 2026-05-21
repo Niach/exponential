@@ -40,6 +40,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -121,17 +122,34 @@ fun IssueListScreen(
                     )
                 }
             } else {
-                LazyColumn(
+                PullToRefreshBox(
+                    isRefreshing = state.isRefreshing,
+                    onRefresh = viewModel::refresh,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    state.groups.forEach { group ->
-                    item(key = "header-${group.status.wire}") {
-                        StatusHeader(group.status, group.issues.size)
-                    }
-                        items(group.issues, key = { it.issue.id }) { entry ->
-                            IssueRow(entry.issue, entry.labels) { onOpenIssue(entry.issue.id) }
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        state.groups.forEach { group ->
+                            item(key = "header-${group.status.wire}") {
+                                StatusHeader(group.status, group.issues.size)
+                            }
+                            items(group.issues, key = { it.issue.id }) { entry ->
+                                SwipeableIssueRow(
+                                    issue = entry.issue,
+                                    labels = entry.labels,
+                                    canMutate = permissions.canMutateIssue(entry.issue.creatorId),
+                                    onMarkDone = {
+                                        viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
+                                    },
+                                    onMarkCancelled = {
+                                        viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Cancelled)
+                                    },
+                                    onClick = { onOpenIssue(entry.issue.id) },
+                                )
+                            }
                         }
                     }
                 }
@@ -225,7 +243,7 @@ private fun StatusHeader(status: IssueStatus, count: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun IssueRow(issue: IssueEntity, labels: List<LabelEntity>, onClick: () -> Unit) {
+internal fun IssueRow(issue: IssueEntity, labels: List<LabelEntity>, onClick: () -> Unit) {
     val status = IssueStatus.fromWire(issue.status)
     val priority = IssuePriority.fromWire(issue.priority)
     Row(

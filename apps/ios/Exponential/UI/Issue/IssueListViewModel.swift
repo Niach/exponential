@@ -11,14 +11,20 @@ final class IssueListViewModel {
     var filters = IssueFilters()
     var activeTab: FilterTab = .all
     var collapsedStatuses: Set<IssueStatus> = []
+    var permissions: WorkspacePermissions = .denied
+    var error: String?
 
     private let projectId: String
     private let db: DatabaseManager
+    private let issuesApi: IssuesApi
+    private let auth: AuthRepository
     private var observationTask: Task<Void, Never>?
 
-    init(projectId: String, db: DatabaseManager) {
+    init(projectId: String, db: DatabaseManager, issuesApi: IssuesApi, auth: AuthRepository) {
         self.projectId = projectId
         self.db = db
+        self.issuesApi = issuesApi
+        self.auth = auth
     }
 
     func startObserving() {
@@ -33,6 +39,7 @@ final class IssueListViewModel {
                 do {
                     for try await project in projectObservation.values(in: self.db.dbPool) {
                         self.project = project
+                        self.refreshPermissions(for: project)
                     }
                 } catch {}
             }
@@ -137,5 +144,39 @@ final class IssueListViewModel {
         } else {
             collapsedStatuses.insert(status)
         }
+    }
+
+    // MARK: - Mutations
+
+    func setStatus(issueId: String, status: IssueStatus) async {
+        do {
+            try await issuesApi.update(UpdateIssueInput(id: issueId, status: status.rawValue))
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Pull-to-refresh hook. Electric keeps the data live, so this only
+    /// needs to give the spinner enough time to feel intentional.
+    func refresh() async {
+        try? await Task.sleep(nanoseconds: 200_000_000)
+    }
+
+    // MARK: - Permissions
+
+    private func refreshPermissions(for project: ProjectEntity?) {
+        guard let project else {
+            permissions = .denied
+            return
+        }
+        let workspace: WorkspaceEntity? = (try? db.dbPool.read { db -> WorkspaceEntity? in
+            try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
+        }) ?? nil
+        permissions = WorkspacePermissions.resolve(
+            workspace: workspace,
+            currentUserId: auth.userId,
+            isAdmin: auth.isAdmin,
+            dbPool: db.dbPool
+        )
     }
 }

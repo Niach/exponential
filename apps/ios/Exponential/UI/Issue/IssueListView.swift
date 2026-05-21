@@ -41,7 +41,12 @@ struct IssueListView: View {
         }
         .onAppear {
             if viewModel == nil {
-                let vm = IssueListViewModel(projectId: projectId, db: deps.db)
+                let vm = IssueListViewModel(
+                    projectId: projectId,
+                    db: deps.db,
+                    issuesApi: deps.issuesApi,
+                    auth: deps.auth
+                )
                 viewModel = vm
                 vm.startObserving()
             }
@@ -59,17 +64,62 @@ struct IssueListView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
 
-            ScrollView {
-                LazyVStack(spacing: 12, pinnedViews: []) {
-                    ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                        let statusIssues = vm.issuesForStatus(status)
-                        if !statusIssues.isEmpty {
-                            statusGroup(status: status, issues: statusIssues, vm: vm)
+            List {
+                ForEach(IssueStatus.displayOrder, id: \.self) { status in
+                    let statusIssues = vm.issuesForStatus(status)
+                    if !statusIssues.isEmpty {
+                        Section {
+                            if !vm.collapsedStatuses.contains(status) {
+                                ForEach(statusIssues, id: \.id) { issue in
+                                    issueRow(issue: issue, vm: vm)
+                                        .listRowBackground(Color.clear)
+                                        .listRowSeparator(.hidden)
+                                        .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                            if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
+                                                Button {
+                                                    Task { await vm.setStatus(issueId: issue.id, status: .done) }
+                                                } label: {
+                                                    Label("Done", systemImage: "checkmark.circle.fill")
+                                                }
+                                                .tint(.green)
+
+                                                Button {
+                                                    Task { await vm.setStatus(issueId: issue.id, status: .cancelled) }
+                                                } label: {
+                                                    Label("Cancel", systemImage: "xmark.circle.fill")
+                                                }
+                                                .tint(.gray)
+                                            }
+                                        }
+                                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                            if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
+                                                Button {
+                                                    Task { await vm.setStatus(issueId: issue.id, status: .backlog) }
+                                                } label: {
+                                                    Label("Backlog", systemImage: "circle.dashed")
+                                                }
+                                                .tint(.orange)
+                                            }
+                                        }
+                                }
+                            }
+                        } header: {
+                            statusHeader(status: status, count: statusIssues.count, vm: vm)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                                .listRowBackground(Color.clear)
                         }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 96)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .refreshable {
+                await vm.refresh()
+            }
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: 16)
             }
         }
     }
@@ -117,44 +167,36 @@ struct IssueListView: View {
     }
 
     @ViewBuilder
-    private func statusGroup(status: IssueStatus, issues: [IssueEntity], vm: IssueListViewModel) -> some View {
-        VStack(spacing: 6) {
-            // Status header
-            Button {
-                vm.toggleStatusCollapsed(status)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: vm.collapsedStatuses.contains(status) ? "chevron.right" : "chevron.down")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(width: 12)
+    private func statusHeader(status: IssueStatus, count: Int, vm: IssueListViewModel) -> some View {
+        Button {
+            vm.toggleStatusCollapsed(status)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: vm.collapsedStatuses.contains(status) ? "chevron.right" : "chevron.down")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .frame(width: 12)
 
-                    Image(systemName: status.sfSymbol)
-                        .font(.caption)
-                        .foregroundStyle(status.color)
+                Image(systemName: status.sfSymbol)
+                    .font(.caption)
+                    .foregroundStyle(status.color)
 
-                    Text(status.label)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(status.label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-                    Text("\(issues.count)")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Text("\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
-                    Spacer()
-                }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
+                Spacer()
             }
-            .buttonStyle(.plain)
-
-            // Issues
-            if !vm.collapsedStatuses.contains(status) {
-                ForEach(issues, id: \.id) { issue in
-                    issueRow(issue: issue, vm: vm)
-                }
-            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .textCase(nil)
     }
 
     @ViewBuilder

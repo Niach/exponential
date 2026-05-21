@@ -38,6 +38,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -56,6 +57,7 @@ data class IssueListState(
     val labels: List<LabelEntity> = emptyList(),
     val users: List<UserEntity> = emptyList(),
     val isCreating: Boolean = false,
+    val isRefreshing: Boolean = false,
     val error: String? = null,
 )
 
@@ -84,6 +86,7 @@ class IssueListViewModel @Inject constructor(
 
     private val _busy = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
+    private val _refreshing = MutableStateFlow(false)
     private val _project = MutableStateFlow<ProjectEntity?>(null)
 
     private val labelsForWorkspace = _project.flatMapLatest { project ->
@@ -123,6 +126,7 @@ class IssueListViewModel @Inject constructor(
             _busy,
             _error,
             userDao.observeAll(),
+            _refreshing,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -138,6 +142,7 @@ class IssueListViewModel @Inject constructor(
         val error = values[6] as String?
         @Suppress("UNCHECKED_CAST")
         val users = values[7] as List<UserEntity>
+        val refreshing = values[8] as Boolean
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
@@ -168,6 +173,7 @@ class IssueListViewModel @Inject constructor(
             labels = labels,
             users = users,
             isCreating = busy,
+            isRefreshing = refreshing,
             error = error,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueListState())
@@ -210,6 +216,32 @@ class IssueListViewModel @Inject constructor(
 
     fun clearFilters() {
         _filters.value = IssueFilters()
+    }
+
+    /**
+     * Triggered by pull-to-refresh. Data is already live via Electric + Room,
+     * so this is just a short spinner so the gesture feels acknowledged.
+     */
+    fun refresh() {
+        if (_refreshing.value) return
+        viewModelScope.launch {
+            _refreshing.value = true
+            try {
+                delay(500)
+            } finally {
+                _refreshing.value = false
+            }
+        }
+    }
+
+    fun updateIssueStatus(issueId: String, status: IssueStatus) {
+        viewModelScope.launch {
+            runCatching {
+                issuesApi.update(UpdateIssueInput(id = issueId, status = status.wire))
+            }.onFailure { error ->
+                _error.value = error.message ?: "Failed to update status"
+            }
+        }
     }
 
     fun createIssue(
