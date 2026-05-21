@@ -1,9 +1,9 @@
 import { useState } from "react"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+  MobilePopover,
+  MobilePopoverContent,
+  MobilePopoverTrigger,
+} from "@/components/mobile-popover"
 import {
   Command,
   CommandEmpty,
@@ -38,7 +38,7 @@ export function AssigneePicker({
     : undefined
 
   return (
-    <Popover
+    <MobilePopover
       open={disabled ? false : open}
       onOpenChange={(nextOpen) => {
         if (disabled) {
@@ -48,7 +48,7 @@ export function AssigneePicker({
         setOpen(nextOpen)
       }}
     >
-      <PopoverTrigger asChild>
+      <MobilePopoverTrigger asChild>
         <Button
           variant="ghost"
           size="xs"
@@ -79,8 +79,12 @@ export function AssigneePicker({
             </>
           )}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[14rem] p-0" align="start">
+      </MobilePopoverTrigger>
+      <MobilePopoverContent
+        className="w-[14rem] p-0"
+        align="start"
+        mobileTitle="Assignee"
+      >
         <Command>
           <CommandInput placeholder="Search people..." />
           <CommandList>
@@ -123,7 +127,7 @@ export function AssigneePicker({
             </CommandGroup>
           </CommandList>
         </Command>
-      </PopoverContent>
-    </Popover>
+      </MobilePopoverContent>
+    </MobilePopover>
   )
 }

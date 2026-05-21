@@ -40,6 +40,7 @@ export function PriorityDropdown({
       value={priority}
       disabled={disabled}
       options={priorities}
+      mobileTitle="Priority"
       onSelect={async (nextPriority) => {
         await trpc.issues.update.mutate({
           id: issueId,

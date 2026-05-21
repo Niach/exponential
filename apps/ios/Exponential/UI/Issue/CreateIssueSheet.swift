@@ -25,6 +25,10 @@ struct CreateIssueSheet: View {
     @State private var loading = false
     @State private var error: String?
     @State private var permissions: WorkspacePermissions = .denied
+    @State private var showStatusPicker = false
+    @State private var showPriorityPicker = false
+    @State private var showAssigneePicker = false
+    @State private var showRecurrencePicker = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -59,88 +63,54 @@ struct CreateIssueSheet: View {
                         VStack(spacing: 12) {
                             // Status
                             metadataRow(label: "Status", icon: status.sfSymbol, iconColor: status.color) {
-                                Menu {
-                                    ForEach(IssueStatus.allCases) { s in
-                                        Button {
-                                            status = s
-                                        } label: {
-                                            Label(s.label, systemImage: s.sfSymbol)
-                                        }
-                                    }
+                                Button {
+                                    showStatusPicker = true
                                 } label: {
                                     Text(status.label)
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!permissions.isModerator)
                             }
 
                             // Priority
                             metadataRow(label: "Priority", icon: priority.sfSymbol, iconColor: priority.color) {
-                                Menu {
-                                    ForEach(IssuePriority.allCases) { p in
-                                        Button {
-                                            priority = p
-                                        } label: {
-                                            Label(p.label, systemImage: p.sfSymbol)
-                                        }
-                                    }
+                                Button {
+                                    showPriorityPicker = true
                                 } label: {
                                     Text(priority.label)
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!permissions.isModerator)
                             }
 
                             // Assignee
                             metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
-                                Menu {
-                                    Button {
-                                        assigneeId = nil
-                                    } label: {
-                                        Label("Unassigned", systemImage: "xmark")
-                                    }
-                                    ForEach(users, id: \.id) { user in
-                                        Button { assigneeId = user.id } label: {
-                                            Text(user.name ?? user.email)
-                                        }
-                                    }
+                                Button {
+                                    showAssigneePicker = true
                                 } label: {
                                     let assignee = users.first { $0.id == assigneeId }
                                     Text(assignee?.name ?? assignee?.email ?? "Unassigned")
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!permissions.isModerator)
                             }
 
                             // Recurrence
                             metadataRow(label: "Repeat", icon: "repeat", iconColor: .white.opacity(0.6)) {
-                                Menu {
-                                    Button {
-                                        recurrenceInterval = nil
-                                        recurrenceUnit = nil
-                                    } label: {
-                                        Label("Doesn't repeat", systemImage: "xmark")
-                                    }
-                                    ForEach(RecurrenceUnit.allCases) { unit in
-                                        Section(unit.label(for: 2).capitalized) {
-                                            ForEach(recurrenceIntervals, id: \.self) { interval in
-                                                Button {
-                                                    recurrenceInterval = interval
-                                                    recurrenceUnit = unit
-                                                } label: {
-                                                    Text("Every \(interval) \(unit.label(for: interval))")
-                                                }
-                                            }
-                                        }
-                                    }
+                                Button {
+                                    showRecurrencePicker = true
                                 } label: {
                                     Text(formatCreateRecurrence(recurrenceInterval, recurrenceUnit))
                                         .font(.subheadline)
                                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!permissions.isModerator)
                             }
 
@@ -240,6 +210,67 @@ struct CreateIssueSheet: View {
                         dbPool: deps.db.dbPool
                     )
                 }
+            }
+            .sheet(isPresented: $showStatusPicker) {
+                PickerSheet(
+                    title: "Status",
+                    items: IssueStatus.allCases,
+                    selectedID: status.id,
+                    idFor: { $0.id },
+                    onSelect: { status = $0 }
+                ) { s in
+                    Label {
+                        Text(s.label)
+                    } icon: {
+                        Image(systemName: s.sfSymbol)
+                            .foregroundStyle(s.color)
+                    }
+                }
+            }
+            .sheet(isPresented: $showPriorityPicker) {
+                PickerSheet(
+                    title: "Priority",
+                    items: IssuePriority.allCases,
+                    selectedID: priority.id,
+                    idFor: { $0.id },
+                    onSelect: { priority = $0 }
+                ) { p in
+                    Label {
+                        Text(p.label)
+                    } icon: {
+                        Image(systemName: p.sfSymbol)
+                            .foregroundStyle(p.color)
+                    }
+                }
+            }
+            .sheet(isPresented: $showAssigneePicker) {
+                PickerSheet(
+                    title: "Assignee",
+                    items: assigneeOptions(users: users),
+                    selectedID: assigneeId ?? AssigneeOption.unassigned.id,
+                    idFor: { $0.id },
+                    onSelect: { assigneeId = $0.userId }
+                ) { option in
+                    if option.userId == nil {
+                        Label("Unassigned", systemImage: "person.crop.circle.badge.xmark")
+                    } else {
+                        Label {
+                            Text(option.displayName)
+                        } icon: {
+                            Image(systemName: "person.circle")
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $showRecurrencePicker) {
+                RecurrencePickerSheet(
+                    currentInterval: recurrenceInterval,
+                    currentUnit: recurrenceUnit?.rawValue,
+                    onSelect: { interval, unit in
+                        recurrenceInterval = interval
+                        recurrenceUnit = unit
+                    }
+                )
             }
         }
     }

@@ -1,9 +1,9 @@
 import { useState } from "react"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+  MobilePopover,
+  MobilePopoverContent,
+  MobilePopoverTrigger,
+} from "@/components/mobile-popover"
 import {
   Command,
   CommandEmpty,
@@ -63,14 +63,14 @@ export function IssueFilterPopover({
   }
 
   return (
-    <Popover
+    <MobilePopover
       open={open}
       onOpenChange={(o) => {
         setOpen(o)
         if (!o) setView(`categories`)
       }}
     >
-      <PopoverTrigger asChild>
+      <MobilePopoverTrigger asChild>
         <Button variant="ghost" size="xs" className="text-muted-foreground">
           <ListFilter className="size-3" />
           Filter
@@ -80,8 +80,12 @@ export function IssueFilterPopover({
             </span>
           )}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[14rem] p-0" align="start">
+      </MobilePopoverTrigger>
+      <MobilePopoverContent
+        className="w-[14rem] p-0"
+        align="start"
+        mobileTitle="Filters"
+      >
         {view === `categories` && (
           <CategoriesView filters={filters} onNavigate={setView} />
         )}
@@ -111,8 +115,8 @@ export function IssueFilterPopover({
             onBack={() => setView(`categories`)}
           />
         )}
-      </PopoverContent>
-    </Popover>
+      </MobilePopoverContent>
+    </MobilePopover>
   )
 }
 

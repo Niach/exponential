@@ -26,10 +26,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -153,57 +150,20 @@ fun IssueDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box {
-                    OutlinedButton(onClick = { statusMenuOpen = true }, enabled = isModerator) {
-                        Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(status.label)
-                    }
-                    DropdownMenu(expanded = statusMenuOpen, onDismissRequest = { statusMenuOpen = false }) {
-                        issueStatusOrder.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(item.label) },
-                                leadingIcon = { Icon(statusIcon(item), null) },
-                                onClick = { viewModel.updateStatus(item); statusMenuOpen = false },
-                            )
-                        }
-                    }
+                OutlinedButton(onClick = { statusMenuOpen = true }, enabled = isModerator) {
+                    Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(status.label)
                 }
-                Box {
-                    OutlinedButton(onClick = { priorityMenuOpen = true }, enabled = isModerator) {
-                        Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(priority.label)
-                    }
-                    DropdownMenu(expanded = priorityMenuOpen, onDismissRequest = { priorityMenuOpen = false }) {
-                        issuePriorityOrder.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(item.label) },
-                                leadingIcon = { Icon(priorityIcon(item), null) },
-                                onClick = { viewModel.updatePriority(item); priorityMenuOpen = false },
-                            )
-                        }
-                    }
+                OutlinedButton(onClick = { priorityMenuOpen = true }, enabled = isModerator) {
+                    Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(priority.label)
                 }
-                Box {
-                    OutlinedButton(onClick = { assigneeMenuOpen = true }, enabled = isModerator) {
-                        Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(state.assignee?.name ?: state.assignee?.email ?: "Unassigned", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    DropdownMenu(expanded = assigneeMenuOpen, onDismissRequest = { assigneeMenuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Unassigned") },
-                            onClick = { viewModel.updateAssignee(null); assigneeMenuOpen = false },
-                        )
-                        HorizontalDivider()
-                        state.users.forEach { user ->
-                            DropdownMenuItem(
-                                text = { Text(user.name ?: user.email) },
-                                onClick = { viewModel.updateAssignee(user.id); assigneeMenuOpen = false },
-                            )
-                        }
-                    }
+                OutlinedButton(onClick = { assigneeMenuOpen = true }, enabled = isModerator) {
+                    Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(state.assignee?.name ?: state.assignee?.email ?: "Unassigned", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 OutlinedButton(onClick = { datePickerOpen = true }, enabled = isModerator) {
                     Text(issue.dueDate ?: "Due date")
@@ -284,6 +244,46 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(20.dp))
             CommentThread(issueId = issue.id)
         }
+    }
+
+    if (statusMenuOpen && issue != null && isModerator) {
+        val currentStatus = IssueStatus.fromWire(issue.status)
+        IssuePickerSheet(
+            title = "Status",
+            items = issueStatusOrder,
+            selected = currentStatus,
+            labelOf = { it.label },
+            iconOf = { statusIcon(it) },
+            onSelect = { viewModel.updateStatus(it) },
+            onDismiss = { statusMenuOpen = false },
+        )
+    }
+
+    if (priorityMenuOpen && issue != null && isModerator) {
+        val currentPriority = IssuePriority.fromWire(issue.priority)
+        IssuePickerSheet(
+            title = "Priority",
+            items = issuePriorityOrder,
+            selected = currentPriority,
+            labelOf = { it.label },
+            iconOf = { priorityIcon(it) },
+            onSelect = { viewModel.updatePriority(it) },
+            onDismiss = { priorityMenuOpen = false },
+        )
+    }
+
+    if (assigneeMenuOpen && isModerator) {
+        val assigneeItems: List<com.exponential.app.data.db.UserEntity?> =
+            listOf<com.exponential.app.data.db.UserEntity?>(null) + state.users
+        IssuePickerSheet(
+            title = "Assignee",
+            items = assigneeItems,
+            selected = assigneeItems.firstOrNull { it?.id == state.assignee?.id },
+            keyOf = { it?.id ?: "__unassigned__" },
+            labelOf = { user -> user?.name ?: user?.email ?: "Unassigned" },
+            onSelect = { viewModel.updateAssignee(it?.id) },
+            onDismiss = { assigneeMenuOpen = false },
+        )
     }
 
     if (datePickerOpen) {

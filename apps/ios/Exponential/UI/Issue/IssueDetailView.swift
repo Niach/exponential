@@ -10,6 +10,10 @@ struct IssueDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var pendingImages: [String: PendingImage] = [:]
     @State private var descriptionDirty = false
+    @State private var showStatusPicker = false
+    @State private var showPriorityPicker = false
+    @State private var showAssigneePicker = false
+    @State private var showRecurrencePicker = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -69,14 +73,8 @@ struct IssueDetailView: View {
                         VStack(spacing: 0) {
                             // Status
                             detailRow(label: "Status") {
-                                Menu {
-                                    ForEach(IssueStatus.allCases) { s in
-                                        Button {
-                                            Task { await vm.setStatus(s) }
-                                        } label: {
-                                            Label(s.label, systemImage: s.sfSymbol)
-                                        }
-                                    }
+                                Button {
+                                    showStatusPicker = true
                                 } label: {
                                     HStack(spacing: 6) {
                                         Image(systemName: IssueStatus.from(issue.status).sfSymbol)
@@ -87,6 +85,7 @@ struct IssueDetailView: View {
                                             .foregroundStyle(.white)
                                     }
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!vm.permissions.isModerator)
                             }
 
@@ -94,14 +93,8 @@ struct IssueDetailView: View {
 
                             // Priority
                             detailRow(label: "Priority") {
-                                Menu {
-                                    ForEach(IssuePriority.allCases) { p in
-                                        Button {
-                                            Task { await vm.setPriority(p) }
-                                        } label: {
-                                            Label(p.label, systemImage: p.sfSymbol)
-                                        }
-                                    }
+                                Button {
+                                    showPriorityPicker = true
                                 } label: {
                                     HStack(spacing: 6) {
                                         Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
@@ -112,6 +105,7 @@ struct IssueDetailView: View {
                                             .foregroundStyle(.white)
                                     }
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!vm.permissions.isModerator)
                             }
 
@@ -119,19 +113,8 @@ struct IssueDetailView: View {
 
                             // Assignee
                             detailRow(label: "Assignee") {
-                                Menu {
-                                    Button {
-                                        Task { await vm.setAssignee(nil) }
-                                    } label: {
-                                        Label("Unassigned", systemImage: "xmark")
-                                    }
-                                    ForEach(vm.users, id: \.id) { user in
-                                        Button {
-                                            Task { await vm.setAssignee(user.id) }
-                                        } label: {
-                                            Text(user.name ?? user.email)
-                                        }
-                                    }
+                                Button {
+                                    showAssigneePicker = true
                                 } label: {
                                     if let assignee = vm.assignee() {
                                         Text(assignee.name ?? assignee.email)
@@ -143,6 +126,7 @@ struct IssueDetailView: View {
                                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                     }
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!vm.permissions.isModerator)
                             }
 
@@ -189,23 +173,8 @@ struct IssueDetailView: View {
                         // Recurrence
                         VStack(spacing: 0) {
                             detailRow(label: "Repeat") {
-                                Menu {
-                                    Button {
-                                        Task { await vm.setRecurrence(interval: nil, unit: nil) }
-                                    } label: {
-                                        Label("Doesn't repeat", systemImage: "xmark")
-                                    }
-                                    ForEach(RecurrenceUnit.allCases) { unit in
-                                        Section(unit.label(for: 2).capitalized) {
-                                            ForEach(recurrenceIntervals, id: \.self) { interval in
-                                                Button {
-                                                    Task { await vm.setRecurrence(interval: interval, unit: unit) }
-                                                } label: {
-                                                    Text("Every \(interval) \(unit.label(for: interval))")
-                                                }
-                                            }
-                                        }
-                                    }
+                                Button {
+                                    showRecurrencePicker = true
                                 } label: {
                                     Text(formatRecurrence(issue.recurrenceInterval, issue.recurrenceUnit))
                                         .font(.subheadline)
@@ -215,6 +184,7 @@ struct IssueDetailView: View {
                                                 : .white
                                         )
                                 }
+                                .buttonStyle(.plain)
                                 .disabled(!vm.permissions.isModerator)
                             }
                         }
@@ -277,6 +247,72 @@ struct IssueDetailView: View {
                         .buttonStyle(.plain)
                     }
                     .padding(20)
+                }
+                .sheet(isPresented: $showStatusPicker) {
+                    PickerSheet(
+                        title: "Status",
+                        items: IssueStatus.allCases,
+                        selectedID: IssueStatus.from(issue.status).id,
+                        idFor: { $0.id },
+                        onSelect: { selected in
+                            Task { await vm.setStatus(selected) }
+                        }
+                    ) { status in
+                        Label {
+                            Text(status.label)
+                        } icon: {
+                            Image(systemName: status.sfSymbol)
+                                .foregroundStyle(status.color)
+                        }
+                    }
+                }
+                .sheet(isPresented: $showPriorityPicker) {
+                    PickerSheet(
+                        title: "Priority",
+                        items: IssuePriority.allCases,
+                        selectedID: IssuePriority.from(issue.priority).id,
+                        idFor: { $0.id },
+                        onSelect: { selected in
+                            Task { await vm.setPriority(selected) }
+                        }
+                    ) { priority in
+                        Label {
+                            Text(priority.label)
+                        } icon: {
+                            Image(systemName: priority.sfSymbol)
+                                .foregroundStyle(priority.color)
+                        }
+                    }
+                }
+                .sheet(isPresented: $showAssigneePicker) {
+                    PickerSheet(
+                        title: "Assignee",
+                        items: assigneeOptions(users: vm.users),
+                        selectedID: issue.assigneeId ?? AssigneeOption.unassigned.id,
+                        idFor: { $0.id },
+                        onSelect: { option in
+                            Task { await vm.setAssignee(option.userId) }
+                        }
+                    ) { option in
+                        if option.userId == nil {
+                            Label("Unassigned", systemImage: "person.crop.circle.badge.xmark")
+                        } else {
+                            Label {
+                                Text(option.displayName)
+                            } icon: {
+                                Image(systemName: "person.circle")
+                            }
+                        }
+                    }
+                }
+                .sheet(isPresented: $showRecurrencePicker) {
+                    RecurrencePickerSheet(
+                        currentInterval: issue.recurrenceInterval,
+                        currentUnit: issue.recurrenceUnit,
+                        onSelect: { interval, unit in
+                            Task { await vm.setRecurrence(interval: interval, unit: unit) }
+                        }
+                    )
                 }
             } else {
                 ProgressView().tint(.white)

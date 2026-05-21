@@ -40,6 +40,7 @@ export function StatusDropdown({
       value={status}
       disabled={disabled}
       options={statuses}
+      mobileTitle="Status"
       onSelect={async (nextStatus) => {
         await trpc.issues.update.mutate({
           id: issueId,

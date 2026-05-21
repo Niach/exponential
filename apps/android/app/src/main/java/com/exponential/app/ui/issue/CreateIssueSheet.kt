@@ -19,10 +19,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -134,61 +131,24 @@ fun CreateIssueSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                androidx.compose.foundation.layout.Box {
-                    OutlinedButton(onClick = { statusMenuOpen = true }, enabled = isModerator) {
-                        Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(status.label)
-                    }
-                    DropdownMenu(expanded = statusMenuOpen, onDismissRequest = { statusMenuOpen = false }) {
-                        issueStatusOrder.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(item.label) },
-                                leadingIcon = { Icon(statusIcon(item), null) },
-                                onClick = { status = item; statusMenuOpen = false },
-                            )
-                        }
-                    }
+                OutlinedButton(onClick = { statusMenuOpen = true }, enabled = isModerator) {
+                    Icon(statusIcon(status), null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(status.label)
                 }
-                androidx.compose.foundation.layout.Box {
-                    OutlinedButton(onClick = { priorityMenuOpen = true }, enabled = isModerator) {
-                        Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(priority.label)
-                    }
-                    DropdownMenu(expanded = priorityMenuOpen, onDismissRequest = { priorityMenuOpen = false }) {
-                        issuePriorityOrder.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(item.label) },
-                                leadingIcon = { Icon(priorityIcon(item), null) },
-                                onClick = { priority = item; priorityMenuOpen = false },
-                            )
-                        }
-                    }
+                OutlinedButton(onClick = { priorityMenuOpen = true }, enabled = isModerator) {
+                    Icon(priorityIcon(priority), null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(priority.label)
                 }
-                androidx.compose.foundation.layout.Box {
-                    OutlinedButton(onClick = { assigneeMenuOpen = true }, enabled = isModerator) {
-                        Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            assigneeUser?.name ?: assigneeUser?.email ?: "Unassigned",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    DropdownMenu(expanded = assigneeMenuOpen, onDismissRequest = { assigneeMenuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Unassigned") },
-                            onClick = { assigneeId = null; assigneeMenuOpen = false },
-                        )
-                        HorizontalDivider()
-                        users.forEach { user ->
-                            DropdownMenuItem(
-                                text = { Text(user.name ?: user.email) },
-                                onClick = { assigneeId = user.id; assigneeMenuOpen = false },
-                            )
-                        }
-                    }
+                OutlinedButton(onClick = { assigneeMenuOpen = true }, enabled = isModerator) {
+                    Icon(Icons.Filled.Person, null, modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        assigneeUser?.name ?: assigneeUser?.email ?: "Unassigned",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 OutlinedButton(onClick = { datePickerOpen = true }, enabled = isModerator) {
                     Text(dueDate ?: "Due date")
@@ -256,6 +216,43 @@ fun CreateIssueSheet(
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+
+    if (statusMenuOpen && isModerator) {
+        IssuePickerSheet(
+            title = "Status",
+            items = issueStatusOrder,
+            selected = status,
+            labelOf = { it.label },
+            iconOf = { statusIcon(it) },
+            onSelect = { status = it },
+            onDismiss = { statusMenuOpen = false },
+        )
+    }
+
+    if (priorityMenuOpen && isModerator) {
+        IssuePickerSheet(
+            title = "Priority",
+            items = issuePriorityOrder,
+            selected = priority,
+            labelOf = { it.label },
+            iconOf = { priorityIcon(it) },
+            onSelect = { priority = it },
+            onDismiss = { priorityMenuOpen = false },
+        )
+    }
+
+    if (assigneeMenuOpen && isModerator) {
+        val assigneeItems: List<UserEntity?> = listOf<UserEntity?>(null) + users
+        IssuePickerSheet(
+            title = "Assignee",
+            items = assigneeItems,
+            selected = assigneeItems.firstOrNull { it?.id == assigneeId },
+            keyOf = { it?.id ?: "__unassigned__" },
+            labelOf = { user -> user?.name ?: user?.email ?: "Unassigned" },
+            onSelect = { assigneeId = it?.id },
+            onDismiss = { assigneeMenuOpen = false },
+        )
     }
 
     if (datePickerOpen) {

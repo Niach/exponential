@@ -2,10 +2,10 @@ import { useState } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { labelCollection } from "@/lib/collections"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+  MobilePopover,
+  MobilePopoverContent,
+  MobilePopoverTrigger,
+} from "@/components/mobile-popover"
 import {
   Command,
   CommandEmpty,
@@ -89,7 +89,7 @@ export function LabelPicker({
   }
 
   return (
-    <Popover
+    <MobilePopover
       open={disabled ? false : open}
       onOpenChange={(o) => {
         if (disabled) {
@@ -103,7 +103,7 @@ export function LabelPicker({
         }
       }}
     >
-      <PopoverTrigger asChild>
+      <MobilePopoverTrigger asChild>
         <Button
           variant="ghost"
           size="xs"
@@ -119,8 +119,12 @@ export function LabelPicker({
             `Label`
           )}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[14rem] p-0" align="start">
+      </MobilePopoverTrigger>
+      <MobilePopoverContent
+        className="w-[14rem] p-0"
+        align="start"
+        mobileTitle="Labels"
+      >
         {view === `list` ? (
           <Command>
             <CommandInput placeholder="Filter labels..." />
@@ -217,7 +221,7 @@ export function LabelPicker({
             </Button>
           </div>
         )}
-      </PopoverContent>
-    </Popover>
+      </MobilePopoverContent>
+    </MobilePopover>
   )
 }

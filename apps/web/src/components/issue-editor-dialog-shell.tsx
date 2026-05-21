@@ -193,6 +193,7 @@ export function IssueEditorDialogShell({
         disabled={moderationDisabled}
         options={statuses}
         onSelect={onStatusChange}
+        mobileTitle="Status"
         renderTrigger={(selected) => (
           <Button
             variant="ghost"
@@ -211,6 +212,7 @@ export function IssueEditorDialogShell({
         disabled={moderationDisabled}
         options={priorities}
         onSelect={onPriorityChange}
+        mobileTitle="Priority"
         renderTrigger={(selected) => (
           <Button
             variant="ghost"
