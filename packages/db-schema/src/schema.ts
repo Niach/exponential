@@ -190,6 +190,14 @@ export const workspaceAgents = pgTable(
     // Owner-selected notification target. `null` falls back to the own
     // JID (self-chat).
     whatsappNotifyJid: text(`whatsapp_notify_jid`),
+    // GitHub login the daemon is authenticated as (set after running
+    // `companion github login`). null until the daemon authenticates.
+    githubUserLogin: text(`github_user_login`),
+    // Snapshot of repos the daemon's GitHub identity can access. Shape:
+    // Array<{ fullName: string; defaultBranch: string; private: boolean }>.
+    // Updated periodically by the daemon; used as the source of choices in
+    // the project repo-linking dropdown.
+    githubRepos: jsonb(`github_repos`),
     ...timestamps,
   },
   (table) => [
@@ -214,6 +222,10 @@ export const projects = pgTable(
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
+    // GitHub repo this project is linked to, in `owner/name` form. null
+    // means an agent assigned an issue here will mark it needs_human until
+    // an owner links a repo from the workspace settings UI.
+    githubRepo: text(`github_repo`),
     ...timestamps,
   },
   (table) => [unique().on(table.workspaceId, table.slug)]

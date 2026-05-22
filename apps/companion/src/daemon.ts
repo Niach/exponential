@@ -8,13 +8,46 @@ import { createNotifier, type Notifier } from "./notifier"
 import {
   heartbeat,
   pollControl,
+  reportGithubIdentity,
   reportWhatsappChats,
   reportWhatsappOwnJid,
   reportWhatsappQr,
   reportWhatsappStatus,
 } from "./exponential-api"
+import { loadAccessToken } from "./github-auth"
+import { getAuthedUser, listAccessibleRepos } from "./github-api"
+import { startPrPollLoop } from "./pr-poll-loop"
 import type { CompanionConfig } from "./config"
 import type { Logger } from "./logger"
+
+function startGithubIdentityLoop(config: CompanionConfig, log: Logger) {
+  let stopped = false
+  const tick = async () => {
+    if (stopped) return
+    const auth = await loadAccessToken().catch(() => null)
+    if (!auth) return
+    try {
+      const user = await getAuthedUser(auth.token)
+      const repos = await listAccessibleRepos(auth.token)
+      await reportGithubIdentity(config, user.login, repos)
+      log.debug(
+        { login: user.login, repos: repos.length },
+        `github identity refreshed`
+      )
+    } catch (e) {
+      log.warn(
+        { err: e instanceof Error ? e.message : String(e) },
+        `github identity refresh failed`
+      )
+    }
+  }
+  void tick()
+  const timer = setInterval(() => void tick(), 5 * 60_000)
+  return () => {
+    stopped = true
+    clearInterval(timer)
+  }
+}
 
 function startHeartbeatLoop(config: CompanionConfig, log: Logger) {
   let stopped = false
@@ -161,11 +194,15 @@ export async function runDaemon() {
   const eventSource = await startEventSource({ config, state, log, dispatcher })
   const stopHeartbeat = startHeartbeatLoop(config, log)
   const stopControl = startControlLoop(config, log, notifier)
+  const stopGithubIdentity = startGithubIdentityLoop(config, log)
+  const prPoll = startPrPollLoop({ config, state, log })
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, `shutting down`)
     stopHeartbeat()
     stopControl()
+    stopGithubIdentity()
+    prPoll.stop()
     await eventSource.stop()
     await dispatcher.stop()
     await notifier.stop()

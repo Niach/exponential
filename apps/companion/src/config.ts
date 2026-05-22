@@ -15,6 +15,14 @@ export const configSchema = z.object({
     workspaceSlug: z.string().min(1),
     agentId: z.string().uuid(),
     botUserId: z.string().uuid(),
+    /**
+     * GitHub OAuth App client ID for the device-flow login. Fetched from
+     * the server at setup time (EXPONENTIAL_GITHUB_OAUTH_CLIENT_ID env on
+     * the Exponential instance). Optional only because older configs
+     * predate this field — `companion github login` errors out cleanly
+     * when missing.
+     */
+    githubOauthClientId: z.string().optional(),
   }),
   driver: z.object({
     default: z.enum([`claude`, `codex`]).default(`claude`),
@@ -53,16 +61,6 @@ export const configSchema = z.object({
         .optional(),
     })
     .optional(),
-  projects: z
-    .record(
-      z.string(),
-      z.object({
-        repoPath: z.string(),
-        defaultBranch: z.string().default(`main`),
-        testCommand: z.string().optional(),
-      })
-    )
-    .default({}),
 })
 
 export type CompanionConfig = z.infer<typeof configSchema>

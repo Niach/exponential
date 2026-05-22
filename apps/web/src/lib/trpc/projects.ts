@@ -91,4 +91,52 @@ export const projectsRouter = router({
 
       return { project }
     }),
+
+  linkGithubRepo: authedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        repo: z
+          .string()
+          .regex(
+            /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/,
+            `Expected "owner/repo"`
+          ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const projectRecord = await assertProjectMember(
+        ctx.session.user.id,
+        input.projectId
+      )
+      await assertWorkspaceOwner(
+        ctx.session.user.id,
+        projectRecord.workspaceId
+      )
+      const [project] = await ctx.db
+        .update(projects)
+        .set({ githubRepo: input.repo })
+        .where(eq(projects.id, input.projectId))
+        .returning()
+      return { project }
+    }),
+
+  unlinkGithubRepo: authedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const projectRecord = await assertProjectMember(
+        ctx.session.user.id,
+        input.projectId
+      )
+      await assertWorkspaceOwner(
+        ctx.session.user.id,
+        projectRecord.workspaceId
+      )
+      const [project] = await ctx.db
+        .update(projects)
+        .set({ githubRepo: null })
+        .where(eq(projects.id, input.projectId))
+        .returning()
+      return { project }
+    }),
 })

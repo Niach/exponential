@@ -97,9 +97,23 @@ export async function connectWhatsapp(
   const upsertChat = (chat: { id?: string | null; name?: string | null }) => {
     const jid = chat.id ?? ``
     if (!jid) return
+    const jidPrefix = jid.split(`@`)[0] ?? jid
+    const incomingName = chatNameFrom(chat)
+    const existing = chats.get(jid)
+    // Don't regress a real chat name to the JID-prefix fallback. This
+    // happens routinely: chats.upsert fires first with no name, then
+    // groupFetchAllParticipating arrives with the real subject — we want
+    // the second value to stick.
+    if (
+      existing &&
+      existing.name !== jidPrefix &&
+      incomingName === jidPrefix
+    ) {
+      return
+    }
     chats.set(jid, {
       jid,
-      name: chatNameFrom(chat),
+      name: incomingName,
       isGroup: isGroupJid(jid),
     })
   }
@@ -131,7 +145,10 @@ export async function connectWhatsapp(
               { fetched: chats.size - before, total: chats.size },
               `groupFetchAllParticipating`
             )
-            if (chats.size > before) scheduleChatsEmit()
+            // Always emit — names usually update in place (existing entries
+            // get their JID-prefix fallback replaced by the real subject)
+            // without growing the map size.
+            scheduleChatsEmit()
           })
           .catch((e) =>
             args.log.warn(

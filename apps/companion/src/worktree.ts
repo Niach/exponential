@@ -15,9 +15,11 @@ export interface WorktreeClaim {
 
 export interface WorktreeManager {
   claim(args: {
-    projectId: string
+    repoPath: string
+    defaultBranch: string
     identifier: string
     slug: string
+    testCommand?: string | null
   }): Promise<WorktreeClaim>
   cleanup(claim: WorktreeClaim): Promise<void>
 }
@@ -46,13 +48,7 @@ export function createWorktreeManager(args: {
   const { config, log } = args
 
   return {
-    async claim({ projectId, identifier, slug }) {
-      const project = config.projects[projectId]
-      if (!project) {
-        throw new Error(
-          `No repo mapping for project ${projectId}. Add it to [projects.<id>] in config.toml.`
-        )
-      }
+    async claim({ repoPath, defaultBranch, identifier, slug, testCommand }) {
       await mkdir(config.worktrees.root, { recursive: true })
 
       const free = await bytesFree(config.worktrees.root)
@@ -69,39 +65,45 @@ export function createWorktreeManager(args: {
       try {
         await stat(worktreePath)
         log.warn({ worktreePath }, `removing stale worktree`)
-        const g = simpleGit(project.repoPath)
-        await g.raw([`worktree`, `remove`, `--force`, worktreePath]).catch(() => {})
+        const g = simpleGit(repoPath)
+        await g
+          .raw([`worktree`, `remove`, `--force`, worktreePath])
+          .catch(() => {})
         await rm(worktreePath, { recursive: true, force: true })
       } catch {
         // doesn't exist, good
       }
 
-      const git = simpleGit(project.repoPath)
-      // Fetch latest so we branch off the freshest origin/<default>.
-      await git.fetch(`origin`, project.defaultBranch)
+      const git = simpleGit(repoPath)
+      // The clone is kept fresh by repo-manager.ts; we still fetch here as a
+      // belt-and-braces guard against concurrent worktrees racing the fetch.
+      await git.fetch(`origin`, defaultBranch)
       await git.raw([
         `worktree`,
         `add`,
         `-b`,
         branch,
         worktreePath,
-        `origin/${project.defaultBranch}`,
+        `origin/${defaultBranch}`,
       ])
       log.info({ worktreePath, branch }, `worktree created`)
 
       return {
         worktreePath,
         branch,
-        repoPath: project.repoPath,
-        defaultBranch: project.defaultBranch,
-        testCommand: project.testCommand ?? null,
+        repoPath,
+        defaultBranch,
+        testCommand: testCommand ?? null,
       }
     },
 
     async cleanup(claim) {
       // Belt-and-suspenders: only remove branches matching the agent prefix.
       if (!claim.branch.startsWith(`${config.worktrees.branchPrefix}/`)) {
-        log.warn({ branch: claim.branch }, `refusing to clean branch outside agent prefix`)
+        log.warn(
+          { branch: claim.branch },
+          `refusing to clean branch outside agent prefix`
+        )
         return
       }
       const git = simpleGit(claim.repoPath)
@@ -118,7 +120,10 @@ export function createWorktreeManager(args: {
         .raw([`branch`, `-D`, claim.branch])
         .catch((e: unknown) =>
           log.warn(
-            { err: e instanceof Error ? e.message : String(e), branch: claim.branch },
+            {
+              err: e instanceof Error ? e.message : String(e),
+              branch: claim.branch,
+            },
             `branch -D failed`
           )
         )

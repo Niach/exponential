@@ -24,6 +24,8 @@ export interface IssueRow {
   status: IssueStatus
   worktreePath: string | null
   branch: string | null
+  /** Path to the source git clone (parent of the worktree). */
+  repoPath: string | null
   prUrl: string | null
   driver: string | null
   attempts: number
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS issues (
   status TEXT NOT NULL,
   worktree_path TEXT,
   branch TEXT,
+  repo_path TEXT,
   pr_url TEXT,
   driver TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
@@ -74,6 +77,10 @@ CREATE TABLE IF NOT EXISTS shape_offsets (
 );
 `
 
+// Idempotent ALTERs for state.db files created before this column was added.
+// Bun's sqlite throws on duplicate column; we swallow and move on.
+const IDEMPOTENT_MIGRATIONS = [`ALTER TABLE issues ADD COLUMN repo_path TEXT`]
+
 function rowToIssue(row: Record<string, unknown>): IssueRow {
   return {
     id: row.id as string,
@@ -83,6 +90,7 @@ function rowToIssue(row: Record<string, unknown>): IssueRow {
     status: row.status as IssueStatus,
     worktreePath: (row.worktree_path as string | null) ?? null,
     branch: (row.branch as string | null) ?? null,
+    repoPath: (row.repo_path as string | null) ?? null,
     prUrl: (row.pr_url as string | null) ?? null,
     driver: (row.driver as string | null) ?? null,
     attempts: row.attempts as number,
@@ -96,6 +104,13 @@ export function openState(): StateHandle {
   const db = new Database(join(STATE_DIR, `state.db`), { create: true })
   db.exec(`PRAGMA journal_mode = WAL;`)
   db.exec(SCHEMA)
+  for (const stmt of IDEMPOTENT_MIGRATIONS) {
+    try {
+      db.exec(stmt)
+    } catch {
+      // duplicate-column or already-applied — fine
+    }
+  }
 
   return {
     db,
@@ -159,6 +174,7 @@ export function openState(): StateHandle {
         status: `status`,
         worktreePath: `worktree_path`,
         branch: `branch`,
+        repoPath: `repo_path`,
         prUrl: `pr_url`,
         driver: `driver`,
         attempts: `attempts`,

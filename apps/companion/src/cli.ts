@@ -6,6 +6,11 @@ import { runInstallService } from "./commands/install-service"
 import { runStatus } from "./commands/status"
 import { runLogs } from "./commands/logs"
 import { runUninstall } from "./commands/uninstall"
+import {
+  runGithubLogin,
+  runGithubLogout,
+  runGithubStatus,
+} from "./commands/github"
 
 const program = new Command()
   .name(`companion`)
@@ -70,6 +75,30 @@ program
   .description(`Tail the daemon log file.`)
   .action(async () => {
     await runLogs()
+  })
+
+const githubCmd = program
+  .command(`github`)
+  .description(`Manage the daemon's GitHub authentication.`)
+githubCmd
+  .command(`login`)
+  .description(
+    `Authorize the companion against GitHub via OAuth device flow.`
+  )
+  .action(async () => {
+    await runGithubLogin()
+  })
+githubCmd
+  .command(`logout`)
+  .description(`Remove the locally-stored GitHub token + clear server identity.`)
+  .action(async () => {
+    await runGithubLogout()
+  })
+githubCmd
+  .command(`status`)
+  .description(`Show the GitHub login + repo count.`)
+  .action(async () => {
+    await runGithubStatus()
   })
 
 program

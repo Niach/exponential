@@ -25,10 +25,8 @@ export async function runSetup(opts: Opts): Promise<void> {
   })
 
   // Non-interactive: every value is either a CLI flag or a sensible default.
-  // WhatsApp pairing + per-chat target are handled from the web UI later;
-  // repo mappings are deferred to the GitHub App follow-up. The companion is
-  // safe to run with `projects = {}` — issues for unmapped projects will be
-  // marked `needs_human`.
+  // WhatsApp pairing + chat target are handled from the web UI; GitHub
+  // login is a separate post-setup step.
   const config: CompanionConfig = configSchema.parse({
     exponential: {
       baseUrl: opts.server,
@@ -36,6 +34,7 @@ export async function runSetup(opts: Opts): Promise<void> {
       workspaceSlug: claimed.workspace.slug,
       agentId: claimed.agent.id,
       botUserId: claimed.agent.userId,
+      githubOauthClientId: claimed.oauth?.githubClientId ?? undefined,
     },
     driver: {
       default: opts.driver ?? `claude`,
@@ -54,7 +53,6 @@ export async function runSetup(opts: Opts): Promise<void> {
         authStateDir: join(STATE_DIR, `baileys-auth`),
       },
     },
-    projects: {},
   })
 
   await saveConfig(config)
@@ -65,5 +63,9 @@ export async function runSetup(opts: Opts): Promise<void> {
   console.log(`Config:    ${CONFIG_DIR}/config.toml`)
   console.log(`Token:     ${CONFIG_DIR}/bot.token`)
   console.log(``)
-  console.log(`Next: pair WhatsApp from the workspace settings page.`)
+  console.log(`Next steps:`)
+  console.log(`  1. Pair WhatsApp from the workspace settings page.`)
+  console.log(`  2. Run \`bun apps/companion/src/cli.ts github login\` to`)
+  console.log(`     authorize the companion against GitHub.`)
+  console.log(`  3. Link each project to a repo in the workspace settings.`)
 }

@@ -24,6 +24,9 @@ export interface ClaimSetupResult {
     slug: string
     prefix: string
   }>
+  oauth?: {
+    githubClientId: string | null
+  }
 }
 
 export interface CompanionControl {
@@ -152,6 +155,32 @@ export async function uninstallSelf(config: CompanionConfig): Promise<void> {
   await callTrpc(
     config.exponential.baseUrl,
     `companion.uninstallSelf`,
+    undefined,
+    token
+  )
+}
+
+export async function reportGithubIdentity(
+  config: CompanionConfig,
+  login: string,
+  repos: Array<{ fullName: string; defaultBranch: string; private: boolean }>
+): Promise<void> {
+  const token = await readBotToken()
+  await callTrpc(
+    config.exponential.baseUrl,
+    `companion.reportGithubIdentity`,
+    { login, repos },
+    token
+  )
+}
+
+export async function clearGithubIdentity(
+  config: CompanionConfig
+): Promise<void> {
+  const token = await readBotToken()
+  await callTrpc(
+    config.exponential.baseUrl,
+    `companion.clearGithubIdentity`,
     undefined,
     token
   )

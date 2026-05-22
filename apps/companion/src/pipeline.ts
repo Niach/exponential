@@ -1,12 +1,15 @@
 import type { IssuePipeline, IssuePipelineDeps } from "./dispatcher"
 import { createDriver, type DriverName } from "./drivers"
 import { createWorktreeManager, type WorktreeManager } from "./worktree"
-import { openPullRequest, pushBranch, runCommand } from "./github"
 import {
   connectExponentialMcp,
   type ExponentialMcpClient,
 } from "./exponential-mcp-client"
 import { readBotToken } from "./credentials"
+import { loadAccessToken } from "./github-auth"
+import { createPullRequest } from "./github-api"
+import { ensureRepo, pushBranchWithToken } from "./repo-manager"
+import { spawn } from "node:child_process"
 
 const SYSTEM_PROMPT = `You are an autonomous coding agent working on an issue tracked in Exponential.
 
@@ -22,9 +25,23 @@ interface BuildPipelineArgs {
   worktreeManager?: WorktreeManager
 }
 
-export function buildIssuePipeline(
-  _args: BuildPipelineArgs = {}
-): IssuePipeline {
+interface RepoLookup {
+  ownerRepo: string
+  defaultBranch: string
+}
+
+async function resolveProjectRepo(args: {
+  projectId: string
+  mcp: ExponentialMcpClient
+}): Promise<RepoLookup | null> {
+  const project = await args.mcp.getProject(args.projectId)
+  if (!project?.githubRepo) return null
+  // Default branch is filled in lazily by ensureRepo via a GitHub roundtrip
+  // if "main" isn't right; we just pass our best guess.
+  return { ownerRepo: project.githubRepo, defaultBranch: `main` }
+}
+
+export function buildIssuePipeline(_args: BuildPipelineArgs = {}): IssuePipeline {
   return async (issue, deps) => {
     const { config, state, log } = deps
     const wt = _args.worktreeManager ?? createWorktreeManager({ config, log })
@@ -39,23 +56,57 @@ export function buildIssuePipeline(
       state.setIssueStatus(issue.id, `claimed`)
       await mcp.updateIssueStatus({ issueId: issue.id, status: `in_progress` })
 
-      claim = await wt.claim({
+      // Resolve the GitHub repo this project is linked to. Two failure modes
+      // here become user-friendly `needs_human` statuses rather than thrown
+      // errors.
+      const repoLookup = await resolveProjectRepo({
         projectId: issue.projectId,
+        mcp,
+      })
+      if (!repoLookup) {
+        state.setIssueStatus(issue.id, `needs_human`, `no github repo linked`)
+        await mcp.createComment({
+          issueId: issue.id,
+          bodyText: `No GitHub repo linked for this project. Link one in workspace settings.`,
+        })
+        return
+      }
+
+      const auth = await loadAccessToken().catch(() => null)
+      if (!auth) {
+        state.setIssueStatus(
+          issue.id,
+          `needs_human`,
+          `no github authentication`
+        )
+        await mcp.createComment({
+          issueId: issue.id,
+          bodyText: `Companion is not authenticated to GitHub. Run \`companion github login\` on the daemon host.`,
+        })
+        return
+      }
+
+      const handle = await ensureRepo({
+        ownerRepo: repoLookup.ownerRepo,
+        defaultBranch: repoLookup.defaultBranch,
+        token: auth.token,
+        log,
+      })
+
+      claim = await wt.claim({
+        repoPath: handle.repoPath,
+        defaultBranch: handle.defaultBranch,
         identifier: issue.identifier,
         slug: issue.title,
       })
       state.patchIssue(issue.id, {
         worktreePath: claim.worktreePath,
         branch: claim.branch,
+        repoPath: handle.repoPath,
         driver: driverName,
       })
 
-      await runDriverWithRetry({
-        issue,
-        deps,
-        claim,
-        driverName,
-      })
+      await runDriverWithRetry({ issue, deps, claim, driverName })
 
       state.setIssueStatus(issue.id, `testing`)
       const testResult = await runTests(claim, deps)
@@ -74,18 +125,25 @@ export function buildIssuePipeline(
       }
 
       state.setIssueStatus(issue.id, `pushed`)
-      await pushBranch(claim.repoPath, claim.branch, log)
+      await pushBranchWithToken({
+        repoPath: claim.repoPath,
+        owner: handle.owner,
+        repo: handle.repo,
+        branch: claim.branch,
+        token: auth.token,
+        log,
+      })
 
-      const pr = await openPullRequest(
-        {
-          repoPath: claim.repoPath,
-          branch: claim.branch,
-          identifier: issue.identifier,
-          title: issue.title,
-          body: prBody(issue.identifier, issue.title),
-        },
-        log
-      )
+      const pr = await createPullRequest(auth.token, {
+        owner: handle.owner,
+        repo: handle.repo,
+        head: claim.branch,
+        base: handle.defaultBranch,
+        title: `[${issue.identifier}] ${issue.title}`,
+        body: prBody(issue.identifier, issue.title),
+      })
+      log.info({ url: pr.url, number: pr.number }, `pr opened`)
+
       state.patchIssue(issue.id, { prUrl: pr.url })
       state.setIssueStatus(issue.id, `in_review`)
       await mcp.createComment({
@@ -118,7 +176,7 @@ export function buildIssuePipeline(
       claim = null
     } finally {
       if (mcp) await mcp.close().catch(() => {})
-      // Keep the branch and worktree around while review is pending.
+      // Worktrees persist while review is pending; pr-poll-loop cleans up.
     }
   }
 }
@@ -181,10 +239,6 @@ async function fetchIssueDescriptionFromMcp(
   _issueId: string,
   _deps: IssuePipelineDeps
 ): Promise<string> {
-  // Future enhancement: read the full description via MCP. For MVP the
-  // dispatcher only has title in hand from the shape event; the agent is
-  // expected to call back via the MCP server it has access to if it needs
-  // more context.
   return ``
 }
 
@@ -201,28 +255,75 @@ function buildUserPrompt(args: {
   return `${header}\n\n${args.body || `(No description provided)`}`
 }
 
+async function detectTestCommand(repoPath: string): Promise<string | null> {
+  // Minimal auto-detect for repos that have an obvious test script. Future
+  // enhancement: per-project test-command configurable in the web UI.
+  try {
+    const pkg = (await Bun.file(`${repoPath}/package.json`).json()) as {
+      scripts?: Record<string, string>
+    }
+    if (typeof pkg?.scripts?.test === `string`) return `bun test`
+  } catch {
+    // not a node/bun project; that's fine
+  }
+  return null
+}
+
 async function runTests(
   claim: Awaited<ReturnType<WorktreeManager[`claim`]>>,
   deps: IssuePipelineDeps
 ): Promise<{ ok: boolean; tail: string }> {
-  if (!claim.testCommand) {
+  const cmd = claim.testCommand ?? (await detectTestCommand(claim.worktreePath))
+  if (!cmd) {
     deps.log.info(
       { worktree: claim.worktreePath },
       `no test command configured; skipping`
     )
     return { ok: true, tail: `` }
   }
-  const result = await runCommand({
+  const result = await runShell({
     cwd: claim.worktreePath,
-    command: claim.testCommand,
+    command: cmd,
     timeoutMs: 10 * 60_000,
   })
-  if (result.exitCode === 0) {
-    return { ok: true, tail: `` }
-  }
+  if (result.exitCode === 0) return { ok: true, tail: `` }
   const combined = (result.stdout + `\n` + result.stderr).trim()
   const tail = combined.slice(Math.max(0, combined.length - 2000))
   return { ok: false, tail }
+}
+
+interface RunShellArgs {
+  cwd: string
+  command: string
+  timeoutMs?: number
+}
+
+interface RunShellResult {
+  exitCode: number
+  stdout: string
+  stderr: string
+}
+
+async function runShell(args: RunShellArgs): Promise<RunShellResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(`sh`, [`-c`, args.command], { cwd: args.cwd })
+    let stdout = ``
+    let stderr = ``
+    let timer: ReturnType<typeof setTimeout> | undefined
+    if (args.timeoutMs) {
+      timer = setTimeout(() => child.kill(`SIGTERM`), args.timeoutMs)
+    }
+    child.stdout.on(`data`, (d: Buffer) => (stdout += d.toString()))
+    child.stderr.on(`data`, (d: Buffer) => (stderr += d.toString()))
+    child.on(`error`, (err) => {
+      if (timer) clearTimeout(timer)
+      reject(err)
+    })
+    child.on(`close`, (code) => {
+      if (timer) clearTimeout(timer)
+      resolve({ exitCode: code ?? -1, stdout, stderr })
+    })
+  })
 }
 
 function prBody(identifier: string, _title: string): string {

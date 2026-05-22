@@ -123,6 +123,8 @@ export const companionRouter = router({
           whatsappOwnJid: workspaceAgents.whatsappOwnJid,
           whatsappChats: workspaceAgents.whatsappChats,
           whatsappNotifyJid: workspaceAgents.whatsappNotifyJid,
+          githubUserLogin: workspaceAgents.githubUserLogin,
+          githubRepos: workspaceAgents.githubRepos,
           createdAt: workspaceAgents.createdAt,
           updatedAt: workspaceAgents.updatedAt,
           email: users.email,
@@ -360,6 +362,12 @@ export const companionRouter = router({
           name: agent.workspaceName,
         },
         projects: projectRows,
+        oauth: {
+          // Daemon stores this in its config.toml and uses it for the
+          // GitHub device-flow login. Self-hosters set the env var to
+          // their own OAuth App's Client ID; null = not configured.
+          githubClientId: process.env.EXPONENTIAL_GITHUB_OAUTH_CLIENT_ID || null,
+        },
       }
     }),
 
@@ -493,6 +501,49 @@ export const companionRouter = router({
   uninstallSelf: authedProcedure.mutation(async ({ ctx }) => {
     const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
     await revokeWorkspaceAgent(ctx.db, agent)
+    return { ok: true }
+  }),
+
+  reportGithubIdentity: authedProcedure
+    .input(
+      z.object({
+        login: z.string().min(1).max(128),
+        repos: z
+          .array(
+            z.object({
+              fullName: z
+                .string()
+                .regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/),
+              defaultBranch: z.string().min(1).max(255),
+              private: z.boolean(),
+            })
+          )
+          .max(2000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+      await ctx.db
+        .update(workspaceAgents)
+        .set({
+          githubUserLogin: input.login,
+          githubRepos: input.repos,
+          lastSeenAt: new Date(),
+        })
+        .where(eq(workspaceAgents.id, agent.id))
+      return { ok: true, count: input.repos.length }
+    }),
+
+  clearGithubIdentity: authedProcedure.mutation(async ({ ctx }) => {
+    const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+    await ctx.db
+      .update(workspaceAgents)
+      .set({
+        githubUserLogin: null,
+        githubRepos: null,
+        lastSeenAt: new Date(),
+      })
+      .where(eq(workspaceAgents.id, agent.id))
     return { ok: true }
   }),
 })

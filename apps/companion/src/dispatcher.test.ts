@@ -32,7 +32,6 @@ const baseConfig: CompanionConfig = {
     branchPrefix: `agent`,
   },
   messaging: undefined,
-  projects: {},
 }
 
 function inMemoryState(): StateHandle {
@@ -55,6 +54,7 @@ function inMemoryState(): StateHandle {
     status: r.status as IssueStatus,
     worktreePath: (r.worktree_path as string) ?? null,
     branch: (r.branch as string) ?? null,
+    repoPath: (r.repo_path as string) ?? null,
     prUrl: (r.pr_url as string) ?? null,
     driver: (r.driver as string) ?? null,
     attempts: r.attempts as number,
