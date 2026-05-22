@@ -26,7 +26,17 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 1
 fi
 
-if [[ -z "$SERVER" || -z "$SETUP_TOKEN" ]]; then
+CONFIG_PATH="$HOME/.config/exponential-companion/config.toml"
+if [[ -f "$CONFIG_PATH" ]]; then
+  ALREADY_CONFIGURED="1"
+else
+  ALREADY_CONFIGURED=""
+fi
+
+# Setup token is only required for first-time installs. Re-running the
+# script with an existing config just pulls latest source + restarts the
+# service (i.e., it acts as an updater).
+if [[ -z "$ALREADY_CONFIGURED" && ( -z "$SERVER" || -z "$SETUP_TOKEN" ) ]]; then
   echo "Usage: companion.sh --server https://app.exponential.at --setup-token expc_..." >&2
   exit 1
 fi
@@ -72,13 +82,22 @@ cd "$INSTALL_DIR"
 echo "Installing dependencies..."
 bun install --frozen-lockfile
 
-echo "Configuring companion..."
-bun apps/companion/src/cli.ts setup --server "$SERVER" --setup-token "$SETUP_TOKEN"
+if [[ -z "$ALREADY_CONFIGURED" ]]; then
+  echo "Configuring companion..."
+  bun apps/companion/src/cli.ts setup --server "$SERVER" --setup-token "$SETUP_TOKEN"
+else
+  echo "Existing config detected at $CONFIG_PATH — skipping setup."
+fi
 
 echo "Installing systemd user service..."
 bun apps/companion/src/cli.ts install-service
 systemctl --user daemon-reload
-systemctl --user enable --now exponential-companion
+if [[ -n "$ALREADY_CONFIGURED" ]]; then
+  # Force a restart so the freshly-pulled code is what's running.
+  systemctl --user restart exponential-companion
+else
+  systemctl --user enable --now exponential-companion
+fi
 
 cat <<EOF
 

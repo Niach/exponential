@@ -55,6 +55,12 @@ export async function connectWhatsapp(
   let sock: WASocket = makeWASocket({
     auth: state,
     printQRInTerminal: false,
+    // Without this Baileys never receives the chat metadata bundle from
+    // WhatsApp after pairing, so chats.upsert / messaging-history.set only
+    // fire when a fresh message arrives. The chat picker would sit at
+    // "Loading chats…" indefinitely on a newly linked device that hasn't
+    // received any messages yet.
+    syncFullHistory: true,
   })
   sock.ev.on(`creds.update`, saveCreds)
 
@@ -109,6 +115,30 @@ export async function connectWhatsapp(
         args.log.info({ ownJid }, `whatsapp connected`)
         void args.onStatus?.(`connected`, null)
         connectedResolver?.()
+        // Fetch all groups eagerly so the chat picker has something to
+        // show within a second or two of pairing, before the slower
+        // history-sync pipeline lands. 1:1 chats still rely on history
+        // sync / chats.upsert.
+        void s
+          .groupFetchAllParticipating()
+          .then((groups) => {
+            const before = chats.size
+            for (const meta of Object.values(groups)) {
+              if (!meta.id) continue
+              upsertChat({ id: meta.id, name: meta.subject ?? meta.id })
+            }
+            args.log.info(
+              { fetched: chats.size - before, total: chats.size },
+              `groupFetchAllParticipating`
+            )
+            if (chats.size > before) scheduleChatsEmit()
+          })
+          .catch((e) =>
+            args.log.warn(
+              { err: e instanceof Error ? e.message : String(e) },
+              `groupFetchAllParticipating failed`
+            )
+          )
       } else if (u.connection === `close`) {
         const code = (
           u.lastDisconnect?.error as
