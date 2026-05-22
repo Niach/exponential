@@ -374,7 +374,10 @@ export const companionRouter = router({
     return { ok: true, lastSeenAt: updated?.lastSeenAt ?? null }
   }),
 
-  pollControl: authedProcedure.query(async ({ ctx }) => {
+  // `mutation` instead of `query` because the daemon's tRPC client uses POST
+  // for everything, and we still want to update `lastSeenAt` on each poll —
+  // so a write-shaped semantics fits.
+  pollControl: authedProcedure.mutation(async ({ ctx }) => {
     const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
     await ctx.db
       .update(workspaceAgents)
