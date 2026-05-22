@@ -75,6 +75,14 @@ export const auth = betterAuth({
     disableSignUp: process.env.NODE_ENV === `production`,
     minPasswordLength: process.env.NODE_ENV === `production` ? 8 : 1,
   },
+  session: {
+    expiresIn: 60 * 60 * 24 * 60,
+    updateAge: 60 * 60 * 24,
+    cookieCache: {
+      enabled: true,
+      maxAge: 60 * 5,
+    },
+  },
   user: {
     additionalFields: {
       isAdmin: {
@@ -99,7 +107,7 @@ export const auth = betterAuth({
           clientId: process.env.GOOGLE_CLIENT_ID!,
           clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
           accessType: `offline`,
-          prompt: `select_account consent`,
+          prompt: `select_account`,
         },
       }
     : undefined,
