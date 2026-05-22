@@ -183,15 +183,16 @@ export function WorkspaceAgentsSection({
                 <Terminal className="h-4 w-4" />
                 Linux install command
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <Input
                   value={installCommand}
                   readOnly
-                  className="font-mono text-xs"
+                  className="min-w-0 flex-1 font-mono text-xs"
                 />
                 <Button
                   variant="outline"
                   size="icon"
+                  className="shrink-0"
                   onClick={copyInstallCommand}
                   aria-label="Copy install command"
                 >
@@ -235,11 +236,13 @@ export function WorkspaceAgentsSection({
               agents.map((agent) => (
                 <div
                   key={agent.id}
-                  className="flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 overflow-hidden rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium">{agent.name}</span>
+                      <span className="break-all text-sm font-medium">
+                        {agent.name}
+                      </span>
                       <Badge variant="secondary">agent</Badge>
                       <Badge variant={statusVariant(agent.whatsappStatus)}>
                         WhatsApp {agent.whatsappStatus.replace(/_/g, ` `)}
@@ -261,7 +264,7 @@ export function WorkspaceAgentsSection({
                       ) : (
                         <QrCode className="h-4 w-4" />
                       )}
-                      WhatsApp
+                      <span className="hidden sm:inline">WhatsApp</span>
                     </Button>
                     <Button
                       variant="ghost"
@@ -308,7 +311,7 @@ export function WorkspaceAgentsSection({
               <img
                 src={qrDataUrl}
                 alt="WhatsApp pairing QR"
-                className="h-64 w-64"
+                className="h-auto w-full max-w-[16rem]"
               />
             ) : pairingAgent?.whatsappStatus === `connected` ? (
               <div className="flex items-center gap-2 text-sm text-zinc-950">
