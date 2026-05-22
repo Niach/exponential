@@ -13,7 +13,7 @@
     "values": ["day", "week", "month"]
   },
   "workspaceRole": {
-    "values": ["owner", "member"]
+    "values": ["owner", "member", "agent"]
   },
   "publicWritePolicy": {
     "values": ["members", "everyone"]

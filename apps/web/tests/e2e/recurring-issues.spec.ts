@@ -1,9 +1,9 @@
 import type { Page } from "@playwright/test"
 import { eq } from "drizzle-orm"
 import { registerUser } from "./helpers/auth"
-import { db } from "../../../src/db/connection"
-import { issues, projects } from "../../../src/db/schema"
-import { users } from "../../../src/db/auth-schema"
+import { db } from "../../src/db/connection"
+import { users } from "../../src/db/auth-schema"
+import { issues, projects } from "../../src/db/schema"
 import { expect, test, type AppFixture } from "./fixtures"
 
 async function createProject(page: Page, app: AppFixture) {

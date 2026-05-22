@@ -8,7 +8,7 @@ object DomainContract {
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
     val recurrenceUnitValues: List<String> = listOf("day", "week", "month")
-    val workspaceRoleValues: List<String> = listOf("owner", "member")
+    val workspaceRoleValues: List<String> = listOf("owner", "member", "agent")
     val publicWritePolicyValues: List<String> = listOf("members", "everyone")
     val recurrenceIntervals: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30)
 }

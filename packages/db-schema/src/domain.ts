@@ -17,7 +17,7 @@ export const issuePriorityValues = [
   `low`,
 ] as const
 
-export const workspaceRoleValues = [`owner`, `member`] as const
+export const workspaceRoleValues = [`owner`, `member`, `agent`] as const
 
 export const publicWritePolicyValues = [`members`, `everyone`] as const
 

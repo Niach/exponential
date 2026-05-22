@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { useLiveQuery, eq, inArray } from "@tanstack/react-db"
+import { useLiveQuery, inArray } from "@tanstack/react-db"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import { issueCollection } from "@/lib/collections"
@@ -25,10 +25,12 @@ export function IssueSearchSheet({
   const [query, setQuery] = useState(``)
   const navigate = useNavigate()
   const projects = useWorkspaceProjects(workspaceId)
-  const projectIds = useMemo(() => projects.map((p: Project) => p.id), [projects])
+  const projectIds = useMemo(
+    () => projects.map((p: Project) => p.id),
+    [projects]
+  )
   const projectMap = useMemo(
-    () =>
-      new Map<string, Project>(projects.map((p: Project) => [p.id, p])),
+    () => new Map<string, Project>(projects.map((p: Project) => [p.id, p])),
     [projects]
   )
 

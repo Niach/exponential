@@ -35,6 +35,7 @@ import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
+import { Route as ApiShapesAssignedIssuesRouteImport } from './routes/api/shapes/assigned-issues'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
@@ -177,6 +178,11 @@ const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
   path: '/api/shapes/comments',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesAssignedIssuesRoute = ApiShapesAssignedIssuesRouteImport.update({
+  id: '/api/shapes/assigned-issues',
+  path: '/api/shapes/assigned-issues',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -242,6 +248,7 @@ export interface FileRoutesByFullPath {
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
@@ -275,6 +282,7 @@ export interface FileRoutesByTo {
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
@@ -312,6 +320,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
@@ -349,6 +358,7 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/shapes/assigned-issues'
     | '/api/shapes/comments'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
@@ -382,6 +392,7 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/shapes/assigned-issues'
     | '/api/shapes/comments'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
@@ -418,6 +429,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/shapes/assigned-issues'
     | '/api/shapes/comments'
     | '/api/shapes/issue-labels'
     | '/api/shapes/issues'
@@ -450,6 +462,7 @@ export interface RootRouteChildren {
   InviteTokenRoute: typeof InviteTokenRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiShapesAssignedIssuesRoute: typeof ApiShapesAssignedIssuesRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
@@ -647,6 +660,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesCommentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/assigned-issues': {
+      id: '/api/shapes/assigned-issues'
+      path: '/api/shapes/assigned-issues'
+      fullPath: '/api/shapes/assigned-issues'
+      preLoaderRoute: typeof ApiShapesAssignedIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -773,6 +793,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteTokenRoute: InviteTokenRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiShapesAssignedIssuesRoute: ApiShapesAssignedIssuesRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,

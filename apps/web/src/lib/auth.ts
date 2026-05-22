@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { bearer, genericOAuth, mcp } from "better-auth/plugins"
+import { apiKey } from "@better-auth/api-key"
 import { createAuthMiddleware } from "better-auth/api"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { eq, and } from "drizzle-orm"
@@ -194,8 +195,30 @@ export const auth = betterAuth({
     }),
   },
   plugins: [
-    tanstackStartCookies(),
     bearer(),
+    apiKey({
+      defaultPrefix: `expk_`,
+      enableMetadata: true,
+      enableSessionForAPIKeys: true,
+      keyExpiration: { defaultExpiresIn: null },
+      // Per-key rate limiting is off by default for service tokens — the
+      // companion daemon long-polls /api/shapes/* and would blow through
+      // the plugin default of 10 req/day in seconds. The global Better Auth
+      // rateLimit (configured above on the auth root) still applies, plus
+      // network-level limits at the reverse proxy.
+      rateLimit: { enabled: false },
+      // Accept the key from either `x-api-key` (api-key plugin default) or
+      // `Authorization: Bearer expk_...` so MCP clients that only know the
+      // bearer convention can authenticate without a custom header.
+      customAPIKeyGetter: (ctx) => {
+        const direct = ctx.headers?.get(`x-api-key`)
+        if (direct) return direct
+        const authz = ctx.headers?.get(`authorization`)
+        if (!authz) return null
+        const match = authz.match(/^Bearer\s+(expk_[^\s]+)$/i)
+        return match ? match[1] : null
+      },
+    }),
     mcp({
       loginPage: `/auth/login`,
       resource: process.env.BETTER_AUTH_URL
@@ -227,5 +250,7 @@ export const auth = betterAuth({
           }),
         ]
       : []),
+    // Must be last so it can capture Set-Cookie from any plugin's hooks.after.
+    tanstackStartCookies(),
   ],
 })

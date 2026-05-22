@@ -1,9 +1,10 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { workspaceMembers, workspaces } from "@/db/schema"
+import { workspaceAgents, workspaceMembers, workspaces } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
+import { revokeWorkspaceAgent } from "@/lib/companion-agents"
 
 async function assertNotPublicWorkspace(
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -47,6 +48,13 @@ export const workspaceMembersRouter = router({
         `owner`,
       ])
 
+      if (target.role === `agent`) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Agent members are managed from Agent Members`,
+        })
+      }
+
       const [updated] = await ctx.db
         .update(workspaceMembers)
         .set({ role: input.role })
@@ -74,6 +82,33 @@ export const workspaceMembersRouter = router({
       }
 
       await assertNotPublicWorkspace(ctx.db, target.workspaceId)
+
+      if (target.role === `agent`) {
+        await assertWorkspaceMember(ctx.session.user.id, target.workspaceId, [
+          `owner`,
+        ])
+
+        const [agent] = await ctx.db
+          .select()
+          .from(workspaceAgents)
+          .where(
+            and(
+              eq(workspaceAgents.workspaceId, target.workspaceId),
+              eq(workspaceAgents.userId, target.userId)
+            )
+          )
+          .limit(1)
+
+        if (agent) {
+          await revokeWorkspaceAgent(ctx.db, agent)
+        } else {
+          await ctx.db
+            .delete(workspaceMembers)
+            .where(eq(workspaceMembers.id, input.memberId))
+        }
+
+        return { ok: true }
+      }
 
       const isSelfRemove = target.userId === ctx.session.user.id
       if (!isSelfRemove) {

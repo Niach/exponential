@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  comments,
   issueLabels,
   issues,
   labels,
@@ -631,6 +632,62 @@ export function registerExponentialTools(
       try {
         await caller(user, request).issueLabels.remove(input)
         return ok({ ok: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Comments
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_comments_list`,
+    {
+      title: `List comments on an issue`,
+      description: `List comments on an issue (oldest first). The MCP user must have access to the issue's workspace.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+        limit: z.number().int().min(1).max(200).default(100),
+        offset: z.number().int().min(0).default(0),
+      },
+    },
+    async ({ issueId, limit, offset }) => {
+      try {
+        const ctxIssue = await getIssueWorkspaceContext(issueId)
+        await resolveWorkspaceAccess(user.id, ctxIssue.workspaceId)
+        const rows = await db
+          .select()
+          .from(comments)
+          .where(eq(comments.issueId, issueId))
+          .orderBy(asc(comments.createdAt))
+          .limit(limit)
+          .offset(offset)
+        return ok(rows)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_comments_create`,
+    {
+      title: `Comment on an issue`,
+      description: `Post a comment on an issue authored by the MCP user. Body is plain text.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+        bodyText: z.string().min(1).max(10_000),
+      },
+    },
+    async ({ issueId, bodyText }) => {
+      try {
+        const result = await caller(user, request).comments.create({
+          issueId,
+          body: { text: bodyText },
+        })
+        return ok(result.comment)
       } catch (e) {
         return err(e)
       }

@@ -34,7 +34,7 @@ import {
 } from "./domain"
 
 export * from "./auth-schema"
-import { users } from "./auth-schema"
+import { apikeys, users } from "./auth-schema"
 
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({
   zodInstance: z,
@@ -146,6 +146,50 @@ export const workspaceInvites = pgTable(`workspace_invites`, {
   ...timestamps,
 })
 
+export const workspaceAgents = pgTable(
+  `workspace_agents`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    name: varchar({ length: 255 }).notNull(),
+    setupTokenHash: text(`setup_token_hash`).notNull(),
+    setupTokenExpiresAt: timestamp(`setup_token_expires_at`, {
+      withTimezone: true,
+    }).notNull(),
+    setupTokenConsumedAt: timestamp(`setup_token_consumed_at`, {
+      withTimezone: true,
+    }),
+    apiKeyId: text(`api_key_id`).references(() => apikeys.id, {
+      onDelete: `set null`,
+    }),
+    lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true }),
+    whatsappStatus: varchar(`whatsapp_status`, { length: 32 })
+      .notNull()
+      .default(`not_configured`),
+    whatsappPairingRequestedAt: timestamp(`whatsapp_pairing_requested_at`, {
+      withTimezone: true,
+    }),
+    whatsappQr: text(`whatsapp_qr`),
+    whatsappQrUpdatedAt: timestamp(`whatsapp_qr_updated_at`, {
+      withTimezone: true,
+    }),
+    whatsappLastError: text(`whatsapp_last_error`),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.workspaceId, table.userId),
+    index(`idx_workspace_agents_workspace`).on(table.workspaceId),
+    index(`idx_workspace_agents_user`).on(table.userId),
+    index(`idx_workspace_agents_setup_token`).on(table.setupTokenHash),
+    index(`idx_workspace_agents_api_key`).on(table.apiKeyId),
+  ]
+)
+
 export const projects = pgTable(
   `projects`,
   {
@@ -191,7 +235,9 @@ export const issues = pgTable(
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     recurrenceInterval: integer(`recurrence_interval`),
     recurrenceUnit: recurrenceUnitEnum(`recurrence_unit`),
-    googleCalendarEventId: varchar(`google_calendar_event_id`, { length: 1024 }),
+    googleCalendarEventId: varchar(`google_calendar_event_id`, {
+      length: 1024,
+    }),
     googleCalendarLastSyncedAt: timestamp(`google_calendar_last_synced_at`, {
       withTimezone: true,
     }),
@@ -386,6 +432,7 @@ export const selectWorkspaceInviteSchema = createSelectSchema(
     role: workspaceRoleSchema,
   }
 )
+export const selectWorkspaceAgentSchema = createSelectSchema(workspaceAgents)
 
 export const selectProjectSchema = createSelectSchema(projects)
 export const createProjectSchema = createInsertSchema(projects).omit({
@@ -446,6 +493,7 @@ export const selectNotificationSchema = createSelectSchema(notifications)
 export type Workspace = InferSelectModel<typeof workspaces>
 export type WorkspaceMember = InferSelectModel<typeof workspaceMembers>
 export type WorkspaceInvite = InferSelectModel<typeof workspaceInvites>
+export type WorkspaceAgent = InferSelectModel<typeof workspaceAgents>
 export type Project = InferSelectModel<typeof projects>
 export type Issue = InferSelectModel<typeof issues>
 export type Label = InferSelectModel<typeof labels>

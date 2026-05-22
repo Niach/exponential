@@ -1,0 +1,57 @@
+import { and, eq, inArray } from "drizzle-orm"
+import { apikeys } from "@/db/auth-schema"
+import {
+  issues,
+  projects,
+  workspaceAgents,
+  workspaceMembers,
+} from "@/db/schema"
+
+interface WorkspaceAgentRecord {
+  id: string
+  workspaceId: string
+  userId: string
+  apiKeyId: string | null
+}
+
+export async function revokeWorkspaceAgent(
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  db: typeof import("@/db/connection").db,
+  agent: WorkspaceAgentRecord
+) {
+  const projectRows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.workspaceId, agent.workspaceId))
+
+  await db.transaction(async (tx) => {
+    if (agent.apiKeyId) {
+      await tx.delete(apikeys).where(eq(apikeys.id, agent.apiKeyId))
+    }
+
+    if (projectRows.length > 0) {
+      await tx
+        .update(issues)
+        .set({ assigneeId: null })
+        .where(
+          and(
+            inArray(
+              issues.projectId,
+              projectRows.map((project) => project.id)
+            ),
+            eq(issues.assigneeId, agent.userId)
+          )
+        )
+    }
+
+    await tx
+      .delete(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, agent.workspaceId),
+          eq(workspaceMembers.userId, agent.userId)
+        )
+      )
+    await tx.delete(workspaceAgents).where(eq(workspaceAgents.id, agent.id))
+  })
+}

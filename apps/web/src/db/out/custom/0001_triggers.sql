@@ -21,6 +21,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON notifications FOR E
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON push_subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_members FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_invites FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_agents FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 2. Auto-generate issue number and identifier per project
 CREATE OR REPLACE FUNCTION generate_issue_number()

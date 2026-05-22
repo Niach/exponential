@@ -9,7 +9,7 @@ enum DomainContract {
     static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
     static let recurrenceUnitValues: [String] = ["day", "week", "month"]
-    static let workspaceRoleValues: [String] = ["owner", "member"]
+    static let workspaceRoleValues: [String] = ["owner", "member", "agent"]
     static let publicWritePolicyValues: [String] = ["members", "everyone"]
     static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
 }

@@ -87,11 +87,11 @@ const ws = hasWebSocket
 if (hasWebSocket && ws) {
   _fetch = async (req: Request) => {
     if (req.headers.get(`upgrade`) === `websocket`) {
-      const upgraded = ws.handleUpgrade(
-        req,
-        (req as unknown as { runtime: { bun: { server: unknown } } }).runtime
-          .bun.server
-      )
+      type BunWebSocketServer = Parameters<typeof ws.handleUpgrade>[1]
+      const server = (
+        req as unknown as { runtime: { bun: { server: BunWebSocketServer } } }
+      ).runtime.bun.server
+      const upgraded = ws.handleUpgrade(req, server)
       // crossws returns Response | undefined for non-upgrade fall-through;
       // the guard above ensures we only get here on websocket requests.
       return upgraded as Response | Promise<Response>

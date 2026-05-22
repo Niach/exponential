@@ -1,4 +1,11 @@
-import { pgTable, text, timestamp, boolean } from "drizzle-orm/pg-core"
+import {
+  pgTable,
+  text,
+  timestamp,
+  boolean,
+  integer,
+  index,
+} from "drizzle-orm/pg-core"
 
 export const users = pgTable(`users`, {
   id: text(`id`).primaryKey(),
@@ -110,3 +117,41 @@ export const oauthConsents = pgTable(`oauth_consents`, {
   createdAt: timestamp(`created_at`).notNull(),
   updatedAt: timestamp(`updated_at`).notNull(),
 })
+
+// Table for the better-auth `@better-auth/api-key` plugin. With
+// `usePlural: true` on the drizzle adapter, Better Auth looks up
+// schema export `apikeys` for the `apikey` model.
+export const apikeys = pgTable(
+  `apikeys`,
+  {
+    id: text(`id`).primaryKey(),
+    configId: text(`config_id`).notNull(),
+    name: text(`name`),
+    start: text(`start`),
+    referenceId: text(`reference_id`).notNull(),
+    prefix: text(`prefix`),
+    key: text(`key`).notNull(),
+    refillInterval: integer(`refill_interval`),
+    refillAmount: integer(`refill_amount`),
+    lastRefillAt: timestamp(`last_refill_at`),
+    enabled: boolean(`enabled`).$defaultFn(() => true).notNull(),
+    rateLimitEnabled: boolean(`rate_limit_enabled`)
+      .$defaultFn(() => true)
+      .notNull(),
+    rateLimitTimeWindow: integer(`rate_limit_time_window`),
+    rateLimitMax: integer(`rate_limit_max`),
+    requestCount: integer(`request_count`).$defaultFn(() => 0).notNull(),
+    remaining: integer(`remaining`),
+    lastRequest: timestamp(`last_request`),
+    expiresAt: timestamp(`expires_at`),
+    createdAt: timestamp(`created_at`).notNull(),
+    updatedAt: timestamp(`updated_at`).notNull(),
+    permissions: text(`permissions`),
+    metadata: text(`metadata`),
+  },
+  (table) => [
+    index(`apikeys_config_id_idx`).on(table.configId),
+    index(`apikeys_reference_id_idx`).on(table.referenceId),
+    index(`apikeys_key_idx`).on(table.key),
+  ]
+)

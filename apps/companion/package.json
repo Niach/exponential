@@ -1,0 +1,37 @@
+{
+  "name": "@exp/companion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "companion": "./src/cli.ts"
+  },
+  "scripts": {
+    "dev": "bun --hot src/cli.ts start",
+    "start": "bun src/cli.ts start",
+    "typecheck": "tsc --noEmit",
+    "lint:check": "eslint .",
+    "lint": "eslint . --fix",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.2.141",
+    "@electric-sql/client": "^1.5.0",
+    "@exp/db-schema": "workspace:*",
+    "@iarna/toml": "^2.2.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openai/codex": "0.130.0",
+    "@openai/codex-sdk": "0.130.0",
+    "@whiskeysockets/baileys": "7.0.0-rc11",
+    "commander": "^14.0.0",
+    "pino": "^10.3.0",
+    "pino-pretty": "^11.2.0",
+    "simple-git": "^3.36.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}

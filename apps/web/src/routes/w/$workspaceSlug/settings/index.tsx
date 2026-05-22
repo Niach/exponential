@@ -8,6 +8,7 @@ import { WorkspaceGeneralSection } from "@/components/workspace-general-section"
 import { WorkspaceInviteSection } from "@/components/workspace-invite-section"
 import { WorkspaceLabelsSection } from "@/components/workspace-labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace-members-section"
+import { WorkspaceAgentsSection } from "@/components/workspace-agents-section"
 import { Separator } from "@/components/ui/separator"
 
 export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({
@@ -53,8 +54,12 @@ function WorkspaceSettings() {
         <WorkspaceInviteSection workspaceId={workspace.id} />
       )}
 
+      {workspace && isOwner && (
+        <WorkspaceAgentsSection workspaceId={workspace.id} />
+      )}
+
       <WorkspaceMembersSection
-        members={members}
+        members={members.filter((member) => member.role !== `agent`)}
         userMap={userMap}
         currentUserId={session?.user?.id}
         isOwner={isOwner}
