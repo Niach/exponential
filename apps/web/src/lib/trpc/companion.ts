@@ -120,6 +120,9 @@ export const companionRouter = router({
           whatsappQr: workspaceAgents.whatsappQr,
           whatsappQrUpdatedAt: workspaceAgents.whatsappQrUpdatedAt,
           whatsappLastError: workspaceAgents.whatsappLastError,
+          whatsappOwnJid: workspaceAgents.whatsappOwnJid,
+          whatsappChats: workspaceAgents.whatsappChats,
+          whatsappNotifyJid: workspaceAgents.whatsappNotifyJid,
           createdAt: workspaceAgents.createdAt,
           updatedAt: workspaceAgents.updatedAt,
           email: users.email,
@@ -381,6 +384,7 @@ export const companionRouter = router({
     return {
       whatsappPairingRequestedAt: agent.whatsappPairingRequestedAt,
       whatsappStatus: agent.whatsappStatus,
+      whatsappNotifyJid: agent.whatsappNotifyJid,
     }
   }),
 
@@ -427,4 +431,65 @@ export const companionRouter = router({
 
       return { ok: true }
     }),
+
+  reportWhatsappOwnJid: authedProcedure
+    .input(z.object({ jid: z.string().min(1).max(255) }))
+    .mutation(async ({ ctx, input }) => {
+      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+      await ctx.db
+        .update(workspaceAgents)
+        .set({ whatsappOwnJid: input.jid, lastSeenAt: new Date() })
+        .where(eq(workspaceAgents.id, agent.id))
+      return { ok: true }
+    }),
+
+  reportWhatsappChats: authedProcedure
+    .input(
+      z.object({
+        chats: z
+          .array(
+            z.object({
+              jid: z.string().min(1).max(255),
+              name: z.string().max(255),
+              isGroup: z.boolean(),
+            })
+          )
+          .max(2000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+      await ctx.db
+        .update(workspaceAgents)
+        .set({ whatsappChats: input.chats, lastSeenAt: new Date() })
+        .where(eq(workspaceAgents.id, agent.id))
+      return { ok: true, count: input.chats.length }
+    }),
+
+  setWhatsappNotifyTarget: authedProcedure
+    .input(
+      z.object({
+        agentId: z.string().uuid(),
+        // null reverts to self-chat (the daemon's own JID).
+        jid: z.string().min(1).max(255).nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await loadOwnedAgent(
+        ctx.db,
+        ctx.session.user.id,
+        input.agentId
+      )
+      await ctx.db
+        .update(workspaceAgents)
+        .set({ whatsappNotifyJid: input.jid })
+        .where(eq(workspaceAgents.id, agent.id))
+      return { ok: true }
+    }),
+
+  uninstallSelf: authedProcedure.mutation(async ({ ctx }) => {
+    const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+    await revokeWorkspaceAgent(ctx.db, agent)
+    return { ok: true }
+  }),
 })

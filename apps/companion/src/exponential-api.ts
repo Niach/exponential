@@ -29,6 +29,7 @@ export interface ClaimSetupResult {
 export interface CompanionControl {
   whatsappPairingRequestedAt: string | Date | null
   whatsappStatus: string
+  whatsappNotifyJid: string | null
 }
 
 function endpoint(baseUrl: string, path: string): string {
@@ -116,6 +117,42 @@ export async function reportWhatsappStatus(
     config.exponential.baseUrl,
     `companion.reportWhatsappStatus`,
     { status, error: error ?? null },
+    token
+  )
+}
+
+export async function reportWhatsappOwnJid(
+  config: CompanionConfig,
+  jid: string
+): Promise<void> {
+  const token = await readBotToken()
+  await callTrpc(
+    config.exponential.baseUrl,
+    `companion.reportWhatsappOwnJid`,
+    { jid },
+    token
+  )
+}
+
+export async function reportWhatsappChats(
+  config: CompanionConfig,
+  chats: Array<{ jid: string; name: string; isGroup: boolean }>
+): Promise<void> {
+  const token = await readBotToken()
+  await callTrpc(
+    config.exponential.baseUrl,
+    `companion.reportWhatsappChats`,
+    { chats },
+    token
+  )
+}
+
+export async function uninstallSelf(config: CompanionConfig): Promise<void> {
+  const token = await readBotToken()
+  await callTrpc(
+    config.exponential.baseUrl,
+    `companion.uninstallSelf`,
+    undefined,
     token
   )
 }

@@ -1,6 +1,10 @@
 import type { CompanionConfig } from "./config"
 import type { Logger } from "./logger"
-import { connectWhatsapp, type WhatsappClient } from "./messaging/whatsapp"
+import {
+  connectWhatsapp,
+  type WhatsappChat,
+  type WhatsappClient,
+} from "./messaging/whatsapp"
 
 export interface Notifier {
   onPrOpened(args: {
@@ -24,7 +28,21 @@ export interface Notifier {
       status: `connected` | `disconnected` | `error`,
       error?: string | null
     ) => Promise<void>
+    onOwnJid?: (jid: string) => Promise<void>
+    onChats?: (chats: WhatsappChat[]) => Promise<void>
   }): Promise<void>
+  /**
+   * Override the configured notify target at runtime. Pass `null` to revert
+   * to the default (self-chat = the daemon's own JID).
+   */
+  setRuntimeNotifyJid(jid: string | null): void
+  getOwnJid(): string | null
+  /**
+   * Subscribe to chat-list updates from the WhatsApp client. Returns an
+   * unsubscribe function. Subscriptions installed before pairing complete
+   * are queued and applied to the next client created via pairWhatsapp().
+   */
+  subscribeChats(handler: (chats: WhatsappChat[]) => void): () => void
   stop(): Promise<void>
 }
 
@@ -35,12 +53,24 @@ export async function createNotifier(args: {
   const { config, log } = args
   const wa = config.messaging?.whatsapp
   let whatsapp: WhatsappClient | null = null
+  let runtimeNotifyJid: string | null = null
+  const pendingChatHandlers = new Set<(chats: WhatsappChat[]) => void>()
+  const activeChatUnsubs: Array<() => void> = []
+
+  const reattachChatHandlers = (client: WhatsappClient) => {
+    while (activeChatUnsubs.length > 0) activeChatUnsubs.pop()?.()
+    for (const h of pendingChatHandlers) {
+      activeChatUnsubs.push(client.onChatsUpdated(h))
+    }
+  }
+
   if (wa?.enabled) {
     try {
       whatsapp = await connectWhatsapp({
         authStateDir: wa.authStateDir,
         log,
       })
+      reattachChatHandlers(whatsapp)
       log.info({ jid: wa.notifyJid }, `whatsapp client ready`)
     } catch (e) {
       log.warn(
@@ -50,10 +80,18 @@ export async function createNotifier(args: {
     }
   }
 
+  const resolveTarget = (): string | null => {
+    if (!whatsapp) return null
+    if (runtimeNotifyJid !== null) return runtimeNotifyJid
+    if (wa?.notifyJid) return wa.notifyJid
+    return whatsapp.getOwnJid()
+  }
+
   const send = async (text: string) => {
-    if (!whatsapp || !wa?.notifyJid) return
+    const target = resolveTarget()
+    if (!whatsapp || !target) return
     try {
-      await whatsapp.sendText(wa.notifyJid, text)
+      await whatsapp.sendText(target, text)
     } catch (e) {
       log.warn(
         { err: e instanceof Error ? e.message : String(e) },
@@ -75,7 +113,7 @@ export async function createNotifier(args: {
         `❌ Agent error on [${identifier}] ${title}\n\n${error.slice(0, 500)}`
       )
     },
-    pairWhatsapp: async ({ onQr, onStatus }) => {
+    pairWhatsapp: async ({ onQr, onStatus, onOwnJid, onChats }) => {
       if (!wa?.enabled) {
         throw new Error(`WhatsApp is not enabled in companion config`)
       }
@@ -88,10 +126,33 @@ export async function createNotifier(args: {
         log,
         waitForConnection: true,
         onQr,
-        onStatus,
+        onStatus: async (status, err) => {
+          await onStatus(status, err)
+          if (status === `connected` && whatsapp && onOwnJid) {
+            const ownJid = whatsapp.getOwnJid()
+            if (ownJid) await onOwnJid(ownJid)
+          }
+        },
       })
+      if (onChats) pendingChatHandlers.add(onChats)
+      reattachChatHandlers(whatsapp)
+    },
+    setRuntimeNotifyJid: (jid) => {
+      runtimeNotifyJid = jid
+    },
+    getOwnJid: () => whatsapp?.getOwnJid() ?? null,
+    subscribeChats: (handler) => {
+      pendingChatHandlers.add(handler)
+      const unsub = whatsapp?.onChatsUpdated(handler)
+      if (unsub) activeChatUnsubs.push(unsub)
+      return () => {
+        pendingChatHandlers.delete(handler)
+        unsub?.()
+      }
     },
     stop: async () => {
+      while (activeChatUnsubs.length > 0) activeChatUnsubs.pop()?.()
+      pendingChatHandlers.clear()
       if (whatsapp) await whatsapp.stop().catch(() => {})
     },
   }

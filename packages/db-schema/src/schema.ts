@@ -179,6 +179,17 @@ export const workspaceAgents = pgTable(
       withTimezone: true,
     }),
     whatsappLastError: text(`whatsapp_last_error`),
+    // Daemon's own WhatsApp JID (i.e. the linked-device's user JID),
+    // reported via tRPC after pairing completes. Used as the default
+    // notification target ("Message yourself") when no explicit
+    // whatsappNotifyJid is set.
+    whatsappOwnJid: text(`whatsapp_own_jid`),
+    // Snapshot of the chats/groups visible to the daemon, reported when
+    // they change. Shape: Array<{ jid, name, isGroup }>.
+    whatsappChats: jsonb(`whatsapp_chats`),
+    // Owner-selected notification target. `null` falls back to the own
+    // JID (self-chat).
+    whatsappNotifyJid: text(`whatsapp_notify_jid`),
     ...timestamps,
   },
   (table) => [

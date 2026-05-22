@@ -5,6 +5,7 @@ import { runSetup } from "./commands/setup"
 import { runInstallService } from "./commands/install-service"
 import { runStatus } from "./commands/status"
 import { runLogs } from "./commands/logs"
+import { runUninstall } from "./commands/uninstall"
 
 const program = new Command()
   .name(`companion`)
@@ -21,9 +22,27 @@ program
     `--setup-token <token>`,
     `One-time setup token from the web app.`
   )
-  .action(async (opts: { server: string; setupToken: string }) => {
-    await runSetup({ server: opts.server, setupToken: opts.setupToken })
-  })
+  .option(
+    `--driver <driver>`,
+    `Coding driver: claude or codex (default claude).`,
+    `claude`
+  )
+  .action(
+    async (opts: {
+      server: string
+      setupToken: string
+      driver: string
+    }) => {
+      if (opts.driver !== `claude` && opts.driver !== `codex`) {
+        throw new Error(`--driver must be 'claude' or 'codex'`)
+      }
+      await runSetup({
+        server: opts.server,
+        setupToken: opts.setupToken,
+        driver: opts.driver,
+      })
+    }
+  )
 
 program
   .command(`start`)
@@ -51,6 +70,26 @@ program
   .description(`Tail the daemon log file.`)
   .action(async () => {
     await runLogs()
+  })
+
+program
+  .command(`uninstall`)
+  .description(
+    `Stop and remove the companion: disables the systemd unit, revokes the agent on the server, wipes local state.`
+  )
+  .option(
+    `--keep-state`,
+    `Don't delete ~/.exponential-companion (sqlite state, worktrees, baileys-auth).`
+  )
+  .option(
+    `--keep-agent`,
+    `Don't revoke the agent on the server; leave the workspace_agents row in place.`
+  )
+  .action(async (opts: { keepState?: boolean; keepAgent?: boolean }) => {
+    await runUninstall({
+      keepState: opts.keepState ?? false,
+      keepAgent: opts.keepAgent ?? false,
+    })
   })
 
 await program.parseAsync(process.argv)
