@@ -425,36 +425,37 @@ export function IssueTimeline({
     return u?.name || u?.email || null
   }, [issue.agentPlanApprovedBy, users])
 
-  // Show an "implementing" spinner under the timeline while the daemon is
-  // working on the approved plan. The daemon never updates issue.status to
-  // a fine-grained "coding" — instead it posts a comment when it's done
-  // ("PR opened: …", "Tests failed …", or one of the error paths). So we
-  // treat the absence of any such comment after approvedAt as "still
-  // working".
+  // Show a single "Agent is working" spinner under the timeline whenever the
+  // daemon is actively engaged. Two cases:
+  //
+  // - drafting: daemon called markStarted at the top of produce_plan but no
+  //   plan has landed yet. Spinner shows so the user sees something rather
+  //   than a static error or a blank timeline.
+  // - approved: plan is approved, daemon is in the code stage. Spinner stays
+  //   until a terminal comment lands ("PR opened: …", an error path, etc.).
+  //
+  // Hidden once the latest comment is a terminal/error comment (so the user
+  // can act on it without the spinner stealing attention) or the issue is
+  // done/cancelled.
   const implementing = useMemo(() => {
-    if (issue.agentPlanState !== `approved`) return false
     if (issue.status === `done` || issue.status === `cancelled`) return false
-    const approvedAt = issue.agentPlanApprovedAt
-      ? new Date(issue.agentPlanApprovedAt).getTime()
-      : 0
-    const hasTerminal = list.some((c) => {
-      if (new Date(c.createdAt).getTime() <= approvedAt) return false
-      return isTerminalComment(c)
-    })
-    return !hasTerminal
-  }, [issue.agentPlanState, issue.status, issue.agentPlanApprovedAt, list])
+    const state = issue.agentPlanState
+    if (state !== `approved` && state !== `drafting`) return false
+    const last = list[list.length - 1]
+    if (last && isTerminalComment(last)) return false
+    return true
+  }, [issue.agentPlanState, issue.status, list])
 
-  // The retry button attaches to the most recent error comment. We only offer
-  // it while the issue is in a "stuck" shape — agent assigned, no implementing
-  // spinner, last terminal comment was an error (not a PR-opened success).
+  // Retry attaches to the most recent error comment, but only when nothing
+  // newer has happened on the issue. As soon as the daemon engages again
+  // (markStarted flips state to drafting, a new plan lands, any new comment
+  // posts), the previous error is "stale" and the button should disappear
+  // so the user doesn't double-retry into a re-plan they didn't want.
   const latestErrorCommentId = useMemo(() => {
-    for (let i = list.length - 1; i >= 0; i -= 1) {
-      const c = list[i]
-      if (isTerminalComment(c)) {
-        return isErrorComment(c) ? c.id : null
-      }
-    }
-    return null
+    const last = list[list.length - 1]
+    if (!last) return null
+    if (!isTerminalComment(last)) return null
+    return isErrorComment(last) ? last.id : null
   }, [list])
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -578,7 +579,11 @@ export function IssueTimeline({
       {implementing && (
         <div className="mt-2 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <Loader2 className="size-3 animate-spin text-indigo-300" />
-          <span>Agent is implementing the approved plan…</span>
+          <span>
+            {issue.agentPlanState === `drafting`
+              ? `Agent is working on a plan…`
+              : `Agent is implementing the approved plan…`}
+          </span>
         </div>
       )}
       <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">

@@ -61,6 +61,7 @@ export interface ExponentialMcpClient {
     plan: string
     state: `awaiting_approval` | `awaiting_answer`
   }): Promise<unknown>
+  markAgentPlanStarted(args: { issueId: string }): Promise<unknown>
   resetAgentPlan(args: { issueId: string }): Promise<unknown>
   close(): Promise<void>
 }
@@ -131,6 +132,11 @@ export async function connectExponentialMcp(
       client.callTool({
         name: `exponential_agent_plan_submit`,
         arguments: { issueId, plan, state },
+      }),
+    markAgentPlanStarted: async ({ issueId }) =>
+      client.callTool({
+        name: `exponential_agent_plan_mark_started`,
+        arguments: { issueId },
       }),
     resetAgentPlan: async ({ issueId }) =>
       client.callTool({

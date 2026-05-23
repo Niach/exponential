@@ -148,9 +148,11 @@ export const agentPlanRouter = router({
       return result
     }),
 
-  // Human-triggered retry after a failed pipeline run. Resets agent plan state
-  // so the daemon's next 'updated' event re-enters the pipeline cleanly. The
-  // dispatcher's REENTRY allowlist already accepts 'failed'.
+  // Human-triggered retry after a failed pipeline run. If the plan was
+  // already approved we DON'T reset plan state — the failure was in the
+  // coding stage, so the daemon should resume coding against the existing
+  // approved plan rather than throwing it away and re-planning. For any
+  // other state, we hard-reset so the next run starts fresh.
   retry: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -160,22 +162,63 @@ export const agentPlanRouter = router({
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        const [current] = await tx
+          .select({ state: issues.agentPlanState })
+          .from(issues)
+          .where(eq(issues.id, input.issueId))
+          .limit(1)
+        if (!current) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+        }
+        const preserveApprovedPlan = current.state === `approved`
         const [issue] = await tx
           .update(issues)
-          .set({
-            agentPlanState: null,
-            agentPlanRevision: 0,
-            agentPlanApprovedAt: null,
-            agentPlanApprovedBy: null,
-            agentLastCommentSeenAt: null,
-            // Touch updated_at so Electric / pollControl notice.
-            updatedAt: new Date(),
-          })
+          .set(
+            preserveApprovedPlan
+              ? {
+                  // Touch updated_at so Electric / pollControl notice and the
+                  // daemon re-enters with the existing approved plan intact.
+                  updatedAt: new Date(),
+                }
+              : {
+                  agentPlanState: null,
+                  agentPlanRevision: 0,
+                  agentPlanApprovedAt: null,
+                  agentPlanApprovedBy: null,
+                  agentLastCommentSeenAt: null,
+                  updatedAt: new Date(),
+                }
+          )
           .where(eq(issues.id, input.issueId))
           .returning()
         return { txId, issue }
       })
 
+      return result
+    }),
+
+  // Called by the daemon at the very start of the produce_plan stage so the
+  // web client gets an "Agent has started" spinner the moment the pipeline
+  // engages, without having to wait for the plan to finish generating.
+  // Only flips a null state — never overrides awaiting_approval/approved/etc.
+  markStarted: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertAgentForIssue(ctx.session.user.id, input.issueId)
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const [issue] = await tx
+          .update(issues)
+          .set({ agentPlanState: `drafting` })
+          .where(
+            and(
+              eq(issues.id, input.issueId),
+              sql`${issues.agentPlanState} IS NULL`
+            )
+          )
+          .returning()
+        return { txId, issue: issue ?? null }
+      })
       return result
     }),
 

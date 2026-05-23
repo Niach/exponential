@@ -743,6 +743,27 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
+    `exponential_agent_plan_mark_started`,
+    {
+      title: `Mark agent plan as started`,
+      description: `Flip the issue's agent_plan_state to 'drafting' so the UI shows an "Agent has started" spinner the moment the pipeline engages. Only takes effect when the current state is NULL — never overrides awaiting_approval, approved, etc. Caller must be an agent member of the issue's workspace.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+      },
+    },
+    async ({ issueId }) => {
+      try {
+        const result = await caller(user, request).agentPlan.markStarted({
+          issueId,
+        })
+        return ok(result.issue)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
     `exponential_agent_plan_reset`,
     {
       title: `Reset agent plan state`,
