@@ -19,6 +19,10 @@ import { getAuthedUser, listAccessibleRepos } from "./github-api"
 import { startPrPollLoop } from "./pr-poll-loop"
 import type { CompanionConfig } from "./config"
 import type { Logger } from "./logger"
+import type { Dispatcher } from "./dispatcher"
+import type { StateHandle } from "./state"
+
+const ACTIVITY_CURSOR_KEY = `pollControl.activityCursor`
 
 function startGithubIdentityLoop(config: CompanionConfig, log: Logger) {
   let stopped = false
@@ -71,7 +75,9 @@ function startHeartbeatLoop(config: CompanionConfig, log: Logger) {
 function startControlLoop(
   config: CompanionConfig,
   log: Logger,
-  notifier: Notifier
+  notifier: Notifier,
+  state: StateHandle,
+  dispatcher: Dispatcher
 ) {
   let stopped = false
   let lastPairingRequest: string | null = null
@@ -103,7 +109,8 @@ function startControlLoop(
 
   const tick = async () => {
     if (stopped) return
-    const control = await pollControl(config).catch((e) => {
+    const activityCursor = state.kvGet(ACTIVITY_CURSOR_KEY)
+    const control = await pollControl(config, { activityCursor }).catch((e) => {
       log.warn(
         { err: e instanceof Error ? e.message : String(e) },
         `control poll failed`
@@ -111,6 +118,35 @@ function startControlLoop(
       return null
     })
     if (!control) return
+
+    // Fallback for when the Electric ShapeStream isn't delivering live events
+    // (e.g., reverse proxy stripping long-poll headers). Re-emit each updated
+    // issue as a dispatcher `updated` event so the REENTRY gate can pick it
+    // up. The dispatcher's per-issue dedupe keeps duplicates harmless when the
+    // ShapeStream IS working.
+    if (control.activity) {
+      for (const issue of control.activity.issues) {
+        dispatcher.enqueue({
+          type: `updated`,
+          issueId: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          projectId: issue.projectId,
+          assigneeId: issue.assigneeId,
+        })
+      }
+      if (control.activity.issues.length > 0) {
+        log.info(
+          {
+            count: control.activity.issues.length,
+            ids: control.activity.issues.map((i) => i.identifier),
+          },
+          `poll-control activity → dispatcher`
+        )
+      }
+      state.kvSet(ACTIVITY_CURSOR_KEY, control.activity.cursor)
+    }
+
 
     // Apply runtime notify target. null reverts to self-chat default.
     const desired = control.whatsappNotifyJid ?? null
@@ -193,7 +229,7 @@ export async function runDaemon() {
   })
   const eventSource = await startEventSource({ config, state, log, dispatcher })
   const stopHeartbeat = startHeartbeatLoop(config, log)
-  const stopControl = startControlLoop(config, log, notifier)
+  const stopControl = startControlLoop(config, log, notifier, state, dispatcher)
   const stopGithubIdentity = startGithubIdentityLoop(config, log)
   const prPoll = startPrPollLoop({ config, state, log })
 

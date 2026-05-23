@@ -696,11 +696,11 @@ export function registerExponentialTools(
     `exponential_comments_create`,
     {
       title: `Comment on an issue`,
-      description: `Post a comment on an issue authored by the MCP user. Body is plain text. Pass kind='question' (agent members only) to render the comment as a "the agent is waiting for your answer" card in the UI.`,
+      description: `Post a comment on an issue authored by the MCP user. Body is plain text. Pass kind='question' (agent members only) to render the comment as a "the agent is waiting for your answer" card in the UI. Pass kind='activity' (agent members only) for compact progress updates while the agent is working — they render dimmer and don't trigger notifications.`,
       inputSchema: {
         issueId: z.string().uuid(),
         bodyText: z.string().min(1).max(10_000),
-        kind: z.enum([`regular`, `question`]).optional(),
+        kind: z.enum([`regular`, `question`, `activity`]).optional(),
       },
     },
     async ({ issueId, bodyText, kind }) => {

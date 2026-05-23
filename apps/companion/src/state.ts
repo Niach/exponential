@@ -9,7 +9,6 @@ export type IssueStatus =
   | `planning`
   | `awaiting_approval`
   | `coding`
-  | `testing`
   | `pushed`
   | `in_review`
   | `done`
@@ -59,6 +58,9 @@ export interface StateHandle {
   bumpAttempts(id: string): number
   saveOffset(row: ShapeOffsetRow): void
   loadOffset(shapeName: string): ShapeOffsetRow | null
+  /** Generic string kv. Used for the daemon's pollControl activity cursor. */
+  kvGet(key: string): string | null
+  kvSet(key: string, value: string): void
 }
 
 const SCHEMA = `
@@ -84,6 +86,11 @@ CREATE TABLE IF NOT EXISTS shape_offsets (
   shape_name TEXT PRIMARY KEY,
   offset TEXT NOT NULL,
   handle TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daemon_kv (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 `
 
@@ -228,6 +235,19 @@ export function openState(): StateHandle {
       return row
         ? { shapeName: row.shape_name, offset: row.offset, handle: row.handle }
         : null
+    },
+    kvGet: (key) => {
+      const row = db
+        .query(`SELECT value FROM daemon_kv WHERE key = ?`)
+        .get(key) as { value: string } | null
+      return row?.value ?? null
+    },
+    kvSet: (key, value) => {
+      db.run(
+        `INSERT INTO daemon_kv (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [key, value]
+      )
     },
   }
 }

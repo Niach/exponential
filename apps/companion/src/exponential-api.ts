@@ -29,10 +29,23 @@ export interface ClaimSetupResult {
   }
 }
 
+export interface PollActivityIssue {
+  id: string
+  identifier: string
+  title: string
+  projectId: string
+  assigneeId: string | null
+  updatedAt: string
+}
+
 export interface CompanionControl {
   whatsappPairingRequestedAt: string | Date | null
   whatsappStatus: string
   whatsappNotifyJid: string | null
+  activity: {
+    cursor: string
+    issues: PollActivityIssue[]
+  }
 }
 
 function endpoint(baseUrl: string, path: string): string {
@@ -86,13 +99,17 @@ export async function heartbeat(config: CompanionConfig): Promise<void> {
 }
 
 export async function pollControl(
-  config: CompanionConfig
+  config: CompanionConfig,
+  args?: { activityCursor?: string | null }
 ): Promise<CompanionControl> {
   const token = await readBotToken()
+  const input = args?.activityCursor
+    ? { activityCursor: args.activityCursor }
+    : {}
   return callTrpc<CompanionControl>(
     config.exponential.baseUrl,
     `companion.pollControl`,
-    undefined,
+    input,
     token
   )
 }

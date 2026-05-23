@@ -5,6 +5,7 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments, issues } from "@/db/schema"
 import {
   assertCanApprovePlan,
+  assertCanMutateIssue,
   getIssueWorkspaceContext,
   getWorkspaceMember,
 } from "@/lib/workspace-membership"
@@ -140,6 +141,37 @@ export const agentPlanRouter = router({
               sql`${issues.agentPlanState} IN ('drafting', 'awaiting_approval', 'awaiting_answer')`
             )
           )
+          .returning()
+        return { txId, issue }
+      })
+
+      return result
+    }),
+
+  // Human-triggered retry after a failed pipeline run. Resets agent plan state
+  // so the daemon's next 'updated' event re-enters the pipeline cleanly. The
+  // dispatcher's REENTRY allowlist already accepts 'failed'.
+  retry: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      // Anyone who can mutate the issue can retry it. Approval gating stays
+      // with approvePlan — retrying isn't an approval, it's a re-roll.
+      await assertCanMutateIssue(ctx.session.user.id, input.issueId)
+
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const [issue] = await tx
+          .update(issues)
+          .set({
+            agentPlanState: null,
+            agentPlanRevision: 0,
+            agentPlanApprovedAt: null,
+            agentPlanApprovedBy: null,
+            agentLastCommentSeenAt: null,
+            // Touch updated_at so Electric / pollControl notice.
+            updatedAt: new Date(),
+          })
+          .where(eq(issues.id, input.issueId))
           .returning()
         return { txId, issue }
       })

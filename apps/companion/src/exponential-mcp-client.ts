@@ -12,7 +12,7 @@ export interface ExponentialProject {
   githubRepo: string | null
 }
 
-export type CommentKind = `regular` | `question` | `plan`
+export type CommentKind = `regular` | `question` | `plan` | `activity`
 export type AgentPlanState =
   | `drafting`
   | `awaiting_approval`

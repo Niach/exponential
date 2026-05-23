@@ -1,11 +1,12 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { eq } from "drizzle-orm"
+import { and, asc, eq, gt, isNull } from "drizzle-orm"
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { router, authedProcedure, publicProcedure } from "@/lib/trpc"
 import { auth } from "@/lib/auth"
 import { apikeys, users } from "@/db/auth-schema"
 import {
+  issues,
   projects,
   workspaceAgents,
   workspaceMembers,
@@ -385,19 +386,86 @@ export const companionRouter = router({
   // `mutation` instead of `query` because the daemon's tRPC client uses POST
   // for everything, and we still want to update `lastSeenAt` on each poll —
   // so a write-shaped semantics fits.
-  pollControl: authedProcedure.mutation(async ({ ctx }) => {
-    const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-    await ctx.db
-      .update(workspaceAgents)
-      .set({ lastSeenAt: new Date() })
-      .where(eq(workspaceAgents.id, agent.id))
+  //
+  // `activityCursor` is the daemon's last-seen `issues.updated_at` timestamp.
+  // We return any issues currently assigned to this agent that have been
+  // updated since the cursor, plus a new cursor value. This is the fallback
+  // path for new comments / row updates when the Electric ShapeStream isn't
+  // delivering live events (e.g., due to proxy long-poll header stripping).
+  pollControl: authedProcedure
+    .input(
+      z
+        .object({
+          activityCursor: z.string().datetime().optional(),
+        })
+        .optional()
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+      const now = new Date()
+      await ctx.db
+        .update(workspaceAgents)
+        .set({ lastSeenAt: now })
+        .where(eq(workspaceAgents.id, agent.id))
 
-    return {
-      whatsappPairingRequestedAt: agent.whatsappPairingRequestedAt,
-      whatsappStatus: agent.whatsappStatus,
-      whatsappNotifyJid: agent.whatsappNotifyJid,
-    }
-  }),
+      let activityIssues: Array<{
+        id: string
+        identifier: string
+        title: string
+        projectId: string
+        assigneeId: string | null
+        updatedAt: string
+      }> = []
+      let nextCursor = input?.activityCursor ?? now.toISOString()
+
+      if (input?.activityCursor) {
+        const since = new Date(input.activityCursor)
+        const rows = await ctx.db
+          .select({
+            id: issues.id,
+            identifier: issues.identifier,
+            title: issues.title,
+            projectId: issues.projectId,
+            assigneeId: issues.assigneeId,
+            archivedAt: issues.archivedAt,
+            updatedAt: issues.updatedAt,
+          })
+          .from(issues)
+          .where(
+            and(
+              eq(issues.assigneeId, agent.userId),
+              isNull(issues.archivedAt),
+              gt(issues.updatedAt, since)
+            )
+          )
+          .orderBy(asc(issues.updatedAt))
+          .limit(50)
+
+        activityIssues = rows.map((row) => ({
+          id: row.id,
+          identifier: row.identifier,
+          title: row.title,
+          projectId: row.projectId,
+          assigneeId: row.assigneeId,
+          updatedAt: row.updatedAt.toISOString(),
+        }))
+
+        const lastRow = rows.at(-1)
+        if (lastRow) {
+          nextCursor = lastRow.updatedAt.toISOString()
+        }
+      }
+
+      return {
+        whatsappPairingRequestedAt: agent.whatsappPairingRequestedAt,
+        whatsappStatus: agent.whatsappStatus,
+        whatsappNotifyJid: agent.whatsappNotifyJid,
+        activity: {
+          cursor: nextCursor,
+          issues: activityIssues,
+        },
+      }
+    }),
 
   reportWhatsappQr: authedProcedure
     .input(z.object({ qr: z.string().min(1) }))

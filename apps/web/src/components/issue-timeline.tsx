@@ -7,6 +7,7 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
   Send,
   Sparkles,
 } from "lucide-react"
@@ -34,6 +35,36 @@ interface IssueTimelineProps {
   users: User[]
 }
 
+// Regular comments the agent posts when something terminal happened. The
+// "implementing" spinner hides as soon as any of these land after approval.
+// Error-shaped ones (everything except PR-opened) also get a Retry button.
+const TERMINAL_BODY_PATTERNS = [
+  /^PR opened:/i,
+  /^Tests failed after retry/i,
+  /^Agent encountered an error/i,
+  /^No GitHub repo linked/i,
+  /Companion is not authenticated to GitHub/i,
+] as const
+
+const ERROR_BODY_PATTERNS = [
+  /^Tests failed after retry/i,
+  /^Agent encountered an error/i,
+  /^No GitHub repo linked/i,
+  /Companion is not authenticated to GitHub/i,
+] as const
+
+function isErrorComment(comment: Comment): boolean {
+  if (comment.kind !== `regular`) return false
+  const body = getCommentBodyText(comment.body)
+  return ERROR_BODY_PATTERNS.some((rx) => rx.test(body))
+}
+
+function isTerminalComment(comment: Comment): boolean {
+  if (comment.kind !== `regular`) return false
+  const body = getCommentBodyText(comment.body)
+  return TERMINAL_BODY_PATTERNS.some((rx) => rx.test(body))
+}
+
 function relativeTime(date: Date | string | null | undefined): string {
   if (!date) return ``
   const value = typeof date === `string` ? new Date(date) : date
@@ -51,10 +82,13 @@ interface RegularRowProps {
   comment: Comment
   canModify: boolean
   editing: boolean
+  showRetry: boolean
+  retrying: boolean
   onDelete: () => void
   onEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: (text: string) => Promise<void>
+  onRetry: () => void
 }
 
 function RegularCommentRow({
@@ -62,10 +96,13 @@ function RegularCommentRow({
   comment,
   canModify,
   editing,
+  showRetry,
+  retrying,
   onDelete,
   onEdit,
   onCancelEdit,
   onSaveEdit,
+  onRetry,
 }: RegularRowProps) {
   const bodyText = getCommentBodyText(comment.body)
   const [draft, setDraft] = useState(bodyText)
@@ -154,6 +191,28 @@ function RegularCommentRow({
             {bodyText}
           </div>
         )}
+        {showRetry && (
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={onRetry}
+              disabled={retrying}
+              className="border-amber-500/40 text-amber-200 hover:bg-amber-500/10"
+            >
+              {retrying ? (
+                <Loader2 className="mr-1 size-3 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1 size-3" />
+              )}
+              Retry
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              re-run the agent on this issue
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -200,6 +259,26 @@ function QuestionCommentRow({ author, comment }: QuestionRowProps) {
           {bodyText}
         </div>
       </div>
+    </div>
+  )
+}
+
+interface ActivityRowProps {
+  comment: Comment
+}
+
+function ActivityCommentRow({ comment }: ActivityRowProps) {
+  const bodyText = getCommentBodyText(comment.body)
+  return (
+    <div className="flex items-center gap-2 pl-9 py-0.5 text-xs text-muted-foreground">
+      <span
+        aria-hidden
+        className="inline-block size-1.5 shrink-0 rounded-full bg-indigo-400/50"
+      />
+      <span className="truncate font-mono">{bodyText}</span>
+      <span className="ml-auto shrink-0 tabular-nums opacity-60">
+        {relativeTime(comment.createdAt)}
+      </span>
     </div>
   )
 }
@@ -328,6 +407,7 @@ export function IssueTimeline({
   const [planBusy, setPlanBusy] = useState<null | `approve` | `request_changes`>(
     null
   )
+  const [retrying, setRetrying] = useState(false)
 
   const list = (comments ?? []) as Comment[]
 
@@ -357,21 +437,25 @@ export function IssueTimeline({
     const approvedAt = issue.agentPlanApprovedAt
       ? new Date(issue.agentPlanApprovedAt).getTime()
       : 0
-    const TERMINAL_PATTERNS = [
-      /^PR opened:/i,
-      /^Tests failed after retry/i,
-      /^Agent encountered an error/i,
-      /^No GitHub repo linked/i,
-      /Companion is not authenticated to GitHub/i,
-    ]
     const hasTerminal = list.some((c) => {
-      if (c.kind !== `regular`) return false
       if (new Date(c.createdAt).getTime() <= approvedAt) return false
-      const body = getCommentBodyText(c.body)
-      return TERMINAL_PATTERNS.some((rx) => rx.test(body))
+      return isTerminalComment(c)
     })
     return !hasTerminal
   }, [issue.agentPlanState, issue.status, issue.agentPlanApprovedAt, list])
+
+  // The retry button attaches to the most recent error comment. We only offer
+  // it while the issue is in a "stuck" shape — agent assigned, no implementing
+  // spinner, last terminal comment was an error (not a PR-opened success).
+  const latestErrorCommentId = useMemo(() => {
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const c = list[i]
+      if (isTerminalComment(c)) {
+        return isErrorComment(c) ? c.id : null
+      }
+    }
+    return null
+  }, [list])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -419,6 +503,15 @@ export function IssueTimeline({
     }
   }
 
+  const handleRetry = async () => {
+    setRetrying(true)
+    try {
+      await trpc.agentPlan.retry.mutate({ issueId: issue.id })
+    } finally {
+      setRetrying(false)
+    }
+  }
+
   return (
     <div className="border-t border-border px-4 py-3">
       <div className="text-xs font-medium text-muted-foreground mb-2">
@@ -431,6 +524,9 @@ export function IssueTimeline({
       )}
       {list.map((comment) => {
         const author = userMap.get(comment.authorId)
+        if (comment.kind === `activity`) {
+          return <ActivityCommentRow key={comment.id} comment={comment} />
+        }
         if (comment.kind === `question`) {
           return (
             <QuestionCommentRow
@@ -460,6 +556,8 @@ export function IssueTimeline({
         }
         const canModify =
           comment.authorId === currentUserId || isAdmin
+        const showRetry =
+          comment.id === latestErrorCommentId && canApprovePlan
         return (
           <RegularCommentRow
             key={comment.id}
@@ -467,10 +565,13 @@ export function IssueTimeline({
             comment={comment}
             canModify={canModify}
             editing={editingCommentId === comment.id}
+            showRetry={showRetry}
+            retrying={retrying}
             onCancelEdit={() => setEditingCommentId(null)}
             onDelete={() => void handleDelete(comment.id)}
             onEdit={() => setEditingCommentId(comment.id)}
             onSaveEdit={(text) => handleEditSave(comment.id, text)}
+            onRetry={() => void handleRetry()}
           />
         )
       })}

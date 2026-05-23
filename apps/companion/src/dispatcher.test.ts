@@ -106,6 +106,8 @@ function inMemoryState(): StateHandle {
     bumpAttempts: () => 0,
     saveOffset: () => {},
     loadOffset: () => null,
+    kvGet: () => null,
+    kvSet: () => {},
   }
 }
 
