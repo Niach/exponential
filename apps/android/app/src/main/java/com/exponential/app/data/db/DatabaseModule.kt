@@ -20,6 +20,7 @@ object DatabaseModule {
             .addMigrations(
                 ExponentialDatabase.MIGRATION_2_3,
                 ExponentialDatabase.MIGRATION_3_4,
+                ExponentialDatabase.MIGRATION_4_5,
             )
             .fallbackToDestructiveMigration()
             .build()
@@ -50,6 +51,9 @@ object DatabaseModule {
 
     @Provides
     fun provideCommentDao(db: ExponentialDatabase): CommentDao = db.commentDao()
+
+    @Provides
+    fun provideAttachmentDao(db: ExponentialDatabase): AttachmentDao = db.attachmentDao()
 
     @Provides
     fun provideElectricOffsetDao(db: ExponentialDatabase): ElectricOffsetDao = db.electricOffsetDao()

@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,15 +12,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QuestionMark
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,17 +42,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.CommentEntity
+import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.commentKindOf
+import com.mohamedrejeb.richeditor.model.rememberRichTextState
+import com.mohamedrejeb.richeditor.ui.material3.RichText
 import kotlinx.coroutines.launch
 
+// Mirrors apps/web/src/components/issue-timeline.tsx: renders the four
+// comment kinds, the agent plan-approval CTAs on the latest plan, and the
+// Retry CTA on error-shaped terminal regular comments.
 @Composable
 fun CommentThread(
     issueId: String,
+    canApprovePlan: Boolean,
     viewModel: CommentThreadViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
@@ -51,6 +70,15 @@ fun CommentThread(
     var draft by remember { mutableStateOf("") }
     var editingId by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
+    var pendingPlanAction by remember { mutableStateOf(false) }
+    var pendingRetry by remember { mutableStateOf(false) }
+
+    val latestPlanId = remember(state.comments) {
+        state.comments.lastOrNull { commentKindOf(it.kind) == CommentKind.Plan }?.id
+    }
+    val retryAnchorId = remember(state.comments) {
+        state.comments.lastOrNull { isErrorComment(it) }?.id
+    }
 
     HorizontalDivider()
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -71,24 +99,62 @@ fun CommentThread(
         }
 
         state.comments.forEach { comment ->
-            CommentRow(
-                comment = comment,
-                author = state.usersById[comment.authorId],
-                isAuthor = state.currentUserId != null && comment.authorId == state.currentUserId,
-                isAdmin = state.isAdmin,
-                isEditing = editingId == comment.id,
-                onEdit = { editingId = comment.id },
-                onCancelEdit = { editingId = null },
-                onSaveEdit = { text ->
-                    scope.launch {
-                        viewModel.updateComment(comment.id, text)
-                        editingId = null
-                    }
-                },
-                onDelete = {
-                    scope.launch { viewModel.deleteComment(comment.id) }
-                },
-            )
+            when (commentKindOf(comment.kind)) {
+                CommentKind.Regular -> RegularCommentRow(
+                    comment = comment,
+                    author = state.usersById[comment.authorId],
+                    isAuthor = state.currentUserId != null && comment.authorId == state.currentUserId,
+                    isAdmin = state.isAdmin,
+                    isEditing = editingId == comment.id,
+                    showRetry = comment.id == retryAnchorId,
+                    retrying = pendingRetry && comment.id == retryAnchorId,
+                    onEdit = { editingId = comment.id },
+                    onCancelEdit = { editingId = null },
+                    onSaveEdit = { text ->
+                        scope.launch {
+                            viewModel.updateComment(comment.id, text)
+                            editingId = null
+                        }
+                    },
+                    onDelete = {
+                        scope.launch { viewModel.deleteComment(comment.id) }
+                    },
+                    onRetry = {
+                        scope.launch {
+                            pendingRetry = true
+                            viewModel.retry()
+                            pendingRetry = false
+                        }
+                    },
+                )
+                CommentKind.Question -> QuestionCommentRow(
+                    comment = comment,
+                    author = state.usersById[comment.authorId],
+                )
+                CommentKind.Activity -> ActivityCommentRow(comment = comment)
+                CommentKind.Plan -> PlanCommentRow(
+                    comment = comment,
+                    isLatestPlan = comment.id == latestPlanId,
+                    issueState = state.issue?.agentPlanState,
+                    approved = state.issue?.agentPlanApprovedAt != null,
+                    canApprovePlan = canApprovePlan,
+                    isApproving = pendingPlanAction,
+                    onApprove = {
+                        scope.launch {
+                            pendingPlanAction = true
+                            viewModel.approvePlan()
+                            pendingPlanAction = false
+                        }
+                    },
+                    onRequestChanges = {
+                        scope.launch {
+                            pendingPlanAction = true
+                            viewModel.requestChanges()
+                            pendingPlanAction = false
+                        }
+                    },
+                )
+            }
         }
 
         Spacer(Modifier.height(8.dp))
@@ -122,16 +188,19 @@ fun CommentThread(
 }
 
 @Composable
-private fun CommentRow(
+private fun RegularCommentRow(
     comment: CommentEntity,
     author: UserEntity?,
     isAuthor: Boolean,
     isAdmin: Boolean,
     isEditing: Boolean,
+    showRetry: Boolean,
+    retrying: Boolean,
     onEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onSaveEdit: (String) -> Unit,
     onDelete: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     val canModify = isAuthor || isAdmin
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
@@ -208,10 +277,193 @@ private fun CommentRow(
                     TextButton(onClick = onCancelEdit) { Text("Cancel") }
                 }
             } else {
-                Text(bodyText, style = MaterialTheme.typography.bodySmall)
+                MarkdownText(bodyText)
+                if (showRetry) {
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = onRetry,
+                        enabled = !retrying,
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (retrying) "Retrying…" else "Retry")
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun QuestionCommentRow(comment: CommentEntity, author: UserEntity?) {
+    val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(Color(0x14B388F5), RoundedCornerShape(8.dp))
+            .border(0.5.dp, Color(0x44B388F5), RoundedCornerShape(8.dp))
+            .padding(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.QuestionMark,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = Color(0xFFB388F5),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                (author?.name ?: author?.email ?: "Agent") + " asks",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                relativeTime(comment.createdAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        MarkdownText(bodyText)
+    }
+}
+
+@Composable
+private fun ActivityCommentRow(comment: CommentEntity) {
+    val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Build,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            bodyText,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            relativeTime(comment.createdAt),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun PlanCommentRow(
+    comment: CommentEntity,
+    isLatestPlan: Boolean,
+    issueState: String?,
+    approved: Boolean,
+    canApprovePlan: Boolean,
+    isApproving: Boolean,
+    onApprove: () -> Unit,
+    onRequestChanges: () -> Unit,
+) {
+    val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
+    val awaitingApproval = isLatestPlan && issueState == "awaiting_approval"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(Color(0x142563EB), RoundedCornerShape(8.dp))
+            .border(0.5.dp, Color(0x442563EB), RoundedCornerShape(8.dp))
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Plan",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFF60A5FA),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                relativeTime(comment.createdAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (approved && isLatestPlan) {
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = Color(0xFF34D399),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "Approved",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF34D399),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        MarkdownText(bodyText)
+
+        if (awaitingApproval && canApprovePlan) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onApprove,
+                    enabled = !isApproving,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF22C55E).copy(alpha = 0.22f),
+                        contentColor = Color(0xFF22C55E),
+                    ),
+                ) {
+                    Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (isApproving) "Approving…" else "Approve")
+                }
+                OutlinedButton(
+                    onClick = onRequestChanges,
+                    enabled = !isApproving,
+                ) {
+                    Text("Request changes")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownText(markdown: String) {
+    val state = rememberRichTextState()
+    LaunchedEffect(markdown) {
+        if (state.toMarkdown() != markdown) {
+            state.setMarkdown(markdown)
+        }
+    }
+    RichText(state = state, modifier = Modifier.fillMaxWidth())
+}
+
+// Same agent terminal-error patterns the web timeline uses. Tests-failed /
+// agent-error / no-repo / no-auth show a Retry CTA; "PR opened" is
+// terminal but not an error.
+private val errorBodyPatterns = listOf(
+    Regex("^Tests failed after retry"),
+    Regex("^Agent encountered an error"),
+    Regex("^No GitHub repo linked"),
+    Regex("Companion is not authenticated to GitHub"),
+)
+
+private fun isErrorComment(comment: CommentEntity): Boolean {
+    if (commentKindOf(comment.kind) != CommentKind.Regular) return false
+    val body = getCommentBodyText(comment.body)
+    return errorBodyPatterns.any { it.containsMatchIn(body) }
 }
 
 private fun initials(name: String): String =

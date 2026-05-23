@@ -80,6 +80,7 @@ async function uploadIssueImage({
   try {
     await db.insert(attachments).values({
       id: attachmentId,
+      workspaceId: issueContext.workspaceId,
       issueId: params.issueId,
       uploaderId: session.user.id,
       filename: file.name,

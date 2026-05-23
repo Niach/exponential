@@ -2,10 +2,13 @@ package com.exponential.app.ui.issue
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.AgentPlanApi
 import com.exponential.app.data.api.CommentsApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CommentDao
 import com.exponential.app.data.db.CommentEntity
+import com.exponential.app.data.db.IssueDao
+import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.UserDao
 import com.exponential.app.data.db.UserEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 
 data class CommentThreadState(
+    val issue: IssueEntity? = null,
     val comments: List<CommentEntity> = emptyList(),
     val usersById: Map<String, UserEntity> = emptyMap(),
     val currentUserId: String? = null,
@@ -30,8 +34,10 @@ data class CommentThreadState(
 @HiltViewModel
 class CommentThreadViewModel @Inject constructor(
     private val commentDao: CommentDao,
+    private val issueDao: IssueDao,
     private val userDao: UserDao,
     private val commentsApi: CommentsApi,
+    private val agentPlanApi: AgentPlanApi,
     private val auth: AuthRepository,
 ) : ViewModel() {
 
@@ -39,13 +45,17 @@ class CommentThreadViewModel @Inject constructor(
 
     val state: StateFlow<CommentThreadState> = combine(
         issueIdFlow.flatMapLatest { id ->
+            if (id == null) flowOf(null) else issueDao.observeById(id)
+        },
+        issueIdFlow.flatMapLatest { id ->
             if (id == null) flowOf(emptyList()) else commentDao.observeByIssue(id)
         },
         userDao.observeAll(),
         auth.userId,
         auth.isAdmin,
-    ) { comments, users, userId, isAdmin ->
+    ) { issue, comments, users, userId, isAdmin ->
         CommentThreadState(
+            issue = issue,
             comments = comments,
             usersById = users.associateBy { it.id },
             currentUserId = userId,
@@ -68,5 +78,20 @@ class CommentThreadViewModel @Inject constructor(
 
     suspend fun deleteComment(id: String) {
         runCatching { commentsApi.delete(id) }
+    }
+
+    suspend fun approvePlan() {
+        val issueId = issueIdFlow.value ?: return
+        runCatching { agentPlanApi.approvePlan(issueId) }
+    }
+
+    suspend fun requestChanges() {
+        val issueId = issueIdFlow.value ?: return
+        runCatching { agentPlanApi.requestChanges(issueId) }
+    }
+
+    suspend fun retry() {
+        val issueId = issueIdFlow.value ?: return
+        runCatching { agentPlanApi.retry(issueId) }
     }
 }

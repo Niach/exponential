@@ -7,6 +7,7 @@ import GRDB
 struct WorkspacePermissions: Sendable {
     let isAuthed: Bool
     let isMember: Bool
+    let isOwner: Bool
     let isAdmin: Bool
 
     // Members and admins are moderators. Non-moderators in public workspaces
@@ -26,6 +27,14 @@ struct WorkspacePermissions: Sendable {
         return false
     }
 
+    // Mirrors assertCanApprovePlan in apps/web/src/lib/workspace-membership.ts:
+    // only the issue creator or a workspace owner can approve agent plans.
+    func canApprovePlan(creatorId: String?) -> Bool {
+        guard isAuthed else { return false }
+        if let creatorId, creatorId == currentUserId { return true }
+        return isOwner
+    }
+
     fileprivate let currentUserId: String?
     fileprivate let workspaceIsPublic: Bool?
 }
@@ -34,6 +43,7 @@ extension WorkspacePermissions {
     static let denied = WorkspacePermissions(
         isAuthed: false,
         isMember: false,
+        isOwner: false,
         isAdmin: false,
         canCreate: false,
         currentUserId: nil,
@@ -51,6 +61,7 @@ extension WorkspacePermissions {
             return WorkspacePermissions(
                 isAuthed: isAuthed,
                 isMember: false,
+                isOwner: false,
                 isAdmin: isAdmin,
                 canCreate: false,
                 currentUserId: currentUserId,
@@ -58,15 +69,18 @@ extension WorkspacePermissions {
             )
         }
 
-        let isMember: Bool = {
-            guard let uid = currentUserId else { return false }
-            return (try? dbPool.read { db in
+        let memberRole: String? = {
+            guard let uid = currentUserId else { return nil }
+            return try? dbPool.read { db in
                 try WorkspaceMemberEntity
                     .filter(Column("workspace_id") == workspace.id)
                     .filter(Column("user_id") == uid)
-                    .fetchCount(db) > 0
-            }) ?? false
+                    .fetchOne(db)?
+                    .role
+            }
         }()
+        let isMember = memberRole != nil
+        let isOwner = memberRole == "owner"
 
         let everyoneCanWrite =
             workspace.isPublic && workspace.publicWritePolicy == "everyone"
@@ -75,6 +89,7 @@ extension WorkspacePermissions {
         return WorkspacePermissions(
             isAuthed: isAuthed,
             isMember: isMember,
+            isOwner: isOwner,
             isAdmin: isAdmin,
             canCreate: canCreate,
             currentUserId: currentUserId,

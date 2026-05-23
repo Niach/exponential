@@ -90,6 +90,7 @@ class IssueDetailViewModel @Inject constructor(
             currentUserId = userId,
             isAdmin = isAdmin,
             isMember = userId != null && members.any { it.userId == userId },
+            memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
@@ -227,6 +228,20 @@ class IssueDetailViewModel @Inject constructor(
     fun delete(onDeleted: () -> Unit) {
         viewModelScope.launch {
             runCatching { issuesApi.delete(issueId) }.onSuccess { onDeleted() }
+        }
+    }
+
+    // Flips archivedAt between an ISO timestamp (archived) and null (active).
+    // The server clamps archivedAt for non-moderators of public workspaces.
+    fun toggleArchive() {
+        val current = state.value.issue ?: return
+        val next: String? = if (current.archivedAt == null) {
+            java.time.Instant.now().toString()
+        } else null
+        viewModelScope.launch {
+            runCatching {
+                issuesApi.update(UpdateIssueInput(id = issueId, archivedAt = next))
+            }
         }
     }
 

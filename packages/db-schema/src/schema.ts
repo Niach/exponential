@@ -340,6 +340,9 @@ export const attachments = pgTable(
   `attachments`,
   {
     id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
     issueId: uuid(`issue_id`)
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
@@ -356,7 +359,10 @@ export const attachments = pgTable(
     url: text().notNull(),
     ...timestamps,
   },
-  (table) => [index(`idx_attachments_issue`).on(table.issueId)]
+  (table) => [
+    index(`idx_attachments_issue`).on(table.issueId),
+    index(`idx_attachments_workspace`).on(table.workspaceId),
+  ]
 )
 
 export const views = pgTable(`views`, {

@@ -159,12 +159,52 @@ final class DatabaseManager: Sendable {
             }
         }
 
+        migrator.registerMigration("v4_comment_kind") { db in
+            try db.alter(table: "comment") { t in
+                t.add(column: "kind", .text).notNull().defaults(to: "regular")
+            }
+        }
+
+        migrator.registerMigration("v5_issue_agent_plan") { db in
+            try db.alter(table: "issue") { t in
+                t.add(column: "agent_plan_state", .text)
+                t.add(column: "agent_plan_revision", .integer).notNull().defaults(to: 0)
+                t.add(column: "agent_plan_approved_at", .text)
+                t.add(column: "agent_plan_approved_by", .text)
+                t.add(column: "agent_last_comment_seen_at", .text)
+            }
+        }
+
+        migrator.registerMigration("v6_attachments") { db in
+            try db.create(table: "attachment", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("issue_id", .text).notNull().indexed()
+                t.column("comment_id", .text)
+                t.column("uploader_id", .text).notNull()
+                t.column("filename", .text).notNull()
+                t.column("content_type", .text).notNull()
+                t.column("size_bytes", .integer).notNull()
+                t.column("storage_key", .text).notNull()
+                t.column("url", .text).notNull()
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
+        migrator.registerMigration("v7_project_github_repo") { db in
+            try db.alter(table: "project") { t in
+                t.add(column: "github_repo", .text)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 
     func clearAllData() throws {
         try dbPool.write { db in
             try db.execute(sql: "DELETE FROM electric_offset")
+            try db.execute(sql: "DELETE FROM attachment")
             try db.execute(sql: "DELETE FROM comment")
             try db.execute(sql: "DELETE FROM issue_label")
             try db.execute(sql: "DELETE FROM issue")

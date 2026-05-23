@@ -23,7 +23,7 @@ struct IssueDetailView: View {
             if let vm = viewModel, let issue = vm.issue {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Header: identifier + status
+                        // Header: identifier + agent plan badge + overflow
                         HStack {
                             if let identifier = issue.identifier {
                                 Text(identifier)
@@ -33,7 +33,22 @@ struct IssueDetailView: View {
                                     .padding(.vertical, 4)
                                     .glassButton()
                             }
+                            if let badge = planStateBadge(for: issue) {
+                                badge
+                            }
                             Spacer()
+                            Menu {
+                                Button(issue.archivedAt == nil ? "Archive" : "Unarchive") {
+                                    Task { await vm.toggleArchive() }
+                                }
+                                Button("Delete issue", role: .destructive) {
+                                    showDeleteConfirm = true
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                                    .font(.title3)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            }
                         }
 
                         // Title (editable)
@@ -227,24 +242,17 @@ struct IssueDetailView: View {
                                 .foregroundStyle(.red)
                         }
 
-                        // Comments
-                        CommentThreadView(issueId: issue.id)
+                        // Attachments (read-only list synced from Electric).
+                        // Inline images in the description still preview
+                        // inside MarkdownEditor's preview tab — this section
+                        // surfaces them as discoverable items.
+                        AttachmentListView(issueId: issue.id)
 
-                        // Delete button
-                        Button(role: .destructive) {
-                            showDeleteConfirm = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "trash")
-                                Text("Delete issue")
-                            }
-                            .font(.subheadline)
-                            .foregroundStyle(.red.opacity(0.8))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .glassRow()
-                        }
-                        .buttonStyle(.plain)
+                        // Comments
+                        CommentThreadView(
+                            issue: issue,
+                            canApprovePlan: vm.permissions.canApprovePlan(creatorId: issue.creatorId)
+                        )
                     }
                     .padding(20)
                 }
@@ -404,6 +412,51 @@ struct IssueDetailView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.date(from: dateString)
+    }
+
+    // The compact pill under the identifier. Hidden when there's no agent
+    // plan state to surface. Mirrors the state derivation in
+    // apps/web/src/components/issue-timeline.tsx (~lines 421-446).
+    @ViewBuilder
+    private func planStateBadge(for issue: IssueEntity) -> some View {
+        if let label = planStateLabel(issue: issue) {
+            HStack(spacing: 4) {
+                Image(systemName: label.symbol)
+                    .font(.caption2)
+                Text(label.text)
+                    .font(.caption2.weight(.medium))
+            }
+            .foregroundStyle(label.color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(label.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private struct PlanLabel {
+        let text: String
+        let color: Color
+        let symbol: String
+    }
+
+    private func planStateLabel(issue: IssueEntity) -> PlanLabel? {
+        switch issue.agentPlanState {
+        case "drafting":
+            return PlanLabel(text: "Drafting", color: .orange, symbol: "pencil")
+        case "awaiting_answer":
+            return PlanLabel(text: "Awaiting answer", color: .purple, symbol: "questionmark.circle")
+        case "awaiting_approval":
+            return PlanLabel(text: "Awaiting approval", color: .blue, symbol: "hand.raised")
+        case "approved":
+            // Hide once status moves to done/cancelled — the approval no
+            // longer needs surfacing for finished work.
+            if issue.status == "done" || issue.status == "cancelled" {
+                return nil
+            }
+            return PlanLabel(text: "Approved", color: .green, symbol: "checkmark.circle")
+        default:
+            return nil
+        }
     }
 
 }

@@ -64,8 +64,25 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                if let url = feedbackUrl() {
+                    Button {
+                        UIApplication.shared.open(url)
+                    } label: {
+                        settingsRow(icon: "envelope", title: "Send feedback")
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+    }
+
+    // The web `/feedback` route redirects to the workspace+project both
+    // slugged "feedback". Mobile opens that URL on the configured instance
+    // so feedback lands in the same shared workspace the web app uses.
+    private func feedbackUrl() -> URL? {
+        guard let baseUrl = deps.auth.instanceUrl else { return nil }
+        return URL(string: "\(baseUrl)/w/feedback/projects/feedback")
     }
 
     private var adminSection: some View {

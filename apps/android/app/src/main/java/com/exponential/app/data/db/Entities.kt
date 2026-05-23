@@ -40,6 +40,7 @@ data class ProjectEntity(
     val color: String,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
+    @ColumnInfo(name = "github_repo") @SerialName("github_repo") @JsonNames("githubRepo") val githubRepo: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -68,6 +69,11 @@ data class IssueEntity(
     @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
     @ColumnInfo(name = "recurrence_interval") @SerialName("recurrence_interval") @JsonNames("recurrenceInterval") val recurrenceInterval: Int? = null,
     @ColumnInfo(name = "recurrence_unit") @SerialName("recurrence_unit") @JsonNames("recurrenceUnit") val recurrenceUnit: String? = null,
+    @ColumnInfo(name = "agent_plan_state") @SerialName("agent_plan_state") @JsonNames("agentPlanState") val agentPlanState: String? = null,
+    @ColumnInfo(name = "agent_plan_revision") @SerialName("agent_plan_revision") @JsonNames("agentPlanRevision") val agentPlanRevision: Int = 0,
+    @ColumnInfo(name = "agent_plan_approved_at") @SerialName("agent_plan_approved_at") @JsonNames("agentPlanApprovedAt") val agentPlanApprovedAt: String? = null,
+    @ColumnInfo(name = "agent_plan_approved_by") @SerialName("agent_plan_approved_by") @JsonNames("agentPlanApprovedBy") val agentPlanApprovedBy: String? = null,
+    @ColumnInfo(name = "agent_last_comment_seen_at") @SerialName("agent_last_comment_seen_at") @JsonNames("agentLastCommentSeenAt") val agentLastCommentSeenAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -151,7 +157,37 @@ data class CommentEntity(
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
     @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String,
     @Serializable(with = JsonAsStringSerializer::class) val body: String? = null,
+    val kind: String = "regular",
     @ColumnInfo(name = "edited_at") @SerialName("edited_at") @JsonNames("editedAt") val editedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+enum class CommentKind { Regular, Question, Plan, Activity }
+
+fun commentKindOf(raw: String?): CommentKind = when (raw) {
+    "question" -> CommentKind.Question
+    "plan" -> CommentKind.Plan
+    "activity" -> CommentKind.Activity
+    else -> CommentKind.Regular
+}
+
+@Entity(
+    tableName = "attachments",
+    indices = [Index("issue_id"), Index("workspace_id")],
+)
+@Serializable
+data class AttachmentEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    @ColumnInfo(name = "comment_id") @SerialName("comment_id") @JsonNames("commentId") val commentId: String? = null,
+    @ColumnInfo(name = "uploader_id") @SerialName("uploader_id") @JsonNames("uploaderId") val uploaderId: String,
+    val filename: String,
+    @ColumnInfo(name = "content_type") @SerialName("content_type") @JsonNames("contentType") val contentType: String,
+    @ColumnInfo(name = "size_bytes") @SerialName("size_bytes") @JsonNames("sizeBytes") val sizeBytes: Long,
+    @ColumnInfo(name = "storage_key") @SerialName("storage_key") @JsonNames("storageKey") val storageKey: String,
+    val url: String,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

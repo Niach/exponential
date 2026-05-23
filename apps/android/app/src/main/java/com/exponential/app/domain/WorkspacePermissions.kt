@@ -8,6 +8,7 @@ import com.exponential.app.data.db.WorkspaceEntity
 data class WorkspacePermissions(
     val isAuthed: Boolean,
     val isMember: Boolean,
+    val isOwner: Boolean,
     val isAdmin: Boolean,
     val canCreate: Boolean,
     private val currentUserId: String?,
@@ -25,10 +26,19 @@ data class WorkspacePermissions(
         return false
     }
 
+    // Mirrors assertCanApprovePlan in apps/web/src/lib/workspace-membership.ts:
+    // only the issue creator or a workspace owner can approve agent plans.
+    fun canApprovePlan(creatorId: String?): Boolean {
+        if (!isAuthed) return false
+        if (creatorId != null && creatorId == currentUserId) return true
+        return isOwner
+    }
+
     companion object {
         val Denied = WorkspacePermissions(
             isAuthed = false,
             isMember = false,
+            isOwner = false,
             isAdmin = false,
             canCreate = false,
             currentUserId = null,
@@ -40,12 +50,14 @@ data class WorkspacePermissions(
             currentUserId: String?,
             isAdmin: Boolean,
             isMember: Boolean,
+            memberRole: String? = null,
         ): WorkspacePermissions {
             val isAuthed = currentUserId != null
             if (workspace == null) {
                 return WorkspacePermissions(
                     isAuthed = isAuthed,
                     isMember = false,
+                    isOwner = false,
                     isAdmin = isAdmin,
                     canCreate = false,
                     currentUserId = currentUserId,
@@ -58,6 +70,7 @@ data class WorkspacePermissions(
             return WorkspacePermissions(
                 isAuthed = isAuthed,
                 isMember = isMember,
+                isOwner = memberRole == "owner",
                 isAdmin = isAdmin,
                 canCreate = canCreate,
                 currentUserId = currentUserId,

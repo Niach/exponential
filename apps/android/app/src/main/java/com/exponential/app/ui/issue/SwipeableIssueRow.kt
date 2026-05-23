@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -28,15 +28,12 @@ import com.exponential.app.data.db.LabelEntity
 /**
  * Wraps [content] (typically the [IssueRow]) in a Material 3 [SwipeToDismissBox] with:
  *  - EndToStart (swipe right-to-left) → mark Done.
- *  - StartToEnd (swipe left-to-right) → mark Cancelled.
+ *  - StartToEnd (swipe left-to-right) → archive (sets `archivedAt`).
  *
  * Backed by [confirmValueChange] so each gesture only fires once (when threshold is
- * crossed). The state snaps back to [SwipeToDismissBoxValue.Settled] after the action
- * runs, since the row stays in the list (the grouped layout will re-bucket it).
- *
- * Note on "archive": the cross-platform plan calls for StartToEnd to archive (set
- * `archivedAt`). The backend `issues.update` tRPC procedure doesn't currently accept
- * `archivedAt`, so we use Cancelled as the closest non-destructive equivalent.
+ * crossed). For Done the state snaps back to [SwipeToDismissBoxValue.Settled] because
+ * the row stays in the list under a new status section; for Archive the row drops out
+ * of the list entirely (the queries filter `archived_at IS NULL`).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +42,7 @@ fun SwipeableIssueRow(
     labels: List<LabelEntity>,
     canMutate: Boolean,
     onMarkDone: () -> Unit,
-    onMarkCancelled: () -> Unit,
+    onArchive: () -> Unit,
     onClick: () -> Unit,
 ) {
     if (!canMutate) {
@@ -62,7 +59,7 @@ fun SwipeableIssueRow(
                     false
                 }
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    onMarkCancelled()
+                    onArchive()
                     false
                 }
                 SwipeToDismissBoxValue.Settled -> true
@@ -100,9 +97,9 @@ private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
             alignment = Alignment.CenterEnd,
         )
         SwipeToDismissBoxValue.StartToEnd -> SwipeBg(
-            container = MaterialTheme.colorScheme.errorContainer,
-            content = MaterialTheme.colorScheme.onErrorContainer,
-            icon = Icons.Filled.Cancel,
+            container = MaterialTheme.colorScheme.tertiaryContainer,
+            content = MaterialTheme.colorScheme.onTertiaryContainer,
+            icon = Icons.Filled.Archive,
             alignment = Alignment.CenterStart,
         )
         SwipeToDismissBoxValue.Settled -> SwipeBg(

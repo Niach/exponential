@@ -1,6 +1,9 @@
 package com.exponential.app.ui.issue
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -127,6 +130,9 @@ fun IssueListScreen(
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            state.project?.githubRepo?.takeIf { it.isNotBlank() }?.let { repo ->
+                GithubRepoBanner(repo)
+            }
             if (showSearch) {
                 OutlinedTextField(
                     value = query,
@@ -194,8 +200,8 @@ fun IssueListScreen(
                                     onMarkDone = {
                                         viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
                                     },
-                                    onMarkCancelled = {
-                                        viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Cancelled)
+                                    onArchive = {
+                                        viewModel.archiveIssue(entry.issue.id)
                                     },
                                     onClick = { onOpenIssue(entry.issue.id) },
                                 )
@@ -360,6 +366,49 @@ internal fun IssueRow(issue: IssueEntity, labels: List<LabelEntity>, onClick: ()
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+// Surfaces the project's linked GitHub repo as a tappable banner. The
+// OAuth device flow that wires the repo lives on the web app; mobile can
+// read but not change the link.
+@Composable
+private fun GithubRepoBanner(repo: String) {
+    val context = LocalContext.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .clickable {
+                runCatching {
+                    val uri = android.net.Uri.parse("https://github.com/$repo")
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
+            }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Code,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            repo,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            Icons.AutoMirrored.Filled.OpenInNew,
+            contentDescription = "Open on GitHub",
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

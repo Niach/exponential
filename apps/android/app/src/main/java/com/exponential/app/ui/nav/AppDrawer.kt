@@ -71,6 +71,8 @@ fun AppDrawer(
                         .clickable { workspaceMenuOpen = true },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    WorkspaceAvatar(selectedWorkspace)
+                    Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             selectedWorkspace?.name ?: "Workspace",
@@ -101,7 +103,7 @@ fun AppDrawer(
                                 if (ws.id == selectedWorkspace?.id) {
                                     Icon(Icons.Filled.Check, null)
                                 } else {
-                                    Spacer(Modifier.size(20.dp))
+                                    WorkspaceAvatar(ws, size = 20.dp)
                                 }
                             },
                             onClick = {
@@ -212,3 +214,40 @@ private fun parseProjectColor(hex: String): Color = runCatching {
     val value = if (cleaned.length == 6) "FF$cleaned" else cleaned
     Color(value.toLong(radix = 16))
 }.getOrDefault(Color.Gray)
+
+// Workspace tile: shows the icon_url image when set, otherwise the first
+// letter of the workspace name on a colored chip. Keeps the workspace
+// switcher visually grounded once an org sets a brand mark.
+@Composable
+fun WorkspaceAvatar(workspace: WorkspaceEntity?, size: androidx.compose.ui.unit.Dp = 28.dp) {
+    val initial = (workspace?.name?.firstOrNull()?.toString() ?: "?").uppercase()
+    val url = workspace?.iconUrl?.takeIf { it.isNotBlank() }
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                androidx.compose.foundation.shape.RoundedCornerShape(size / 4),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (url != null) {
+            coil3.compose.AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(size)
+                    .background(
+                        Color.Transparent,
+                        androidx.compose.foundation.shape.RoundedCornerShape(size / 4),
+                    ),
+            )
+        } else {
+            Text(
+                initial,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+    }
+}

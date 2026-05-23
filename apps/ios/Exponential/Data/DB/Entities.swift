@@ -70,6 +70,7 @@ struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identifiable,
     let color: String?
     let sortOrder: Double?
     let archivedAt: String?
+    let githubRepo: String?
     let createdAt: String
     let updatedAt: String
 
@@ -78,6 +79,7 @@ struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identifiable,
         case workspaceId = "workspace_id"
         case sortOrder = "sort_order"
         case archivedAt = "archived_at"
+        case githubRepo = "github_repo"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -109,6 +111,11 @@ struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     let googleCalendarEventId: String?
     let googleCalendarLastSyncedAt: String?
     let googleCalendarLastSyncError: String?
+    let agentPlanState: String?
+    let agentPlanRevision: Int
+    let agentPlanApprovedAt: String?
+    let agentPlanApprovedBy: String?
+    let agentLastCommentSeenAt: String?
     let createdAt: String
     let updatedAt: String
 
@@ -128,6 +135,11 @@ struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
         case googleCalendarEventId = "google_calendar_event_id"
         case googleCalendarLastSyncedAt = "google_calendar_last_synced_at"
         case googleCalendarLastSyncError = "google_calendar_last_sync_error"
+        case agentPlanState = "agent_plan_state"
+        case agentPlanRevision = "agent_plan_revision"
+        case agentPlanApprovedAt = "agent_plan_approved_at"
+        case agentPlanApprovedBy = "agent_plan_approved_by"
+        case agentLastCommentSeenAt = "agent_last_comment_seen_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -158,6 +170,11 @@ extension IssueEntity: Codable {
         googleCalendarEventId = try container.decodeIfPresent(String.self, forKey: .googleCalendarEventId)
         googleCalendarLastSyncedAt = try container.decodeIfPresent(String.self, forKey: .googleCalendarLastSyncedAt)
         googleCalendarLastSyncError = try container.decodeIfPresent(String.self, forKey: .googleCalendarLastSyncError)
+        agentPlanState = try container.decodeIfPresent(String.self, forKey: .agentPlanState)
+        agentPlanRevision = (try? container.decodeIfPresent(Int.self, forKey: .agentPlanRevision)) ?? 0
+        agentPlanApprovedAt = try container.decodeIfPresent(String.self, forKey: .agentPlanApprovedAt)
+        agentPlanApprovedBy = try container.decodeIfPresent(String.self, forKey: .agentPlanApprovedBy)
+        agentLastCommentSeenAt = try container.decodeIfPresent(String.self, forKey: .agentLastCommentSeenAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
 
@@ -286,6 +303,22 @@ struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord, Ident
 
 // MARK: - Comment
 
+enum CommentKind: String, Codable, Sendable {
+    case regular
+    case question
+    case plan
+    case activity
+
+    init(rawString: String?) {
+        switch rawString {
+        case "question": self = .question
+        case "plan": self = .plan
+        case "activity": self = .activity
+        default: self = .regular
+        }
+    }
+}
+
 struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     static let databaseTableName = "comment"
 
@@ -296,12 +329,15 @@ struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable
     // JSON body — Electric delivers as object (e.g. {"text": "..."}). Stored
     // as the stringified JSON; UI decodes lazily via getCommentBodyText().
     let body: String?
+    let kind: String
     let editedAt: String?
     let createdAt: String
     let updatedAt: String
 
+    var commentKind: CommentKind { CommentKind(rawString: kind) }
+
     enum CodingKeys: String, CodingKey {
-        case id, body
+        case id, body, kind
         case issueId = "issue_id"
         case workspaceId = "workspace_id"
         case authorId = "author_id"
@@ -318,6 +354,7 @@ extension CommentEntity: Codable {
         issueId = try container.decode(String.self, forKey: .issueId)
         workspaceId = try container.decode(String.self, forKey: .workspaceId)
         authorId = try container.decode(String.self, forKey: .authorId)
+        kind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? "regular"
         editedAt = try container.decodeIfPresent(String.self, forKey: .editedAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
@@ -335,6 +372,38 @@ extension CommentEntity: Codable {
         } else {
             body = nil
         }
+    }
+}
+
+// MARK: - Attachment
+
+struct AttachmentEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    static let databaseTableName = "attachment"
+
+    let id: String
+    let workspaceId: String
+    let issueId: String
+    let commentId: String?
+    let uploaderId: String
+    let filename: String
+    let contentType: String
+    let sizeBytes: Int
+    let storageKey: String
+    let url: String
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, filename, url
+        case workspaceId = "workspace_id"
+        case issueId = "issue_id"
+        case commentId = "comment_id"
+        case uploaderId = "uploader_id"
+        case contentType = "content_type"
+        case sizeBytes = "size_bytes"
+        case storageKey = "storage_key"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
     }
 }
 

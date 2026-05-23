@@ -29,6 +29,10 @@ struct UpdateIssueInput: Encodable {
     var endTime: String?
     var recurrenceInterval: Int?
     var recurrenceUnit: String?
+    // ISO-8601 timestamp string or null. The web tRPC coerces it back to a
+    // Date — superjson isn't in the tRPC pipe so we can't ship a Date{}
+    // payload directly.
+    var archivedAt: String?
 }
 
 struct DeleteIssueInput: Encodable {

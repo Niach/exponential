@@ -113,6 +113,7 @@ class IssueListViewModel @Inject constructor(
             currentUserId = userId,
             isAdmin = isAdmin,
             isMember = userId != null && members.any { it.userId == userId },
+            memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
@@ -240,6 +241,21 @@ class IssueListViewModel @Inject constructor(
                 issuesApi.update(UpdateIssueInput(id = issueId, status = status.wire))
             }.onFailure { error ->
                 _error.value = error.message ?: "Failed to update status"
+            }
+        }
+    }
+
+    fun archiveIssue(issueId: String) {
+        viewModelScope.launch {
+            runCatching {
+                issuesApi.update(
+                    UpdateIssueInput(
+                        id = issueId,
+                        archivedAt = java.time.Instant.now().toString(),
+                    )
+                )
+            }.onFailure { error ->
+                _error.value = error.message ?: "Failed to archive issue"
             }
         }
     }

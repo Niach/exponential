@@ -148,6 +148,21 @@ interface CommentDao {
 }
 
 @Dao
+interface AttachmentDao {
+    @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")
+    fun observeByIssue(issueId: String): Flow<List<AttachmentEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AttachmentEntity)
+
+    @Query("DELETE FROM attachments WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM attachments")
+    suspend fun clear()
+}
+
+@Dao
 interface WorkspaceInviteDao {
     @Query("SELECT * FROM workspace_invites WHERE workspace_id = :workspaceId AND accepted_at IS NULL")
     fun observeByWorkspace(workspaceId: String): Flow<List<WorkspaceInviteEntity>>

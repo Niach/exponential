@@ -34,6 +34,10 @@ data class UpdateIssueInput(
     @SerialName("endTime") val endTime: String? = null,
     @SerialName("recurrenceInterval") val recurrenceInterval: Int? = null,
     @SerialName("recurrenceUnit") val recurrenceUnit: String? = null,
+    // ISO-8601 timestamp string or null. The web tRPC coerces this back to
+    // a Date — there is no superjson transformer in the pipe so we can't
+    // ship a JS Date{} payload from Kotlin.
+    @SerialName("archivedAt") val archivedAt: String? = null,
 )
 
 @Serializable

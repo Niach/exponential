@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
@@ -43,6 +44,7 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
     val email: StateFlow<String?> = auth.userEmail
     val isAdmin: StateFlow<Boolean> = auth.isAdmin
+    val instanceUrl: StateFlow<String?> = auth.instanceUrl
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,7 +59,9 @@ fun SettingsScreen(
 ) {
     val email by viewModel.email.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
+    val instanceUrl by viewModel.instanceUrl.collectAsState()
     val openDrawer = LocalDrawerOpener.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         topBar = {
@@ -144,6 +148,43 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
                 }
+            }
+            item {
+                // The web `/feedback` route redirects to the workspace + project
+                // both slugged "feedback". Mobile opens that URL on the
+                // configured instance so feedback lands in the same shared
+                // workspace the web app uses.
+                ListItem(
+                    headlineContent = { Text("Send feedback") },
+                    supportingContent = { Text("Open the feedback workspace") },
+                    leadingContent = {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Filled.Email,
+                            contentDescription = null,
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                    trailingContent = {
+                        IconButton(
+                            onClick = {
+                                val base = instanceUrl ?: return@IconButton
+                                val url = "$base/w/feedback/projects/feedback"
+                                runCatching {
+                                    val intent = android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(url),
+                                    )
+                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                }
+                            },
+                            enabled = instanceUrl != null,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open")
+                        }
+                    },
+                )
+                HorizontalDivider()
             }
             item {
                 ListItem(

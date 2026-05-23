@@ -14,7 +14,12 @@ struct IssueListView: View {
             AppBackground()
 
             if let vm = viewModel {
-                issueListContent(vm)
+                VStack(spacing: 0) {
+                    if let repo = vm.project?.githubRepo, !repo.isEmpty {
+                        githubRepoBanner(repo: repo)
+                    }
+                    issueListContent(vm)
+                }
             }
         }
         .navigationTitle(viewModel?.project?.name ?? "Issues")
@@ -285,6 +290,34 @@ struct IssueListView: View {
         if calendar.isDateInTomorrow(date) { return "Tomorrow" }
         formatter.dateFormat = "MMM d"
         return formatter.string(from: date)
+    }
+
+    // Surfaces the project's linked GitHub repo as a tappable banner. The
+    // OAuth device flow that wires the repo lives on the web app; mobile
+    // can read but not change the link.
+    @ViewBuilder
+    private func githubRepoBanner(repo: String) -> some View {
+        if let url = URL(string: "https://github.com/\(repo)") {
+            Button {
+                UIApplication.shared.open(url)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.caption2)
+                    Text(repo)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.04))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private func dueDateColor(_ dateString: String) -> Color {

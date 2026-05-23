@@ -9,6 +9,9 @@ struct SidebarView: View {
         ZStack {
             AppBackground()
 
+            // Workspace tile shows the icon when set (icon_url), otherwise
+            // falls back to the first letter of the workspace name on a
+            // colored chip.
             VStack(spacing: 0) {
                 Text("Switch workspace")
                     .font(.subheadline.weight(.semibold))
@@ -23,12 +26,7 @@ struct SidebarView: View {
                                 onSelectWorkspace(workspace.id)
                             } label: {
                                 HStack(spacing: 12) {
-                                    Text(workspace.name.prefix(1).uppercased())
-                                        .font(.caption.weight(.bold))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 24, height: 24)
-                                        .background(Color.blue.opacity(0.6))
-                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    WorkspaceAvatar(workspace: workspace)
 
                                     Text(workspace.name)
                                         .font(.body)
@@ -54,5 +52,39 @@ struct SidebarView: View {
                 }
             }
         }
+    }
+}
+
+struct WorkspaceAvatar: View {
+    let workspace: WorkspaceEntity
+    var size: CGFloat = 24
+
+    var body: some View {
+        Group {
+            if let urlString = workspace.iconUrl,
+               !urlString.isEmpty,
+               let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case let .success(image):
+                        image.resizable().scaledToFill()
+                    default:
+                        initialsChip
+                    }
+                }
+            } else {
+                initialsChip
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size / 4))
+    }
+
+    private var initialsChip: some View {
+        Text(workspace.name.prefix(1).uppercased())
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(Color.blue.opacity(0.6))
     }
 }

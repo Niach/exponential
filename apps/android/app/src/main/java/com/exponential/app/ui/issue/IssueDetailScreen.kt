@@ -20,12 +20,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -99,8 +106,34 @@ fun IssueDetailScreen(
                 },
                 actions = {
                     if (isModerator) {
-                        IconButton(onClick = { viewModel.delete(onBack) }) {
-                            Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")
+                        var overflowOpen by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { overflowOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "Issue actions")
+                            }
+                            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(
+                                            if (issue?.archivedAt == null) Icons.Filled.Archive else Icons.Filled.Unarchive,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    text = { Text(if (issue?.archivedAt == null) "Archive" else "Unarchive") },
+                                    onClick = {
+                                        overflowOpen = false
+                                        viewModel.toggleArchive()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Filled.DeleteOutline, contentDescription = null) },
+                                    text = { Text("Delete issue") },
+                                    onClick = {
+                                        overflowOpen = false
+                                        viewModel.delete(onBack)
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -132,6 +165,7 @@ fun IssueDetailScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .fillMaxWidth(),
         ) {
+            PlanStateBadge(issue.agentPlanState, issue.status)
             OutlinedTextField(
                 value = titleField,
                 onValueChange = { titleField = it },
@@ -242,7 +276,13 @@ fun IssueDetailScreen(
             )
 
             Spacer(Modifier.height(20.dp))
-            CommentThread(issueId = issue.id)
+            AttachmentList(issueId = issue.id)
+
+            Spacer(Modifier.height(20.dp))
+            CommentThread(
+                issueId = issue.id,
+                canApprovePlan = permissions.canApprovePlan(issue.creatorId),
+            )
         }
     }
 
@@ -343,5 +383,31 @@ private fun formatRecurrence(interval: Int?, unit: String?): String {
         else -> "Every $interval $unit"
     }
     return pretty
+}
+
+// Compact pill rendered above the title when the agent has a plan in
+// flight. Hidden when there's no plan state to surface. Mirrors the state
+// derivation in apps/web/src/components/issue-timeline.tsx (~lines 421-446).
+@Composable
+private fun PlanStateBadge(state: String?, issueStatus: String) {
+    val (text, color) = when (state) {
+        "drafting" -> "Drafting" to Color(0xFFEAB308)
+        "awaiting_answer" -> "Awaiting answer" to Color(0xFFB388F5)
+        "awaiting_approval" -> "Awaiting approval" to Color(0xFF60A5FA)
+        "approved" -> {
+            // Hide once the issue itself is closed.
+            if (issueStatus == "done" || issueStatus == "cancelled") return
+            "Approved" to Color(0xFF34D399)
+        }
+        else -> return
+    }
+    Box(
+        modifier = Modifier
+            .padding(bottom = 8.dp)
+            .background(color.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelSmall, color = color)
+    }
 }
 

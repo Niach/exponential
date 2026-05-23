@@ -176,6 +176,11 @@ export const issuesRouter = router({
         endTime: timeOnlySchema.nullable().optional(),
         recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
         recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
+        archivedAt: z
+          .union([z.string().datetime({ offset: true }), z.string().datetime()])
+          .transform((s) => new Date(s))
+          .nullable()
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -204,6 +209,7 @@ export const issuesRouter = router({
         delete (updates as Record<string, unknown>).endTime
         delete (updates as Record<string, unknown>).recurrenceInterval
         delete (updates as Record<string, unknown>).recurrenceUnit
+        delete (updates as Record<string, unknown>).archivedAt
       }
 
       if (
