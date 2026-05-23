@@ -8,7 +8,7 @@ import {
 } from "./exponential-mcp-client"
 import { readBotToken } from "./credentials"
 import { loadAccessToken } from "./github-auth"
-import { createPullRequest } from "./github-api"
+import { createPullRequest, getRepo } from "./github-api"
 import { ensureRepo, pushBranchWithToken } from "./repo-manager"
 import { spawn } from "node:child_process"
 
@@ -46,18 +46,13 @@ interface BuildPipelineArgs {
   worktreeManager?: WorktreeManager
 }
 
-interface RepoLookup {
-  ownerRepo: string
-  defaultBranch: string
-}
-
 async function resolveProjectRepo(args: {
   projectId: string
   mcp: ExponentialMcpClient
-}): Promise<RepoLookup | null> {
+}): Promise<{ ownerRepo: string } | null> {
   const project = await args.mcp.getProject(args.projectId)
   if (!project?.githubRepo) return null
-  return { ownerRepo: project.githubRepo, defaultBranch: `main` }
+  return { ownerRepo: project.githubRepo }
 }
 
 function summarizeFirstLine(text: string, max = 200): string {
@@ -304,9 +299,12 @@ export function buildIssuePipeline(_args: BuildPipelineArgs = {}): IssuePipeline
         return
       }
 
+      // Ask GitHub for the actual default branch so we don't have to
+      // hard-code "main" — many of our own repos still use master.
+      const repoMeta = await getRepo(auth.token, repoLookup.ownerRepo)
       const handle = await ensureRepo({
         ownerRepo: repoLookup.ownerRepo,
-        defaultBranch: repoLookup.defaultBranch,
+        defaultBranch: repoMeta.defaultBranch,
         token: auth.token,
         log,
       })

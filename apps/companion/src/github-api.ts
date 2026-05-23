@@ -68,6 +68,18 @@ export async function getAuthedUser(token: string): Promise<GithubUser> {
   return gh<GithubUser>(token, `/user`)
 }
 
+export async function getRepo(
+  token: string,
+  ownerRepo: string
+): Promise<GithubRepoMinimal> {
+  const raw = await gh<GhRaw>(token, `/repos/${ownerRepo}`)
+  return {
+    fullName: raw.full_name,
+    defaultBranch: raw.default_branch,
+    private: raw.private,
+  }
+}
+
 export async function listAccessibleRepos(
   token: string
 ): Promise<GithubRepoMinimal[]> {
