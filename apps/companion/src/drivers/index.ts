@@ -11,6 +11,8 @@ export interface DriverEvent {
   errorMessage?: string
 }
 
+export type DriverMode = `plan` | `code`
+
 export interface DriverRunOptions {
   cwd: string
   systemPrompt?: string
@@ -22,6 +24,15 @@ export interface DriverRunOptions {
   allowedTools?: string[]
   signal?: AbortSignal
   maxTurns?: number
+  /**
+   * `plan` runs the underlying SDK in its native read-only mode (Claude:
+   * permissionMode='plan', Codex: sandboxMode='read-only'). The agent can
+   * read the codebase but cannot modify files; the final text is the plan
+   * (or questions, when the agent prefers to clarify before planning).
+   * Defaults to `code` so existing call sites keep their full-coding
+   * behavior unchanged.
+   */
+  mode?: DriverMode
   /**
    * Optional callback fired for every streamed event. The driver also returns
    * the final result; consumers that only care about the final text can skip

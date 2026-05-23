@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
-import { EditIssueDialog } from "@/components/edit-issue-dialog"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
@@ -12,7 +11,6 @@ import type { IssueStatus } from "@/lib/domain"
 
 type ProjectSearch = {
   description?: string
-  edit?: string
   new?: 1
   title?: string
 }
@@ -25,7 +23,6 @@ export const Route = createFileRoute(
     title: typeof search.title === `string` ? search.title : undefined,
     description:
       typeof search.description === `string` ? search.description : undefined,
-    edit: typeof search.edit === `string` ? search.edit : undefined,
   }),
   component: ProjectPage,
 })
@@ -33,7 +30,7 @@ export const Route = createFileRoute(
 function ProjectPage() {
   const { projectSlug, workspaceSlug } = Route.useParams()
   const search = Route.useSearch()
-  const navigate = Route.useNavigate()
+  const navigate = useNavigate()
   const [createIssueOpen, setCreateIssueOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<IssueStatus | undefined>()
   const [prefill, setPrefill] = useState<
@@ -48,24 +45,16 @@ function ProjectPage() {
         description: search.description,
       })
       void navigate({
-        search: (prev) => ({ ...prev, new: undefined, title: undefined, description: undefined }),
+        to: `/w/$workspaceSlug/projects/$projectSlug`,
+        params: { workspaceSlug, projectSlug },
+        search: {},
         replace: true,
       })
     }
-  }, [search.new, search.title, search.description, navigate])
+  }, [search.new, search.title, search.description, navigate, workspaceSlug, projectSlug])
   const [filters, setFilters] = useState<IssueFilters>(emptyFilters)
-  // Editing state lives in the URL so the browser back button closes the
-  // editor and the issue is deep-linkable. `?edit=<id>`.
-  const editingIssueId = search.edit ?? null
-  const setEditingIssueId = (id: string | null) => {
-    void navigate({
-      search: (prev) => ({ ...prev, edit: id ?? undefined }),
-    })
-  }
 
   const {
-    editingIssue,
-    editingIssueLabelIds,
     issueLabelMap,
     labelList,
     project,
@@ -74,7 +63,7 @@ function ProjectPage() {
     visibleGroups,
     workspace,
   } = useProjectBoardData({
-    editingIssueId,
+    editingIssueId: null,
     filters,
     projectSlug,
     workspaceSlug,
@@ -114,7 +103,16 @@ function ProjectPage() {
           users={users}
           userMap={userMap}
           onNewIssue={handleNewIssue}
-          onIssueClick={(issue) => setEditingIssueId(issue.id)}
+          onIssueClick={(issue) =>
+            void navigate({
+              to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+              params: {
+                workspaceSlug,
+                projectSlug,
+                issueIdentifier: issue.identifier,
+              },
+            })
+          }
           canCreate={permissions.canCreate}
           canMutateIssue={permissions.canMutateIssue}
           canModerate={permissions.isModerator}
@@ -136,26 +134,6 @@ function ProjectPage() {
         users={users}
         restrictModeration={!permissions.isModerator && workspace.isPublic}
       />
-
-      {editingIssue && (
-        <EditIssueDialog
-          key={editingIssue.id}
-          open
-          onOpenChange={(open) => {
-            if (!open) {
-              setEditingIssueId(null)
-            }
-          }}
-          issue={editingIssue}
-          projectPrefix={project.prefix}
-          projectColor={project.color}
-          workspaceId={workspace.id}
-          issueLabelIds={editingIssueLabelIds}
-          users={users}
-          readOnly={!permissions.canMutateIssue(editingIssue)}
-          restrictModeration={!permissions.isModerator && workspace.isPublic}
-        />
-      )}
     </div>
   )
 }

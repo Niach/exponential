@@ -6,6 +6,8 @@ import { STATE_DIR } from "./config"
 export type IssueStatus =
   | `queued`
   | `claimed`
+  | `planning`
+  | `awaiting_approval`
   | `coding`
   | `testing`
   | `pushed`
@@ -30,6 +32,13 @@ export interface IssueRow {
   driver: string | null
   attempts: number
   lastError: string | null
+  /**
+   * Last `agentPlanRevision` we observed on the server when we entered the
+   * pipeline. Used to detect "the server has the plan I just submitted" and
+   * to avoid re-running plan mode when nothing changed across daemon
+   * restarts.
+   */
+  planRevision: number
   updatedAt: number
 }
 
@@ -66,6 +75,7 @@ CREATE TABLE IF NOT EXISTS issues (
   driver TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
+  plan_revision INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS issues_status_idx ON issues(status);
@@ -79,7 +89,10 @@ CREATE TABLE IF NOT EXISTS shape_offsets (
 
 // Idempotent ALTERs for state.db files created before this column was added.
 // Bun's sqlite throws on duplicate column; we swallow and move on.
-const IDEMPOTENT_MIGRATIONS = [`ALTER TABLE issues ADD COLUMN repo_path TEXT`]
+const IDEMPOTENT_MIGRATIONS = [
+  `ALTER TABLE issues ADD COLUMN repo_path TEXT`,
+  `ALTER TABLE issues ADD COLUMN plan_revision INTEGER NOT NULL DEFAULT 0`,
+]
 
 function rowToIssue(row: Record<string, unknown>): IssueRow {
   return {
@@ -95,6 +108,7 @@ function rowToIssue(row: Record<string, unknown>): IssueRow {
     driver: (row.driver as string | null) ?? null,
     attempts: row.attempts as number,
     lastError: (row.last_error as string | null) ?? null,
+    planRevision: (row.plan_revision as number | null) ?? 0,
     updatedAt: row.updated_at as number,
   }
 }
@@ -179,6 +193,7 @@ export function openState(): StateHandle {
         driver: `driver`,
         attempts: `attempts`,
         lastError: `last_error`,
+        planRevision: `plan_revision`,
       }
       for (const [k, dbKey] of Object.entries(map)) {
         if (k in patch) {

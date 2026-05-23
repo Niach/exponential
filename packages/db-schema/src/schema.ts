@@ -265,6 +265,18 @@ export const issues = pgTable(
       withTimezone: true,
     }),
     googleCalendarLastSyncError: text(`google_calendar_last_sync_error`),
+    agentPlanState: varchar(`agent_plan_state`, { length: 32 }),
+    agentPlanRevision: integer(`agent_plan_revision`).notNull().default(0),
+    agentPlanApprovedAt: timestamp(`agent_plan_approved_at`, {
+      withTimezone: true,
+    }),
+    agentPlanApprovedBy: text(`agent_plan_approved_by`).references(
+      () => users.id,
+      { onDelete: `set null` }
+    ),
+    agentLastCommentSeenAt: timestamp(`agent_last_comment_seen_at`, {
+      withTimezone: true,
+    }),
     ...timestamps,
   },
   (table) => [
@@ -335,6 +347,8 @@ export const comments = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
     body: jsonb().notNull(),
+    kind: varchar({ length: 16 }).notNull().default(`regular`),
+    answeredAt: timestamp(`answered_at`, { withTimezone: true }),
     editedAt: timestamp(`edited_at`, { withTimezone: true }),
     ...timestamps,
   },

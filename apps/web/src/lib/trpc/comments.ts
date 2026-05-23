@@ -1,12 +1,17 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { eq } from "drizzle-orm"
+import { and, desc, eq, isNull } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments } from "@/db/schema"
-import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
+import {
+  commentBodySchema,
+  commentKindSchema,
+  getCommentBodyText,
+} from "@/lib/domain"
 import {
   assertCanCommentInWorkspace,
   getIssueWorkspaceContext,
+  getWorkspaceMember,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
 import { fireAndForgetCommentNotify } from "@/lib/notifications"
@@ -38,6 +43,7 @@ export const commentsRouter = router({
       z.object({
         issueId: z.string().uuid(),
         body: commentBodySchema,
+        kind: commentKindSchema.default(`regular`),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -46,6 +52,17 @@ export const commentsRouter = router({
         ctx.session.user.id,
         issueContext.workspaceId
       )
+
+      // Only agents may post kind='question' or kind='plan'. Anyone else is
+      // clamped to regular so the rendering affordances don't get spoofed.
+      let kind = input.kind
+      if (kind === `question` || kind === `plan`) {
+        const member = await getWorkspaceMember(
+          ctx.session.user.id,
+          issueContext.workspaceId
+        )
+        if (!member || member.role !== `agent`) kind = `regular`
+      }
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -56,8 +73,35 @@ export const commentsRouter = router({
             workspaceId: issueContext.workspaceId,
             authorId: ctx.session.user.id,
             body: input.body,
+            kind,
           })
           .returning()
+
+        // When a human comment lands, mark the latest unanswered agent
+        // question on the same issue as answered. This is what flips the
+        // amber "waiting for your answer" card to a softer "Answered" badge
+        // in the UI.
+        if (kind === `regular`) {
+          const [latestUnanswered] = await tx
+            .select({ id: comments.id })
+            .from(comments)
+            .where(
+              and(
+                eq(comments.issueId, input.issueId),
+                eq(comments.kind, `question`),
+                isNull(comments.answeredAt)
+              )
+            )
+            .orderBy(desc(comments.createdAt))
+            .limit(1)
+          if (latestUnanswered) {
+            await tx
+              .update(comments)
+              .set({ answeredAt: new Date() })
+              .where(eq(comments.id, latestUnanswered.id))
+          }
+        }
+
         return { txId, comment }
       })
 

@@ -12,13 +12,56 @@ export interface ExponentialProject {
   githubRepo: string | null
 }
 
+export type CommentKind = `regular` | `question` | `plan`
+export type AgentPlanState =
+  | `drafting`
+  | `awaiting_approval`
+  | `awaiting_answer`
+  | `approved`
+  | null
+
+export interface ExponentialIssueComment {
+  id: string
+  authorId: string
+  body: { text?: string } | unknown
+  kind: CommentKind
+  answeredAt: string | null
+  createdAt: string
+  editedAt: string | null
+}
+
+export interface ExponentialIssueDetail {
+  id: string
+  projectId: string
+  title: string
+  identifier: string
+  description: unknown
+  agentPlanState: AgentPlanState
+  agentPlanRevision: number
+  agentPlanApprovedAt: string | null
+  agentPlanApprovedBy: string | null
+  agentLastCommentSeenAt: string | null
+  recentComments: ExponentialIssueComment[]
+}
+
 export interface ExponentialMcpClient {
-  createComment(args: { issueId: string; bodyText: string }): Promise<unknown>
+  createComment(args: {
+    issueId: string
+    bodyText: string
+    kind?: CommentKind
+  }): Promise<unknown>
   updateIssueStatus(args: {
     issueId: string
     status: `in_progress` | `done` | `cancelled`
   }): Promise<unknown>
   getProject(projectId: string): Promise<ExponentialProject | null>
+  getIssue(issueId: string): Promise<ExponentialIssueDetail | null>
+  submitAgentPlan(args: {
+    issueId: string
+    plan: string
+    state: `awaiting_approval` | `awaiting_answer`
+  }): Promise<unknown>
+  resetAgentPlan(args: { issueId: string }): Promise<unknown>
   close(): Promise<void>
 }
 
@@ -58,10 +101,10 @@ export async function connectExponentialMcp(
   await client.connect(transport)
 
   return {
-    createComment: async ({ issueId, bodyText }) =>
+    createComment: async ({ issueId, bodyText, kind }) =>
       client.callTool({
         name: `exponential_comments_create`,
-        arguments: { issueId, bodyText },
+        arguments: { issueId, bodyText, ...(kind ? { kind } : {}) },
       }),
     updateIssueStatus: async ({ issueId, status }) =>
       client.callTool({
@@ -76,6 +119,24 @@ export async function connectExponentialMcp(
       const parsed = parseToolPayload(raw) as ExponentialProject | null
       return parsed
     },
+    getIssue: async (issueId) => {
+      const raw = await client.callTool({
+        name: `exponential_issues_get`,
+        arguments: { id: issueId },
+      })
+      const parsed = parseToolPayload(raw) as ExponentialIssueDetail | null
+      return parsed
+    },
+    submitAgentPlan: async ({ issueId, plan, state }) =>
+      client.callTool({
+        name: `exponential_agent_plan_submit`,
+        arguments: { issueId, plan, state },
+      }),
+    resetAgentPlan: async ({ issueId }) =>
+      client.callTool({
+        name: `exponential_agent_plan_reset`,
+        arguments: { issueId },
+      }),
     close: async () => {
       await client.close()
     },

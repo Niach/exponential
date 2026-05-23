@@ -44,6 +44,7 @@ import { Route as AuthenticatedAccountIntegrationsRouteImport } from './routes/_
 import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as WWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/index'
+import { Route as WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -228,6 +229,12 @@ const WWorkspaceSlugProjectsProjectSlugIndexRoute =
     path: '/projects/$projectSlug/',
     getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
+const WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute =
+  WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport.update({
+    id: '/projects/$projectSlug/issues/$issueIdentifier',
+    path: '/projects/$projectSlug/issues/$issueIdentifier',
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -264,6 +271,7 @@ export interface FileRoutesByFullPath {
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -298,6 +306,7 @@ export interface FileRoutesByTo {
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -336,6 +345,7 @@ export interface FileRoutesById {
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
+  '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -374,6 +384,7 @@ export interface FileRouteTypes {
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
+    | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -408,6 +419,7 @@ export interface FileRouteTypes {
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/settings'
     | '/w/$workspaceSlug/projects/$projectSlug'
+    | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   id:
     | '__root__'
     | '/'
@@ -445,6 +457,7 @@ export interface FileRouteTypes {
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
+    | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -723,6 +736,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRouteImport
       parentRoute: typeof WWorkspaceSlugRouteRoute
     }
+    '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': {
+      id: '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+      path: '/projects/$projectSlug/issues/$issueIdentifier'
+      fullPath: '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
+      preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
+    }
   }
 }
 
@@ -764,6 +784,7 @@ interface WWorkspaceSlugRouteRouteChildren {
   WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
   WWorkspaceSlugSettingsIndexRoute: typeof WWorkspaceSlugSettingsIndexRoute
   WWorkspaceSlugProjectsProjectSlugIndexRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
+  WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute: typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
 }
 
 const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
@@ -771,6 +792,8 @@ const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
   WWorkspaceSlugSettingsIndexRoute: WWorkspaceSlugSettingsIndexRoute,
   WWorkspaceSlugProjectsProjectSlugIndexRoute:
     WWorkspaceSlugProjectsProjectSlugIndexRoute,
+  WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute:
+    WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute,
 }
 
 const WWorkspaceSlugRouteRouteWithChildren =

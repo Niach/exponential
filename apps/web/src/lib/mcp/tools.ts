@@ -367,10 +367,13 @@ export function registerExponentialTools(
     `exponential_issues_get`,
     {
       title: `Get issue`,
-      description: `Get a single issue by id, including its label ids.`,
-      inputSchema: { id: z.string().uuid() },
+      description: `Get a single issue by id, including its label ids, agent-plan fields, and the latest comments on the thread (newest first). The recentComments array is capped at ${`50`}; pass commentsLimit to override.`,
+      inputSchema: {
+        id: z.string().uuid(),
+        commentsLimit: z.number().int().min(0).max(200).optional(),
+      },
     },
-    async ({ id }) => {
+    async ({ id, commentsLimit }) => {
       try {
         const ctxIssue = await getIssueWorkspaceContext(id)
         await resolveWorkspaceAccess(user.id, ctxIssue.workspaceId)
@@ -383,7 +386,25 @@ export function registerExponentialTools(
           .select({ labelId: issueLabels.labelId })
           .from(issueLabels)
           .where(eq(issueLabels.issueId, id))
-        return ok({ ...issue, labelIds: labelRows.map((r) => r.labelId) })
+        const recentComments = await db
+          .select({
+            id: comments.id,
+            authorId: comments.authorId,
+            body: comments.body,
+            kind: comments.kind,
+            answeredAt: comments.answeredAt,
+            createdAt: comments.createdAt,
+            editedAt: comments.editedAt,
+          })
+          .from(comments)
+          .where(eq(comments.issueId, id))
+          .orderBy(desc(comments.createdAt))
+          .limit(commentsLimit ?? 50)
+        return ok({
+          ...issue,
+          labelIds: labelRows.map((r) => r.labelId),
+          recentComments,
+        })
       } catch (e) {
         return err(e)
       }
@@ -675,19 +696,67 @@ export function registerExponentialTools(
     `exponential_comments_create`,
     {
       title: `Comment on an issue`,
-      description: `Post a comment on an issue authored by the MCP user. Body is plain text.`,
+      description: `Post a comment on an issue authored by the MCP user. Body is plain text. Pass kind='question' (agent members only) to render the comment as a "the agent is waiting for your answer" card in the UI.`,
       inputSchema: {
         issueId: z.string().uuid(),
         bodyText: z.string().min(1).max(10_000),
+        kind: z.enum([`regular`, `question`]).optional(),
       },
     },
-    async ({ issueId, bodyText }) => {
+    async ({ issueId, bodyText, kind }) => {
       try {
         const result = await caller(user, request).comments.create({
           issueId,
           body: { text: bodyText },
+          kind: kind ?? `regular`,
         })
         return ok(result.comment)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_agent_plan_submit`,
+    {
+      title: `Submit an agent plan`,
+      description: `Write the latest agent plan onto an issue. Use state='awaiting_approval' when the plan is complete and ready for the owner to approve. Use state='awaiting_answer' (with an empty plan body) when the agent has open questions and posted them as kind='question' comments. The revision counter bumps automatically; any prior approval is cleared. Caller must be an agent member of the issue's workspace.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+        plan: z.string().max(50_000),
+        state: z.enum([`awaiting_approval`, `awaiting_answer`]),
+      },
+    },
+    async ({ issueId, plan, state }) => {
+      try {
+        const result = await caller(user, request).agentPlan.submitPlan({
+          issueId,
+          plan,
+          state,
+        })
+        return ok(result.issue)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_agent_plan_reset`,
+    {
+      title: `Reset agent plan state`,
+      description: `Clear all agent-plan fields on an issue (state, revision, approval). Called by the daemon when an issue is hard-reset (typically after re-assignment). Caller must be an agent member of the issue's workspace.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+      },
+    },
+    async ({ issueId }) => {
+      try {
+        const result = await caller(user, request).agentPlan.resetPlan({
+          issueId,
+        })
+        return ok(result.issue)
       } catch (e) {
         return err(e)
       }

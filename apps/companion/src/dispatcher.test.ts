@@ -59,6 +59,7 @@ function inMemoryState(): StateHandle {
     driver: (r.driver as string) ?? null,
     attempts: r.attempts as number,
     lastError: (r.last_error as string) ?? null,
+    planRevision: (r.plan_revision as number | null) ?? 0,
     updatedAt: r.updated_at as number,
   })
   return {

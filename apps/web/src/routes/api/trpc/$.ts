@@ -16,6 +16,7 @@ import { adminRouter } from "@/lib/trpc/admin"
 import { pushTokensRouter } from "@/lib/trpc/push-tokens"
 import { commentsRouter } from "@/lib/trpc/comments"
 import { companionRouter } from "@/lib/trpc/companion"
+import { agentPlanRouter } from "@/lib/trpc/agent-plan"
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -31,6 +32,7 @@ export const appRouter = router({
   admin: adminRouter,
   pushTokens: pushTokensRouter,
   companion: companionRouter,
+  agentPlan: agentPlanRouter,
 })
 
 export type AppRouter = typeof appRouter

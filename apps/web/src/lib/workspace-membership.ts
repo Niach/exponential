@@ -222,6 +222,33 @@ export async function assertWorkspaceOwner(
   return assertWorkspaceMember(userId, workspaceId, [`owner`])
 }
 
+// A user can approve an agent plan if they are a workspace owner OR the
+// issue's creator. Regular members can comment to refine but cannot approve.
+export async function assertCanApprovePlan(userId: string, issueId: string) {
+  const db = await getDb()
+  const [row] = await db
+    .select({
+      issueId: issues.id,
+      projectId: issues.projectId,
+      workspaceId: projects.workspaceId,
+      creatorId: issues.creatorId,
+    })
+    .from(issues)
+    .innerJoin(projects, eq(issues.projectId, projects.id))
+    .where(eq(issues.id, issueId))
+    .limit(1)
+  if (!row) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+  }
+  if (row.creatorId === userId) return row
+  const member = await getWorkspaceMember(userId, row.workspaceId)
+  if (member && member.role === `owner`) return row
+  throw new TRPCError({
+    code: `FORBIDDEN`,
+    message: `Only the issue creator or a workspace owner can approve the plan`,
+  })
+}
+
 export async function getProjectWorkspaceId(projectId: string) {
   const db = await getDb()
   const [project] = await db

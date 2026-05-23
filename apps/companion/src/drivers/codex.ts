@@ -44,7 +44,8 @@ export class CodexDriver implements CodingAgentDriver {
   readonly name = `codex` as const
 
   async run(opts: DriverRunOptions): Promise<DriverRunResult> {
-    const sandboxMode: SandboxMode = `workspace-write`
+    const sandboxMode: SandboxMode =
+      opts.mode === `plan` ? `read-only` : `workspace-write`
     if (FORBIDDEN_SANDBOX_MODES.has(sandboxMode)) {
       throw new UnsafePermissionError(
         `Codex driver refuses sandboxMode=${sandboxMode}`

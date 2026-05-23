@@ -120,6 +120,20 @@
       "when": 1779491905174,
       "tag": "0016_soft_the_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1779529585445,
+      "tag": "0017_same_fallen_one",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1779536205810,
+      "tag": "0018_hesitant_unus",
+      "breakpoints": true
     }
   ]
 }

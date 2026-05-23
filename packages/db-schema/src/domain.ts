@@ -23,17 +23,30 @@ export const publicWritePolicyValues = [`members`, `everyone`] as const
 
 export const recurrenceUnitValues = [`day`, `week`, `month`] as const
 
+export const commentKindValues = [`regular`, `question`, `plan`] as const
+
+export const agentPlanStateValues = [
+  `drafting`,
+  `awaiting_approval`,
+  `awaiting_answer`,
+  `approved`,
+] as const
+
 export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
 export type WorkspaceRole = (typeof workspaceRoleValues)[number]
 export type PublicWritePolicy = (typeof publicWritePolicyValues)[number]
 export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
+export type CommentKind = (typeof commentKindValues)[number]
+export type AgentPlanState = (typeof agentPlanStateValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const workspaceRoleSchema = z.enum(workspaceRoleValues)
 export const publicWritePolicySchema = z.enum(publicWritePolicyValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
+export const commentKindSchema = z.enum(commentKindValues)
+export const agentPlanStateSchema = z.enum(agentPlanStateValues)
 export const recurrenceIntervalSchema = z.number().int().min(1).max(999)
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 export const timeOnlySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/)

@@ -45,7 +45,8 @@ export class ClaudeDriver implements CodingAgentDriver {
   async run(opts: DriverRunOptions): Promise<DriverRunResult> {
     // Hard-coded safe defaults. Never let callers override these to unsafe
     // values. See FORBIDDEN_PERMISSION_MODES.
-    const permissionMode = `acceptEdits` as const
+    const permissionMode =
+      opts.mode === `plan` ? (`plan` as const) : (`acceptEdits` as const)
     if (FORBIDDEN_PERMISSION_MODES.has(permissionMode)) {
       throw new UnsafePermissionError(
         `Claude driver refuses permissionMode=${permissionMode}`

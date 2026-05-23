@@ -57,9 +57,22 @@ const PLACEHOLDER_PIPELINE: IssuePipeline = async (issue, { state, log }) => {
 const NON_TERMINAL_STATUSES = [
   `queued`,
   `claimed`,
+  `planning`,
+  `awaiting_approval`,
   `coding`,
   `testing`,
   `pushed`,
+] as const
+
+// Statuses the dispatcher can re-enter the pipeline from when it sees an
+// `updated` event. `awaiting_approval` is here because the human side of the
+// plan flow (approving, requesting changes, leaving comments) happens via
+// row updates we need to react to.
+const REENTRY_STATUSES = [
+  `queued`,
+  `cancelled`,
+  `failed`,
+  `awaiting_approval`,
 ] as const
 
 export function startDispatcher(args: Args): Dispatcher {
@@ -76,7 +89,13 @@ export function startDispatcher(args: Args): Dispatcher {
   function recoverInFlight() {
     const stuck = state.listIssues({ status: [...NON_TERMINAL_STATUSES] })
     for (const issue of stuck) {
-      if (issue.status === `coding` || issue.status === `testing`) {
+      // Reset transient executing states. awaiting_approval is left alone —
+      // the human gate hasn't moved just because we restarted.
+      if (
+        issue.status === `coding` ||
+        issue.status === `testing` ||
+        issue.status === `planning`
+      ) {
         state.setIssueStatus(issue.id, `claimed`, `resumed after restart`)
       }
       enqueueId(issue.id)
@@ -150,11 +169,36 @@ export function startDispatcher(args: Args): Dispatcher {
       }
 
       const existing = state.getIssue(event.issueId)
+
+      // `assigned` is an explicit user signal — always honor it. If the row
+      // was sitting in any state at all (needs_human after a previous failure,
+      // done after a closed PR, …), reset and re-queue. The next pipeline tick
+      // will call `agentPlan.resetPlan` to clear any stale server-side plan.
+      if (event.type === `assigned`) {
+        state.upsertIssue({
+          id: event.issueId,
+          identifier: event.identifier,
+          title: event.title,
+          projectId: event.projectId,
+          status: `queued`,
+        })
+        state.patchIssue(event.issueId, {
+          lastError: null,
+          planRevision: 0,
+          prUrl: null,
+          worktreePath: null,
+          branch: null,
+        })
+        enqueueId(event.issueId)
+        return
+      }
+
+      // `updated` events fire frequently (any row change, including comment
+      // INSERTs via our trigger). Only re-enter from a small allowlist.
       if (
         existing &&
-        ![`queued`, `cancelled`, `failed`].includes(existing.status)
+        !(REENTRY_STATUSES as readonly string[]).includes(existing.status)
       ) {
-        // Already in flight or done — nothing to do.
         return
       }
 
@@ -163,7 +207,9 @@ export function startDispatcher(args: Args): Dispatcher {
         identifier: event.identifier,
         title: event.title,
         projectId: event.projectId,
-        status: `queued`,
+        status: existing?.status === `awaiting_approval`
+          ? `awaiting_approval`
+          : `queued`,
       })
       enqueueId(event.issueId)
     },

@@ -58,9 +58,12 @@ export function IssueSearchSheet({
     onOpenChange(false)
     setQuery(``)
     void navigate({
-      to: `/w/$workspaceSlug/projects/$projectSlug`,
-      params: { workspaceSlug, projectSlug: project.slug },
-      search: { edit: issue.id },
+      to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      params: {
+        workspaceSlug,
+        projectSlug: project.slug,
+        issueIdentifier: issue.identifier,
+      },
     })
   }
 

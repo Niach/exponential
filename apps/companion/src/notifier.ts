@@ -22,6 +22,16 @@ export interface Notifier {
     title: string
     error: string
   }): Promise<void>
+  onPlanReady(args: {
+    identifier: string
+    title: string
+    planSummary: string
+  }): Promise<void>
+  onQuestionsAsked(args: {
+    identifier: string
+    title: string
+    count: number
+  }): Promise<void>
   pairWhatsapp(args: {
     onQr: (qr: string) => Promise<void>
     onStatus: (
@@ -111,6 +121,18 @@ export async function createNotifier(args: {
     onPipelineError: async ({ identifier, title, error }) => {
       await send(
         `❌ Agent error on [${identifier}] ${title}\n\n${error.slice(0, 500)}`
+      )
+    },
+    onPlanReady: async ({ identifier, title, planSummary }) => {
+      const summary =
+        planSummary.length > 400 ? `${planSummary.slice(0, 400)}…` : planSummary
+      await send(
+        `📝 Plan ready for [${identifier}] ${title}\n\n${summary}\n\nReview & approve in the issue.`
+      )
+    },
+    onQuestionsAsked: async ({ identifier, title, count }) => {
+      await send(
+        `❓ Agent needs input on [${identifier}] ${title}\n\n${count} question${count === 1 ? `` : `s`} posted — answer in the comments.`
       )
     },
     pairWhatsapp: async ({ onQr, onStatus, onOwnJid, onChats }) => {
