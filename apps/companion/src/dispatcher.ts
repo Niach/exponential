@@ -63,12 +63,17 @@ const NON_TERMINAL_STATUSES = [
 // Statuses the dispatcher can re-enter the pipeline from when it sees an
 // `updated` event. `awaiting_approval` is here because the human side of the
 // plan flow (approving, requesting changes, leaving comments) happens via
-// row updates we need to react to.
+// row updates we need to react to. `needs_human` is here so the web Retry
+// button actually re-runs the pipeline after the user has fixed whatever
+// the daemon needed help with (e.g. linking a GitHub repo). The pipeline
+// itself dedupes its needs_human comment posts so we don't loop when the
+// underlying problem hasn't been resolved yet.
 const REENTRY_STATUSES = [
   `queued`,
   `cancelled`,
   `failed`,
   `awaiting_approval`,
+  `needs_human`,
 ] as const
 
 export function startDispatcher(args: Args): Dispatcher {

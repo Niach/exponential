@@ -402,21 +402,36 @@ export function buildIssuePipeline(_args: BuildPipelineArgs = {}): IssuePipeline
         mcp,
       })
       if (!repoLookup) {
-        state.setIssueStatus(issue.id, `needs_human`, `no github repo linked`)
-        await mcp.createComment({
-          issueId: issue.id,
-          bodyText: `No GitHub repo linked for this project. Link one in workspace settings.`,
-        })
+        // Avoid looping. needs_human is in the dispatcher's REENTRY
+        // allowlist (so the web Retry button can re-run the pipeline once
+        // the user links a repo), and the dispatcher's upsertIssue resets
+        // local status to `queued` before each run — so checking status
+        // here is useless. lastError survives that upsert, so we use it
+        // as the "we already posted this comment" signal. Only post on
+        // the first hit; reset of lastError happens on assignment.
+        const reason = `no github repo linked`
+        const alreadyPosted = issue.lastError === reason
+        state.setIssueStatus(issue.id, `needs_human`, reason)
+        if (!alreadyPosted) {
+          await mcp.createComment({
+            issueId: issue.id,
+            bodyText: `No GitHub repo linked for this project. Link one in workspace settings.`,
+          })
+        }
         return
       }
 
       const auth = await loadAccessToken().catch(() => null)
       if (!auth) {
-        state.setIssueStatus(issue.id, `needs_human`, `no github authentication`)
-        await mcp.createComment({
-          issueId: issue.id,
-          bodyText: `Companion is not authenticated to GitHub. Run \`companion github login\` on the daemon host.`,
-        })
+        const reason = `no github authentication`
+        const alreadyPosted = issue.lastError === reason
+        state.setIssueStatus(issue.id, `needs_human`, reason)
+        if (!alreadyPosted) {
+          await mcp.createComment({
+            issueId: issue.id,
+            bodyText: `Companion is not authenticated to GitHub. Run \`companion github login\` on the daemon host.`,
+          })
+        }
         return
       }
 
@@ -487,15 +502,15 @@ async function producePlanStage(args: CommonStageArgs): Promise<void> {
   const { state, log } = deps
 
   if (detail.agentPlanRevision >= PLAN_REVISION_CAP) {
-    state.setIssueStatus(
-      issue.id,
-      `needs_human`,
-      `plan revision cap reached`
-    )
-    await mcp.createComment({
-      issueId: issue.id,
-      bodyText: `The agent has revised the plan ${PLAN_REVISION_CAP} times without approval. Stopping to avoid a runaway loop — please review and either approve, request changes, or unassign the agent.`,
-    })
+    const reason = `plan revision cap reached`
+    const alreadyPosted = issue.lastError === reason
+    state.setIssueStatus(issue.id, `needs_human`, reason)
+    if (!alreadyPosted) {
+      await mcp.createComment({
+        issueId: issue.id,
+        bodyText: `The agent has revised the plan ${PLAN_REVISION_CAP} times without approval. Stopping to avoid a runaway loop — please review and either approve, request changes, or unassign the agent.`,
+      })
+    }
     return
   }
 
