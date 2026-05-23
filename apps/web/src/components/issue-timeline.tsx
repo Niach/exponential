@@ -345,6 +345,34 @@ export function IssueTimeline({
     return u?.name || u?.email || null
   }, [issue.agentPlanApprovedBy, users])
 
+  // Show an "implementing" spinner under the timeline while the daemon is
+  // working on the approved plan. The daemon never updates issue.status to
+  // a fine-grained "coding" — instead it posts a comment when it's done
+  // ("PR opened: …", "Tests failed …", or one of the error paths). So we
+  // treat the absence of any such comment after approvedAt as "still
+  // working".
+  const implementing = useMemo(() => {
+    if (issue.agentPlanState !== `approved`) return false
+    if (issue.status === `done` || issue.status === `cancelled`) return false
+    const approvedAt = issue.agentPlanApprovedAt
+      ? new Date(issue.agentPlanApprovedAt).getTime()
+      : 0
+    const TERMINAL_PATTERNS = [
+      /^PR opened:/i,
+      /^Tests failed after retry/i,
+      /^Agent encountered an error/i,
+      /^No GitHub repo linked/i,
+      /Companion is not authenticated to GitHub/i,
+    ]
+    const hasTerminal = list.some((c) => {
+      if (c.kind !== `regular`) return false
+      if (new Date(c.createdAt).getTime() <= approvedAt) return false
+      const body = getCommentBodyText(c.body)
+      return TERMINAL_PATTERNS.some((rx) => rx.test(body))
+    })
+    return !hasTerminal
+  }, [issue.agentPlanState, issue.status, issue.agentPlanApprovedAt, list])
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     const trimmed = draft.trim()
@@ -446,6 +474,12 @@ export function IssueTimeline({
           />
         )
       })}
+      {implementing && (
+        <div className="mt-2 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3 animate-spin text-indigo-300" />
+          <span>Agent is implementing the approved plan…</span>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">
         <Textarea
           placeholder="Leave a reply…"
