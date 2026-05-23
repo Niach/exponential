@@ -11,7 +11,13 @@ import { StarterKit } from "@tiptap/starter-kit"
 import { Underline } from "@tiptap/extension-underline"
 import { Link } from "@tiptap/extension-link"
 import { Placeholder } from "@tiptap/extension-placeholder"
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight"
+import { createLowlight, common } from "lowlight"
 import { Markdown } from "tiptap-markdown"
+
+// `common` covers ~35 popular languages incl. ts/tsx/js/jsx/json/bash/css/html/
+// python/rust/go — enough for plan code blocks without pulling all 200 grammars.
+const lowlight = createLowlight(common)
 import {
   Bold,
   Italic,
@@ -290,6 +296,12 @@ export const MarkdownEditor = forwardRef<
       extensions: [
         StarterKit.configure({
           heading: { levels: [1, 2, 3] },
+          // Replaced below by CodeBlockLowlight for syntax highlighting.
+          codeBlock: false,
+        }),
+        CodeBlockLowlight.configure({
+          lowlight,
+          defaultLanguage: `plaintext`,
         }),
         Underline,
         Link.configure({

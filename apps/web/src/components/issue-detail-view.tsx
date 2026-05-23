@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react"
-import { ChevronRight, Repeat } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import type { Issue, User, Project } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
-  formatRecurrence,
   getIssueDescriptionText,
   normalizeIssueDescriptionText,
 } from "@/lib/domain"
@@ -16,19 +15,7 @@ import {
 import { uploadIssueImageFile } from "@/lib/issue-image-upload"
 import { authClient } from "@/lib/auth-client"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import {
   MarkdownEditor,
   type MarkdownEditorRef,
@@ -36,8 +23,7 @@ import {
 import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
-import { RecurrenceEditor, type RecurrenceValue } from "@/components/recurrence-editor"
-import { MoreHorizontal } from "lucide-react"
+import { type RecurrenceValue } from "@/components/recurrence-editor"
 
 export interface IssueDetailViewProps {
   issue: Issue
@@ -186,8 +172,6 @@ export function IssueDetailView({
 
   const dueDate = issue.dueDate ? new Date(issue.dueDate + `T00:00:00`) : undefined
   const imageOccurrences = extractMarkdownImageOccurrences(description)
-  const isRecurring =
-    issue.recurrenceInterval !== null && issue.recurrenceUnit !== null
 
   const handleRecurrenceChange = async (next: RecurrenceValue | null) => {
     if (readOnly) return
@@ -261,6 +245,9 @@ export function IssueDetailView({
         if (readOnly) return
         await trpc.issues.update.mutate({ id: issue.id, endTime: time })
       }}
+      recurrenceInterval={issue.recurrenceInterval}
+      recurrenceUnit={issue.recurrenceUnit}
+      onRecurrenceChange={handleRecurrenceChange}
       projectName={project.name}
       projectColor={project.color}
       projectPrefix={project.prefix}
@@ -286,77 +273,6 @@ export function IssueDetailView({
       <span className="font-mono">{issue.identifier}</span>
       <ChevronRight className="size-3" />
       <span className="truncate">{title}</span>
-      {isRecurring && (
-        <span className="ml-2 inline-flex items-center gap-1 text-muted-foreground">
-          <Repeat className="size-3" />
-          {formatRecurrence(issue.recurrenceInterval!, issue.recurrenceUnit!)}
-        </span>
-      )}
-      <div className="ml-auto">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label="More options"
-              className="text-muted-foreground"
-              disabled={readOnly || restrictModeration}
-            >
-              <MoreHorizontal className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {!isRecurring ? (
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault()
-                  void handleRecurrenceChange({
-                    firstDue: dueDate ?? new Date(),
-                    interval: 1,
-                    unit: `week`,
-                  })
-                }}
-              >
-                <Repeat className="mr-2 h-4 w-4 text-muted-foreground" />
-                Make recurring…
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault()
-                  void handleRecurrenceChange(null)
-                }}
-              >
-                <Repeat className="mr-2 h-4 w-4 text-muted-foreground" />
-                Stop recurring
-              </DropdownMenuItem>
-            )}
-            {isRecurring && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <DropdownMenuItem
-                    onSelect={(e) => e.preventDefault()}
-                  >
-                    <Repeat className="mr-2 h-4 w-4 text-muted-foreground" />
-                    Edit recurrence…
-                  </DropdownMenuItem>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-auto p-3">
-                  <RecurrenceEditor
-                    value={{
-                      firstDue: dueDate,
-                      interval: issue.recurrenceInterval!,
-                      unit: issue.recurrenceUnit!,
-                    }}
-                    onChange={(next) => void handleRecurrenceChange(next)}
-                  />
-                </PopoverContent>
-              </Popover>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
     </div>
   )
 
