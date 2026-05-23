@@ -17,6 +17,7 @@ import { getCommentBodyText } from "@/lib/domain"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { MarkdownEditor } from "@/components/markdown-editor"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -254,9 +255,13 @@ function PlanCommentRow({
             </span>
           )}
         </div>
-        <pre className="mt-2 rounded-md border border-border bg-muted/30 p-3 text-xs whitespace-pre-wrap break-words text-foreground">
-          {bodyText}
-        </pre>
+        <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-foreground agent-plan-prose">
+          <MarkdownEditor
+            markdown={bodyText}
+            editable={false}
+            onChange={() => {}}
+          />
+        </div>
         {showButtons && (
           <div className="mt-2 flex items-center gap-2">
             <Button
