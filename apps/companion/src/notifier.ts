@@ -12,11 +12,6 @@ export interface Notifier {
     title: string
     url: string
   }): Promise<void>
-  onTestsFailed(args: {
-    identifier: string
-    title: string
-    tail: string
-  }): Promise<void>
   onPipelineError(args: {
     identifier: string
     title: string
@@ -113,10 +108,6 @@ export async function createNotifier(args: {
   return {
     onPrOpened: async ({ identifier, title, url }) => {
       await send(`✅ [${identifier}] ${title}\n${url}`)
-    },
-    onTestsFailed: async ({ identifier, title, tail }) => {
-      const snippet = tail.length > 500 ? `${tail.slice(0, 500)}…` : tail
-      await send(`⚠️ Tests failed for [${identifier}] ${title}\n\n${snippet}`)
     },
     onPipelineError: async ({ identifier, title, error }) => {
       await send(

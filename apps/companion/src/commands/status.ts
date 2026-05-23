@@ -12,7 +12,7 @@ export async function runStatus(): Promise<void> {
     await heartbeat(config)
     const state = openState()
     const inFlight = state.listIssues({
-      status: [`claimed`, `coding`, `testing`, `pushed`],
+      status: [`claimed`, `coding`, `pushed`],
     }).length
     state.close()
     console.log(`Companion API OK · ${inFlight} issue(s) in local state`)

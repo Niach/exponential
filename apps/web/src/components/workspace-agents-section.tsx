@@ -395,7 +395,7 @@ export function WorkspaceAgentsSection({
           <DialogHeader>
             <DialogTitle>Connect WhatsApp</DialogTitle>
             <DialogDescription>
-              Scan this code from WhatsApp Linked Devices for{" "}
+              Scan this code from WhatsApp Linked Devices for{` `}
               {pairingAgent?.name}.
             </DialogDescription>
           </DialogHeader>

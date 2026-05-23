@@ -60,7 +60,6 @@ const NON_TERMINAL_STATUSES = [
   `planning`,
   `awaiting_approval`,
   `coding`,
-  `testing`,
   `pushed`,
 ] as const
 
@@ -84,18 +83,14 @@ export function startDispatcher(args: Args): Dispatcher {
   let stopped = false
 
   // Boot-time recovery: scan for in-flight issues (status != terminal) and
-  // re-enqueue them. Reset 'coding' / 'testing' back to 'claimed' so the
-  // pipeline picks up cleanly.
+  // re-enqueue them. Reset 'coding' back to 'claimed' so the pipeline picks
+  // up cleanly.
   function recoverInFlight() {
     const stuck = state.listIssues({ status: [...NON_TERMINAL_STATUSES] })
     for (const issue of stuck) {
       // Reset transient executing states. awaiting_approval is left alone —
       // the human gate hasn't moved just because we restarted.
-      if (
-        issue.status === `coding` ||
-        issue.status === `testing` ||
-        issue.status === `planning`
-      ) {
+      if (issue.status === `coding` || issue.status === `planning`) {
         state.setIssueStatus(issue.id, `claimed`, `resumed after restart`)
       }
       enqueueId(issue.id)

@@ -10,7 +10,6 @@ export interface WorktreeClaim {
   branch: string
   repoPath: string
   defaultBranch: string
-  testCommand: string | null
 }
 
 export interface WorktreeManager {
@@ -19,7 +18,6 @@ export interface WorktreeManager {
     defaultBranch: string
     identifier: string
     slug: string
-    testCommand?: string | null
   }): Promise<WorktreeClaim>
   cleanup(claim: WorktreeClaim): Promise<void>
 }
@@ -48,7 +46,7 @@ export function createWorktreeManager(args: {
   const { config, log } = args
 
   return {
-    async claim({ repoPath, defaultBranch, identifier, slug, testCommand }) {
+    async claim({ repoPath, defaultBranch, identifier, slug }) {
       await mkdir(config.worktrees.root, { recursive: true })
 
       const free = await bytesFree(config.worktrees.root)
@@ -98,7 +96,6 @@ export function createWorktreeManager(args: {
         branch,
         repoPath,
         defaultBranch,
-        testCommand: testCommand ?? null,
       }
     },
 

@@ -34,7 +34,6 @@ async function reactToClosedPr(
         branch: issue.branch,
         repoPath: issue.repoPath,
         defaultBranch: `main`,
-        testCommand: null,
       })
       .catch((e: unknown) =>
         log.warn(
