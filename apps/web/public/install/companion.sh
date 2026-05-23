@@ -82,11 +82,18 @@ cd "$INSTALL_DIR"
 echo "Installing dependencies..."
 bun install --frozen-lockfile
 
-if [[ -z "$ALREADY_CONFIGURED" ]]; then
+if [[ -n "$SETUP_TOKEN" ]]; then
+  # If the caller bothered to pass a fresh setup-token, always (re-)claim. The
+  # old apikeys row may have been deleted server-side (regenerate / revoke),
+  # leaving the local bot.token stale; the only way out is to mint a new key.
+  if [[ -z "$SERVER" ]]; then
+    echo "Missing --server (required alongside --setup-token)." >&2
+    exit 1
+  fi
   echo "Configuring companion..."
   bun apps/companion/src/cli.ts setup --server "$SERVER" --setup-token "$SETUP_TOKEN"
 else
-  echo "Existing config detected at $CONFIG_PATH — skipping setup."
+  echo "No --setup-token provided; keeping existing config at $CONFIG_PATH."
 fi
 
 echo "Installing systemd user service..."
