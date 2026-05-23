@@ -187,17 +187,6 @@ async function resolveProjectRepo(args: {
   return { ownerRepo: project.githubRepo }
 }
 
-function summarizeFirstLine(text: string, max = 200): string {
-  const firstNonEmpty =
-    text
-      .split(`\n`)
-      .map((l) => l.trim())
-      .find((l) => l.length > 0 && !l.startsWith(`#`)) ?? text.trim()
-  return firstNonEmpty.length > max
-    ? `${firstNonEmpty.slice(0, max)}…`
-    : firstNonEmpty
-}
-
 interface PlanDriverOutput {
   kind: `plan` | `questions`
   body: string
@@ -477,11 +466,6 @@ export function buildIssuePipeline(_args: BuildPipelineArgs = {}): IssuePipeline
           })
           .catch(() => {})
       }
-      await deps.notifier?.onPipelineError({
-        identifier: issue.identifier,
-        title: issue.title,
-        error: message,
-      })
     } finally {
       if (mcp) await mcp.close().catch(() => {})
     }
@@ -584,25 +568,11 @@ async function producePlanStage(args: CommonStageArgs): Promise<void> {
       plan: ``,
       state: `awaiting_answer`,
     })
-    // Count bullet-ish lines for the notification.
-    const bulletCount = parsed.body
-      .split(`\n`)
-      .filter((l) => /^\s*[-*]/.test(l)).length
-    await deps.notifier?.onQuestionsAsked({
-      identifier: issue.identifier,
-      title: issue.title,
-      count: Math.max(1, bulletCount),
-    })
   } else {
     await mcp.submitAgentPlan({
       issueId: issue.id,
       plan: parsed.body,
       state: `awaiting_approval`,
-    })
-    await deps.notifier?.onPlanReady({
-      identifier: issue.identifier,
-      title: issue.title,
-      planSummary: summarizeFirstLine(parsed.body),
     })
   }
 
@@ -681,11 +651,6 @@ async function codeStage(args: CodeStageArgs): Promise<void> {
   await mcp.createComment({
     issueId: issue.id,
     bodyText: `PR opened: ${pr.url}`,
-  })
-  await deps.notifier?.onPrOpened({
-    identifier: issue.identifier,
-    title: issue.title,
-    url: pr.url,
   })
 }
 

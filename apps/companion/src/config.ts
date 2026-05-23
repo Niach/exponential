@@ -47,20 +47,6 @@ export const configSchema = z.object({
       .default(5 * 1024 * 1024 * 1024),
     branchPrefix: z.string().default(`agent`),
   }),
-  messaging: z
-    .object({
-      whatsapp: z
-        .object({
-          enabled: z.boolean(),
-          notifyJid: z
-            .string()
-            .regex(/^\d+@s\.whatsapp\.net$/)
-            .optional(),
-          authStateDir: z.string(),
-        })
-        .optional(),
-    })
-    .optional(),
 })
 
 export type CompanionConfig = z.infer<typeof configSchema>

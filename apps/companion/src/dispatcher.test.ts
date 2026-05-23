@@ -31,7 +31,6 @@ const baseConfig: CompanionConfig = {
     minFreeBytes: 0,
     branchPrefix: `agent`,
   },
-  messaging: undefined,
 }
 
 function inMemoryState(): StateHandle {

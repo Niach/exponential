@@ -39,9 +39,6 @@ export interface PollActivityIssue {
 }
 
 export interface CompanionControl {
-  whatsappPairingRequestedAt: string | Date | null
-  whatsappStatus: string
-  whatsappNotifyJid: string | null
   activity: {
     cursor: string
     issues: PollActivityIssue[]
@@ -110,59 +107,6 @@ export async function pollControl(
     config.exponential.baseUrl,
     `companion.pollControl`,
     input,
-    token
-  )
-}
-
-export async function reportWhatsappQr(
-  config: CompanionConfig,
-  qr: string
-): Promise<void> {
-  const token = await readBotToken()
-  await callTrpc(
-    config.exponential.baseUrl,
-    `companion.reportWhatsappQr`,
-    { qr },
-    token
-  )
-}
-
-export async function reportWhatsappStatus(
-  config: CompanionConfig,
-  status: `connected` | `disconnected` | `error`,
-  error?: string | null
-): Promise<void> {
-  const token = await readBotToken()
-  await callTrpc(
-    config.exponential.baseUrl,
-    `companion.reportWhatsappStatus`,
-    { status, error: error ?? null },
-    token
-  )
-}
-
-export async function reportWhatsappOwnJid(
-  config: CompanionConfig,
-  jid: string
-): Promise<void> {
-  const token = await readBotToken()
-  await callTrpc(
-    config.exponential.baseUrl,
-    `companion.reportWhatsappOwnJid`,
-    { jid },
-    token
-  )
-}
-
-export async function reportWhatsappChats(
-  config: CompanionConfig,
-  chats: Array<{ jid: string; name: string; isGroup: boolean }>
-): Promise<void> {
-  const token = await readBotToken()
-  await callTrpc(
-    config.exponential.baseUrl,
-    `companion.reportWhatsappChats`,
-    { chats },
     token
   )
 }

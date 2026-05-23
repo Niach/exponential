@@ -22,15 +22,6 @@ const setupTokenSchema = z
   .string()
   .regex(/^expc_[A-Za-z0-9_-]{32,}$/, `Invalid setup token`)
 
-const whatsappStatusSchema = z.enum([
-  `not_configured`,
-  `pairing_requested`,
-  `qr`,
-  `connected`,
-  `disconnected`,
-  `error`,
-])
-
 function hashSetupToken(token: string): string {
   return createHash(`sha256`).update(token).digest(`hex`)
 }
@@ -115,15 +106,6 @@ export const companionRouter = router({
           setupTokenExpiresAt: workspaceAgents.setupTokenExpiresAt,
           setupTokenConsumedAt: workspaceAgents.setupTokenConsumedAt,
           lastSeenAt: workspaceAgents.lastSeenAt,
-          whatsappStatus: workspaceAgents.whatsappStatus,
-          whatsappPairingRequestedAt:
-            workspaceAgents.whatsappPairingRequestedAt,
-          whatsappQr: workspaceAgents.whatsappQr,
-          whatsappQrUpdatedAt: workspaceAgents.whatsappQrUpdatedAt,
-          whatsappLastError: workspaceAgents.whatsappLastError,
-          whatsappOwnJid: workspaceAgents.whatsappOwnJid,
-          whatsappChats: workspaceAgents.whatsappChats,
-          whatsappNotifyJid: workspaceAgents.whatsappNotifyJid,
           githubUserLogin: workspaceAgents.githubUserLogin,
           githubRepos: workspaceAgents.githubRepos,
           createdAt: workspaceAgents.createdAt,
@@ -226,11 +208,6 @@ export const companionRouter = router({
             setupTokenConsumedAt: null,
             apiKeyId: null,
             lastSeenAt: null,
-            whatsappStatus: `not_configured`,
-            whatsappPairingRequestedAt: null,
-            whatsappQr: null,
-            whatsappQrUpdatedAt: null,
-            whatsappLastError: null,
           })
           .where(eq(workspaceAgents.id, agent.id))
       })
@@ -253,30 +230,6 @@ export const companionRouter = router({
       await revokeWorkspaceAgent(ctx.db, agent)
 
       return { ok: true }
-    }),
-
-  requestWhatsappPairing: authedProcedure
-    .input(z.object({ agentId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const agent = await loadOwnedAgent(
-        ctx.db,
-        ctx.session.user.id,
-        input.agentId
-      )
-      const now = new Date()
-      const [updated] = await ctx.db
-        .update(workspaceAgents)
-        .set({
-          whatsappStatus: `pairing_requested`,
-          whatsappPairingRequestedAt: now,
-          whatsappQr: null,
-          whatsappQrUpdatedAt: null,
-          whatsappLastError: null,
-        })
-        .where(eq(workspaceAgents.id, agent.id))
-        .returning()
-
-      return { agent: updated }
     }),
 
   claimSetup: publicProcedure
@@ -457,113 +410,11 @@ export const companionRouter = router({
       }
 
       return {
-        whatsappPairingRequestedAt: agent.whatsappPairingRequestedAt,
-        whatsappStatus: agent.whatsappStatus,
-        whatsappNotifyJid: agent.whatsappNotifyJid,
         activity: {
           cursor: nextCursor,
           issues: activityIssues,
         },
       }
-    }),
-
-  reportWhatsappQr: authedProcedure
-    .input(z.object({ qr: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-      await ctx.db
-        .update(workspaceAgents)
-        .set({
-          whatsappStatus: `qr`,
-          whatsappQr: input.qr,
-          whatsappQrUpdatedAt: new Date(),
-          whatsappLastError: null,
-          lastSeenAt: new Date(),
-        })
-        .where(eq(workspaceAgents.id, agent.id))
-
-      return { ok: true }
-    }),
-
-  reportWhatsappStatus: authedProcedure
-    .input(
-      z.object({
-        status: whatsappStatusSchema,
-        error: z.string().max(2000).nullable().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-      const clearQr =
-        input.status === `connected`
-          ? { whatsappQr: null, whatsappQrUpdatedAt: null }
-          : {}
-      await ctx.db
-        .update(workspaceAgents)
-        .set({
-          whatsappStatus: input.status,
-          whatsappLastError: input.error ?? null,
-          ...clearQr,
-          lastSeenAt: new Date(),
-        })
-        .where(eq(workspaceAgents.id, agent.id))
-
-      return { ok: true }
-    }),
-
-  reportWhatsappOwnJid: authedProcedure
-    .input(z.object({ jid: z.string().min(1).max(255) }))
-    .mutation(async ({ ctx, input }) => {
-      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-      await ctx.db
-        .update(workspaceAgents)
-        .set({ whatsappOwnJid: input.jid, lastSeenAt: new Date() })
-        .where(eq(workspaceAgents.id, agent.id))
-      return { ok: true }
-    }),
-
-  reportWhatsappChats: authedProcedure
-    .input(
-      z.object({
-        chats: z
-          .array(
-            z.object({
-              jid: z.string().min(1).max(255),
-              name: z.string().max(255),
-              isGroup: z.boolean(),
-            })
-          )
-          .max(2000),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-      await ctx.db
-        .update(workspaceAgents)
-        .set({ whatsappChats: input.chats, lastSeenAt: new Date() })
-        .where(eq(workspaceAgents.id, agent.id))
-      return { ok: true, count: input.chats.length }
-    }),
-
-  setWhatsappNotifyTarget: authedProcedure
-    .input(
-      z.object({
-        agentId: z.string().uuid(),
-        // null reverts to self-chat (the daemon's own JID).
-        jid: z.string().min(1).max(255).nullable(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const agent = await loadOwnedAgent(
-        ctx.db,
-        ctx.session.user.id,
-        input.agentId
-      )
-      await ctx.db
-        .update(workspaceAgents)
-        .set({ whatsappNotifyJid: input.jid })
-        .where(eq(workspaceAgents.id, agent.id))
-      return { ok: true }
     }),
 
   uninstallSelf: authedProcedure.mutation(async ({ ctx }) => {

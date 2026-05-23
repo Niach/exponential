@@ -1,7 +1,6 @@
 import type { CompanionConfig } from "./config"
 import type { IssueRow, StateHandle } from "./state"
 import type { Logger } from "./logger"
-import type { Notifier } from "./notifier"
 
 export interface IssueEvent {
   type: `assigned` | `unassigned` | `updated`
@@ -21,7 +20,6 @@ export interface IssuePipelineDeps {
   config: CompanionConfig
   state: StateHandle
   log: Logger
-  notifier?: Notifier
 }
 
 /**
@@ -39,7 +37,6 @@ interface Args {
   state: StateHandle
   log: Logger
   pipeline?: IssuePipeline
-  notifier?: Notifier
 }
 
 const PLACEHOLDER_PIPELINE: IssuePipeline = async (issue, { state, log }) => {
@@ -121,7 +118,7 @@ export function startDispatcher(args: Args): Dispatcher {
         { issueId: id, identifier: issue.identifier, status: issue.status },
         `pipeline start`
       )
-      pipeline(issue, { config, state, log, notifier: args.notifier })
+      pipeline(issue, { config, state, log })
         .catch((err: unknown) => {
           const message =
             err instanceof Error ? err.message : String(err)

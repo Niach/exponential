@@ -108,7 +108,7 @@ program
   )
   .option(
     `--keep-state`,
-    `Don't delete ~/.exponential-companion (sqlite state, worktrees, baileys-auth).`
+    `Don't delete ~/.exponential-companion (sqlite state, worktrees).`
   )
   .option(
     `--keep-agent`,
