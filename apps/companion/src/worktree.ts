@@ -78,10 +78,15 @@ export function createWorktreeManager(args: {
       // The clone is kept fresh by repo-manager.ts; we still fetch here as a
       // belt-and-braces guard against concurrent worktrees racing the fetch.
       await git.fetch(`origin`, defaultBranch)
+      // -B (force-create) rather than -b: the previous run may have left the
+      // branch behind (e.g. plan-mode created the worktree+branch, the
+      // worktree was removed but the branch lingers; on the next code-mode
+      // run -b would fail with "branch already exists"). -B resets the
+      // existing branch to origin/<default> which is what we want anyway.
       await git.raw([
         `worktree`,
         `add`,
-        `-b`,
+        `-B`,
         branch,
         worktreePath,
         `origin/${defaultBranch}`,
