@@ -14,12 +14,6 @@ function originForRequest(request: Request): string {
   return `${url.protocol}//${url.host}`
 }
 
-function appendStateToUrl(target: string, state: string): string {
-  const url = new URL(target)
-  url.searchParams.set(`state`, state)
-  return url.toString()
-}
-
 async function handle({ request }: { request: Request }) {
   const url = new URL(request.url)
   const providerId = url.searchParams.get(`providerId`)
@@ -52,14 +46,19 @@ async function handle({ request }: { request: Request }) {
 
   const headers = new Headers(response.headers)
   if (data?.url) {
-    // CSRF defense: bind the IdP-issued state to a cookie so the return
-    // handler can prove the callback corresponds to this browser session.
+    // CSRF defense: drop a short-lived cookie so /api/mobile-oauth-return can
+    // reject calls that didn't originate here. We intentionally do NOT touch
+    // the `state` query param on data.url — Better Auth puts its own state
+    // there and verifies it against `__Secure-better-auth.state` on the
+    // OAuth callback. Overwriting it breaks Google's signInSocial flow (the
+    // callback handler fails CSRF, falls back to the default redirect, and
+    // the user lands on the web app instead of being deep-linked back).
     const state = randomBytes(32).toString(`hex`)
     headers.append(
       `Set-Cookie`,
       `${STATE_COOKIE_NAME}=${state}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
     )
-    headers.set(`Location`, appendStateToUrl(data.url, state))
+    headers.set(`Location`, data.url)
     headers.delete(`Content-Type`)
     headers.delete(`Content-Length`)
     return new Response(null, { status: 302, headers })

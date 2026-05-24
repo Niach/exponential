@@ -19,16 +19,14 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const url = new URL(request.url)
         const cookieHeader = request.headers.get(`cookie`) ?? ``
-        const expectedState = readCookie(cookieHeader, STATE_COOKIE_NAME)
-        const receivedState = url.searchParams.get(`state`)
-
-        if (
-          !expectedState ||
-          !receivedState ||
-          expectedState !== receivedState
-        ) {
+        // Anti-CSRF for the deep-link hop: the cookie was set by
+        // /api/mobile-oauth-start, so absence means this URL was visited
+        // out-of-band. Better Auth's own state cookie already protected the
+        // Google → /api/auth/callback/google leg, and Better Auth doesn't
+        // propagate `state` to callbackURL, so we don't compare it here.
+        const stateCookie = readCookie(cookieHeader, STATE_COOKIE_NAME)
+        if (!stateCookie) {
           return new Response(`Invalid OAuth state`, {
             status: 400,
             headers: { "Set-Cookie": CLEAR_STATE_COOKIE },
