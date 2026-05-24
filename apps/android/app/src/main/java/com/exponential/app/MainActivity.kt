@@ -97,13 +97,20 @@ class MainActivity : ComponentActivity() {
 
     private fun handleOauthReturn(data: android.net.Uri) {
         // Token is in the URL fragment so it never lands in server logs.
-        val fragment = data.fragment ?: return
-        val token = fragment
+        //
+        // Pull the *encoded* fragment and decode once with Uri.decode (URI-style,
+        // `+` stays literal). data.fragment + URLDecoder.decode would form-decode
+        // `+` → space and corrupt the base64 HMAC signature better-call appends
+        // to session cookies (signed cookie value is `${id}.${btoa(HMAC)}` and
+        // btoa emits `+` `/` `=`). A mangled signature fails HMAC verification
+        // in better-auth's bearer plugin and every authed request 401s.
+        val encodedFragment = data.encodedFragment ?: return
+        val token = encodedFragment
             .split("&")
             .map { it.split("=", limit = 2) }
             .firstOrNull { it.firstOrNull() == "token" }
             ?.getOrNull(1)
-            ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+            ?.let { android.net.Uri.decode(it) }
             ?: return
         authRepository.setToken(token, authRepository.userEmail.value)
         lifecycleScope.launch {
