@@ -49,7 +49,7 @@ private object AdminEmptyInput
 @Singleton
 class AdminApi @Inject constructor(private val trpc: TrpcClient) {
     suspend fun listUsers(): List<AdminUser> =
-        trpc.mutation(
+        trpc.query(
             path = "admin.listUsers",
             input = AdminEmptyInput,
             inputSerializer = AdminEmptyInput.serializer(),
@@ -75,7 +75,7 @@ class AdminApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     suspend fun listWorkspaces(): List<AdminWorkspace> =
-        trpc.mutation(
+        trpc.query(
             path = "admin.listWorkspaces",
             input = AdminEmptyInput,
             inputSerializer = AdminEmptyInput.serializer(),

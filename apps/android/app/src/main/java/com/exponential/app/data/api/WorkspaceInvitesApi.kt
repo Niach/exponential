@@ -65,7 +65,7 @@ class WorkspaceInvitesApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     suspend fun list(workspaceId: String): List<WorkspaceInviteEntity> =
-        trpc.mutation(
+        trpc.query(
             path = "workspaceInvites.list",
             input = ListInvitesInput(workspaceId),
             inputSerializer = ListInvitesInput.serializer(),
@@ -82,7 +82,7 @@ class WorkspaceInvitesApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     suspend fun getByToken(token: String): InvitePreview =
-        trpc.mutation(
+        trpc.query(
             path = "workspaceInvites.getByToken",
             input = GetByTokenInput(token),
             inputSerializer = GetByTokenInput.serializer(),

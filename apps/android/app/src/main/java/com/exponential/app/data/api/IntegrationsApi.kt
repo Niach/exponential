@@ -20,7 +20,7 @@ private object IntegrationsEmptyInput
 @Singleton
 class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
     suspend fun googleStatus(): GoogleStatus =
-        trpc.mutation(
+        trpc.query(
             path = "integrations.google.status",
             input = IntegrationsEmptyInput,
             inputSerializer = IntegrationsEmptyInput.serializer(),
