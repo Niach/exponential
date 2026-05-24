@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
+import { Check, GitPullRequest, MessageSquareText, X } from "lucide-react"
 import {
   IcBot,
-  IcCalSync,
   IcCopy,
   IcGithub,
   IcServer,
@@ -125,18 +125,6 @@ export function FeatureGrid() {
     <div className="features">
       <div className="feature">
         <span className="feature-icon">
-          <IcShield size={20} />
-        </span>
-        <h3>OIDC out of the box</h3>
-        <p>
-          Better Auth handles sessions and email/password. Plug in any OIDC
-          provider — Authentik, Keycloak, Google — by setting four environment
-          variables.
-        </p>
-      </div>
-
-      <div className="feature">
-        <span className="feature-icon">
           <IcZap size={20} />
         </span>
         <h3>Real-time, optimistic</h3>
@@ -149,24 +137,50 @@ export function FeatureGrid() {
 
       <div className="feature">
         <span className="feature-icon">
-          <IcServer size={20} />
+          <IcBot size={20} />
         </span>
-        <h3>Your data, your servers</h3>
+        <h3>AI agents on your hardware</h3>
         <p>
-          One docker-compose file: Postgres, Electric, Garage, Caddy. No SaaS
-          dependencies, no telemetry, no vendor lock-in.
+          A companion daemon watches issues assigned to your agent user, runs
+          Claude or Codex in a local git worktree, and opens GitHub PRs. Plans
+          land in the comment timeline first — approve, request changes, or
+          retry before any code is written.
         </p>
       </div>
 
       <div className="feature">
         <span className="feature-icon">
-          <IcCalSync size={20} />
+          <IcZap size={20} />
         </span>
-        <h3>Google Calendar sync</h3>
+        <h3>Native mobile, offline-capable</h3>
         <p>
-          Per-user opt-in. Issues with a due date appear as all-day events on
-          your primary calendar — automatically created, updated, and removed
-          as status and dates change.
+          SwiftUI on iOS, Compose on Android, GRDB and Room on-device,
+          ElectricSQL on the wire. Sign into multiple servers, switch in a tap,
+          edit on the subway, sync when you're back.
+        </p>
+      </div>
+
+      <div className="feature">
+        <span className="feature-icon">
+          <IcShield size={20} />
+        </span>
+        <h3>OIDC out of the box</h3>
+        <p>
+          Better Auth handles sessions and email/password. Plug in any OIDC
+          provider — Authentik, Keycloak, Google — by setting four environment
+          variables.
+        </p>
+      </div>
+
+      <div className="feature">
+        <span className="feature-icon">
+          <IcServer size={20} />
+        </span>
+        <h3>Your data, your servers</h3>
+        <p>
+          One docker-compose file: Postgres, Electric, Garage, Caddy. Issue
+          attachments live in your own S3 bucket. No SaaS dependencies, no
+          telemetry, no vendor lock-in.
         </p>
       </div>
 
@@ -199,7 +213,7 @@ export function RepoCard() {
         <span>
           <IcShield size={12} /> MIT license
         </span>
-        <span>v0.5.1</span>
+        <span>v0.13.0</span>
       </div>
 
       <p
@@ -240,6 +254,61 @@ export function CopyBlock() {
       <button className="copy-btn" onClick={onCopy}>
         <IcCopy size={12} /> {copied ? `Copied` : `Copy`}
       </button>
+    </div>
+  )
+}
+
+export function AgentTimeline() {
+  return (
+    <div className="agent-timeline">
+      <div className="agent-tl-issue">
+        <span className="agent-tl-issue-ident">EXP-181</span>
+        <span className="agent-tl-issue-title">
+          Add CSV export of filtered views
+        </span>
+      </div>
+
+      <div className="agent-tl-card is-plan">
+        <div className="agent-tl-card-head">
+          <span className="agent-tl-avatar is-agent">
+            <IcBot size={11} />
+          </span>
+          <span className="agent-tl-author">agent</span>
+          <span className="agent-tl-time">just now</span>
+          <span className="agent-tl-tag">Plan 2</span>
+        </div>
+        <div className="agent-tl-card-body">
+          Add a <code>/export.csv</code> route on the project page that
+          serializes the current filtered query. Reuse{` `}
+          <code>matchesFilters()</code> from <code>lib/filters.ts</code>, write
+          headers from the visible columns.
+        </div>
+        <div className="agent-tl-actions">
+          <button className="agent-tl-btn is-primary">
+            <Check size={11} strokeWidth={2.4} /> Approve
+          </button>
+          <button className="agent-tl-btn">
+            <MessageSquareText size={11} strokeWidth={2} /> Request changes
+          </button>
+          <button className="agent-tl-btn">
+            <X size={11} strokeWidth={2.2} /> Cancel
+          </button>
+        </div>
+      </div>
+
+      <div className="agent-tl-activity">
+        <span className="agent-tl-spinner" aria-hidden />
+        <span>Agent is working — creating worktree…</span>
+      </div>
+
+      <div className="agent-tl-pr">
+        <span className="agent-tl-pr-icon">
+          <GitPullRequest size={11} strokeWidth={2.2} />
+        </span>
+        <span>
+          Opened PR <strong>niach/exponential#214</strong> · "Add CSV export"
+        </span>
+      </div>
     </div>
   )
 }

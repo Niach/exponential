@@ -1,6 +1,7 @@
 import { ProductBoard } from "./components/ProductBoard"
 import { ProductMobile } from "./components/ProductMobile"
 import {
+  AgentTimeline,
   CopyBlock,
   FeatureGrid,
   HostTerminal,
@@ -8,7 +9,15 @@ import {
   SectionTag,
 } from "./components/Sections"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
-import { IcArrow, IcDocker, IcGithub, IcZap } from "./components/icons"
+import {
+  IcArrow,
+  IcBot,
+  IcDocker,
+  IcGithub,
+  IcServer,
+  IcShield,
+  IcZap,
+} from "./components/icons"
 
 export function HomePage() {
   return (
@@ -24,9 +33,10 @@ export function HomePage() {
             <em>on your own machines.</em>
           </h1>
           <p className="hero-sub">
-            Exponential is a real-time issue tracker. Self-host the stack on
-            your own machines, or skip setup and use the free cloud instance.
-            Open source, MIT-licensed, yours end-to-end.
+            Exponential is a real-time issue tracker with native iOS and
+            Android apps and coding agents that ship to your repo. Self-host
+            the stack, or skip setup and use the free cloud instance. Open
+            source, MIT-licensed, yours end-to-end.
           </p>
           <div className="hero-cta">
             <a className="btn btn-primary" href="#install">
@@ -92,9 +102,9 @@ export function HomePage() {
             <div className="mobile-copy">
               <h2 className="section-title">Your tracker, in your pocket.</h2>
               <p className="section-sub">
-                Native apps for Android and iOS connect to the same instance
-                you self-host. The same data, the same auth, live across every
-                device — with push notifications routed through your own relay.
+                SwiftUI on iOS and Compose on Android, both shipping today.
+                Same instance, same data, same auth — live across every device,
+                with push delivered through your own relay.
               </p>
               <ul className="mobile-bullets">
                 <li>
@@ -111,25 +121,27 @@ export function HomePage() {
                 </li>
                 <li>
                   <span className="mobile-bullet-icon">
-                    <IcDocker size={14} />
+                    <IcServer size={14} />
                   </span>
                   <div>
-                    <strong>Your relay, your tokens.</strong>
+                    <strong>Multi-server. One tap to switch.</strong>
                     <p>
-                      Push is delivered through your own push-relay service —
-                      a small companion container — backed by Firebase.
+                      Sign into your cloud workspace and three self-hosted
+                      instances. Add, switch, and remove servers from Settings
+                      — sessions stay logged in, swap is instant.
                     </p>
                   </div>
                 </li>
                 <li>
                   <span className="mobile-bullet-icon">
-                    <IcGithub size={14} />
+                    <IcShield size={14} />
                   </span>
                   <div>
-                    <strong>Build it yourself.</strong>
+                    <strong>Offline-first.</strong>
                     <p>
-                      Android source ships in the repo; tag a release and CI
-                      builds the APK. iOS in active development.
+                      iOS uses GRDB, Android uses Room. Your most recent
+                      workspace data lives on the device — open the app on the
+                      subway, edit issues, sync when you're back.
                     </p>
                   </div>
                 </li>
@@ -137,6 +149,12 @@ export function HomePage() {
               <div className="mobile-cta">
                 <a className="btn btn-primary" href="/docs/#mobile">
                   Read the docs <IcArrow size={12} />
+                </a>
+                <a
+                  className="btn btn-ghost"
+                  href="https://github.com/Niach/exponential/tree/master/apps/ios"
+                >
+                  <IcGithub size={14} /> iOS source
                 </a>
                 <a
                   className="btn btn-ghost"
@@ -154,6 +172,81 @@ export function HomePage() {
         </div>
       </section>
 
+      <section id="agents">
+        <div className="shell">
+          <SectionTag num="03" label="Agents" />
+          <div className="agents-grid">
+            <div className="agents-copy">
+              <h2 className="section-title">
+                Coding agents that run where your repo does.
+              </h2>
+              <p className="section-sub">
+                Assign an issue to your agent. The companion daemon — one
+                binary, Linux or macOS, your machine — runs Claude or Codex in
+                a local git worktree, drafts a plan in the comments, waits for
+                approval, then opens a real GitHub PR. A push notification
+                lands on your phone the moment the plan is ready.
+              </p>
+              <ul className="mobile-bullets">
+                <li>
+                  <span className="mobile-bullet-icon">
+                    <IcBot size={14} />
+                  </span>
+                  <div>
+                    <strong>Plan, then code.</strong>
+                    <p>
+                      Agents post their plan as a special comment. Approve,
+                      request changes, or retry — the daemon picks up the
+                      latest signal and resumes from there.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <span className="mobile-bullet-icon">
+                    <IcGithub size={14} />
+                  </span>
+                  <div>
+                    <strong>No GitHub App needed.</strong>
+                    <p>
+                      The daemon authenticates with your local <code>gh</code>{` `}
+                      token. Repos link to projects in the UI; PRs show up
+                      under the agent's GitHub identity.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <span className="mobile-bullet-icon">
+                    <IcBot size={14} />
+                  </span>
+                  <div>
+                    <strong>MCP for the rest.</strong>
+                    <p>
+                      Point Claude Code or Cursor at <code>/api/mcp</code> to
+                      drive Exponential as a tool — list, create, comment,
+                      label.
+                    </p>
+                  </div>
+                </li>
+              </ul>
+              <div className="mobile-cta">
+                <a className="btn btn-primary" href="/docs/#agents">
+                  Read the docs <IcArrow size={12} />
+                </a>
+                <a
+                  className="btn btn-ghost"
+                  href="https://github.com/Niach/exponential/tree/master/apps/companion"
+                >
+                  <IcGithub size={14} /> Companion source
+                </a>
+              </div>
+            </div>
+            <div className="agents-stage">
+              <AgentTimeline />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section
         id="install"
         style={{
@@ -163,7 +256,7 @@ export function HomePage() {
         }}
       >
         <div className="shell">
-          <SectionTag num="03" label="Self-host" />
+          <SectionTag num="04" label="Self-host" />
           <div className="host-grid">
             <div>
               <h2 className="section-title">Up and running in minutes.</h2>
@@ -210,7 +303,7 @@ export function HomePage() {
 
       <section id="open-source">
         <div className="shell">
-          <SectionTag num="04" label="Open source" />
+          <SectionTag num="05" label="Open source" />
           <div className="oss-solo">
             <RepoCard />
           </div>

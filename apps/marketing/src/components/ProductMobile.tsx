@@ -2,21 +2,32 @@ import { useEffect, useState } from "react"
 import {
   AlertTriangle,
   Bell,
+  Calendar,
+  ChevronDown,
   CircleCheck,
   CircleDashed,
+  CircleX,
   Circle as CircleIcon,
-  House,
-  Inbox,
+  Code2,
+  ExternalLink,
+  Hourglass,
+  Minus,
   Plus,
+  Search,
   SignalHigh,
   SignalLow,
   SignalMedium,
-  Timer,
-  User as UserIcon,
 } from "lucide-react"
 
-type StatusKey = `backlog` | `todo` | `in_progress` | `done`
-type PriorityKey = `urgent` | `high` | `medium` | `low`
+type StatusKey =
+  | `backlog`
+  | `todo`
+  | `in_progress`
+  | `done`
+  | `cancelled`
+type PriorityKey = `none` | `urgent` | `high` | `medium` | `low`
+
+type LabelDot = { name: string; color: string }
 
 type Issue = {
   id: string
@@ -25,24 +36,30 @@ type Issue = {
   status: StatusKey
   priority: PriorityKey
   due?: string
-  meta?: string
+  labels?: LabelDot[]
+  assignee: string
 }
 
 const STATUS: Record<
   StatusKey,
   { label: string; color: string; Icon: typeof CircleIcon }
 > = {
-  backlog: { label: `Backlog`, color: `oklch(0.7 0 0)`, Icon: CircleDashed },
-  todo: { label: `Todo`, color: `oklch(0.985 0 0)`, Icon: CircleIcon },
+  backlog: { label: `Backlog`, color: `oklch(0.708 0 0)`, Icon: CircleDashed },
+  todo: { label: `Todo`, color: `oklch(0.85 0 0)`, Icon: CircleIcon },
   in_progress: {
     label: `In Progress`,
     color: `oklch(0.795 0.184 86.05)`,
-    Icon: Timer,
+    Icon: Hourglass,
   },
   done: {
     label: `Done`,
     color: `oklch(0.723 0.219 149.58)`,
     Icon: CircleCheck,
+  },
+  cancelled: {
+    label: `Cancelled`,
+    color: `oklch(0.637 0.237 25.33)`,
+    Icon: CircleX,
   },
 }
 
@@ -50,11 +67,18 @@ const PRIORITY: Record<
   PriorityKey,
   { color: string; Icon: typeof CircleIcon }
 > = {
+  none: { color: `oklch(0.708 0 0)`, Icon: Minus },
   urgent: { color: `oklch(0.637 0.237 25.33)`, Icon: AlertTriangle },
   high: { color: `oklch(0.705 0.213 47.6)`, Icon: SignalHigh },
   medium: { color: `oklch(0.795 0.184 86.05)`, Icon: SignalMedium },
   low: { color: `oklch(0.623 0.214 259.85)`, Icon: SignalLow },
 }
+
+const LABEL_FEATURE = `oklch(0.72 0.18 145)`
+const LABEL_POLISH = `oklch(0.72 0.16 280)`
+const LABEL_UX = `oklch(0.72 0.16 245)`
+const LABEL_BUG = `oklch(0.637 0.237 25.33)`
+const LABEL_INTEGRATION = `oklch(0.75 0.16 75)`
 
 const seed: Issue[] = [
   {
@@ -64,7 +88,8 @@ const seed: Issue[] = [
     status: `todo`,
     priority: `urgent`,
     due: `May 2`,
-    meta: `feature`,
+    labels: [{ name: `feature`, color: LABEL_FEATURE }],
+    assignee: `D`,
   },
   {
     id: `m2`,
@@ -72,7 +97,8 @@ const seed: Issue[] = [
     title: `Bulk-edit selected issues`,
     status: `todo`,
     priority: `high`,
-    meta: `feature`,
+    labels: [{ name: `feature`, color: LABEL_FEATURE }],
+    assignee: `N`,
   },
   {
     id: `m3`,
@@ -80,7 +106,11 @@ const seed: Issue[] = [
     title: `Drag to reorder within a status group`,
     status: `todo`,
     priority: `high`,
-    meta: `polish · ux`,
+    labels: [
+      { name: `polish`, color: LABEL_POLISH },
+      { name: `ux`, color: LABEL_UX },
+    ],
+    assignee: `D`,
   },
   {
     id: `m4`,
@@ -88,7 +118,8 @@ const seed: Issue[] = [
     title: `Issue templates per project`,
     status: `todo`,
     priority: `medium`,
-    meta: `feature`,
+    labels: [{ name: `feature`, color: LABEL_FEATURE }],
+    assignee: `N`,
   },
   {
     id: `m5`,
@@ -96,7 +127,17 @@ const seed: Issue[] = [
     title: `GitHub PR linking via commit`,
     status: `todo`,
     priority: `low`,
-    meta: `integration`,
+    labels: [{ name: `integration`, color: LABEL_INTEGRATION }],
+    assignee: `D`,
+  },
+  {
+    id: `m6`,
+    ident: `EXP-18`,
+    title: `Crash when opening empty workspace`,
+    status: `in_progress`,
+    priority: `urgent`,
+    labels: [{ name: `bug`, color: LABEL_BUG }],
+    assignee: `D`,
   },
 ]
 
@@ -128,7 +169,7 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
         toastId++
         setToast({
           id: toastId,
-          who: `danny`,
+          who: `niach`,
           ident: `EXP-23`,
           text: `moved to In Progress`,
         })
@@ -137,14 +178,14 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
             xs.map((i) => (i.id === `m2` ? { ...i, status: `in_progress` } : i))
           )
           setFlashId(`m2`)
-          setTimeout(() => setFlashId(null), 900)
+          setTimeout(() => setFlashId(null), 1000)
         }, 500)
         setTimeout(() => setToast(null), 2800)
       } else if (m === 2) {
         toastId++
         setToast({
           id: toastId,
-          who: `niach`,
+          who: `danny`,
           ident: `EXP-24`,
           text: `moved to In Progress`,
         })
@@ -153,14 +194,14 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
             xs.map((i) => (i.id === `m1` ? { ...i, status: `in_progress` } : i))
           )
           setFlashId(`m1`)
-          setTimeout(() => setFlashId(null), 900)
+          setTimeout(() => setFlashId(null), 1000)
         }, 500)
         setTimeout(() => setToast(null), 2800)
       } else if (m === 3) {
         toastId++
         setToast({
           id: toastId,
-          who: `danny`,
+          who: `niach`,
           ident: `EXP-19`,
           text: `marked Done`,
         })
@@ -169,7 +210,7 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
             xs.map((i) => (i.id === `m5` ? { ...i, status: `done` } : i))
           )
           setFlashId(`m5`)
-          setTimeout(() => setFlashId(null), 900)
+          setTimeout(() => setFlashId(null), 1000)
         }, 500)
         setTimeout(() => setToast(null), 2800)
       } else {
@@ -185,9 +226,10 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
   const inProgress = issues.filter((i) => i.status === `in_progress`)
   const todo = issues.filter((i) => i.status === `todo`)
   const done = issues.filter((i) => i.status === `done`)
+  const total = inProgress.length + todo.length + done.length
 
   return (
-    <div className="phone" role="img" aria-label="Exponential mobile app">
+    <div className="phone" role="img" aria-label="Exponential iOS app">
       <div className="phone-frame">
         <div className="phone-screen">
           <div className="phone-statusbar">
@@ -218,21 +260,33 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
               )}
             </div>
 
-            <div className="m-header">
-              <div>
-                <div className="m-workspace">
+            <div className="m-navbar">
+              <div className="m-nav-row">
+                <div className="m-nav-workspace">
                   <span className="m-ws-avatar">A</span>
                   <span>Acme</span>
                 </div>
-                <h2 className="m-title">Issues</h2>
+                <div className="m-nav-actions">
+                  <button className="m-icon-btn" aria-label="Search">
+                    <Search size={14} strokeWidth={2} />
+                  </button>
+                  <button className="m-icon-btn" aria-label="New issue">
+                    <Plus size={15} strokeWidth={2.2} />
+                  </button>
+                </div>
               </div>
-              <button className="m-new" aria-label="New issue">
-                <Plus size={16} strokeWidth={2.2} />
-              </button>
+              <h2 className="m-title">Exponential</h2>
+              <div className="m-subtitle">{total} issues</div>
+            </div>
+
+            <div className="m-repo-banner">
+              <Code2 size={11} strokeWidth={2} />
+              <span>Niach/exponential</span>
+              <ExternalLink size={10} strokeWidth={2} />
             </div>
 
             <div className="m-tabs">
-              <button className="m-tab is-active">All</button>
+              <button className="m-tab is-active">All Issues</button>
               <button className="m-tab">Active</button>
               <button className="m-tab">Backlog</button>
             </div>
@@ -240,7 +294,6 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
             <div className="m-list">
               {inProgress.length > 0 && (
                 <MGroup
-                  title="In Progress"
                   kind="in_progress"
                   count={inProgress.length}
                   issues={inProgress}
@@ -249,7 +302,6 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
               )}
               {todo.length > 0 && (
                 <MGroup
-                  title="Todo"
                   kind="todo"
                   count={todo.length === 5 ? 18 : 18 - (5 - todo.length)}
                   issues={todo}
@@ -258,7 +310,6 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
               )}
               {done.length > 0 && (
                 <MGroup
-                  title="Done"
                   kind="done"
                   count={done.length}
                   issues={done}
@@ -267,25 +318,7 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
               )}
             </div>
 
-            <div className="m-bottom">
-              <div className="m-bottom-item is-active">
-                <Inbox size={18} strokeWidth={1.8} />
-                <span>Issues</span>
-              </div>
-              <div className="m-bottom-item">
-                <House size={18} strokeWidth={1.8} />
-                <span>Projects</span>
-              </div>
-              <div className="m-bottom-item">
-                <Bell size={18} strokeWidth={1.8} />
-                <span>Inbox</span>
-              </div>
-              <div className="m-bottom-item">
-                <UserIcon size={18} strokeWidth={1.8} />
-                <span>You</span>
-              </div>
-              <span className="m-home-indicator" aria-hidden />
-            </div>
+            <span className="m-home-indicator" aria-hidden />
           </div>
         </div>
       </div>
@@ -294,13 +327,11 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
 }
 
 function MGroup({
-  title,
   kind,
   count,
   issues,
   flashId,
 }: {
-  title: string
   kind: StatusKey
   count: number
   issues: Issue[]
@@ -311,34 +342,59 @@ function MGroup({
   return (
     <div className="m-group">
       <div className="m-group-head">
+        <ChevronDown
+          size={11}
+          strokeWidth={2.2}
+          style={{ color: `rgba(255,255,255,0.45)` }}
+        />
         <Sig size={13} strokeWidth={1.8} style={{ color: cfg.color }} />
-        <span className="m-group-title">{title}</span>
+        <span className="m-group-title">{cfg.label}</span>
         <span className="m-group-count">{count}</span>
       </div>
       {issues.map((iss) => {
         const pri = PRIORITY[iss.priority]
         const Pri = pri.Icon
+        const statusCfg = STATUS[iss.status]
+        const StatusI = statusCfg.Icon
         return (
           <div
             key={iss.id}
             className={`m-row ${flashId === iss.id ? `is-flashing` : ``}`}
           >
-            <span className="m-row-icon" style={{ color: cfg.color }}>
-              <Sig size={15} strokeWidth={1.8} />
+            <Pri
+              size={13}
+              strokeWidth={2}
+              style={{ color: pri.color }}
+              className="m-row-pri"
+            />
+            <span className="m-row-ident">{iss.ident}</span>
+            <StatusI
+              size={13}
+              strokeWidth={1.9}
+              style={{ color: statusCfg.color }}
+              className="m-row-status"
+            />
+            <span className="m-row-title">{iss.title}</span>
+            <span className="m-row-trail">
+              {iss.labels && iss.labels.length > 0 && (
+                <span className="m-row-labels">
+                  {iss.labels.slice(0, 3).map((l, i) => (
+                    <span
+                      key={i}
+                      className="m-row-label-dot"
+                      style={{ background: l.color }}
+                    />
+                  ))}
+                </span>
+              )}
+              {iss.due && (
+                <span className="m-row-due">
+                  <Calendar size={9} strokeWidth={2} />
+                  <span>{iss.due}</span>
+                </span>
+              )}
+              <span className="m-row-assignee">{iss.assignee}</span>
             </span>
-            <div className="m-row-body">
-              <div className="m-row-top">
-                <span className="m-ident">{iss.ident}</span>
-                <Pri
-                  size={12}
-                  strokeWidth={2}
-                  style={{ color: pri.color }}
-                />
-                {iss.due && <span className="m-due">{iss.due}</span>}
-              </div>
-              <div className="m-row-title">{iss.title}</div>
-              {iss.meta && <div className="m-row-meta">{iss.meta}</div>}
-            </div>
           </div>
         )
       })}
