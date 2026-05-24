@@ -1,11 +1,8 @@
 package com.exponential.app.data.db
 
-import android.content.Context
-import androidx.room.Room
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -13,48 +10,53 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
+    // DAOs are provided as @Singleton facades that read the current DB from
+    // DatabaseHolder at every call. This lets us swap the underlying SQLite
+    // file (per-account, see DatabaseHolder.switchTo) without re-injecting
+    // anything. Flow methods use flatMapLatest internally so consumers see
+    // new data after a swap.
+
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): ExponentialDatabase =
-        Room.databaseBuilder(context, ExponentialDatabase::class.java, "exponential.db")
-            .addMigrations(
-                ExponentialDatabase.MIGRATION_2_3,
-                ExponentialDatabase.MIGRATION_3_4,
-                ExponentialDatabase.MIGRATION_4_5,
-            )
-            .fallbackToDestructiveMigration()
-            .build()
+    fun provideWorkspaceDao(holder: DatabaseHolder): WorkspaceDao = WorkspaceDaoFacade(holder)
 
     @Provides
-    fun provideWorkspaceDao(db: ExponentialDatabase): WorkspaceDao = db.workspaceDao()
+    @Singleton
+    fun provideProjectDao(holder: DatabaseHolder): ProjectDao = ProjectDaoFacade(holder)
 
     @Provides
-    fun provideProjectDao(db: ExponentialDatabase): ProjectDao = db.projectDao()
+    @Singleton
+    fun provideIssueDao(holder: DatabaseHolder): IssueDao = IssueDaoFacade(holder)
 
     @Provides
-    fun provideIssueDao(db: ExponentialDatabase): IssueDao = db.issueDao()
+    @Singleton
+    fun provideLabelDao(holder: DatabaseHolder): LabelDao = LabelDaoFacade(holder)
 
     @Provides
-    fun provideLabelDao(db: ExponentialDatabase): LabelDao = db.labelDao()
+    @Singleton
+    fun provideIssueLabelDao(holder: DatabaseHolder): IssueLabelDao = IssueLabelDaoFacade(holder)
 
     @Provides
-    fun provideIssueLabelDao(db: ExponentialDatabase): IssueLabelDao = db.issueLabelDao()
+    @Singleton
+    fun provideUserDao(holder: DatabaseHolder): UserDao = UserDaoFacade(holder)
 
     @Provides
-    fun provideUserDao(db: ExponentialDatabase): UserDao = db.userDao()
+    @Singleton
+    fun provideWorkspaceMemberDao(holder: DatabaseHolder): WorkspaceMemberDao = WorkspaceMemberDaoFacade(holder)
 
     @Provides
-    fun provideWorkspaceMemberDao(db: ExponentialDatabase): WorkspaceMemberDao = db.workspaceMemberDao()
+    @Singleton
+    fun provideWorkspaceInviteDao(holder: DatabaseHolder): WorkspaceInviteDao = WorkspaceInviteDaoFacade(holder)
 
     @Provides
-    fun provideWorkspaceInviteDao(db: ExponentialDatabase): WorkspaceInviteDao = db.workspaceInviteDao()
+    @Singleton
+    fun provideCommentDao(holder: DatabaseHolder): CommentDao = CommentDaoFacade(holder)
 
     @Provides
-    fun provideCommentDao(db: ExponentialDatabase): CommentDao = db.commentDao()
+    @Singleton
+    fun provideAttachmentDao(holder: DatabaseHolder): AttachmentDao = AttachmentDaoFacade(holder)
 
     @Provides
-    fun provideAttachmentDao(db: ExponentialDatabase): AttachmentDao = db.attachmentDao()
-
-    @Provides
-    fun provideElectricOffsetDao(db: ExponentialDatabase): ElectricOffsetDao = db.electricOffsetDao()
+    @Singleton
+    fun provideElectricOffsetDao(holder: DatabaseHolder): ElectricOffsetDao = ElectricOffsetDaoFacade(holder)
 }

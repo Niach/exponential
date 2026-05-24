@@ -6,62 +6,91 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-private const val KEY_INSTANCE_URL = "instance_url"
-private const val KEY_TOKEN = "session_token"
-private const val KEY_USER_EMAIL = "user_email"
-private const val KEY_USER_ID = "user_id"
-private const val KEY_IS_ADMIN = "is_admin"
-
 @Singleton
 class AuthRepository @Inject constructor(
-    private val store: SecureStore,
+    private val accountStore: AccountStore,
 ) {
-    private val _instanceUrl = MutableStateFlow(store.get(KEY_INSTANCE_URL))
+    val accounts: StateFlow<List<ServerAccount>> = accountStore.accounts
+    val activeAccountId: StateFlow<String?> = accountStore.activeAccountId
+
+    // Effective fields are derived from the active account. We expose StateFlows so existing
+    // call sites (HTTP clients, ShapeClient, SyncManager) keep working unchanged.
+    private val _instanceUrl = MutableStateFlow(accountStore.activeAccount?.instanceUrl)
     val instanceUrl: StateFlow<String?> = _instanceUrl.asStateFlow()
 
-    private val _token = MutableStateFlow(store.get(KEY_TOKEN))
+    private val _token = MutableStateFlow(accountStore.activeAccount?.token)
     val token: StateFlow<String?> = _token.asStateFlow()
 
-    private val _userEmail = MutableStateFlow(store.get(KEY_USER_EMAIL))
+    private val _userEmail = MutableStateFlow(accountStore.activeAccount?.userEmail)
     val userEmail: StateFlow<String?> = _userEmail.asStateFlow()
 
-    private val _userId = MutableStateFlow(store.get(KEY_USER_ID))
+    private val _userId = MutableStateFlow(accountStore.activeAccount?.userId)
     val userId: StateFlow<String?> = _userId.asStateFlow()
 
-    private val _isAdmin = MutableStateFlow(store.get(KEY_IS_ADMIN) == "true")
+    private val _isAdmin = MutableStateFlow(accountStore.activeAccount?.isAdmin ?: false)
     val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
+
+    // While the user is going through the "add server" flow we locally clear instanceUrl/token
+    // so AppRoot routes back to InstanceScreen, without touching AccountStore. cancelAddServer()
+    // restores the prior active account.
+    private val _isAddingServer = MutableStateFlow(false)
+    val isAddingServer: StateFlow<Boolean> = _isAddingServer.asStateFlow()
 
     fun setInstanceUrl(url: String) {
         val normalized = normalizeBaseUrl(url)
-        store.set(KEY_INSTANCE_URL, normalized)
-        _instanceUrl.value = normalized
+        accountStore.upsertAndActivate(normalized)
+        _isAddingServer.value = false
+        republish()
     }
 
     fun clearInstanceUrl() {
-        store.set(KEY_INSTANCE_URL, null)
-        _instanceUrl.value = null
+        val id = accountStore.activeAccountId.value ?: return
+        accountStore.remove(id)
+        republish()
     }
 
     fun setToken(token: String, email: String?, userId: String? = null, isAdmin: Boolean = false) {
-        store.set(KEY_TOKEN, token)
-        store.set(KEY_USER_EMAIL, email)
-        store.set(KEY_USER_ID, userId)
-        store.set(KEY_IS_ADMIN, if (isAdmin) "true" else "false")
-        _token.value = token
-        _userEmail.value = email
-        _userId.value = userId
-        _isAdmin.value = isAdmin
+        accountStore.updateActiveToken(token = token, email = email, name = null, userId = userId, isAdmin = isAdmin)
+        republish()
     }
 
     fun clearToken() {
-        store.set(KEY_TOKEN, null)
-        store.set(KEY_USER_EMAIL, null)
-        store.set(KEY_USER_ID, null)
-        store.set(KEY_IS_ADMIN, null)
+        accountStore.clearActiveToken()
+        republish()
+    }
+
+    fun switchAccount(id: String) {
+        accountStore.setActive(id)
+        republish()
+    }
+
+    fun removeAccount(id: String) {
+        accountStore.remove(id)
+        republish()
+    }
+
+    fun startAddServer() {
+        _isAddingServer.value = true
+        _instanceUrl.value = null
         _token.value = null
         _userEmail.value = null
         _userId.value = null
         _isAdmin.value = false
+    }
+
+    fun cancelAddServer() {
+        _isAddingServer.value = false
+        republish()
+    }
+
+    private fun republish() {
+        val active = accountStore.activeAccount
+        _instanceUrl.value = active?.instanceUrl
+        _token.value = active?.token
+        _userEmail.value = active?.userEmail
+        _userId.value = active?.userId
+        _isAdmin.value = active?.isAdmin ?: false
+        _isAddingServer.value = false
     }
 
     private fun normalizeBaseUrl(input: String): String {

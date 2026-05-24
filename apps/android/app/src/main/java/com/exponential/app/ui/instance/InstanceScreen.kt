@@ -1,7 +1,9 @@
 package com.exponential.app.ui.instance
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,10 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,12 +28,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import com.exponential.app.AppConstants
 
 @Composable
-fun InstanceScreen(onContinue: (String) -> Unit) {
+fun InstanceScreen(
+    onContinue: (String) -> Unit,
+    showCancel: Boolean = false,
+    onCancel: (() -> Unit)? = null,
+) {
     var input by remember { mutableStateOf(TextFieldValue("https://")) }
     val canSubmit = input.text.length > 8
 
@@ -40,17 +49,40 @@ fun InstanceScreen(onContinue: (String) -> Unit) {
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
-            "Connect to your Exponential instance",
+            "Connect to Exponential",
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = { onContinue(AppConstants.PUBLIC_CLOUD_URL) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Use Exponential Cloud")
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider(modifier = Modifier.weight(1f))
+            Text(
+                "or self-host",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            HorizontalDivider(modifier = Modifier.weight(1f))
+        }
+
+        Spacer(Modifier.height(16.dp))
+
         Text(
-            "Self-hosted? Enter the full URL of your server (e.g. https://exp.example.com).",
+            "Self-hosted? Enter the full URL of your server.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(8.dp))
 
         OutlinedTextField(
             value = input,
@@ -69,6 +101,13 @@ fun InstanceScreen(onContinue: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Continue")
+        }
+
+        if (showCancel && onCancel != null) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                Text("Cancel")
+            }
         }
     }
 }

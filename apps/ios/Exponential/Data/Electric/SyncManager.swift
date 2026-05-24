@@ -28,6 +28,7 @@ final class SyncManager: @unchecked Sendable {
             guard let self else { return }
             var previousUrl: String? = self.auth.instanceUrl
             var previousToken: String? = self.auth.token
+            var previousAccountId: String? = self.auth.activeAccountId
 
             if previousUrl != nil && previousToken != nil {
                 self.launchShapes()
@@ -37,12 +38,27 @@ final class SyncManager: @unchecked Sendable {
                 try? await Task.sleep(for: .milliseconds(500))
                 let currentUrl = self.auth.instanceUrl
                 let currentToken = self.auth.token
+                let currentAccountId = self.auth.activeAccountId
 
-                if currentUrl != previousUrl || currentToken != previousToken {
+                if currentUrl != previousUrl || currentToken != previousToken || currentAccountId != previousAccountId {
                     logger.info("Auth state changed — restarting shape sync")
                     previousUrl = currentUrl
                     previousToken = currentToken
+                    previousAccountId = currentAccountId
                     self.cancelShapes()
+                    if let id = currentAccountId {
+                        // Swap the DB pool before launching shapes so writes land in the
+                        // correct per-account file. The pool change is observed via
+                        // .id(activeAccountId) on the navigator so GRDB observers re-bind.
+                        do {
+                            try self.db.open(accountId: id)
+                        } catch {
+                            logger.error("Failed to open DB for account \(id, privacy: .public): \(error.localizedDescription)")
+                            continue
+                        }
+                    } else {
+                        self.db.close()
+                    }
                     if currentUrl != nil && currentToken != nil {
                         self.launchShapes()
                     }
@@ -58,12 +74,10 @@ final class SyncManager: @unchecked Sendable {
     }
 
     func signOut() async {
+        // With per-account DBs, sign-out keeps the local cache so the user can resume
+        // offline browsing if they sign back in. Full deletion happens from Settings →
+        // Remove server, which calls DatabaseManager.deleteFiles(forAccountId:) directly.
         cancelShapes()
-        do {
-            try db.clearAllData()
-        } catch {
-            logger.error("Failed to clear data: \(error.localizedDescription)")
-        }
     }
 
     /// Wait up to ~5s for the workspaces shape to land its initial snapshot.

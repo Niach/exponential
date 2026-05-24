@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -173,6 +174,8 @@ private fun AppRoot() {
                 navController.navigate("instance") { popUpTo("login") { inclusive = true } }
             },
             instanceUrl = state.instanceUrl ?: "",
+            showCancel = state.isAddingServer,
+            onCancel = { viewModel.cancelAddServer() },
         )
     } else if (state.token == null) {
         UnauthenticatedNav(
@@ -190,15 +193,23 @@ private fun AppRoot() {
                 navController.navigate("instance") { popUpTo("login") { inclusive = true } }
             },
             instanceUrl = state.instanceUrl ?: "",
+            showCancel = false,
+            onCancel = null,
         )
     } else {
-        AuthenticatedShell(
-            navController = navController,
-            onSignOut = {
-                viewModel.signOut()
-                navController.navigate("login") { popUpTo("home") { inclusive = true } }
-            },
-        )
+        // Keying off the active account id forces Compose to tear down the entire
+        // authenticated UI (including all ViewModels and DAO Flow subscriptions)
+        // when the user switches between accounts. The DB itself is swapped by
+        // SyncManager before this id changes.
+        key(state.activeAccountId) {
+            AuthenticatedShell(
+                navController = navController,
+                onSignOut = {
+                    viewModel.signOut()
+                    navController.navigate("login") { popUpTo("home") { inclusive = true } }
+                },
+            )
+        }
     }
 }
 
@@ -210,10 +221,16 @@ private fun UnauthenticatedNav(
     onInstanceSet: (String) -> Unit,
     onLogin: () -> Unit,
     onChangeInstance: () -> Unit,
+    showCancel: Boolean,
+    onCancel: (() -> Unit)?,
 ) {
     NavHost(navController = navController, startDestination = startDestination) {
         composable("instance") {
-            InstanceScreen(onContinue = onInstanceSet)
+            InstanceScreen(
+                onContinue = onInstanceSet,
+                showCancel = showCancel,
+                onCancel = onCancel,
+            )
         }
         composable("login") {
             LoginScreen(

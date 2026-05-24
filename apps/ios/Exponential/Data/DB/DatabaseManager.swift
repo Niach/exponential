@@ -1,34 +1,85 @@
 import Foundation
 import GRDB
+import os
 
-final class DatabaseManager: Sendable {
-    let dbPool: DatabasePool
+private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "DatabaseManager")
 
-    init() {
-        do {
-            let fileManager = FileManager.default
-            let appSupportDir = try fileManager.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )
-            let dbDir = appSupportDir.appendingPathComponent("Exponential", isDirectory: true)
-            try fileManager.createDirectory(at: dbDir, withIntermediateDirectories: true)
-            let dbPath = dbDir.appendingPathComponent("exponential.sqlite").path
+final class DatabaseManager: @unchecked Sendable {
+    // Mutated via open(accountId:) when the active server account changes.
+    // Marked `var` (with a lock) so we can hot-swap the underlying file
+    // without rebuilding the manager — but consumers that hold ValueObservations
+    // bound to a specific pool must re-bind after a swap (see AppNavigator's
+    // .id(activeAccountId) trick).
+    private let lock = NSLock()
+    private var currentPool: DatabasePool?
+    private var currentAccountId: String?
 
-            var config = Configuration()
-            config.foreignKeysEnabled = true
-            config.journalMode = .wal
-
-            dbPool = try DatabasePool(path: dbPath, configuration: config)
-            try runMigrations()
-        } catch {
-            fatalError("Failed to initialize database: \(error)")
+    var dbPool: DatabasePool {
+        lock.withLock {
+            guard let pool = currentPool else {
+                fatalError("DatabaseManager.dbPool accessed before open(accountId:) was called")
+            }
+            return pool
         }
     }
 
-    private func runMigrations() throws {
+    var isOpen: Bool {
+        lock.withLock { currentPool != nil }
+    }
+
+    /// Open (or switch to) the DB file for the given account. Closes the previous pool first.
+    func open(accountId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        if currentAccountId == accountId, currentPool != nil { return }
+
+        currentPool = nil // releases the previous pool's connections
+        let path = try DatabaseManager.fileURL(for: accountId).path
+        var config = Configuration()
+        config.foreignKeysEnabled = true
+        config.journalMode = .wal
+        let pool = try DatabasePool(path: path, configuration: config)
+        try DatabaseManager.runMigrations(on: pool)
+        currentPool = pool
+        currentAccountId = accountId
+        logger.info("Opened DB for account \(accountId, privacy: .public)")
+    }
+
+    /// Close the current pool without opening a new one (e.g., when no account is active).
+    func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        currentPool = nil
+        currentAccountId = nil
+    }
+
+    /// Delete the underlying SQLite files for the given account.
+    static func deleteFiles(forAccountId accountId: String) {
+        let fm = FileManager.default
+        guard let url = try? fileURL(for: accountId) else { return }
+        let parent = url.deletingLastPathComponent()
+        let base = url.lastPathComponent
+        // Wipe the main file plus -wal / -shm side files.
+        for suffix in ["", "-wal", "-shm"] {
+            let target = parent.appendingPathComponent(base + suffix)
+            try? fm.removeItem(at: target)
+        }
+    }
+
+    static func fileURL(for accountId: String) throws -> URL {
+        let fm = FileManager.default
+        let appSupportDir = try fm.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let dbDir = appSupportDir.appendingPathComponent("Exponential", isDirectory: true)
+        try fm.createDirectory(at: dbDir, withIntermediateDirectories: true)
+        return dbDir.appendingPathComponent("exponential-\(accountId).sqlite")
+    }
+
+    private static func runMigrations(on dbPool: DatabasePool) throws {
         var migrator = DatabaseMigrator()
 
         migrator.registerMigration("v1_initial") { db in
@@ -139,11 +190,6 @@ final class DatabaseManager: Sendable {
                 t.add(column: "is_public", .boolean).notNull().defaults(to: false)
                 t.add(column: "public_write_policy", .text)
             }
-            // Existing rows keep the column defaults (is_public=false,
-            // public_write_policy=null) until Electric streams the next
-            // workspace update. Forcing a refetch here caused a flapping
-            // sync loop on first launch — the workspace switcher would
-            // briefly empty out between mustRefetch cycles.
         }
 
         migrator.registerMigration("v3_comments") { db in
@@ -202,7 +248,8 @@ final class DatabaseManager: Sendable {
     }
 
     func clearAllData() throws {
-        try dbPool.write { db in
+        guard let pool = lock.withLock({ currentPool }) else { return }
+        try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offset")
             try db.execute(sql: "DELETE FROM attachment")
             try db.execute(sql: "DELETE FROM comment")

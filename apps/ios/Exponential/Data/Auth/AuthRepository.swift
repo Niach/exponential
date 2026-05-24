@@ -1,16 +1,12 @@
 import Foundation
 
-private let keyInstanceUrl = "instance_url"
-private let keyToken = "session_token"
-private let keyUserEmail = "user_email"
-private let keyUserName = "user_name"
-private let keyUserId = "user_id"
-private let keyIsAdmin = "is_admin"
-
 @Observable
 final class AuthRepository: @unchecked Sendable {
-    private let store: KeychainStore
+    private let accountStore: AccountStore
 
+    // Mirrored from accountStore.activeAccount so @Observable can publish changes.
+    private(set) var accounts: [ServerAccount]
+    private(set) var activeAccountId: String?
     private(set) var instanceUrl: String?
     private(set) var token: String?
     private(set) var userEmail: String?
@@ -21,52 +17,93 @@ final class AuthRepository: @unchecked Sendable {
     var isAuthenticated: Bool { token != nil }
     var hasInstance: Bool { instanceUrl != nil }
 
-    init(keychain: KeychainStore) {
-        self.store = keychain
-        self.instanceUrl = keychain.get(keyInstanceUrl)
-        self.token = keychain.get(keyToken)
-        self.userEmail = keychain.get(keyUserEmail)
-        self.userName = keychain.get(keyUserName)
-        self.userId = keychain.get(keyUserId)
-        self.isAdmin = keychain.get(keyIsAdmin) == "true"
+    init(accountStore: AccountStore) {
+        self.accountStore = accountStore
+        self.accounts = accountStore.accounts
+        self.activeAccountId = accountStore.activeAccountId
+        let active = accountStore.activeAccount
+        self.instanceUrl = active?.instanceUrl
+        self.token = active?.token
+        self.userEmail = active?.userEmail
+        self.userName = active?.userName
+        self.userId = active?.userId
+        self.isAdmin = active?.isAdmin ?? false
     }
+
+    // MARK: - Instance URL
 
     func setInstanceUrl(_ url: String) {
         let normalized = normalizeBaseUrl(url)
-        store.set(keyInstanceUrl, value: normalized)
-        instanceUrl = normalized
+        accountStore.upsertAndActivate(instanceUrl: normalized)
+        republish()
     }
 
     func clearInstanceUrl() {
-        store.delete(keyInstanceUrl)
-        instanceUrl = nil
-        clearToken()
+        // Used by the legacy "change instance" flow — equivalent to removing the active account.
+        if let id = accountStore.activeAccountId {
+            accountStore.remove(id: id)
+        }
+        republish()
     }
 
+    // MARK: - Token
+
     func setToken(_ token: String, email: String?, name: String? = nil, userId: String? = nil, isAdmin: Bool = false) {
-        store.set(keyToken, value: token)
-        store.set(keyUserEmail, value: email)
-        store.set(keyUserName, value: name)
-        store.set(keyUserId, value: userId)
-        store.set(keyIsAdmin, value: isAdmin ? "true" : nil)
-        self.token = token
-        self.userEmail = email
-        self.userName = name
-        self.userId = userId
-        self.isAdmin = isAdmin
+        accountStore.updateActiveToken(token: token, email: email, name: name, userId: userId, isAdmin: isAdmin)
+        republish()
     }
 
     func clearToken() {
-        store.delete(keyToken)
-        store.delete(keyUserEmail)
-        store.delete(keyUserName)
-        store.delete(keyUserId)
-        store.delete(keyIsAdmin)
+        accountStore.clearActiveToken()
+        republish()
+    }
+
+    // MARK: - Multi-account
+
+    func switchAccount(id: String) {
+        accountStore.setActive(id: id)
+        republish()
+    }
+
+    func removeAccount(id: String) {
+        accountStore.remove(id: id)
+        republish()
+    }
+
+    /// Drives the "add server" flow. Locally clears the published instance/token state so
+    /// AppNavigator routes through InstanceView → LoginView, while leaving the underlying
+    /// AccountStore untouched so cancelAddServer() can restore the prior active account.
+    private(set) var isAddingServer: Bool = false
+
+    func startAddServer() {
+        isAddingServer = true
+        activeAccountId = nil
+        instanceUrl = nil
         token = nil
         userEmail = nil
         userName = nil
         userId = nil
         isAdmin = false
+    }
+
+    func cancelAddServer() {
+        isAddingServer = false
+        republish()
+    }
+
+    // MARK: - Internals
+
+    private func republish() {
+        accounts = accountStore.accounts
+        activeAccountId = accountStore.activeAccountId
+        let active = accountStore.activeAccount
+        instanceUrl = active?.instanceUrl
+        token = active?.token
+        userEmail = active?.userEmail
+        userName = active?.userName
+        userId = active?.userId
+        isAdmin = active?.isAdmin ?? false
+        isAddingServer = false
     }
 
     private func normalizeBaseUrl(_ input: String) -> String {

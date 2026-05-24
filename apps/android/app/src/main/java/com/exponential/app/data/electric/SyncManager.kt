@@ -5,6 +5,7 @@ import com.exponential.app.data.db.AttachmentDao
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentDao
 import com.exponential.app.data.db.CommentEntity
+import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ElectricOffsetDao
 import com.exponential.app.data.db.IssueDao
 import com.exponential.app.data.db.IssueEntity
@@ -29,7 +30,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -38,6 +38,7 @@ import kotlinx.serialization.json.Json
 @Singleton
 class SyncManager @Inject constructor(
     private val auth: AuthRepository,
+    private val databaseHolder: DatabaseHolder,
     private val client: HttpClient,
     private val json: Json,
     private val offsetDao: ElectricOffsetDao,
@@ -57,28 +58,27 @@ class SyncManager @Inject constructor(
 
     fun start() {
         scope.launch {
-            combine(auth.instanceUrl, auth.token) { url, token -> url to token }
+            combine(auth.instanceUrl, auth.token, auth.activeAccountId) { url, token, accountId ->
+                Triple(url, token, accountId)
+            }
                 .distinctUntilChanged()
-                .collect { (url, token) ->
+                .collect { (url, token, accountId) ->
                     cancelShapes()
-                    if (url != null && token != null) launchShapes()
+                    if (accountId != null) {
+                        databaseHolder.switchTo(accountId)
+                    } else {
+                        databaseHolder.close()
+                    }
+                    if (url != null && token != null && accountId != null) launchShapes()
                 }
         }
     }
 
     suspend fun signOut() {
+        // With per-account DBs, signing out keeps the local cache around so the user can
+        // resume offline browsing if they sign back in. Removal is handled by
+        // DatabaseHolder.deleteFiles() from the settings UI.
         cancelShapes()
-        offsetDao.clear()
-        workspaceDao.clear()
-        projectDao.clear()
-        issueDao.clear()
-        labelDao.clear()
-        issueLabelDao.clear()
-        userDao.clear()
-        workspaceMemberDao.clear()
-        workspaceInviteDao.clear()
-        commentDao.clear()
-        attachmentDao.clear()
     }
 
     private fun cancelShapes() {

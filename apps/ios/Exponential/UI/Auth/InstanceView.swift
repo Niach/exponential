@@ -5,6 +5,9 @@ struct InstanceView: View {
     @State private var input = "https://"
     @FocusState private var focused: Bool
 
+    var showCancel: Bool = false
+    var onCancel: (() -> Void)? = nil
+
     private var canSubmit: Bool {
         input.count > 8
     }
@@ -20,15 +23,53 @@ struct InstanceView: View {
 
                 Spacer().frame(height: 8)
 
-                Text("Connect to your instance")
+                Text("Connect to Exponential")
                     .font(.body)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
                 Spacer().frame(height: 32)
 
                 VStack(alignment: .leading, spacing: 16) {
+                    Button {
+                        deps.auth.setInstanceUrl(AppConstants.publicCloudUrl)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "cloud")
+                                .font(.body)
+                                .foregroundStyle(.white)
+                            Text("Use Exponential Cloud")
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.white)
+                            Spacer()
+                            Image(systemName: "arrow.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 14)
+                    }
+                    .background(Color.white.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                    )
+
+                    HStack(spacing: 12) {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.12))
+                            .frame(height: 0.5)
+                        Text("or self-host")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        Rectangle()
+                            .fill(Color.white.opacity(0.12))
+                            .frame(height: 0.5)
+                    }
+
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Instance URL")
+                        Text("Server URL")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
@@ -74,12 +115,25 @@ struct InstanceView: View {
                     Text("Self-hosted? Enter the full URL of your server.")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+
+                    if showCancel {
+                        Button {
+                            onCancel?()
+                        } label: {
+                            Text("Cancel")
+                                .font(.body)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(24)
                 .glassCard()
             }
             .padding(.horizontal, 32)
         }
-        .onAppear { focused = true }
+        .onAppear { focused = false }
     }
 }

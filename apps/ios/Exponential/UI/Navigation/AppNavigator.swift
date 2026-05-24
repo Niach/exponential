@@ -19,11 +19,18 @@ struct AppNavigator: View {
     var body: some View {
         Group {
             if !deps.auth.hasInstance {
-                InstanceView()
+                InstanceView(showCancel: deps.auth.isAddingServer) {
+                    deps.auth.cancelAddServer()
+                }
             } else if !deps.auth.isAuthenticated {
                 LoginView()
             } else {
+                // Keying off the active account id forces SwiftUI to tear down and
+                // rebuild MainNavigator (and its GRDB ValueObservations) when the
+                // user switches between accounts. The DB pool itself is swapped by
+                // SyncManager before this id changes.
                 MainNavigator()
+                    .id(deps.auth.activeAccountId ?? "none")
             }
         }
         .transaction { $0.animation = nil } // Prevent auth transitions from affecting child navigation
@@ -75,9 +82,10 @@ struct MainNavigator: View {
         .onAppear {
             startObserving()
             if workspaceState.workspaces.isEmpty {
+                // Per-account DB: an empty workspace table on mount means we haven't
+                // synced this server yet. Show a loading indicator while shapes catch up.
                 syncing = true
                 Task {
-                    try? deps.db.clearAllData()
                     await deps.syncManager.initialSync()
                     syncing = false
                 }

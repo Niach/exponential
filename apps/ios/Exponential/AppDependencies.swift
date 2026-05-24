@@ -1,9 +1,12 @@
 import Foundation
-import GRDB
+import os
+
+private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "AppDependencies")
 
 @Observable
 final class AppDependencies: @unchecked Sendable {
     let keychain: KeychainStore
+    let accountStore: AccountStore
     let auth: AuthRepository
     let httpClient: HTTPClient
     let trpc: TrpcClient
@@ -31,14 +34,24 @@ final class AppDependencies: @unchecked Sendable {
 
     init() {
         let keychain = KeychainStore()
-        let auth = AuthRepository(keychain: keychain)
+        let accountStore = AccountStore(keychain: keychain)
+        let auth = AuthRepository(accountStore: accountStore)
         let httpClient = HTTPClient(auth: auth)
         let trpc = TrpcClient(httpClient: httpClient, auth: auth)
         let db = DatabaseManager()
+        // Open the active account's DB before sync starts so observers can bind on first render.
+        if let activeId = auth.activeAccountId {
+            do {
+                try db.open(accountId: activeId)
+            } catch {
+                logger.error("Failed to open DB for active account: \(error.localizedDescription)")
+            }
+        }
         let syncManager = SyncManager(auth: auth, db: db)
         let deepLinkBus = DeepLinkBus()
 
         self.keychain = keychain
+        self.accountStore = accountStore
         self.auth = auth
         self.httpClient = httpClient
         self.trpc = trpc
@@ -65,7 +78,9 @@ final class AppDependencies: @unchecked Sendable {
         self.pushTokenManager = pushTokenManager
         self.notificationDelegate = NotificationDelegate(pushTokenManager: pushTokenManager, deepLinkBus: deepLinkBus)
 
-        // Start services
+        // Start services — SyncManager observes auth state and swaps the DB pool to
+        // the active account's file before relaunching shapes, so writes never land
+        // on the previous account's database.
         syncManager.start()
         notificationDelegate.setup()
         notificationDelegate.requestPermission()
