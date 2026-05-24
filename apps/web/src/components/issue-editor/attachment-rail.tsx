@@ -1,6 +1,6 @@
 import { X } from "lucide-react"
-import { IssueEditorAttachmentButton } from "@/components/issue-editor-dialog-shell"
-import type { MarkdownImageOccurrence } from "@/lib/issue-attachments"
+import { IssueEditorAttachmentButton } from "@/components/issue-editor/dialog-shell"
+import type { MarkdownImageOccurrence } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 
 interface IssueEditorAttachmentRailProps {

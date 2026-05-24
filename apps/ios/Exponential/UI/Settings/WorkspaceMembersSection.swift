@@ -57,16 +57,16 @@ struct WorkspaceMembersSection: View {
 
                     // Actions menu
                     Menu {
-                        if member.role != "owner" {
+                        if member.role != DomainContract.workspaceRoleOwner {
                             Button {
-                                Task { try? await membersApi.updateRole(memberId: member.id, role: "owner") }
+                                Task { try? await membersApi.updateRole(memberId: member.id, role: DomainContract.workspaceRoleOwner) }
                             } label: {
                                 Label("Make owner", systemImage: "crown")
                             }
                         }
-                        if member.role != "member" {
+                        if member.role != DomainContract.workspaceRoleMember {
                             Button {
-                                Task { try? await membersApi.updateRole(memberId: member.id, role: "member") }
+                                Task { try? await membersApi.updateRole(memberId: member.id, role: DomainContract.workspaceRoleMember) }
                             } label: {
                                 Label("Make member", systemImage: "shield")
                             }

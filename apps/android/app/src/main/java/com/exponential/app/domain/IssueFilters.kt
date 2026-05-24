@@ -1,5 +1,8 @@
 package com.exponential.app.domain
 
+// Mirrored from apps/web/src/lib/filters.ts. The active/backlog tab presets
+// must match the web mapping; if you change one, change the others
+// (apps/web/src/lib/filters.ts, apps/ios/.../Domain/IssueFilters.swift).
 data class IssueFilters(
     val statuses: Set<IssueStatus> = emptySet(),
     val priorities: Set<IssuePriority> = emptySet(),

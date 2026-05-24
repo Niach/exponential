@@ -11,5 +11,16 @@ enum DomainContract {
     static let recurrenceUnitValues: [String] = ["day", "week", "month"]
     static let workspaceRoleValues: [String] = ["owner", "member", "agent"]
     static let publicWritePolicyValues: [String] = ["members", "everyone"]
+    static let commentKindValues: [String] = ["regular", "question", "plan", "activity"]
     static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
+
+    static let workspaceRoleOwner: String = "owner"
+    static let workspaceRoleMember: String = "member"
+    static let workspaceRoleAgent: String = "agent"
+    static let publicWritePolicyMembers: String = "members"
+    static let publicWritePolicyEveryone: String = "everyone"
+    static let commentKindRegular: String = "regular"
+    static let commentKindQuestion: String = "question"
+    static let commentKindPlan: String = "plan"
+    static let commentKindActivity: String = "activity"
 }

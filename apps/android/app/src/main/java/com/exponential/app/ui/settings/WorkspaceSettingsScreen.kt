@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.domain.DomainContract
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -168,7 +170,7 @@ private fun GeneralTab(
         )
         return
     }
-    val policy = workspace.publicWritePolicy ?: "members"
+    val policy = workspace.publicWritePolicy ?: DomainContract.publicWritePolicyMembers
     Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -193,8 +195,8 @@ private fun GeneralTab(
             Spacer(Modifier.height(8.dp))
             SingleChoiceSegmentedButtonRow {
                 listOf(
-                    "members" to "Members only",
-                    "everyone" to "Anyone signed in",
+                    DomainContract.publicWritePolicyMembers to "Members only",
+                    DomainContract.publicWritePolicyEveryone to "Anyone signed in",
                 ).forEachIndexed { i, (value, label) ->
                     SegmentedButton(
                         selected = policy == value,
@@ -205,7 +207,7 @@ private fun GeneralTab(
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                if (policy == "everyone")
+                if (policy == DomainContract.publicWritePolicyEveryone)
                     "Signed-in users can create issues; non-members may only set title, description, and labels."
                 else "Only workspace members can create or edit issues.",
                 style = MaterialTheme.typography.bodySmall,
@@ -239,7 +241,7 @@ private fun MembersTab(
                             Icon(Icons.Filled.ExpandMore, contentDescription = "Change role")
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            listOf("owner", "member").forEach { role ->
+                            listOf(DomainContract.workspaceRoleOwner, DomainContract.workspaceRoleMember).forEach { role ->
                                 DropdownMenuItem(
                                     text = { Text(role) },
                                     onClick = {

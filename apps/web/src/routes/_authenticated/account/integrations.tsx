@@ -5,9 +5,9 @@ import {
   useRouter,
 } from "@tanstack/react-router"
 import { ArrowLeft, Calendar, ExternalLink } from "lucide-react"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
-import { getAuthConfig } from "@/lib/auth-config"
+import { getAuthConfig } from "@/lib/auth/config"
 import { Button } from "@/components/ui/button"
 import {
   Card,

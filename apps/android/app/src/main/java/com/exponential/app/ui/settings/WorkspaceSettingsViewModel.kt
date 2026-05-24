@@ -3,6 +3,7 @@ package com.exponential.app.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.UpdateWorkspaceInput
@@ -131,7 +132,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
             .onFailure { _transient.value = it.message }
     }
 
-    fun createInvite(role: String = "member") = viewModelScope.launch {
+    fun createInvite(role: String = DomainContract.workspaceRoleMember) = viewModelScope.launch {
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { invitesApi.create(workspaceId, role) }
             .onSuccess { _createdInviteToken.value = it.token }
@@ -169,7 +170,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
                     id = workspaceId,
                     isPublic = isPublic,
                     // Default policy when first enabling — matches the web flow.
-                    publicWritePolicy = if (isPublic) "members" else null,
+                    publicWritePolicy = if (isPublic) DomainContract.publicWritePolicyMembers else null,
                 )
             )
         }.onFailure { _transient.value = it.message }

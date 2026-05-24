@@ -1,54 +1,29 @@
-import { useRef } from "react"
 import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react"
 import {
   ArrowUp,
-  CalendarDays,
   ChevronRight,
   LoaderCircle,
-  MoreHorizontal,
-  Paperclip,
   X,
 } from "lucide-react"
 import type { User } from "@/db/schema"
 import type { IssuePriority, IssueStatus } from "@/lib/domain"
-import { acceptedImageContentTypes } from "@/lib/issue-attachments"
-import { formatDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { priorities, PriorityIcon } from "@/components/priority-dropdown"
-import { statuses, StatusIcon } from "@/components/status-dropdown"
-import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
-import { AssigneePicker } from "@/components/assignee-picker"
-import { LabelPicker } from "@/components/label-picker"
 import {
   MarkdownEditor,
   type MarkdownEditorImageUploadConfig,
   type MarkdownEditorRef,
-} from "@/components/markdown-editor"
+} from "@/components/issue-editor/markdown-editor"
+import { IssueEditorChips } from "@/components/issue-editor/chips"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
   Sheet,
   SheetContent,
   SheetTitle,
 } from "@/components/ui/sheet"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { TimeInput } from "@/components/time-input"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+
+export { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 
 interface PrimaryAction {
   disabled?: boolean
@@ -187,141 +162,29 @@ export function IssueEditorDialogShell({
 
   const moderationDisabled = disabled || restrictModeration
   const chipNodes = (
-    <>
-      <OptionDropdownMenu
-        value={status}
-        disabled={moderationDisabled}
-        options={statuses}
-        onSelect={onStatusChange}
-        mobileTitle="Status"
-        renderTrigger={(selected) => (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground shrink-0"
-            disabled={moderationDisabled}
-          >
-            <StatusIcon status={selected.value} className="!h-3 !w-3" />
-            {selected.label}
-          </Button>
-        )}
-      />
-
-      <OptionDropdownMenu
-        value={priority}
-        disabled={moderationDisabled}
-        options={priorities}
-        onSelect={onPriorityChange}
-        mobileTitle="Priority"
-        renderTrigger={(selected) => (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground shrink-0"
-            disabled={moderationDisabled}
-          >
-            <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
-            {selected.label}
-          </Button>
-        )}
-      />
-
-      <AssigneePicker
-        disabled={moderationDisabled}
-        users={users}
-        selectedUserId={assigneeId}
-        onSelect={onAssigneeChange}
-      />
-
-      <LabelPicker
-        disabled={disabled}
-        workspaceId={workspaceId}
-        selectedLabelIds={selectedLabelIds}
-        onToggle={onToggleLabel}
-      />
-
-      {!hideDueDateChip && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground shrink-0"
-              disabled={moderationDisabled}
-            >
-              <CalendarDays className="size-3" />
-              {dueDate
-                ? `${formatDate(dueDate)}${dueTime ? ` · ${dueTime.slice(0, 5)}` : ``}`
-                : `Due date`}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={dueDate}
-              onSelect={(date) => {
-                void onDueDateSelect(date)
-              }}
-            />
-            {dueDate && (
-              <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                <span>Time</span>
-                <TimeInput
-                  value={dueTime}
-                  onChange={(t) => void onDueTimeChange(t)}
-                  className="h-7 w-20 text-xs tabular-nums"
-                  ariaLabel="Start time"
-                />
-                <span>–</span>
-                <TimeInput
-                  value={endTime}
-                  onChange={(t) => void onEndTimeChange(t)}
-                  disabled={!dueTime}
-                  className="h-7 w-20 text-xs tabular-nums"
-                  ariaLabel="End time"
-                />
-                {(dueTime || endTime) && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    className="ml-auto h-6 text-xs"
-                    onClick={() => {
-                      void onDueTimeChange(null)
-                      void onEndTimeChange(null)
-                    }}
-                  >
-                    All day
-                  </Button>
-                )}
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
-      )}
-
-      {chipRowExtras}
-
-      {overflowMenuItems && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label="More options"
-              disabled={moderationDisabled}
-              className="text-muted-foreground shrink-0"
-            >
-              <MoreHorizontal className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {overflowMenuItems}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </>
+    <IssueEditorChips
+      status={status}
+      priority={priority}
+      assigneeId={assigneeId}
+      selectedLabelIds={selectedLabelIds}
+      workspaceId={workspaceId}
+      users={users}
+      dueDate={dueDate}
+      dueTime={dueTime}
+      endTime={endTime}
+      hideDueDateChip={hideDueDateChip}
+      disabled={disabled}
+      moderationDisabled={moderationDisabled}
+      chipRowExtras={chipRowExtras}
+      overflowMenuItems={overflowMenuItems}
+      onStatusChange={onStatusChange}
+      onPriorityChange={onPriorityChange}
+      onAssigneeChange={onAssigneeChange}
+      onToggleLabel={onToggleLabel}
+      onDueDateSelect={onDueDateSelect}
+      onDueTimeChange={onDueTimeChange}
+      onEndTimeChange={onEndTimeChange}
+    />
   )
 
   const guardedOpenChange = (nextOpen: boolean) => {
@@ -480,73 +343,5 @@ export function IssueEditorDialogShell({
         )}
       </DialogContent>
     </Dialog>
-  )
-}
-
-interface IssueEditorAttachmentButtonProps {
-  disabled?: boolean
-  disabledReason?: string
-  onFiles?: (files: File[]) => void | Promise<void>
-  uploading?: boolean
-}
-
-export function IssueEditorAttachmentButton({
-  disabled,
-  disabledReason,
-  onFiles,
-  uploading,
-}: IssueEditorAttachmentButtonProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const isDisabled = disabled || !onFiles
-
-  const button = (
-    <>
-      <Input
-        ref={inputRef}
-        type="file"
-        accept={acceptedImageContentTypes.join(`,`)}
-        className="hidden"
-        disabled={isDisabled || uploading}
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? [])
-
-          if (files.length > 0 && onFiles) {
-            void onFiles(files)
-          }
-
-          event.target.value = ``
-        }}
-      />
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
-        type="button"
-        aria-label="Add image"
-        disabled={isDisabled || uploading}
-        onClick={() => {
-          inputRef.current?.click()
-        }}
-      >
-        {uploading ? (
-          <LoaderCircle className="size-3 animate-spin" />
-        ) : (
-          <Paperclip className="size-3" />
-        )}
-      </Button>
-    </>
-  )
-
-  if (!disabledReason) {
-    return button
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span>{button}</span>
-      </TooltipTrigger>
-      <TooltipContent>{disabledReason}</TooltipContent>
-    </Tooltip>
   )
 }

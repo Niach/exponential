@@ -1,6 +1,6 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 import {
   issueCollection,
   issueLabelCollection,

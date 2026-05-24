@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 import { useWorkspaceUsers } from "@/hooks/use-workspace-data"
 import type { Issue, Workspace } from "@/db/schema"
 

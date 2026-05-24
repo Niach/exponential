@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { accounts, issues, projects } from "@/db/schema"
-import { fireAndForgetSync } from "@/lib/google-calendar"
+import { fireAndForgetSync } from "@/lib/integrations/google-calendar"
 import { getUserWorkspaceIds } from "@/lib/workspace-membership"
 
 const GOOGLE_PROVIDER_ID = `google`

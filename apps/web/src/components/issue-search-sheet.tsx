@@ -5,7 +5,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import { issueCollection } from "@/lib/collections"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
-import { StatusIcon } from "@/components/status-dropdown"
+import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { Search } from "lucide-react"
 import type { Issue, Project } from "@/db/schema"
 

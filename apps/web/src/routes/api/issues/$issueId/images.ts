@@ -9,7 +9,7 @@ import {
   buildAttachmentUrl,
   isAcceptedImageContentType,
   maxImageUploadBytes,
-} from "@/lib/issue-attachments"
+} from "@/lib/storage/issue-attachments"
 import { uploadObject, deleteObject } from "@/lib/storage"
 import {
   assertWorkspaceMember,

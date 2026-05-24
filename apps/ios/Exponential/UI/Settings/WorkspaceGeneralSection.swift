@@ -47,20 +47,20 @@ struct WorkspaceGeneralSection: View {
                         Picker(
                             "Write policy",
                             selection: Binding(
-                                get: { workspace.publicWritePolicy ?? "members" },
+                                get: { workspace.publicWritePolicy ?? DomainContract.publicWritePolicyMembers },
                                 set: { newValue in
                                     Task { await setPolicy(newValue) }
                                 }
                             )
                         ) {
-                            Text("Members only").tag("members")
-                            Text("Anyone signed in").tag("everyone")
+                            Text("Members only").tag(DomainContract.publicWritePolicyMembers)
+                            Text("Anyone signed in").tag(DomainContract.publicWritePolicyEveryone)
                         }
                         .pickerStyle(.segmented)
                         .disabled(saving)
 
                         Text(
-                            (workspace.publicWritePolicy ?? "members") == "everyone"
+                            (workspace.publicWritePolicy ?? DomainContract.publicWritePolicyMembers) == DomainContract.publicWritePolicyEveryone
                                 ? "Signed-in users can create issues; non-members may only set title, description, and labels."
                                 : "Only workspace members can create or edit issues."
                         )
@@ -95,7 +95,7 @@ struct WorkspaceGeneralSection: View {
                 name: nil,
                 isPublic: isPublic,
                 // First-time enable defaults to members-only; matches web.
-                publicWritePolicy: isPublic ? "members" : nil,
+                publicWritePolicy: isPublic ? DomainContract.publicWritePolicyMembers : nil,
                 iconUrl: nil
             ))
         } catch {

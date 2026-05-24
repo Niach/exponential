@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {

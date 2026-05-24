@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues, notifications, projects, users } from "@/db/schema"
-import { sendToUser } from "@/lib/fcm"
+import { sendToUser } from "@/lib/integrations/fcm"
 
 /**
  * Sends a push notification to the assignee (if any, and not the actor)

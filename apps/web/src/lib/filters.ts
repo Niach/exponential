@@ -1,3 +1,8 @@
+// Tab presets and matchesFilters() are mirrored across three clients. If you
+// change the active/backlog status mapping or the filter shape here, also
+// update apps/ios/Exponential/Domain/IssueFilters.swift and
+// apps/android/app/src/main/java/com/exponential/app/domain/IssueFilters.kt
+// to keep the three clients in sync (no shared package yet).
 import type { Issue } from "@/db/schema"
 import type { IssuePriority, IssueStatus } from "@/lib/domain"
 

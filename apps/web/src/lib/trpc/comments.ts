@@ -14,7 +14,7 @@ import {
   getWorkspaceMember,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
-import { fireAndForgetCommentNotify } from "@/lib/notifications"
+import { fireAndForgetCommentNotify } from "@/lib/integrations/notifications"
 
 async function loadCommentForMutation(
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()

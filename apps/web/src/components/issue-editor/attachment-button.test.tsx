@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { IssueEditorAttachmentButton } from "@/components/issue-editor-dialog-shell"
+import { IssueEditorAttachmentButton } from "@/components/issue-editor/dialog-shell"
 
 vi.mock(`@/components/ui/tooltip`, () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <div>{children}</div>,

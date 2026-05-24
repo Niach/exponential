@@ -108,7 +108,7 @@ struct WorkspaceInvitesSection: View {
     private func generateLink() async {
         generating = true
         do {
-            let result = try await invitesApi.create(workspaceId: workspaceId, role: "member")
+            let result = try await invitesApi.create(workspaceId: workspaceId, role: DomainContract.workspaceRoleMember)
             generatedLink = "exponential://invite/\(result.token)"
         } catch {}
         generating = false

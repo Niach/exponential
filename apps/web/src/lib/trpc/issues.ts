@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issues, issueLabels, labels } from "@/db/schema"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { workspaces } from "@/db/schema"
 import {
   assertCanCreateIssueInProject,
@@ -10,9 +10,7 @@ import {
   isWorkspaceModerator,
 } from "@/lib/workspace-membership"
 import {
-  addRecurrence,
   dateOnlySchema,
-  formatDateForMutation,
   getIssueDescriptionText,
   issueDescriptionSchema,
   issuePrioritySchema,
@@ -23,16 +21,19 @@ import {
 } from "@/lib/domain"
 import {
   extractAttachmentIdsFromDescription,
-  getRemovedAttachmentIds,
   hasMarkdownImages,
-  stripMarkdownImages,
-} from "@/lib/issue-attachments"
-import { deleteObject } from "@/lib/storage"
+} from "@/lib/storage/issue-attachments"
+import {
+  collectAndDeleteRemovedAttachmentsInTx,
+  collectIssueAttachmentStorageKeysInTx,
+  deleteStorageObjects,
+} from "@/lib/storage/issue-attachment-cleanup"
+import { cloneIssueForRecurrence } from "@/lib/issue-recurrence"
 import {
   fireAndForgetDelete,
   fireAndForgetSync,
-} from "@/lib/google-calendar"
-import { fireAndForgetAssignmentNotify } from "@/lib/notifications"
+} from "@/lib/integrations/google-calendar"
+import { fireAndForgetAssignmentNotify } from "@/lib/integrations/notifications"
 
 function assertRecurrencePair(
   interval: number | null | undefined,
@@ -290,42 +291,14 @@ export const issuesRouter = router({
             }
           }
 
-          const removedAttachmentIds = getRemovedAttachmentIds(
+          const removedKeys = await collectAndDeleteRemovedAttachmentsInTx(
+            tx,
+            id,
             previousText,
             nextText,
             ctx.request.url
           )
-
-          if (removedAttachmentIds.length > 0) {
-            const removedAttachments = await tx
-              .select({
-                id: attachments.id,
-                storageKey: attachments.storageKey,
-              })
-              .from(attachments)
-              .where(
-                and(
-                  eq(attachments.issueId, id),
-                  inArray(attachments.id, removedAttachmentIds)
-                )
-              )
-
-            if (removedAttachments.length > 0) {
-              deletedStorageKeys.push(
-                ...removedAttachments.map((attachment) => attachment.storageKey)
-              )
-
-              await tx.delete(attachments).where(
-                and(
-                  eq(attachments.issueId, id),
-                  inArray(
-                    attachments.id,
-                    removedAttachments.map((attachment) => attachment.id)
-                  )
-                )
-              )
-            }
-          }
+          deletedStorageKeys.push(...removedKeys)
         }
 
         const [issue] = await tx
@@ -350,43 +323,17 @@ export const issuesRouter = router({
           nextRecurrenceInterval !== null &&
           nextRecurrenceUnit !== null
         ) {
-          const nextDueDate = formatDateForMutation(
-            addRecurrence(
-              new Date(),
-              nextRecurrenceInterval,
-              nextRecurrenceUnit
-            )
-          )
-
-          const sourceDescriptionText = getIssueDescriptionText(
-            currentIssue.description
-          )
-          const clonedDescription = sourceDescriptionText
-            ? { text: stripMarkdownImages(sourceDescriptionText) }
-            : null
-
-          const [insertedClone] = await tx
-            .insert(issues)
-            .values({
-              projectId: currentIssue.projectId,
-              title: currentIssue.title,
-              priority: currentIssue.priority,
-              assigneeId: currentIssue.assigneeId,
-              description: clonedDescription,
-              status: `todo`,
-              dueDate: nextDueDate,
-              recurrenceInterval: nextRecurrenceInterval,
-              recurrenceUnit: nextRecurrenceUnit,
-              creatorId: ctx.session.user.id,
-            })
-            .returning()
-
-          await tx.execute(sql`
-            INSERT INTO ${issueLabels} (issue_id, label_id, workspace_id)
-            SELECT ${insertedClone.id}::uuid, label_id, workspace_id
-            FROM ${issueLabels}
-            WHERE issue_id = ${id}::uuid
-          `)
+          const insertedClone = await cloneIssueForRecurrence(tx, {
+            sourceIssueId: id,
+            sourceProjectId: currentIssue.projectId,
+            sourceTitle: currentIssue.title,
+            sourcePriority: currentIssue.priority,
+            sourceAssigneeId: currentIssue.assigneeId,
+            sourceDescription: currentIssue.description,
+            recurrenceInterval: nextRecurrenceInterval,
+            recurrenceUnit: nextRecurrenceUnit,
+            creatorId: ctx.session.user.id,
+          })
 
           return { issue, clonedIssue: insertedClone }
         }
@@ -394,17 +341,7 @@ export const issuesRouter = router({
         return { issue, clonedIssue: null }
       })
 
-      if (deletedStorageKeys.length > 0) {
-        await Promise.allSettled(
-          deletedStorageKeys.map(async (storageKey) => {
-            try {
-              await deleteObject(storageKey)
-            } catch (error) {
-              console.error(`Failed to delete attachment object`, error)
-            }
-          })
-        )
-      }
+      await deleteStorageObjects(deletedStorageKeys)
 
       fireAndForgetSync(ctx.session.user.id, issue)
       if (clonedIssue) {
@@ -431,11 +368,9 @@ export const issuesRouter = router({
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
 
-        const attachmentRows = await tx
-          .select({ storageKey: attachments.storageKey })
-          .from(attachments)
-          .where(eq(attachments.issueId, input.id))
-        storageKeys.push(...attachmentRows.map((row) => row.storageKey))
+        storageKeys.push(
+          ...(await collectIssueAttachmentStorageKeysInTx(tx, input.id))
+        )
 
         const deleted = await tx
           .delete(issues)
@@ -456,17 +391,7 @@ export const issuesRouter = router({
         return { txId, id: deleted[0].id }
       })
 
-      if (storageKeys.length > 0) {
-        await Promise.allSettled(
-          storageKeys.map(async (storageKey) => {
-            try {
-              await deleteObject(storageKey)
-            } catch (error) {
-              console.error(`Failed to delete attachment object`, error)
-            }
-          })
-        )
-      }
+      await deleteStorageObjects(storageKeys)
 
       if (googleCalendarEventId) {
         fireAndForgetDelete(ctx.session.user.id, googleCalendarEventId)

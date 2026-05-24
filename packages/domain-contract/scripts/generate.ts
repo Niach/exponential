@@ -27,6 +27,7 @@ interface Contract {
   recurrenceUnit: Section
   workspaceRole: Section
   publicWritePolicy: Section
+  commentKind: Section
   recurrenceIntervals: number[]
 }
 
@@ -54,6 +55,32 @@ function kotlinIntArray(name: string, values: number[]): string {
   return `    val ${name}: List<Int> = listOf(${values.join(", ")})`
 }
 
+function camelCase(s: string): string {
+  return s.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase())
+}
+
+function pascalCase(s: string): string {
+  const c = camelCase(s)
+  return c.charAt(0).toUpperCase() + c.slice(1)
+}
+
+// Emits per-value named constants so call sites can reference
+// `DomainContract.workspaceRoleOwner` instead of the bare string literal.
+function swiftNamedValues(prefix: string, values: string[]): string {
+  return values
+    .map(
+      (v) =>
+        `    static let ${prefix}${pascalCase(v)}: String = "${v}"`
+    )
+    .join(`\n`)
+}
+
+function kotlinNamedValues(prefix: string, values: string[]): string {
+  return values
+    .map((v) => `    const val ${prefix}${pascalCase(v)}: String = "${v}"`)
+    .join(`\n`)
+}
+
 const swift = `${HEADER_SWIFT}
 import Foundation
 
@@ -65,7 +92,12 @@ ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOr
 ${swiftStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${swiftStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
+${swiftStringArray("commentKindValues", contract.commentKind.values)}
     static let recurrenceIntervals: [Int] = [${contract.recurrenceIntervals.join(", ")}]
+
+${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
+${swiftNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
+${swiftNamedValues("commentKind", contract.commentKind.values)}
 }
 `
 
@@ -79,7 +111,12 @@ ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayO
 ${kotlinStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${kotlinStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
+${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinIntArray("recurrenceIntervals", contract.recurrenceIntervals)}
+
+${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
+${kotlinNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
+${kotlinNamedValues("commentKind", contract.commentKind.values)}
 }
 `
 

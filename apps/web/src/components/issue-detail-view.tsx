@@ -11,16 +11,16 @@ import {
 import {
   extractMarkdownImageOccurrences,
   removeMarkdownImageByOccurrence,
-} from "@/lib/issue-attachments"
-import { uploadIssueImageFile } from "@/lib/issue-image-upload"
-import { authClient } from "@/lib/auth-client"
+} from "@/lib/storage/issue-attachments"
+import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
+import { authClient } from "@/lib/auth/client"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Input } from "@/components/ui/input"
 import {
   MarkdownEditor,
   type MarkdownEditorRef,
-} from "@/components/markdown-editor"
-import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
+} from "@/components/issue-editor/markdown-editor"
+import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { type RecurrenceValue } from "@/components/recurrence-editor"

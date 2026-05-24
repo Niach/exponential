@@ -36,7 +36,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-vi.mock(`@/components/issue-editor-dialog-shell`, () => ({
+vi.mock(`@/components/issue-editor/dialog-shell`, () => ({
   IssueEditorDialogShell: forwardRef(function MockIssueEditorDialogShell(
     {
       description,

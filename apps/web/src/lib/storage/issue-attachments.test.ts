@@ -9,7 +9,7 @@ import {
   removeMarkdownImageByOccurrence,
   removeMarkdownImagesByUrl,
   replaceMarkdownImageUrls,
-} from "@/lib/issue-attachments"
+} from "@/lib/storage/issue-attachments"
 
 describe(`issue attachment helpers`, () => {
   it(`extracts markdown image urls`, () => {

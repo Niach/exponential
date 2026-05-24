@@ -1,15 +1,15 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 import {
   useWorkspaceBySlug,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
-import { WorkspaceGeneralSection } from "@/components/workspace-general-section"
-import { WorkspaceInviteSection } from "@/components/workspace-invite-section"
-import { WorkspaceLabelsSection } from "@/components/workspace-labels-section"
-import { WorkspaceMembersSection } from "@/components/workspace-members-section"
-import { WorkspaceAgentsSection } from "@/components/workspace-agents-section"
-import { WorkspaceProjectsSection } from "@/components/workspace-projects-section"
+import { WorkspaceGeneralSection } from "@/components/workspace/general-section"
+import { WorkspaceInviteSection } from "@/components/workspace/invite-section"
+import { WorkspaceLabelsSection } from "@/components/workspace/labels-section"
+import { WorkspaceMembersSection } from "@/components/workspace/members-section"
+import { WorkspaceAgentsSection } from "@/components/workspace/agents-section"
+import { WorkspaceProjectsSection } from "@/components/workspace/projects-section"
 import { Separator } from "@/components/ui/separator"
 
 export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({

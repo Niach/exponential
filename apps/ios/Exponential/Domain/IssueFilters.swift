@@ -1,5 +1,8 @@
 import Foundation
 
+// Mirrored from apps/web/src/lib/filters.ts. The active/backlog tab presets
+// must match the web mapping; if you change one, change the others
+// (apps/web/src/lib/filters.ts, apps/android/.../domain/IssueFilters.kt).
 struct IssueFilters: Equatable, Sendable {
     var statuses: Set<IssueStatus> = []
     var priorities: Set<IssuePriority> = []

@@ -12,10 +12,10 @@ import {
   type RecurrenceValue,
 } from "@/components/recurrence-editor"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
-import { priorities, PriorityIcon } from "@/components/priority-dropdown"
-import { statuses, StatusIcon } from "@/components/status-dropdown"
-import { AssigneePicker } from "@/components/assignee-picker"
-import { LabelPicker } from "@/components/label-picker"
+import { priorities, PriorityIcon } from "@/components/issue-properties/priority-dropdown"
+import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
+import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
+import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {

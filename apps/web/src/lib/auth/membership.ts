@@ -1,0 +1,344 @@
+import { TRPCError } from "@trpc/server"
+import { and, eq, inArray } from "drizzle-orm"
+import {
+  attachments,
+  issues,
+  projects,
+  workspaceMembers,
+  workspaces,
+} from "@/db/schema"
+import type { WorkspaceMember } from "@/db/schema"
+import type { WorkspaceRole } from "@/lib/domain"
+import { isUserAdmin } from "@/lib/admin"
+
+export type WorkspaceMemberRecord = Pick<
+  WorkspaceMember,
+  `role` | `userId` | `workspaceId`
+>
+
+async function getDb() {
+  const { db } = await import(`@/db/connection`)
+  return db
+}
+
+export function assertWorkspaceAccess(
+  member: WorkspaceMemberRecord | undefined,
+  requiredRoles?: WorkspaceRole[]
+): asserts member is WorkspaceMemberRecord {
+  if (!member) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Not a member of this workspace`,
+    })
+  }
+
+  if (requiredRoles && !requiredRoles.includes(member.role)) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Insufficient role. Required: ${requiredRoles.join(`, `)}`,
+    })
+  }
+}
+
+let publicWorkspaceIdsCache: string[] | undefined = undefined
+
+export async function getPublicWorkspaceIds(): Promise<string[]> {
+  if (publicWorkspaceIdsCache !== undefined) {
+    return publicWorkspaceIdsCache
+  }
+  const db = await getDb()
+  const rows = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.isPublic, true))
+  publicWorkspaceIdsCache = rows.map((row) => row.id)
+  return publicWorkspaceIdsCache
+}
+
+// Resolves the set of workspace ids readable by a caller — used by shape
+// proxies. Authed users see their own memberships plus all public workspaces;
+// anonymous callers see only public workspaces.
+export async function getReadableWorkspaceIds(
+  userId: string | null
+): Promise<string[]> {
+  if (userId) return getUserWorkspaceIds(userId)
+  return getPublicWorkspaceIds()
+}
+
+export async function getReadableProjectIds(
+  userId: string | null
+): Promise<string[]> {
+  if (userId) return getUserProjectIds(userId)
+  return getPublicProjectIds()
+}
+
+export async function getReadableUserIdsInWorkspaces(
+  userId: string | null
+): Promise<string[]> {
+  if (userId) return getUserIdsInWorkspaces(userId)
+  // Anonymous callers see member identities only for public workspaces, so
+  // assignee/creator chips render.
+  const publicIds = await getPublicWorkspaceIds()
+  if (publicIds.length === 0) return []
+  const db = await getDb()
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(inArray(workspaceMembers.workspaceId, publicIds))
+  return [...new Set(rows.map((row) => row.userId))]
+}
+
+export async function getPublicProjectIds(): Promise<string[]> {
+  const publicIds = await getPublicWorkspaceIds()
+  if (publicIds.length === 0) return []
+  const db = await getDb()
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(inArray(projects.workspaceId, publicIds))
+  return rows.map((row) => row.id)
+}
+
+export function invalidatePublicWorkspaceCache() {
+  publicWorkspaceIdsCache = undefined
+}
+
+export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
+  const db = await getDb()
+  const rows = await db
+    .select({ workspaceId: workspaceMembers.workspaceId })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, userId))
+
+  const ids = rows.map((row) => row.workspaceId)
+  const publicIds = await getPublicWorkspaceIds()
+  for (const publicId of publicIds) {
+    if (!ids.includes(publicId)) ids.push(publicId)
+  }
+  return ids
+}
+
+export async function getUserProjectIds(userId: string): Promise<string[]> {
+  const workspaceIds = await getUserWorkspaceIds(userId)
+
+  if (workspaceIds.length === 0) {
+    return []
+  }
+
+  const db = await getDb()
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(inArray(projects.workspaceId, workspaceIds))
+
+  return rows.map((row) => row.id)
+}
+
+export async function getUserIdsInWorkspaces(
+  userId: string
+): Promise<string[]> {
+  const workspaceIds = await getUserWorkspaceIds(userId)
+
+  if (workspaceIds.length === 0) {
+    return []
+  }
+
+  const db = await getDb()
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(inArray(workspaceMembers.workspaceId, workspaceIds))
+
+  return [...new Set(rows.map((row) => row.userId))]
+}
+
+export async function getWorkspaceMember(userId: string, workspaceId: string) {
+  const db = await getDb()
+  const [member] = await db
+    .select({
+      userId: workspaceMembers.userId,
+      workspaceId: workspaceMembers.workspaceId,
+      role: workspaceMembers.role,
+    })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1)
+
+  return member
+}
+
+export async function assertWorkspaceMember(
+  userId: string,
+  workspaceId: string,
+  requiredRoles?: WorkspaceRole[]
+) {
+  const member = await getWorkspaceMember(userId, workspaceId)
+  assertWorkspaceAccess(member, requiredRoles)
+  return member
+}
+
+export async function assertWorkspaceOwner(
+  userId: string,
+  workspaceId: string
+) {
+  return assertWorkspaceMember(userId, workspaceId, [`owner`])
+}
+
+export async function getProjectWorkspaceId(projectId: string) {
+  const db = await getDb()
+  const [project] = await db
+    .select({
+      id: projects.id,
+      workspaceId: projects.workspaceId,
+    })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+
+  if (!project) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Project not found`,
+    })
+  }
+
+  return project
+}
+
+export async function assertProjectMember(
+  userId: string,
+  projectId: string,
+  requiredRoles?: WorkspaceRole[]
+) {
+  const project = await getProjectWorkspaceId(projectId)
+  await assertWorkspaceMember(userId, project.workspaceId, requiredRoles)
+  return project
+}
+
+export async function getIssueWorkspaceContext(issueId: string) {
+  const db = await getDb()
+  const [issueContext] = await db
+    .select({
+      issueId: issues.id,
+      projectId: issues.projectId,
+      workspaceId: projects.workspaceId,
+    })
+    .from(issues)
+    .innerJoin(projects, eq(issues.projectId, projects.id))
+    .where(eq(issues.id, issueId))
+    .limit(1)
+
+  if (!issueContext) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Issue not found`,
+    })
+  }
+
+  return issueContext
+}
+
+export async function getAttachmentWorkspaceContext(attachmentId: string) {
+  const db = await getDb()
+  const [attachmentContext] = await db
+    .select({
+      attachmentId: attachments.id,
+      issueId: attachments.issueId,
+      storageKey: attachments.storageKey,
+      workspaceId: projects.workspaceId,
+      contentType: attachments.contentType,
+      filename: attachments.filename,
+      sizeBytes: attachments.sizeBytes,
+    })
+    .from(attachments)
+    .innerJoin(issues, eq(attachments.issueId, issues.id))
+    .innerJoin(projects, eq(issues.projectId, projects.id))
+    .where(eq(attachments.id, attachmentId))
+    .limit(1)
+
+  if (!attachmentContext) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Attachment not found`,
+    })
+  }
+
+  return attachmentContext
+}
+
+export async function getWorkspaceById(workspaceId: string) {
+  const db = await getDb()
+  const [workspace] = await db
+    .select({
+      id: workspaces.id,
+      isPublic: workspaces.isPublic,
+      publicWritePolicy: workspaces.publicWritePolicy,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1)
+  return workspace
+}
+
+// Resolves whether the user can read/use a workspace. Returns:
+// - { kind: 'member', workspace, member } when the user is a member
+// - { kind: 'public', workspace } when the workspace is public and user is authed
+// - throws FORBIDDEN/NOT_FOUND otherwise
+export async function resolveWorkspaceAccess(
+  userId: string,
+  workspaceId: string
+) {
+  const workspace = await getWorkspaceById(workspaceId)
+  if (!workspace) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+  }
+  const member = await getWorkspaceMember(userId, workspaceId)
+  if (member) {
+    return { kind: `member` as const, workspace, member }
+  }
+  if (workspace.isPublic) {
+    return { kind: `public` as const, workspace }
+  }
+  throw new TRPCError({
+    code: `FORBIDDEN`,
+    message: `Not a member of this workspace`,
+  })
+}
+
+// A "moderator" is a workspace member or an instance admin. In public
+// workspaces moderators retain full edit/set rights on issue fields
+// (status/priority/assignee/dueDate); non-moderators are restricted to
+// title/description/labels even when they're allowed to mutate (e.g., on
+// issues they created).
+export async function isWorkspaceModerator(
+  userId: string,
+  workspaceId: string
+): Promise<boolean> {
+  const member = await getWorkspaceMember(userId, workspaceId)
+  if (member) return true
+  return isUserAdmin(userId)
+}
+
+export function assertMatchingWorkspaceIds(
+  issueWorkspaceId: string | undefined,
+  labelWorkspaceId: string | undefined
+) {
+  if (!issueWorkspaceId || !labelWorkspaceId) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Missing issue or label workspace`,
+    })
+  }
+
+  if (issueWorkspaceId !== labelWorkspaceId) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Issue and label must belong to the same workspace`,
+    })
+  }
+}

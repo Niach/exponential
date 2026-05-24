@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { IssueRowContextMenu } from "@/components/issue-row-context-menu"
+import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
 import type { Issue, Label, User } from "@/db/schema"
 
 const mockState = vi.hoisted(() => ({

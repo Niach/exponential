@@ -1,7 +1,7 @@
 import { forwardRef, type ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { IssueEditorDialogShell } from "@/components/issue-editor-dialog-shell"
+import { IssueEditorDialogShell } from "@/components/issue-editor/dialog-shell"
 
 vi.mock(`@/components/ui/dialog`, () => ({
   Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -29,7 +29,7 @@ vi.mock(`@/components/ui/calendar`, () => ({
   ),
 }))
 
-vi.mock(`@/components/markdown-editor`, () => ({
+vi.mock(`@/components/issue-editor/markdown-editor`, () => ({
   MarkdownEditor: forwardRef(function MockMarkdownEditor(
     {
       markdown,
@@ -53,7 +53,7 @@ vi.mock(`@/components/markdown-editor`, () => ({
   }),
 }))
 
-vi.mock(`@/components/assignee-picker`, () => ({
+vi.mock(`@/components/issue-properties/assignee-picker`, () => ({
   AssigneePicker: ({
     onSelect,
   }: {
@@ -65,7 +65,7 @@ vi.mock(`@/components/assignee-picker`, () => ({
   ),
 }))
 
-vi.mock(`@/components/label-picker`, () => ({
+vi.mock(`@/components/issue-properties/label-picker`, () => ({
   LabelPicker: ({ onToggle }: { onToggle: (labelId: string) => void }) => (
     <button type="button" onClick={() => onToggle(`label-1`)}>
       Toggle label

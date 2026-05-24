@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
 import { ArrowLeft, Shield, Users, Building2 } from "lucide-react"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 

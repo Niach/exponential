@@ -22,25 +22,23 @@ import {
   removeMarkdownImageByOccurrence,
   removeMarkdownImagesByUrl,
   replaceMarkdownImageUrls,
-} from "@/lib/issue-attachments"
-import { uploadIssueImageFile } from "@/lib/issue-image-upload"
+} from "@/lib/storage/issue-attachments"
+import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
+import {
+  buildPostCreateImageErrorMessage,
+  revokeDraftImages,
+  type DraftImage,
+} from "@/lib/create-issue-helpers"
 import type { User } from "@/db/schema"
-import { IssueEditorDialogShell } from "@/components/issue-editor-dialog-shell"
-import { IssueEditorAttachmentRail } from "@/components/issue-editor-attachment-rail"
-import type { MarkdownEditorRef } from "@/components/markdown-editor"
+import { IssueEditorDialogShell } from "@/components/issue-editor/dialog-shell"
+import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
+import type { MarkdownEditorRef } from "@/components/issue-editor/markdown-editor"
 
 type CreateIssueSubmitPhase =
   | `idle`
   | `creating`
   | `uploading`
   | `created_with_image_errors`
-
-interface DraftImage {
-  alt: string
-  file: File
-  id: string
-  objectUrl: string
-}
 
 interface CreateIssueDialogProps {
   defaultStatus?: IssueStatus
@@ -53,25 +51,6 @@ interface CreateIssueDialogProps {
   users: User[]
   workspaceId: string
   restrictModeration?: boolean
-}
-
-function revokeDraftImages(images: DraftImage[]) {
-  for (const image of images) {
-    URL.revokeObjectURL(image.objectUrl)
-  }
-}
-
-function buildPostCreateImageErrorMessage(
-  issueIdentifier: string,
-  failedImageCount?: number
-) {
-  if (typeof failedImageCount === `number` && failedImageCount > 0) {
-    return `Created ${issueIdentifier}, but ${failedImageCount} ${
-      failedImageCount === 1 ? `image` : `images`
-    } failed to upload. Reopen the issue later to retry failed images.`
-  }
-
-  return `Created ${issueIdentifier}, but the image uploads could not be finalized cleanly. Reopen the issue later to retry them.`
 }
 
 export function CreateIssueDialog({
