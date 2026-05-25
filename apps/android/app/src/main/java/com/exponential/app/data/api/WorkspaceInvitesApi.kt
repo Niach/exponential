@@ -48,32 +48,36 @@ data class GetByTokenResult(val invite: InvitePreview)
 
 @Singleton
 class WorkspaceInvitesApi @Inject constructor(private val trpc: TrpcClient) {
-    suspend fun create(workspaceId: String, role: String = "member"): CreateInviteResult =
+    suspend fun create(accountId: String, workspaceId: String, role: String = "member"): CreateInviteResult =
         trpc.mutation(
+            accountId,
             path = "workspaceInvites.create",
             input = CreateInviteInput(workspaceId, role),
             inputSerializer = CreateInviteInput.serializer(),
             outputSerializer = CreateInviteResult.serializer(),
         )
 
-    suspend fun accept(token: String): AcceptInviteResult =
+    suspend fun accept(accountId: String, token: String): AcceptInviteResult =
         trpc.mutation(
+            accountId,
             path = "workspaceInvites.accept",
             input = AcceptInviteInput(token),
             inputSerializer = AcceptInviteInput.serializer(),
             outputSerializer = AcceptInviteResult.serializer(),
         )
 
-    suspend fun list(workspaceId: String): List<WorkspaceInviteEntity> =
+    suspend fun list(accountId: String, workspaceId: String): List<WorkspaceInviteEntity> =
         trpc.query(
+            accountId,
             path = "workspaceInvites.list",
             input = ListInvitesInput(workspaceId),
             inputSerializer = ListInvitesInput.serializer(),
             outputSerializer = ListInvitesResult.serializer(),
         ).invites
 
-    suspend fun revoke(id: String) {
+    suspend fun revoke(accountId: String, id: String) {
         trpc.mutation(
+            accountId,
             path = "workspaceInvites.revoke",
             input = RevokeInviteInput(id),
             inputSerializer = RevokeInviteInput.serializer(),
@@ -81,8 +85,9 @@ class WorkspaceInvitesApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun getByToken(token: String): InvitePreview =
+    suspend fun getByToken(accountId: String, token: String): InvitePreview =
         trpc.query(
+            accountId,
             path = "workspaceInvites.getByToken",
             input = GetByTokenInput(token),
             inputSerializer = GetByTokenInput.serializer(),

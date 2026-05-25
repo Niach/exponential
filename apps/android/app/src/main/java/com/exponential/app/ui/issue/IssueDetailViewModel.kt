@@ -128,16 +128,19 @@ class IssueDetailViewModel @Inject constructor(
     fun updateTitle(title: String) {
         if (title.isBlank()) return
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, title = title.trim()))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, title = title.trim()))
             }
         }
     }
 
     fun updateDescription(text: String) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(
+                    accountId,
                     UpdateIssueInput(id = issueId, description = IssueDescription(text))
                 )
             }
@@ -146,56 +149,64 @@ class IssueDetailViewModel @Inject constructor(
 
     fun updateStatus(status: IssueStatus) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, status = status.wire))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, status = status.wire))
             }
         }
     }
 
     fun updatePriority(priority: IssuePriority) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, priority = priority.wire))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, priority = priority.wire))
             }
         }
     }
 
     fun updateDueDate(date: String?) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, dueDate = date))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, dueDate = date))
             }
         }
     }
 
     fun updateAssignee(userId: String?) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, assigneeId = userId))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, assigneeId = userId))
             }
         }
     }
 
     fun updateDueTime(time: String?) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, dueTime = time))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, dueTime = time))
             }
         }
     }
 
     fun updateEndTime(time: String?) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, endTime = time))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, endTime = time))
             }
         }
     }
 
     fun updateRecurrence(interval: Int?, unit: String?) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(
+                    accountId,
                     UpdateIssueInput(
                         id = issueId,
                         recurrenceInterval = interval,
@@ -208,9 +219,10 @@ class IssueDetailViewModel @Inject constructor(
 
     fun toggleLabel(labelId: String, isCurrentlyAssigned: Boolean) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                if (isCurrentlyAssigned) labelsApi.removeLabel(issueId, labelId)
-                else labelsApi.addLabel(issueId, labelId)
+                if (isCurrentlyAssigned) labelsApi.removeLabel(accountId, issueId, labelId)
+                else labelsApi.addLabel(accountId, issueId, labelId)
             }
         }
     }
@@ -218,16 +230,18 @@ class IssueDetailViewModel @Inject constructor(
     fun createAndAssignLabel(name: String, color: String) {
         val workspaceId = _project.value?.workspaceId ?: return
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                val label = labelsApi.create(CreateLabelInput(workspaceId, name.trim(), color))
-                labelsApi.addLabel(issueId, label.id)
+                val label = labelsApi.create(accountId, CreateLabelInput(workspaceId, name.trim(), color))
+                labelsApi.addLabel(accountId, issueId, label.id)
             }
         }
     }
 
     fun delete(onDeleted: () -> Unit) {
         viewModelScope.launch {
-            runCatching { issuesApi.delete(issueId) }.onSuccess { onDeleted() }
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { issuesApi.delete(accountId, issueId) }.onSuccess { onDeleted() }
         }
     }
 
@@ -239,13 +253,15 @@ class IssueDetailViewModel @Inject constructor(
             java.time.Instant.now().toString()
         } else null
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, archivedAt = next))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, archivedAt = next))
             }
         }
     }
 
     suspend fun uploadImage(uri: android.net.Uri): String? = runCatching {
+        val accountId = auth.activeAccountId.value ?: return@runCatching null
         val resolver = appContext.contentResolver
         val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
             ?: return@runCatching null
@@ -256,6 +272,6 @@ class IssueDetailViewModel @Inject constructor(
                 if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
             } ?: uri.lastPathSegment ?: "image"
         }
-        issueImagesApi.upload(issueId, bytes, filename, contentType).url
+        issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
     }.getOrNull()
 }

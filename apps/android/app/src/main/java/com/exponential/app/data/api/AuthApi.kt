@@ -4,6 +4,7 @@ import com.exponential.app.data.auth.AuthRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -46,9 +47,8 @@ class AuthApi @Inject constructor(
     private val auth: AuthRepository,
     private val json: Json,
 ) {
-    suspend fun signInWithPassword(email: String, password: String): SignInResult {
-        val baseUrl = auth.instanceUrl.value
-            ?: return SignInResult.Failure("No instance URL set")
+    suspend fun signInWithPassword(instanceUrl: String, email: String, password: String): SignInResult {
+        val baseUrl = instanceUrl
 
         return try {
             val response = client.post("$baseUrl/api/auth/sign-in/email") {
@@ -86,10 +86,14 @@ class AuthApi @Inject constructor(
         }
     }
 
-    suspend fun fetchSession(): SessionInfo? {
-        val baseUrl = auth.instanceUrl.value ?: return null
+    suspend fun fetchSession(accountId: String): SessionInfo? {
+        val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return null
+        val baseUrl = account.instanceUrl
+        val token = account.token
         return try {
-            val response = client.get("$baseUrl/api/auth/get-session")
+            val response = client.get("$baseUrl/api/auth/get-session") {
+                if (token != null) header("Authorization", "Bearer $token")
+            }
             if (!response.status.isSuccess()) return null
             val body = response.bodyAsText()
             val parsed = json.parseToJsonElement(body) as? JsonObject ?: return null

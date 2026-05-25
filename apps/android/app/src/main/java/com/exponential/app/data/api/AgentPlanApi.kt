@@ -15,8 +15,9 @@ private data class IssueIdInput(@SerialName("issueId") val issueId: String)
 @Singleton
 class AgentPlanApi @Inject constructor(private val trpc: TrpcClient) {
 
-    suspend fun approvePlan(issueId: String) {
+    suspend fun approvePlan(accountId: String, issueId: String) {
         trpc.mutation(
+            accountId,
             path = "agentPlan.approvePlan",
             input = IssueIdInput(issueId),
             inputSerializer = IssueIdInput.serializer(),
@@ -24,8 +25,9 @@ class AgentPlanApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun requestChanges(issueId: String) {
+    suspend fun requestChanges(accountId: String, issueId: String) {
         trpc.mutation(
+            accountId,
             path = "agentPlan.requestChanges",
             input = IssueIdInput(issueId),
             inputSerializer = IssueIdInput.serializer(),
@@ -33,8 +35,9 @@ class AgentPlanApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun retry(issueId: String) {
+    suspend fun retry(accountId: String, issueId: String) {
         trpc.mutation(
+            accountId,
             path = "agentPlan.retry",
             input = IssueIdInput(issueId),
             inputSerializer = IssueIdInput.serializer(),

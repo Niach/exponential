@@ -52,24 +52,27 @@ data class IssueResult(val issue: IssueEntity)
 @Singleton
 class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
 
-    suspend fun create(input: CreateIssueInput): IssueEntity =
+    suspend fun create(accountId: String, input: CreateIssueInput): IssueEntity =
         trpc.mutation(
+            accountId,
             path = "issues.create",
             input = input,
             inputSerializer = CreateIssueInput.serializer(),
             outputSerializer = IssueResult.serializer(),
         ).issue
 
-    suspend fun update(input: UpdateIssueInput): IssueEntity =
+    suspend fun update(accountId: String, input: UpdateIssueInput): IssueEntity =
         trpc.mutation(
+            accountId,
             path = "issues.update",
             input = input,
             inputSerializer = UpdateIssueInput.serializer(),
             outputSerializer = IssueResult.serializer(),
         ).issue
 
-    suspend fun delete(id: String) {
+    suspend fun delete(accountId: String, id: String) {
         trpc.mutation(
+            accountId,
             path = "issues.delete",
             input = DeleteIssueInput(id),
             inputSerializer = DeleteIssueInput.serializer(),

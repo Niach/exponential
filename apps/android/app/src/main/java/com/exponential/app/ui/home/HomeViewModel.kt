@@ -3,7 +3,6 @@ package com.exponential.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
-import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.MultiAccountProjectRepository
@@ -46,7 +45,6 @@ data class HomeState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
-    private val authApi: AuthApi,
     private val workspacesApi: WorkspacesApi,
     private val workspaceDao: WorkspaceDao,
     private val projectDao: ProjectDao,
@@ -96,7 +94,8 @@ class HomeViewModel @Inject constructor(
     fun bootstrap() {
         viewModelScope.launch {
             try {
-                val workspace = workspacesApi.ensureDefault()
+                val accountId = auth.activeAccountId.value ?: return@launch
+                val workspace = workspacesApi.ensureDefault(accountId)
                 workspaceDao.upsert(workspace)
                 if (selection.selectedId.value == null) selection.select(workspace.id)
                 _error.value = null

@@ -59,14 +59,16 @@ data class AdminUsersState(
 @HiltViewModel
 class AdminUsersViewModel @Inject constructor(
     private val adminApi: AdminApi,
+    private val auth: com.exponential.app.data.auth.AuthRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(AdminUsersState())
     val state: StateFlow<AdminUsersState> = _state.asStateFlow()
 
     fun refresh() {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(loading = true, error = null)
-            runCatching { adminApi.listUsers() }
+            runCatching { adminApi.listUsers(accountId) }
                 .onSuccess { _state.value = _state.value.copy(users = it, loading = false) }
                 .onFailure { _state.value = _state.value.copy(loading = false, error = it.message) }
         }
@@ -74,7 +76,8 @@ class AdminUsersViewModel @Inject constructor(
 
     fun toggleAdmin(userId: String, isAdmin: Boolean) {
         viewModelScope.launch {
-            runCatching { adminApi.setUserAdmin(userId, isAdmin) }
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { adminApi.setUserAdmin(accountId, userId, isAdmin) }
                 .onSuccess { refresh() }
                 .onFailure { _state.value = _state.value.copy(error = it.message) }
         }
@@ -82,7 +85,8 @@ class AdminUsersViewModel @Inject constructor(
 
     fun delete(userId: String) {
         viewModelScope.launch {
-            runCatching { adminApi.deleteUser(userId) }
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { adminApi.deleteUser(accountId, userId) }
                 .onSuccess { refresh() }
                 .onFailure { _state.value = _state.value.copy(error = it.message) }
         }

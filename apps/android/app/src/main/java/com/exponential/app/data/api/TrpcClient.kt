@@ -3,6 +3,7 @@ package com.exponential.app.data.api
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -28,19 +29,28 @@ class TrpcClient @Inject constructor(
     private val auth: AuthRepository,
     private val json: Json,
 ) {
+    private fun accountUrl(accountId: String): String =
+        auth.accounts.value.firstOrNull { it.id == accountId }?.instanceUrl
+            ?: throw TrpcException("No instance URL for account $accountId")
+
+    private fun accountToken(accountId: String): String? =
+        auth.accounts.value.firstOrNull { it.id == accountId }?.token
+
     suspend fun <I, O> mutation(
+        accountId: String,
         path: String,
         input: I,
         inputSerializer: KSerializer<I>,
         outputSerializer: KSerializer<O>,
     ): O {
-        val baseUrl = auth.instanceUrl.value
-            ?: throw TrpcException("No instance URL configured")
+        val baseUrl = accountUrl(accountId)
+        val token = accountToken(accountId)
         val inputJson = json.encodeToJsonElement(inputSerializer, input)
         val body = buildJsonObject { put("json", inputJson) }
         val response = client.post("$baseUrl/api/trpc/$path") {
             contentType(ContentType.Application.Json)
             setBody(body)
+            if (token != null) header("Authorization", "Bearer $token")
         }
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
@@ -49,22 +59,16 @@ class TrpcClient @Inject constructor(
         return decodePayload(path, text, outputSerializer)
     }
 
-    /**
-     * Calls a tRPC `.query` procedure. tRPC rejects POST against query procedures
-     * with METHOD_NOT_SUPPORTED, so reads MUST go through GET with the input
-     * encoded as a single `?input=<json>` query string parameter (`{"json": …}`).
-     * Pass [IntegrationsEmptyInput] (or any unit-like serializer) for procedures
-     * without input — empty inputs are omitted from the URL entirely.
-     */
     suspend fun <I, O> query(
+        accountId: String,
         path: String,
         input: I,
         inputSerializer: KSerializer<I>,
         outputSerializer: KSerializer<O>,
         omitInputIfEmpty: Boolean = true,
     ): O {
-        val baseUrl = auth.instanceUrl.value
-            ?: throw TrpcException("No instance URL configured")
+        val baseUrl = accountUrl(accountId)
+        val token = accountToken(accountId)
         val inputJson = json.encodeToJsonElement(inputSerializer, input)
         val isEmpty = inputJson is JsonObject && inputJson.isEmpty()
         val url = if (omitInputIfEmpty && isEmpty) {
@@ -74,7 +78,9 @@ class TrpcClient @Inject constructor(
             val encoded = URLEncoder.encode(json.encodeToString(JsonObject.serializer(), wrapper), "UTF-8")
             "$baseUrl/api/trpc/$path?input=$encoded"
         }
-        val response = client.get(url)
+        val response = client.get(url) {
+            if (token != null) header("Authorization", "Bearer $token")
+        }
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
             throw TrpcException("tRPC $path HTTP ${response.status.value}: $text", response.status)

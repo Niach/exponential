@@ -69,29 +69,35 @@ class CommentThreadViewModel @Inject constructor(
 
     suspend fun createComment(text: String) {
         val issueId = issueIdFlow.value ?: return
-        runCatching { commentsApi.create(issueId, text) }
+        val accountId = auth.activeAccountId.value ?: return
+        runCatching { commentsApi.create(accountId, issueId, text) }
     }
 
     suspend fun updateComment(id: String, text: String) {
-        runCatching { commentsApi.update(id, text) }
+        val accountId = auth.activeAccountId.value ?: return
+        runCatching { commentsApi.update(accountId, id, text) }
     }
 
     suspend fun deleteComment(id: String) {
-        runCatching { commentsApi.delete(id) }
+        val accountId = auth.activeAccountId.value ?: return
+        runCatching { commentsApi.delete(accountId, id) }
     }
 
     suspend fun approvePlan() {
         val issueId = issueIdFlow.value ?: return
-        runCatching { agentPlanApi.approvePlan(issueId) }
+        val accountId = auth.activeAccountId.value ?: return
+        runCatching { agentPlanApi.approvePlan(accountId, issueId) }
     }
 
     suspend fun requestChanges() {
         val issueId = issueIdFlow.value ?: return
-        runCatching { agentPlanApi.requestChanges(issueId) }
+        val accountId = auth.activeAccountId.value ?: return
+        runCatching { agentPlanApi.requestChanges(accountId, issueId) }
     }
 
     suspend fun retry() {
         val issueId = issueIdFlow.value ?: return
-        runCatching { agentPlanApi.retry(issueId) }
+        val accountId = auth.activeAccountId.value ?: return
+        runCatching { agentPlanApi.retry(accountId, issueId) }
     }
 }

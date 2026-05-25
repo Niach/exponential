@@ -48,16 +48,18 @@ private object AdminEmptyInput
 
 @Singleton
 class AdminApi @Inject constructor(private val trpc: TrpcClient) {
-    suspend fun listUsers(): List<AdminUser> =
+    suspend fun listUsers(accountId: String): List<AdminUser> =
         trpc.query(
+            accountId,
             path = "admin.listUsers",
             input = AdminEmptyInput,
             inputSerializer = AdminEmptyInput.serializer(),
             outputSerializer = kotlinx.serialization.builtins.ListSerializer(AdminUser.serializer()),
         )
 
-    suspend fun setUserAdmin(userId: String, isAdmin: Boolean) {
+    suspend fun setUserAdmin(accountId: String, userId: String, isAdmin: Boolean) {
         trpc.mutation(
+            accountId,
             path = "admin.setUserAdmin",
             input = SetAdminInput(userId, isAdmin),
             inputSerializer = SetAdminInput.serializer(),
@@ -65,8 +67,9 @@ class AdminApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun deleteUser(userId: String) {
+    suspend fun deleteUser(accountId: String, userId: String) {
         trpc.mutation(
+            accountId,
             path = "admin.deleteUser",
             input = DeleteUserInput(userId),
             inputSerializer = DeleteUserInput.serializer(),
@@ -74,16 +77,18 @@ class AdminApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun listWorkspaces(): List<AdminWorkspace> =
+    suspend fun listWorkspaces(accountId: String): List<AdminWorkspace> =
         trpc.query(
+            accountId,
             path = "admin.listWorkspaces",
             input = AdminEmptyInput,
             inputSerializer = AdminEmptyInput.serializer(),
             outputSerializer = kotlinx.serialization.builtins.ListSerializer(AdminWorkspace.serializer()),
         )
 
-    suspend fun deleteWorkspace(workspaceId: String) {
+    suspend fun deleteWorkspace(accountId: String, workspaceId: String) {
         trpc.mutation(
+            accountId,
             path = "admin.deleteWorkspace",
             input = DeleteWorkspaceInput(workspaceId),
             inputSerializer = DeleteWorkspaceInput.serializer(),

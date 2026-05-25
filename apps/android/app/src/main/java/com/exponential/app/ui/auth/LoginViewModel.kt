@@ -60,9 +60,13 @@ class LoginViewModel @Inject constructor(
 
     fun signIn(email: String, password: String) {
         if (_state.value.loading) return
+        val instanceUrl = auth.instanceUrl.value ?: run {
+            _state.value = _state.value.copy(error = "No instance URL set")
+            return
+        }
         _state.value = _state.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            when (val result = api.signInWithPassword(email = email, password = password)) {
+            when (val result = api.signInWithPassword(instanceUrl = instanceUrl, email = email, password = password)) {
                 is SignInResult.Success -> {
                     _state.value = _state.value.copy(loading = false, successEmail = result.email)
                 }

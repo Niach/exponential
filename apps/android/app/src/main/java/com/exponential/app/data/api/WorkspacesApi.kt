@@ -24,16 +24,18 @@ private object EmptyInput
 @Singleton
 class WorkspacesApi @Inject constructor(private val trpc: TrpcClient) {
 
-    suspend fun ensureDefault(): WorkspaceEntity =
+    suspend fun ensureDefault(accountId: String): WorkspaceEntity =
         trpc.mutation(
+            accountId,
             path = "workspaces.ensureDefault",
             input = EmptyInput,
             inputSerializer = EmptyInput.serializer(),
             outputSerializer = EnsureDefaultResult.serializer(),
         ).workspace
 
-    suspend fun update(input: UpdateWorkspaceInput) {
+    suspend fun update(accountId: String, input: UpdateWorkspaceInput) {
         trpc.mutation(
+            accountId,
             path = "workspaces.update",
             input = input,
             inputSerializer = UpdateWorkspaceInput.serializer(),

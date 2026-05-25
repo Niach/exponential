@@ -51,14 +51,16 @@ data class InviteAcceptState(
 @HiltViewModel
 class InviteAcceptViewModel @Inject constructor(
     private val invitesApi: WorkspaceInvitesApi,
+    private val auth: com.exponential.app.data.auth.AuthRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(InviteAcceptState())
     val state: StateFlow<InviteAcceptState> = _state.asStateFlow()
 
     fun load(token: String) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(loading = true, error = null)
-            runCatching { invitesApi.getByToken(token) }
+            runCatching { invitesApi.getByToken(accountId, token) }
                 .onSuccess { _state.value = _state.value.copy(loading = false, preview = it) }
                 .onFailure { _state.value = _state.value.copy(loading = false, error = it.message) }
         }
@@ -66,8 +68,9 @@ class InviteAcceptViewModel @Inject constructor(
 
     fun accept(token: String) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(accepting = true, error = null)
-            runCatching { invitesApi.accept(token) }
+            runCatching { invitesApi.accept(accountId, token) }
                 .onSuccess {
                     _state.value = _state.value.copy(
                         accepting = false,

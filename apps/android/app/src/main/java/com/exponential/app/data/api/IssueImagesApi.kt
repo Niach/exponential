@@ -4,6 +4,7 @@ import com.exponential.app.data.auth.AuthRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -31,14 +32,18 @@ class IssueImagesApi @Inject constructor(
     private val json: Json,
 ) {
     suspend fun upload(
+        accountId: String,
         issueId: String,
         bytes: ByteArray,
         filename: String,
         contentType: String,
     ): UploadedImage {
-        val baseUrl = auth.instanceUrl.value
-            ?: throw TrpcException("No instance URL configured")
+        val account = auth.accounts.value.firstOrNull { it.id == accountId }
+        val baseUrl = account?.instanceUrl
+            ?: throw TrpcException("No instance URL for account $accountId")
+        val token = account.token
         val response = client.post("$baseUrl/api/issues/$issueId/images") {
+            if (token != null) header("Authorization", "Bearer $token")
             setBody(
                 MultiPartFormDataContent(
                     formData {

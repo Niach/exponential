@@ -116,7 +116,8 @@ class MainActivity : ComponentActivity() {
             ?: return
         authRepository.setToken(token, authRepository.userEmail.value)
         lifecycleScope.launch {
-            val session = authApi.fetchSession()
+            val accountId = authRepository.activeAccountId.value ?: return@launch
+            val session = authApi.fetchSession(accountId)
             if (session != null) {
                 authRepository.setToken(token, session.email, session.userId, session.isAdmin)
             }

@@ -237,8 +237,9 @@ class IssueListViewModel @Inject constructor(
 
     fun updateIssueStatus(issueId: String, status: IssueStatus) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(UpdateIssueInput(id = issueId, status = status.wire))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, status = status.wire))
             }.onFailure { error ->
                 _error.value = error.message ?: "Failed to update status"
             }
@@ -247,8 +248,10 @@ class IssueListViewModel @Inject constructor(
 
     fun archiveIssue(issueId: String) {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(
+                    accountId,
                     UpdateIssueInput(
                         id = issueId,
                         archivedAt = java.time.Instant.now().toString(),
@@ -278,12 +281,14 @@ class IssueListViewModel @Inject constructor(
             _busy.value = true
             _error.value = null
             try {
+                val accountId = auth.activeAccountId.value ?: return@launch
                 val rawDescription = description?.takeIf { it.isNotBlank() }
                 val strippedDescription = rawDescription
                     ?.let { removeMarkdownImagesByUrl(it, pendingImages.keys) }
                     ?.takeIf { it.isNotBlank() }
 
                 val created = issuesApi.create(
+                    accountId,
                     CreateIssueInput(
                         projectId = projectId,
                         title = title.trim(),
@@ -300,7 +305,7 @@ class IssueListViewModel @Inject constructor(
                 )
 
                 if (rawDescription != null && pendingImages.isNotEmpty()) {
-                    val urlByPlaceholder = uploadPendingImages(created.id, pendingImages)
+                    val urlByPlaceholder = uploadPendingImages(accountId, created.id, pendingImages)
                     val finalDescription = replaceMarkdownImageUrls(
                         markdown = removeMarkdownImagesByUrl(
                             rawDescription,
@@ -310,6 +315,7 @@ class IssueListViewModel @Inject constructor(
                     )
                     if (finalDescription != strippedDescription.orEmpty() && finalDescription.isNotBlank()) {
                         issuesApi.update(
+                            accountId,
                             UpdateIssueInput(id = created.id, description = IssueDescription(finalDescription))
                         )
                     }
@@ -323,6 +329,7 @@ class IssueListViewModel @Inject constructor(
     }
 
     private suspend fun uploadPendingImages(
+        accountId: String,
         issueId: String,
         pending: Map<String, android.net.Uri>,
     ): Map<String, String> {
@@ -338,7 +345,7 @@ class IssueListViewModel @Inject constructor(
                         if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
                     } ?: uri.lastPathSegment ?: "image"
                 }
-                val uploaded = issueImagesApi.upload(issueId, bytes, filename, contentType)
+                val uploaded = issueImagesApi.upload(accountId, issueId, bytes, filename, contentType)
                 out[placeholder] = uploaded.url
             } catch (_: Throwable) {
                 // Skip this image; placeholder will be stripped from final description.

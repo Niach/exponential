@@ -26,8 +26,9 @@ data class DeleteCommentInput(val id: String)
 @Singleton
 class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
 
-    suspend fun create(issueId: String, text: String) {
+    suspend fun create(accountId: String, issueId: String, text: String) {
         trpc.mutation(
+            accountId,
             path = "comments.create",
             input = CreateCommentInput(issueId, CommentBody(text)),
             inputSerializer = CreateCommentInput.serializer(),
@@ -35,8 +36,9 @@ class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun update(id: String, text: String) {
+    suspend fun update(accountId: String, id: String, text: String) {
         trpc.mutation(
+            accountId,
             path = "comments.update",
             input = UpdateCommentInput(id, CommentBody(text)),
             inputSerializer = UpdateCommentInput.serializer(),
@@ -44,8 +46,9 @@ class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun delete(id: String) {
+    suspend fun delete(accountId: String, id: String) {
         trpc.mutation(
+            accountId,
             path = "comments.delete",
             input = DeleteCommentInput(id),
             inputSerializer = DeleteCommentInput.serializer(),

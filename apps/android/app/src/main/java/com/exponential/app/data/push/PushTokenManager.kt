@@ -25,18 +25,19 @@ class PushTokenManager @Inject constructor(
 
     fun start() {
         scope.launch {
-            combine(auth.instanceUrl, auth.token) { url, token -> url to token }
+            combine(auth.activeAccountId, auth.token) { accountId, token -> accountId to token }
                 .distinctUntilChanged()
-                .collect { (url, token) ->
-                    if (url != null && token != null) registerCurrentToken()
+                .collect { (accountId, token) ->
+                    if (accountId != null && token != null) registerCurrentToken()
                 }
         }
     }
 
     suspend fun registerCurrentToken() {
         try {
+            val accountId = auth.activeAccountId.value ?: return
             val token = currentFcmToken() ?: return
-            api.register(token)
+            api.register(accountId, token)
             Log.i(TAG, "Registered FCM token with backend")
         } catch (err: Throwable) {
             Log.w(TAG, "Failed to register FCM token: ${err.message}")
@@ -47,7 +48,8 @@ class PushTokenManager @Inject constructor(
         // Called from FcmService.onNewToken on a background thread; just enqueue.
         scope.launch {
             try {
-                if (auth.token.value != null) api.register(token)
+                val accountId = auth.activeAccountId.value ?: return@launch
+                if (auth.token.value != null) api.register(accountId, token)
             } catch (err: Throwable) {
                 Log.w(TAG, "Failed to register rotated FCM token: ${err.message}")
             }
@@ -56,9 +58,10 @@ class PushTokenManager @Inject constructor(
 
     fun unregisterAndForget() {
         scope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             val token = runCatching { currentFcmToken() }.getOrNull() ?: return@launch
             try {
-                api.unregister(token)
+                api.unregister(accountId, token)
             } catch (err: Throwable) {
                 Log.w(TAG, "Failed to unregister FCM token: ${err.message}")
             }

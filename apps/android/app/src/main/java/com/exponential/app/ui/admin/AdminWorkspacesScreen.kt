@@ -56,14 +56,16 @@ data class AdminWorkspacesState(
 @HiltViewModel
 class AdminWorkspacesViewModel @Inject constructor(
     private val adminApi: AdminApi,
+    private val auth: com.exponential.app.data.auth.AuthRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(AdminWorkspacesState())
     val state: StateFlow<AdminWorkspacesState> = _state.asStateFlow()
 
     fun refresh() {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(loading = true, error = null)
-            runCatching { adminApi.listWorkspaces() }
+            runCatching { adminApi.listWorkspaces(accountId) }
                 .onSuccess { _state.value = _state.value.copy(workspaces = it, loading = false) }
                 .onFailure { _state.value = _state.value.copy(loading = false, error = it.message) }
         }
@@ -71,7 +73,8 @@ class AdminWorkspacesViewModel @Inject constructor(
 
     fun delete(workspaceId: String) {
         viewModelScope.launch {
-            runCatching { adminApi.deleteWorkspace(workspaceId) }
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { adminApi.deleteWorkspace(accountId, workspaceId) }
                 .onSuccess { refresh() }
                 .onFailure { _state.value = _state.value.copy(error = it.message) }
         }

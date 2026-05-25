@@ -77,8 +77,9 @@ class IntegrationsViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(loading = true, error = null)
-            runCatching { integrationsApi.googleStatus() }
+            runCatching { integrationsApi.googleStatus(accountId) }
                 .onSuccess { status ->
                     _state.value = _state.value.copy(
                         loading = false,
@@ -98,8 +99,9 @@ class IntegrationsViewModel @Inject constructor(
 
     fun disconnect() {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(disconnecting = true, error = null)
-            runCatching { integrationsApi.googleDisconnect() }
+            runCatching { integrationsApi.googleDisconnect(accountId) }
                 .onSuccess {
                     _state.value = _state.value.copy(
                         connected = false,
@@ -119,8 +121,9 @@ class IntegrationsViewModel @Inject constructor(
 
     fun backfill() {
         viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(backfilling = true, error = null, backfillResult = null)
-            runCatching { integrationsApi.googleBackfill() }
+            runCatching { integrationsApi.googleBackfill(accountId) }
                 .onSuccess {
                     _state.value = _state.value.copy(
                         backfilling = false,

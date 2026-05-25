@@ -15,8 +15,9 @@ data class PushTokenAck(val ok: Boolean)
 
 @Singleton
 class PushTokensApi @Inject constructor(private val trpc: TrpcClient) {
-    suspend fun register(token: String) {
+    suspend fun register(accountId: String, token: String) {
         trpc.mutation(
+            accountId,
             path = "pushTokens.register",
             input = RegisterPushTokenInput(token = token, platform = "android"),
             inputSerializer = RegisterPushTokenInput.serializer(),
@@ -24,8 +25,9 @@ class PushTokensApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun unregister(token: String) {
+    suspend fun unregister(accountId: String, token: String) {
         trpc.mutation(
+            accountId,
             path = "pushTokens.unregister",
             input = UnregisterPushTokenInput(token),
             inputSerializer = UnregisterPushTokenInput.serializer(),

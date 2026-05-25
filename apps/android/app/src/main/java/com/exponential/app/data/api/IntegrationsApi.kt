@@ -19,16 +19,18 @@ private object IntegrationsEmptyInput
 
 @Singleton
 class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
-    suspend fun googleStatus(): GoogleStatus =
+    suspend fun googleStatus(accountId: String): GoogleStatus =
         trpc.query(
+            accountId,
             path = "integrations.google.status",
             input = IntegrationsEmptyInput,
             inputSerializer = IntegrationsEmptyInput.serializer(),
             outputSerializer = GoogleStatus.serializer(),
         )
 
-    suspend fun googleDisconnect() {
+    suspend fun googleDisconnect(accountId: String) {
         trpc.mutation(
+            accountId,
             path = "integrations.google.disconnect",
             input = IntegrationsEmptyInput,
             inputSerializer = IntegrationsEmptyInput.serializer(),
@@ -36,8 +38,9 @@ class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun googleBackfill(): BackfillResult =
+    suspend fun googleBackfill(accountId: String): BackfillResult =
         trpc.mutation(
+            accountId,
             path = "integrations.google.backfill",
             input = IntegrationsEmptyInput,
             inputSerializer = IntegrationsEmptyInput.serializer(),

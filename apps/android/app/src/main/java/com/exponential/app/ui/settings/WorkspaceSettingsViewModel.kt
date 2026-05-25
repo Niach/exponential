@@ -123,24 +123,28 @@ class WorkspaceSettingsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspaceSettingsState())
 
     fun updateRole(memberId: String, role: String) = viewModelScope.launch {
-        runCatching { membersApi.updateRole(memberId, role) }
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { membersApi.updateRole(accountId, memberId, role) }
             .onFailure { _transient.value = it.message }
     }
 
     fun removeMember(memberId: String) = viewModelScope.launch {
-        runCatching { membersApi.remove(memberId) }
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { membersApi.remove(accountId, memberId) }
             .onFailure { _transient.value = it.message }
     }
 
     fun createInvite(role: String = DomainContract.workspaceRoleMember) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
-        runCatching { invitesApi.create(workspaceId, role) }
+        runCatching { invitesApi.create(accountId, workspaceId, role) }
             .onSuccess { _createdInviteToken.value = it.token }
             .onFailure { _transient.value = it.message }
     }
 
     fun revokeInvite(id: String) = viewModelScope.launch {
-        runCatching { invitesApi.revoke(id) }
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { invitesApi.revoke(accountId, id) }
             .onFailure { _transient.value = it.message }
     }
 
@@ -149,23 +153,27 @@ class WorkspaceSettingsViewModel @Inject constructor(
     }
 
     fun deleteLabel(labelId: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
-        runCatching { labelsApi.delete(workspaceId, labelId) }
+        runCatching { labelsApi.delete(accountId, workspaceId, labelId) }
             .onFailure { _transient.value = it.message }
     }
 
     fun renameLabel(labelId: String, name: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
-        runCatching { labelsApi.update(UpdateLabelInput(workspaceId, labelId, name = name)) }
+        runCatching { labelsApi.update(accountId, UpdateLabelInput(workspaceId, labelId, name = name)) }
             .onFailure { _transient.value = it.message }
     }
 
     fun consumeTransient() { _transient.value = null }
 
     fun setPublic(isPublic: Boolean) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching {
             workspacesApi.update(
+                accountId,
                 UpdateWorkspaceInput(
                     id = workspaceId,
                     isPublic = isPublic,
@@ -177,9 +185,10 @@ class WorkspaceSettingsViewModel @Inject constructor(
     }
 
     fun setPublicWritePolicy(policy: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching {
-            workspacesApi.update(UpdateWorkspaceInput(id = workspaceId, publicWritePolicy = policy))
+            workspacesApi.update(accountId, UpdateWorkspaceInput(id = workspaceId, publicWritePolicy = policy))
         }.onFailure { _transient.value = it.message }
     }
 }

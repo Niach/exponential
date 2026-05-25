@@ -31,16 +31,18 @@ data class DeleteLabelInput(val workspaceId: String, val labelId: String)
 
 @Singleton
 class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
-    suspend fun create(input: CreateLabelInput): LabelEntity =
+    suspend fun create(accountId: String, input: CreateLabelInput): LabelEntity =
         trpc.mutation(
+            accountId,
             path = "labels.create",
             input = input,
             inputSerializer = CreateLabelInput.serializer(),
             outputSerializer = CreateLabelResult.serializer(),
         ).label
 
-    suspend fun update(input: UpdateLabelInput) {
+    suspend fun update(accountId: String, input: UpdateLabelInput) {
         trpc.mutation(
+            accountId,
             path = "labels.update",
             input = input,
             inputSerializer = UpdateLabelInput.serializer(),
@@ -48,8 +50,9 @@ class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun delete(workspaceId: String, labelId: String) {
+    suspend fun delete(accountId: String, workspaceId: String, labelId: String) {
         trpc.mutation(
+            accountId,
             path = "labels.delete",
             input = DeleteLabelInput(workspaceId, labelId),
             inputSerializer = DeleteLabelInput.serializer(),
@@ -57,8 +60,9 @@ class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun addLabel(issueId: String, labelId: String) {
+    suspend fun addLabel(accountId: String, issueId: String, labelId: String) {
         trpc.mutation(
+            accountId,
             path = "issueLabels.add",
             input = IssueLabelInput(issueId, labelId),
             inputSerializer = IssueLabelInput.serializer(),
@@ -66,8 +70,9 @@ class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun removeLabel(issueId: String, labelId: String) {
+    suspend fun removeLabel(accountId: String, issueId: String, labelId: String) {
         trpc.mutation(
+            accountId,
             path = "issueLabels.remove",
             input = IssueLabelInput(issueId, labelId),
             inputSerializer = IssueLabelInput.serializer(),

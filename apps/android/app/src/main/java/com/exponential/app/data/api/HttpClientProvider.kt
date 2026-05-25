@@ -1,6 +1,5 @@
 package com.exponential.app.data.api
 
-import com.exponential.app.data.auth.AuthRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -31,7 +30,7 @@ object HttpClientModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(json: Json, auth: AuthRepository): HttpClient =
+    fun provideHttpClient(json: Json): HttpClient =
         HttpClient(CIO) {
             expectSuccess = false
             install(ContentNegotiation) { json(json) }
@@ -45,7 +44,6 @@ object HttpClientModule {
             }
             install(DefaultRequest) {
                 header("Accept", "application/json")
-                auth.token.value?.let { header("Authorization", "Bearer $it") }
             }
         }
 }
