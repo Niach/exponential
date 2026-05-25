@@ -49,15 +49,14 @@ final class AuthApi: Sendable {
         self.auth = auth
     }
 
-    func signInWithPassword(email: String, password: String) async -> SignInResult {
-        guard let baseUrl = auth.instanceUrl,
-              let url = URL(string: "\(baseUrl)/api/auth/sign-in/email") else {
-            return .failure(message: "No instance URL set")
+    func signInWithPassword(instanceUrl: String, email: String, password: String) async -> SignInResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/sign-in/email") else {
+            return .failure(message: "Invalid instance URL")
         }
 
         do {
             let body = try JSONEncoder().encode(["email": email, "password": password])
-            let (data, response) = try await httpClient.post(url, body: body)
+            let (data, response) = try await httpClient.postUnauthenticated(url, body: body)
 
             guard (200...299).contains(response.statusCode) else {
                 let text = String(data: data, encoding: .utf8) ?? ""
@@ -90,20 +89,20 @@ final class AuthApi: Sendable {
         guard let url = URL(string: "\(instanceUrl)/api/auth-config") else {
             throw HTTPError.invalidResponse
         }
-        let (data, response) = try await httpClient.get(url)
+        let (data, response) = try await httpClient.getUnauthenticated(url)
         guard (200...299).contains(response.statusCode) else {
             throw HTTPError.httpError(response.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         return try JSONDecoder().decode(AuthConfig.self, from: data)
     }
 
-    func fetchSession() async -> AuthUser? {
-        guard let baseUrl = auth.instanceUrl,
+    func fetchSession(accountId: String) async -> AuthUser? {
+        guard let baseUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl,
               let url = URL(string: "\(baseUrl)/api/auth/get-session") else {
             return nil
         }
         do {
-            let (data, response) = try await httpClient.get(url)
+            let (data, response) = try await httpClient.get(url, accountId: accountId)
             guard (200...299).contains(response.statusCode) else { return nil }
             let session = try JSONDecoder().decode(SessionResponse.self, from: data)
             return session.user
@@ -112,15 +111,13 @@ final class AuthApi: Sendable {
         }
     }
 
-    func oauthStartUrl(providerId: String) -> URL? {
-        guard let baseUrl = auth.instanceUrl else { return nil }
+    func oauthStartUrl(instanceUrl: String, providerId: String) -> URL? {
         let encoded = providerId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? providerId
-        return URL(string: "\(baseUrl)/api/mobile-oauth-start?providerId=\(encoded)")
+        return URL(string: "\(instanceUrl)/api/mobile-oauth-start?providerId=\(encoded)")
     }
 
-    func googleStartUrl() -> URL? {
-        guard let baseUrl = auth.instanceUrl else { return nil }
-        return URL(string: "\(baseUrl)/api/mobile-oauth-start?provider=google")
+    func googleStartUrl(instanceUrl: String) -> URL? {
+        URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=google")
     }
 }
 

@@ -16,22 +16,25 @@ final class AgentPlanApi: Sendable {
         self.trpc = trpc
     }
 
-    func approvePlan(issueId: String) async throws {
+    func approvePlan(accountId: String, issueId: String) async throws {
         let _: EmptyResult = try await trpc.mutation(
+            accountId: accountId,
             path: "agentPlan.approvePlan",
             input: IssueIdInput(issueId: issueId)
         )
     }
 
-    func requestChanges(issueId: String) async throws {
+    func requestChanges(accountId: String, issueId: String) async throws {
         let _: EmptyResult = try await trpc.mutation(
+            accountId: accountId,
             path: "agentPlan.requestChanges",
             input: IssueIdInput(issueId: issueId)
         )
     }
 
-    func retry(issueId: String) async throws {
+    func retry(accountId: String, issueId: String) async throws {
         let _: EmptyResult = try await trpc.mutation(
+            accountId: accountId,
             path: "agentPlan.retry",
             input: IssueIdInput(issueId: issueId)
         )

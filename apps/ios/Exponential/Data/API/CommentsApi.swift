@@ -30,21 +30,23 @@ final class CommentsApi: Sendable {
         self.trpc = trpc
     }
 
-    func create(issueId: String, text: String) async throws {
+    func create(accountId: String, issueId: String, text: String) async throws {
         let _: EmptyResult = try await trpc.mutation(
+            accountId: accountId,
             path: "comments.create",
             input: CreateCommentInput(issueId: issueId, body: CommentBody(text: text))
         )
     }
 
-    func update(id: String, text: String) async throws {
+    func update(accountId: String, id: String, text: String) async throws {
         let _: EmptyResult = try await trpc.mutation(
+            accountId: accountId,
             path: "comments.update",
             input: UpdateCommentInput(id: id, body: CommentBody(text: text))
         )
     }
 
-    func delete(id: String) async throws {
-        try await trpc.mutationVoid(path: "comments.delete", input: DeleteCommentInput(id: id))
+    func delete(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "comments.delete", input: DeleteCommentInput(id: id))
     }
 }

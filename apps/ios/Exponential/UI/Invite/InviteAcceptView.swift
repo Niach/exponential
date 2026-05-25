@@ -4,6 +4,7 @@ struct InviteAcceptView: View {
     let token: String
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
     @State private var loading = true
     @State private var accepted = false
@@ -46,7 +47,7 @@ struct InviteAcceptView: View {
         }
         .task {
             do {
-                try await deps.workspaceInvitesApi.accept(token: token)
+                try await deps.workspaceInvitesApi.accept(accountId: accountId, token: token)
                 accepted = true
                 loading = false
                 try? await Task.sleep(for: .seconds(1.5))

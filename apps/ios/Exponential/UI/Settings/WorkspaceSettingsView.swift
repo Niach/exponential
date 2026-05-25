@@ -5,6 +5,7 @@ struct WorkspaceSettingsView: View {
     let workspaceId: String
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @State private var workspace: WorkspaceEntity?
     @State private var members: [WorkspaceMemberEntity] = []
     @State private var invites: [WorkspaceInviteEntity] = []
@@ -20,12 +21,14 @@ struct WorkspaceSettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // General — public toggle + write policy
                     WorkspaceGeneralSection(
+                        accountId: accountId,
                         workspace: workspace,
                         workspacesApi: deps.workspacesApi
                     )
 
                     // Members section
                     WorkspaceMembersSection(
+                        accountId: accountId,
                         members: members,
                         users: users,
                         currentUserId: deps.auth.userId,
@@ -34,6 +37,7 @@ struct WorkspaceSettingsView: View {
 
                     // Invites section
                     WorkspaceInvitesSection(
+                        accountId: accountId,
                         workspaceId: workspaceId,
                         invites: invites.filter { $0.acceptedAt == nil },
                         invitesApi: deps.workspaceInvitesApi
@@ -41,6 +45,7 @@ struct WorkspaceSettingsView: View {
 
                     // Labels section
                     WorkspaceLabelsSection(
+                        accountId: accountId,
                         workspaceId: workspaceId,
                         labels: labels,
                         labelsApi: deps.labelsApi
@@ -58,11 +63,12 @@ struct WorkspaceSettingsView: View {
 
     private func startObserving() {
         observationTask = Task {
+            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
             Task {
                 let obs = ValueObservation.tracking { db in
                     try WorkspaceEntity.fetchOne(db, key: workspaceId)
                 }
-                for try await item in obs.values(in: deps.db.dbPool) {
+                for try await item in obs.values(in: pool) {
                     await MainActor.run { workspace = item }
                 }
             }
@@ -70,7 +76,7 @@ struct WorkspaceSettingsView: View {
                 let obs = ValueObservation.tracking { db in
                     try WorkspaceMemberEntity.filter(Column("workspace_id") == workspaceId).fetchAll(db)
                 }
-                for try await items in obs.values(in: deps.db.dbPool) {
+                for try await items in obs.values(in: pool) {
                     await MainActor.run { members = items }
                 }
             }
@@ -78,7 +84,7 @@ struct WorkspaceSettingsView: View {
                 let obs = ValueObservation.tracking { db in
                     try WorkspaceInviteEntity.filter(Column("workspace_id") == workspaceId).fetchAll(db)
                 }
-                for try await items in obs.values(in: deps.db.dbPool) {
+                for try await items in obs.values(in: pool) {
                     await MainActor.run { invites = items }
                 }
             }
@@ -86,13 +92,13 @@ struct WorkspaceSettingsView: View {
                 let obs = ValueObservation.tracking { db in
                     try LabelEntity.filter(Column("workspace_id") == workspaceId).fetchAll(db)
                 }
-                for try await items in obs.values(in: deps.db.dbPool) {
+                for try await items in obs.values(in: pool) {
                     await MainActor.run { labels = items }
                 }
             }
             Task {
                 let obs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
-                for try await items in obs.values(in: deps.db.dbPool) {
+                for try await items in obs.values(in: pool) {
                     await MainActor.run { users = items }
                 }
             }

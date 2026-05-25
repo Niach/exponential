@@ -28,12 +28,12 @@ final class WorkspacesApi: Sendable {
         self.trpc = trpc
     }
 
-    func ensureDefault() async throws -> WorkspaceResult {
-        let result: EnsureDefaultResult = try await trpc.mutation(path: "workspaces.ensureDefault", input: EmptyInput())
+    func ensureDefault(accountId: String) async throws -> WorkspaceResult {
+        let result: EnsureDefaultResult = try await trpc.mutation(accountId: accountId, path: "workspaces.ensureDefault", input: EmptyInput())
         return result.workspace
     }
 
-    func update(_ input: UpdateWorkspaceInput) async throws {
-        let _: EmptyResult = try await trpc.mutation(path: "workspaces.update", input: input)
+    func update(accountId: String, _ input: UpdateWorkspaceInput) async throws {
+        let _: EmptyResult = try await trpc.mutation(accountId: accountId, path: "workspaces.update", input: input)
     }
 }

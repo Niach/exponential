@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AdminWorkspacesView: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @State private var workspaces: [AdminWorkspace] = []
     @State private var loading = true
     @State private var deleteTarget: AdminWorkspace?
@@ -66,7 +67,7 @@ struct AdminWorkspacesView: View {
             Button("Delete", role: .destructive) {
                 if let target = deleteTarget {
                     Task {
-                        try? await deps.adminApi.deleteWorkspace(workspaceId: target.id)
+                        try? await deps.adminApi.deleteWorkspace(accountId: accountId, workspaceId: target.id)
                         await loadWorkspaces()
                     }
                 }
@@ -80,7 +81,7 @@ struct AdminWorkspacesView: View {
 
     private func loadWorkspaces() async {
         do {
-            workspaces = try await deps.adminApi.listWorkspaces()
+            workspaces = try await deps.adminApi.listWorkspaces(accountId: accountId)
             loading = false
         } catch {
             loading = false

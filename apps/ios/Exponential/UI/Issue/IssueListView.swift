@@ -5,6 +5,7 @@ struct IssueListView: View {
     let projectId: String
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @State private var viewModel: IssueListViewModel?
     @State private var showCreateSheet = false
     @State private var searchText = ""
@@ -41,6 +42,7 @@ struct IssueListView: View {
         .onAppear {
             if viewModel == nil {
                 let vm = IssueListViewModel(
+                    accountId: accountId,
                     projectId: projectId,
                     db: deps.db,
                     issuesApi: deps.issuesApi,

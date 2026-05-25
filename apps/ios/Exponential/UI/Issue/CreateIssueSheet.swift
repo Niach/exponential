@@ -6,6 +6,7 @@ struct CreateIssueSheet: View {
     let onCreated: () -> Void
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
 
     @State private var title = ""
@@ -324,7 +325,7 @@ struct CreateIssueSheet: View {
         )
 
         do {
-            let createdId = try await deps.issuesApi.create(input)
+            let createdId = try await deps.issuesApi.create(accountId: accountId, input)
 
             // Upload any drafts, swap their URLs into the original
             // description, and patch the issue with the final markdown.
@@ -334,6 +335,7 @@ struct CreateIssueSheet: View {
                 for (placeholder, image) in pendingImages {
                     do {
                         let uploaded = try await deps.issueImagesApi.upload(
+                            accountId: accountId,
                             issueId: createdId,
                             data: image.data,
                             filename: image.filename,
@@ -355,6 +357,7 @@ struct CreateIssueSheet: View {
                 )
                 if finalDescription != stripped {
                     try await deps.issuesApi.update(
+                        accountId: accountId,
                         UpdateIssueInput(
                             id: createdId,
                             description: IssueDescription(text: finalDescription)

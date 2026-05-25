@@ -54,25 +54,25 @@ final class AdminApi: Sendable {
         self.trpc = trpc
     }
 
-    func listUsers() async throws -> [AdminUser] {
-        let result: AdminUsersResult = try await trpc.mutation(path: "admin.listUsers", input: EmptyAdminInput())
+    func listUsers(accountId: String) async throws -> [AdminUser] {
+        let result: AdminUsersResult = try await trpc.mutation(accountId: accountId, path: "admin.listUsers", input: EmptyAdminInput())
         return result.users
     }
 
-    func setUserAdmin(userId: String, isAdmin: Bool) async throws {
-        try await trpc.mutationVoid(path: "admin.setUserAdmin", input: SetAdminInput(userId: userId, isAdmin: isAdmin))
+    func setUserAdmin(accountId: String, userId: String, isAdmin: Bool) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "admin.setUserAdmin", input: SetAdminInput(userId: userId, isAdmin: isAdmin))
     }
 
-    func deleteUser(userId: String) async throws {
-        try await trpc.mutationVoid(path: "admin.deleteUser", input: DeleteUserInput(userId: userId))
+    func deleteUser(accountId: String, userId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "admin.deleteUser", input: DeleteUserInput(userId: userId))
     }
 
-    func listWorkspaces() async throws -> [AdminWorkspace] {
-        let result: AdminWorkspacesResult = try await trpc.mutation(path: "admin.listWorkspaces", input: EmptyAdminInput())
+    func listWorkspaces(accountId: String) async throws -> [AdminWorkspace] {
+        let result: AdminWorkspacesResult = try await trpc.mutation(accountId: accountId, path: "admin.listWorkspaces", input: EmptyAdminInput())
         return result.workspaces
     }
 
-    func deleteWorkspace(workspaceId: String) async throws {
-        try await trpc.mutationVoid(path: "admin.deleteWorkspace", input: DeleteWorkspaceInput(workspaceId: workspaceId))
+    func deleteWorkspace(accountId: String, workspaceId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "admin.deleteWorkspace", input: DeleteWorkspaceInput(workspaceId: workspaceId))
     }
 }

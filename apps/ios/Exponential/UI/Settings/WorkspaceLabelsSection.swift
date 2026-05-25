@@ -6,6 +6,7 @@ private let labelColors = [
 ]
 
 struct WorkspaceLabelsSection: View {
+    let accountId: String
     let workspaceId: String
     let labels: [LabelEntity]
     let labelsApi: LabelsApi
@@ -33,7 +34,7 @@ struct WorkspaceLabelsSection: View {
                     Menu {
                         ForEach(labelColors, id: \.self) { color in
                             Button {
-                                Task { try? await labelsApi.update(UpdateLabelInput(id: label.id, color: color)) }
+                                Task { try? await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, color: color)) }
                             } label: {
                                 HStack {
                                     Circle().fill(Color(hex: color) ?? .gray).frame(width: 12, height: 12)
@@ -55,7 +56,7 @@ struct WorkspaceLabelsSection: View {
                             .foregroundStyle(.white)
                             .onSubmit {
                                 Task {
-                                    try? await labelsApi.update(UpdateLabelInput(id: label.id, name: editingName))
+                                    try? await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, name: editingName))
                                     editingLabelId = nil
                                 }
                             }
@@ -73,7 +74,7 @@ struct WorkspaceLabelsSection: View {
 
                     // Delete
                     Button {
-                        Task { try? await labelsApi.delete(id: label.id) }
+                        Task { try? await labelsApi.delete(accountId: accountId, id: label.id) }
                     } label: {
                         Image(systemName: "trash")
                             .font(.caption)
@@ -125,7 +126,7 @@ struct WorkspaceLabelsSection: View {
 
                         Button("Create") {
                             Task {
-                                try? await labelsApi.create(CreateLabelInput(
+                                try? await labelsApi.create(accountId: accountId, CreateLabelInput(
                                     name: newLabelName,
                                     color: newLabelColor,
                                     workspaceId: workspaceId

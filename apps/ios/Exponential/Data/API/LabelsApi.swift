@@ -41,24 +41,24 @@ final class LabelsApi: Sendable {
         self.trpc = trpc
     }
 
-    func create(_ input: CreateLabelInput) async throws -> String {
-        let result: LabelResult = try await trpc.mutation(path: "labels.create", input: input)
+    func create(accountId: String, _ input: CreateLabelInput) async throws -> String {
+        let result: LabelResult = try await trpc.mutation(accountId: accountId, path: "labels.create", input: input)
         return result.label.id
     }
 
-    func update(_ input: UpdateLabelInput) async throws {
-        let _: LabelResult = try await trpc.mutation(path: "labels.update", input: input)
+    func update(accountId: String, _ input: UpdateLabelInput) async throws {
+        let _: LabelResult = try await trpc.mutation(accountId: accountId, path: "labels.update", input: input)
     }
 
-    func delete(id: String) async throws {
-        try await trpc.mutationVoid(path: "labels.delete", input: DeleteLabelInput(id: id))
+    func delete(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "labels.delete", input: DeleteLabelInput(id: id))
     }
 
-    func addToIssue(issueId: String, labelId: String) async throws {
-        try await trpc.mutationVoid(path: "issueLabels.add", input: AddIssueLabelInput(issueId: issueId, labelId: labelId))
+    func addToIssue(accountId: String, issueId: String, labelId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issueLabels.add", input: AddIssueLabelInput(issueId: issueId, labelId: labelId))
     }
 
-    func removeFromIssue(issueId: String, labelId: String) async throws {
-        try await trpc.mutationVoid(path: "issueLabels.remove", input: RemoveIssueLabelInput(issueId: issueId, labelId: labelId))
+    func removeFromIssue(accountId: String, issueId: String, labelId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issueLabels.remove", input: RemoveIssueLabelInput(issueId: issueId, labelId: labelId))
     }
 }

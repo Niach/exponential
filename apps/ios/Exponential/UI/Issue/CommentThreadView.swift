@@ -17,6 +17,7 @@ struct CommentThreadView: View {
     let canApprovePlan: Bool
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @State private var comments: [CommentEntity] = []
     @State private var users: [String: UserEntity] = [:]
     @State private var draft: String = ""
@@ -100,12 +101,12 @@ struct CommentThreadView: View {
                 onCancelEdit: { editingCommentId = nil },
                 onSaveEdit: { newText in
                     do {
-                        try await deps.commentsApi.update(id: comment.id, text: newText)
+                        try await deps.commentsApi.update(accountId: accountId, id: comment.id, text: newText)
                         editingCommentId = nil
                     } catch {}
                 },
                 onDelete: {
-                    Task { try? await deps.commentsApi.delete(id: comment.id) }
+                    Task { try? await deps.commentsApi.delete(accountId: accountId, id: comment.id) }
                 },
                 onRetry: { Task { await retry() } }
             )
@@ -134,7 +135,7 @@ struct CommentThreadView: View {
         submitting = true
         defer { submitting = false }
         do {
-            try await deps.commentsApi.create(issueId: issue.id, text: trimmed)
+            try await deps.commentsApi.create(accountId: accountId, issueId: issue.id, text: trimmed)
             draft = ""
         } catch {}
     }
@@ -142,19 +143,19 @@ struct CommentThreadView: View {
     private func approvePlan() async {
         pendingPlanAction = true
         defer { pendingPlanAction = false }
-        try? await deps.agentPlanApi.approvePlan(issueId: issue.id)
+        try? await deps.agentPlanApi.approvePlan(accountId: accountId, issueId: issue.id)
     }
 
     private func requestChanges() async {
         pendingPlanAction = true
         defer { pendingPlanAction = false }
-        try? await deps.agentPlanApi.requestChanges(issueId: issue.id)
+        try? await deps.agentPlanApi.requestChanges(accountId: accountId, issueId: issue.id)
     }
 
     private func retry() async {
         pendingRetry = true
         defer { pendingRetry = false }
-        try? await deps.agentPlanApi.retry(issueId: issue.id)
+        try? await deps.agentPlanApi.retry(accountId: accountId, issueId: issue.id)
     }
 
     private func startObserving() {

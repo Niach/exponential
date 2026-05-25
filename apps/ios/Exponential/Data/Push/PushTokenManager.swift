@@ -18,7 +18,7 @@ final class PushTokenManager: @unchecked Sendable {
         guard auth.isAuthenticated else { return }
         Task {
             do {
-                try await pushTokensApi.register(token: fcmToken)
+                try await pushTokensApi.register(accountId: auth.activeAccountId ?? "", token: fcmToken)
                 logger.info("FCM token registered")
             } catch {
                 logger.error("Failed to register FCM token: \(error.localizedDescription)")
@@ -30,7 +30,7 @@ final class PushTokenManager: @unchecked Sendable {
         guard let token = currentToken else { return }
         Task {
             do {
-                try await pushTokensApi.unregister(token: token)
+                try await pushTokensApi.unregister(accountId: auth.activeAccountId ?? "", token: token)
                 logger.info("FCM token unregistered")
             } catch {
                 logger.error("Failed to unregister FCM token: \(error.localizedDescription)")

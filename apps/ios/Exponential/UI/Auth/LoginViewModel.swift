@@ -58,10 +58,10 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     // MARK: - Password Sign In
 
     func signIn() async {
-        guard !loading else { return }
+        guard !loading, let instanceUrl = auth.instanceUrl else { return }
         loading = true
         error = nil
-        let result = await authApi.signInWithPassword(email: email, password: password)
+        let result = await authApi.signInWithPassword(instanceUrl: instanceUrl, email: email, password: password)
         switch result {
         case let .success(token, user):
             auth.setToken(token, email: user.email, name: user.name, userId: user.id, isAdmin: user.isAdmin ?? false)
@@ -75,7 +75,8 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     // MARK: - OAuth
 
     func startOAuthFlow(providerId: String) {
-        guard let url = authApi.oauthStartUrl(providerId: providerId) else {
+        guard let instanceUrl = auth.instanceUrl,
+              let url = authApi.oauthStartUrl(instanceUrl: instanceUrl, providerId: providerId) else {
             error = "Could not build OAuth URL"
             return
         }
@@ -83,7 +84,8 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     }
 
     func startGoogleOAuthFlow() {
-        guard let url = authApi.googleStartUrl() else {
+        guard let instanceUrl = auth.instanceUrl,
+              let url = authApi.googleStartUrl(instanceUrl: instanceUrl) else {
             error = "Could not build Google OAuth URL"
             return
         }
@@ -92,8 +94,11 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
 
     func handleOAuthToken(_ token: String) async {
         auth.setToken(token, email: nil)
-        if let user = await authApi.fetchSession() {
-            auth.setToken(token, email: user.email, name: user.name, userId: user.id, isAdmin: user.isAdmin ?? false)
+        if let instanceUrl = auth.instanceUrl {
+            let accountId = ServerAccount.makeId(for: instanceUrl)
+            if let user = await authApi.fetchSession(accountId: accountId) {
+                auth.setToken(token, email: user.email, name: user.name, userId: user.id, isAdmin: user.isAdmin ?? false)
+            }
         }
     }
 

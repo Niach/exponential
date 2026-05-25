@@ -14,16 +14,23 @@ final class TrpcClient: Sendable {
         self.auth = auth
     }
 
-    func mutation<I: Encodable, O: Decodable>(path: String, input: I) async throws -> O {
-        guard let baseUrl = auth.instanceUrl else {
+    /// Look up the instanceUrl for the given account. Every tRPC call needs
+    /// this so the request routes to the right server.
+    private func baseUrl(for accountId: String) throws -> String {
+        guard let url = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl else {
             throw TrpcError.noInstanceUrl
         }
-        guard let url = URL(string: "\(baseUrl)/api/trpc/\(path)") else {
+        return url
+    }
+
+    func mutation<I: Encodable, O: Decodable>(accountId: String, path: String, input: I) async throws -> O {
+        let base = try baseUrl(for: accountId)
+        guard let url = URL(string: "\(base)/api/trpc/\(path)") else {
             throw TrpcError.invalidUrl
         }
 
         let body = try JSONEncoder().encode(input)
-        let (data, response) = try await httpClient.post(url, body: body)
+        let (data, response) = try await httpClient.post(url, accountId: accountId, body: body)
 
         guard (200...299).contains(response.statusCode) else {
             let text = String(data: data, encoding: .utf8) ?? ""
@@ -34,16 +41,14 @@ final class TrpcClient: Sendable {
         return wrapper.result.data
     }
 
-    func mutationVoid<I: Encodable>(path: String, input: I) async throws {
-        guard let baseUrl = auth.instanceUrl else {
-            throw TrpcError.noInstanceUrl
-        }
-        guard let url = URL(string: "\(baseUrl)/api/trpc/\(path)") else {
+    func mutationVoid<I: Encodable>(accountId: String, path: String, input: I) async throws {
+        let base = try baseUrl(for: accountId)
+        guard let url = URL(string: "\(base)/api/trpc/\(path)") else {
             throw TrpcError.invalidUrl
         }
 
         let body = try JSONEncoder().encode(input)
-        let (data, response) = try await httpClient.post(url, body: body)
+        let (data, response) = try await httpClient.post(url, accountId: accountId, body: body)
 
         guard (200...299).contains(response.statusCode) else {
             let text = String(data: data, encoding: .utf8) ?? ""

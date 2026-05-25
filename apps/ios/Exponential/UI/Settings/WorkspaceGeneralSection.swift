@@ -4,6 +4,7 @@ import SwiftUI
 // toggle the workspace public/private, and (when public) select the write
 // policy that gates non-member create/edit access.
 struct WorkspaceGeneralSection: View {
+    let accountId: String
     let workspace: WorkspaceEntity?
     let workspacesApi: WorkspacesApi
 
@@ -90,7 +91,7 @@ struct WorkspaceGeneralSection: View {
         defer { saving = false }
         error = nil
         do {
-            try await workspacesApi.update(UpdateWorkspaceInput(
+            try await workspacesApi.update(accountId: accountId, UpdateWorkspaceInput(
                 id: workspace.id,
                 name: nil,
                 isPublic: isPublic,
@@ -109,7 +110,7 @@ struct WorkspaceGeneralSection: View {
         defer { saving = false }
         error = nil
         do {
-            try await workspacesApi.update(UpdateWorkspaceInput(
+            try await workspacesApi.update(accountId: accountId, UpdateWorkspaceInput(
                 id: workspace.id,
                 name: nil,
                 isPublic: nil,

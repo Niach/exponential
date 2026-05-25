@@ -13,6 +13,7 @@ final class IssueDetailViewModel {
     var error: String?
     var permissions: WorkspacePermissions = .denied
 
+    private let accountId: String
     private let issueId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
@@ -20,7 +21,8 @@ final class IssueDetailViewModel {
     private let auth: AuthRepository
     private var observationTask: Task<Void, Never>?
 
-    init(issueId: String, db: DatabaseManager, issuesApi: IssuesApi, labelsApi: LabelsApi, auth: AuthRepository) {
+    init(accountId: String, issueId: String, db: DatabaseManager, issuesApi: IssuesApi, labelsApi: LabelsApi, auth: AuthRepository) {
+        self.accountId = accountId
         self.issueId = issueId
         self.db = db
         self.issuesApi = issuesApi
@@ -147,9 +149,9 @@ final class IssueDetailViewModel {
         guard let issue else { return }
         do {
             if assignedLabelIds.contains(labelId) {
-                try await labelsApi.removeFromIssue(issueId: issue.id, labelId: labelId)
+                try await labelsApi.removeFromIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
             } else {
-                try await labelsApi.addToIssue(issueId: issue.id, labelId: labelId)
+                try await labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
             }
         } catch {
             self.error = error.localizedDescription
@@ -159,7 +161,7 @@ final class IssueDetailViewModel {
     func deleteIssue() async -> Bool {
         guard let issue else { return false }
         do {
-            try await issuesApi.delete(id: issue.id)
+            try await issuesApi.delete(accountId: accountId, id: issue.id)
             return true
         } catch {
             self.error = error.localizedDescription
@@ -184,7 +186,7 @@ final class IssueDetailViewModel {
 
     private func update(_ input: UpdateIssueInput) async {
         do {
-            try await issuesApi.update(input)
+            try await issuesApi.update(accountId: accountId, input)
         } catch {
             self.error = error.localizedDescription
         }

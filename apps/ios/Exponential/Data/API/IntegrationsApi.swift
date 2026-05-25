@@ -14,15 +14,15 @@ final class IntegrationsApi: Sendable {
         self.trpc = trpc
     }
 
-    func googleStatus() async throws -> GoogleStatusResult {
-        try await trpc.mutation(path: "integrations.google.status", input: EmptyIntegrationInput())
+    func googleStatus(accountId: String) async throws -> GoogleStatusResult {
+        try await trpc.mutation(accountId: accountId, path: "integrations.google.status", input: EmptyIntegrationInput())
     }
 
-    func googleDisconnect() async throws {
-        try await trpc.mutationVoid(path: "integrations.google.disconnect", input: EmptyIntegrationInput())
+    func googleDisconnect(accountId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "integrations.google.disconnect", input: EmptyIntegrationInput())
     }
 
-    func googleBackfill() async throws {
-        try await trpc.mutationVoid(path: "integrations.google.backfill", input: EmptyIntegrationInput())
+    func googleBackfill(accountId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "integrations.google.backfill", input: EmptyIntegrationInput())
     }
 }

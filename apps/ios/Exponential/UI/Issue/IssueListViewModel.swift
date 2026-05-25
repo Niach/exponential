@@ -14,13 +14,15 @@ final class IssueListViewModel {
     var permissions: WorkspacePermissions = .denied
     var error: String?
 
+    private let accountId: String
     private let projectId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
     private let auth: AuthRepository
     private var observationTask: Task<Void, Never>?
 
-    init(projectId: String, db: DatabaseManager, issuesApi: IssuesApi, auth: AuthRepository) {
+    init(accountId: String, projectId: String, db: DatabaseManager, issuesApi: IssuesApi, auth: AuthRepository) {
+        self.accountId = accountId
         self.projectId = projectId
         self.db = db
         self.issuesApi = issuesApi
@@ -150,7 +152,7 @@ final class IssueListViewModel {
 
     func setStatus(issueId: String, status: IssueStatus) async {
         do {
-            try await issuesApi.update(UpdateIssueInput(id: issueId, status: status.rawValue))
+            try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, status: status.rawValue))
         } catch {
             self.error = error.localizedDescription
         }

@@ -60,16 +60,16 @@ final class IssuesApi: Sendable {
         self.trpc = trpc
     }
 
-    func create(_ input: CreateIssueInput) async throws -> String {
-        let result: IssueResult = try await trpc.mutation(path: "issues.create", input: input)
+    func create(accountId: String, _ input: CreateIssueInput) async throws -> String {
+        let result: IssueResult = try await trpc.mutation(accountId: accountId, path: "issues.create", input: input)
         return result.issue.id
     }
 
-    func update(_ input: UpdateIssueInput) async throws {
-        let _: IssueResult = try await trpc.mutation(path: "issues.update", input: input)
+    func update(accountId: String, _ input: UpdateIssueInput) async throws {
+        let _: IssueResult = try await trpc.mutation(accountId: accountId, path: "issues.update", input: input)
     }
 
-    func delete(id: String) async throws {
-        try await trpc.mutationVoid(path: "issues.delete", input: DeleteIssueInput(id: id))
+    func delete(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issues.delete", input: DeleteIssueInput(id: id))
     }
 }

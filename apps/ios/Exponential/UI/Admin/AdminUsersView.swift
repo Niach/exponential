@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AdminUsersView: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @State private var users: [AdminUser] = []
     @State private var loading = true
     @State private var error: String?
@@ -48,7 +49,7 @@ struct AdminUsersView: View {
                                     get: { user.isAdmin },
                                     set: { newValue in
                                         Task {
-                                            try? await deps.adminApi.setUserAdmin(userId: user.id, isAdmin: newValue)
+                                            try? await deps.adminApi.setUserAdmin(accountId: accountId, userId: user.id, isAdmin: newValue)
                                             await loadUsers()
                                         }
                                     }
@@ -87,7 +88,7 @@ struct AdminUsersView: View {
             Button("Delete", role: .destructive) {
                 if let target = deleteTarget {
                     Task {
-                        try? await deps.adminApi.deleteUser(userId: target.id)
+                        try? await deps.adminApi.deleteUser(accountId: accountId, userId: target.id)
                         await loadUsers()
                     }
                 }
@@ -101,7 +102,7 @@ struct AdminUsersView: View {
 
     private func loadUsers() async {
         do {
-            users = try await deps.adminApi.listUsers()
+            users = try await deps.adminApi.listUsers(accountId: accountId)
             loading = false
         } catch {
             self.error = error.localizedDescription

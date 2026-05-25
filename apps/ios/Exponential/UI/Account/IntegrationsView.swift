@@ -2,6 +2,7 @@ import SwiftUI
 
 struct IntegrationsView: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @State private var googleConnected = false
     @State private var googleConnectedAt: String?
     @State private var loading = true
@@ -106,7 +107,7 @@ struct IntegrationsView: View {
 
     private func loadStatus() async {
         do {
-            let status = try await deps.integrationsApi.googleStatus()
+            let status = try await deps.integrationsApi.googleStatus(accountId: accountId)
             googleConnected = status.connected
             googleConnectedAt = status.connectedAt
             loading = false
@@ -118,7 +119,7 @@ struct IntegrationsView: View {
 
     private func disconnect() async {
         do {
-            try await deps.integrationsApi.googleDisconnect()
+            try await deps.integrationsApi.googleDisconnect(accountId: accountId)
             googleConnected = false
         } catch {
             self.error = error.localizedDescription
@@ -128,7 +129,7 @@ struct IntegrationsView: View {
     private func backfill() async {
         backfilling = true
         do {
-            try await deps.integrationsApi.googleBackfill()
+            try await deps.integrationsApi.googleBackfill(accountId: accountId)
         } catch {
             self.error = error.localizedDescription
         }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkspaceMembersSection: View {
+    let accountId: String
     let members: [WorkspaceMemberEntity]
     let users: [UserEntity]
     let currentUserId: String?
@@ -59,20 +60,20 @@ struct WorkspaceMembersSection: View {
                     Menu {
                         if member.role != DomainContract.workspaceRoleOwner {
                             Button {
-                                Task { try? await membersApi.updateRole(memberId: member.id, role: DomainContract.workspaceRoleOwner) }
+                                Task { try? await membersApi.updateRole(accountId: accountId, memberId: member.id, role: DomainContract.workspaceRoleOwner) }
                             } label: {
                                 Label("Make owner", systemImage: "crown")
                             }
                         }
                         if member.role != DomainContract.workspaceRoleMember {
                             Button {
-                                Task { try? await membersApi.updateRole(memberId: member.id, role: DomainContract.workspaceRoleMember) }
+                                Task { try? await membersApi.updateRole(accountId: accountId, memberId: member.id, role: DomainContract.workspaceRoleMember) }
                             } label: {
                                 Label("Make member", systemImage: "shield")
                             }
                         }
                         Button(role: .destructive) {
-                            Task { try? await membersApi.remove(memberId: member.id) }
+                            Task { try? await membersApi.remove(accountId: accountId, memberId: member.id) }
                         } label: {
                             Label(member.userId == currentUserId ? "Leave" : "Remove", systemImage: "xmark")
                         }

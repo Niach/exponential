@@ -16,11 +16,11 @@ final class PushTokensApi: Sendable {
         self.trpc = trpc
     }
 
-    func register(token: String) async throws {
-        try await trpc.mutationVoid(path: "pushTokens.register", input: RegisterTokenInput(token: token, platform: "ios"))
+    func register(accountId: String, token: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "pushTokens.register", input: RegisterTokenInput(token: token, platform: "ios"))
     }
 
-    func unregister(token: String) async throws {
-        try await trpc.mutationVoid(path: "pushTokens.unregister", input: UnregisterTokenInput(token: token))
+    func unregister(accountId: String, token: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "pushTokens.unregister", input: UnregisterTokenInput(token: token))
     }
 }

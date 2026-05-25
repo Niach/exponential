@@ -77,6 +77,7 @@ struct MainNavigator: View {
             }
         }
         .environment(workspaceState)
+        .environment(\.accountId, deps.auth.activeAccountId ?? "")
         .sheet(isPresented: $showWorkspaceSwitcher) {
             SidebarView(
                 groups: workspaceLoader?.groups ?? [],

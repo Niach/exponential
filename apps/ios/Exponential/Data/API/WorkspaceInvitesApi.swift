@@ -49,19 +49,20 @@ final class WorkspaceInvitesApi: Sendable {
         self.trpc = trpc
     }
 
-    func create(workspaceId: String, role: String) async throws -> InviteTokenResult {
+    func create(accountId: String, workspaceId: String, role: String) async throws -> InviteTokenResult {
         let result: InviteCreateResult = try await trpc.mutation(
+            accountId: accountId,
             path: "workspaceInvites.create",
             input: CreateInviteInput(workspaceId: workspaceId, role: role)
         )
         return result.invite
     }
 
-    func accept(token: String) async throws {
-        try await trpc.mutationVoid(path: "workspaceInvites.accept", input: AcceptInviteInput(token: token))
+    func accept(accountId: String, token: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "workspaceInvites.accept", input: AcceptInviteInput(token: token))
     }
 
-    func revoke(inviteId: String) async throws {
-        try await trpc.mutationVoid(path: "workspaceInvites.revoke", input: RevokeInviteInput(inviteId: inviteId))
+    func revoke(accountId: String, inviteId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "workspaceInvites.revoke", input: RevokeInviteInput(inviteId: inviteId))
     }
 }

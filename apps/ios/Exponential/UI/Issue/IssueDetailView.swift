@@ -5,6 +5,7 @@ struct IssueDetailView: View {
     let issueId: String
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: IssueDetailViewModel?
     @State private var showDeleteConfirm = false
@@ -342,6 +343,7 @@ struct IssueDetailView: View {
         .onAppear {
             if viewModel == nil {
                 let vm = IssueDetailViewModel(
+                    accountId: accountId,
                     issueId: issueId,
                     db: deps.db,
                     issuesApi: deps.issuesApi,
@@ -382,6 +384,7 @@ struct IssueDetailView: View {
         for (placeholder, image) in drafts {
             do {
                 let uploaded = try await deps.issueImagesApi.upload(
+                    accountId: accountId,
                     issueId: issueId,
                     data: image.data,
                     filename: image.filename,

@@ -16,11 +16,11 @@ final class WorkspaceMembersApi: Sendable {
         self.trpc = trpc
     }
 
-    func updateRole(memberId: String, role: String) async throws {
-        try await trpc.mutationVoid(path: "workspaceMembers.updateRole", input: UpdateRoleInput(memberId: memberId, role: role))
+    func updateRole(accountId: String, memberId: String, role: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "workspaceMembers.updateRole", input: UpdateRoleInput(memberId: memberId, role: role))
     }
 
-    func remove(memberId: String) async throws {
-        try await trpc.mutationVoid(path: "workspaceMembers.remove", input: RemoveMemberInput(memberId: memberId))
+    func remove(accountId: String, memberId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "workspaceMembers.remove", input: RemoveMemberInput(memberId: memberId))
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkspaceInvitesSection: View {
+    let accountId: String
     let workspaceId: String
     let invites: [WorkspaceInviteEntity]
     let invitesApi: WorkspaceInvitesApi
@@ -90,7 +91,7 @@ struct WorkspaceInvitesSection: View {
                         Spacer()
 
                         Button {
-                            Task { try? await invitesApi.revoke(inviteId: invite.id) }
+                            Task { try? await invitesApi.revoke(accountId: accountId, inviteId: invite.id) }
                         } label: {
                             Image(systemName: "trash")
                                 .font(.caption)
@@ -108,7 +109,7 @@ struct WorkspaceInvitesSection: View {
     private func generateLink() async {
         generating = true
         do {
-            let result = try await invitesApi.create(workspaceId: workspaceId, role: DomainContract.workspaceRoleMember)
+            let result = try await invitesApi.create(accountId: accountId, workspaceId: workspaceId, role: DomainContract.workspaceRoleMember)
             generatedLink = "exponential://invite/\(result.token)"
         } catch {}
         generating = false

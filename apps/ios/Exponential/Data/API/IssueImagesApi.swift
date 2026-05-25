@@ -24,12 +24,13 @@ final class IssueImagesApi: Sendable {
     }
 
     func upload(
+        accountId: String,
         issueId: String,
         data: Data,
         filename: String,
         contentType: String
     ) async throws -> UploadedImage {
-        guard let baseUrl = auth.instanceUrl else {
+        guard let baseUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl else {
             throw IssueImagesError.noInstanceUrl
         }
         guard let url = URL(string: "\(baseUrl)/api/issues/\(issueId)/images") else {
@@ -48,6 +49,7 @@ final class IssueImagesApi: Sendable {
 
         var request = httpClient.request(
             url,
+            accountId: accountId,
             method: "POST",
             body: body,
             contentType: "multipart/form-data; boundary=\(boundary)"
