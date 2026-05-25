@@ -118,6 +118,10 @@ async function applyCustomSql() {
   }
 }
 
+function isCloudInstance(): boolean {
+  return !process.env.PUBLIC_FEEDBACK_URL?.trim()
+}
+
 let bootstrapPromise: Promise<void> | null = null
 
 export function bootstrapCloud(): Promise<void> {
@@ -125,9 +129,11 @@ export function bootstrapCloud(): Promise<void> {
   bootstrapPromise = (async () => {
     try {
       await applyCustomSql()
-      const publicWorkspaceId = await ensurePublicWorkspace()
       await promoteInitialAdmins()
-      await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
+      if (isCloudInstance()) {
+        const publicWorkspaceId = await ensurePublicWorkspace()
+        await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
+      }
     } catch (err) {
       console.error(`[bootstrap-cloud] failed:`, err)
       bootstrapPromise = null
