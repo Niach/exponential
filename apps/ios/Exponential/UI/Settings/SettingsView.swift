@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(WorkspaceState.self) private var workspaceState
     @State private var workspaceLoader: MultiAccountWorkspaceLoader?
     @State private var pendingWorkspaceId: String?
+    @State private var showAddServer = false
 
     var body: some View {
         ZStack {
@@ -37,6 +38,11 @@ struct SettingsView: View {
         .onChange(of: deps.auth.accounts) { _, _ in
             workspaceLoader?.refresh()
         }
+        .fullScreenCover(isPresented: $showAddServer) {
+            InstanceView(showCancel: true) {
+                showAddServer = false
+            }
+        }
     }
 
     private var serversSection: some View {
@@ -49,7 +55,7 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
                 Button {
-                    deps.auth.startAddServer()
+                    showAddServer = true
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "plus.circle")

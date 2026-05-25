@@ -20,7 +20,6 @@ data class AppState(
     val token: String? = null,
     val activeAccountId: String? = null,
     val accounts: List<ServerAccount> = emptyList(),
-    val isAddingServer: Boolean = false,
 )
 
 @HiltViewModel
@@ -36,14 +35,12 @@ class AppViewModel @Inject constructor(
         auth.token,
         auth.activeAccountId,
         auth.accounts,
-        auth.isAddingServer,
-    ) { url, token, activeId, accounts, isAdding ->
+    ) { url, token, activeId, accounts ->
         AppState(
             instanceUrl = url,
             token = token,
             activeAccountId = activeId,
             accounts = accounts,
-            isAddingServer = isAdding,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AppState())
 
@@ -78,11 +75,4 @@ class AppViewModel @Inject constructor(
         }
     }
 
-    fun startAddServer() {
-        viewModelScope.launch { auth.startAddServer() }
-    }
-
-    fun cancelAddServer() {
-        viewModelScope.launch { auth.cancelAddServer() }
-    }
 }

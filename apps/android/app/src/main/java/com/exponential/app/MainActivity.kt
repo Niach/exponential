@@ -170,30 +170,11 @@ private fun AppRoot() {
 
     val cloudAlreadyAdded = state.accounts.any { it.instanceUrl == AppConstants.PUBLIC_CLOUD_URL }
 
-    if (state.instanceUrl == null) {
+    if (state.accounts.isEmpty()) {
+        // First launch — no accounts at all.
         UnauthenticatedNav(
             navController = navController,
             startDestination = "instance",
-            onInstanceSet = { url ->
-                viewModel.setInstanceUrl(url)
-                navController.navigate("login") { popUpTo("instance") { inclusive = true } }
-            },
-            onLogin = {
-                navController.navigate("home") { popUpTo("login") { inclusive = true } }
-            },
-            onChangeInstance = {
-                viewModel.clearInstance()
-                navController.navigate("instance") { popUpTo("login") { inclusive = true } }
-            },
-            instanceUrl = state.instanceUrl ?: "",
-            showCancel = state.isAddingServer,
-            onCancel = { viewModel.cancelAddServer() },
-            cloudAlreadyAdded = cloudAlreadyAdded,
-        )
-    } else if (state.token == null) {
-        UnauthenticatedNav(
-            navController = navController,
-            startDestination = "login",
             onInstanceSet = { url ->
                 viewModel.setInstanceUrl(url)
                 navController.navigate("login") { popUpTo("instance") { inclusive = true } }
@@ -211,17 +192,12 @@ private fun AppRoot() {
             cloudAlreadyAdded = cloudAlreadyAdded,
         )
     } else {
-        // Keying off the active account id forces Compose to tear down the entire
-        // authenticated UI (including all ViewModels and DAO Flow subscriptions)
-        // when the user switches between accounts. The DB itself is swapped by
-        // SyncManager before this id changes.
         key(state.activeAccountId) {
             AuthenticatedShell(
                 navController = navController,
-                onSignOut = {
-                    viewModel.signOut()
-                    navController.navigate("login") { popUpTo("home") { inclusive = true } }
-                },
+                cloudAlreadyAdded = cloudAlreadyAdded,
+                onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
+                onSignOut = { viewModel.signOut() },
             )
         }
     }
@@ -261,6 +237,8 @@ private fun UnauthenticatedNav(
 @Composable
 private fun AuthenticatedShell(
     navController: NavHostController,
+    cloudAlreadyAdded: Boolean,
+    onSetInstanceUrl: (String) -> Unit,
     onSignOut: () -> Unit,
 ) {
     // Hoist HomeViewModel up here so MainScaffold's drawer shares state with
@@ -330,6 +308,31 @@ private fun AuthenticatedShell(
                     onOpenWorkspaceSettings = { navController.navigate("workspace-settings") },
                     onOpenAdminUsers = { navController.navigate("admin-users") },
                     onOpenAdminWorkspaces = { navController.navigate("admin-workspaces") },
+                    onAddServer = { navController.navigate("add-server") },
+                )
+            }
+            composable("add-server") {
+                InstanceScreen(
+                    onContinue = { url ->
+                        onSetInstanceUrl(url)
+                        navController.navigate("add-server-login") {
+                            popUpTo("add-server") { inclusive = true }
+                        }
+                    },
+                    showCancel = true,
+                    onCancel = { navController.popBackStack() },
+                    cloudAlreadyAdded = cloudAlreadyAdded,
+                )
+            }
+            composable("add-server-login") {
+                LoginScreen(
+                    instanceUrl = "",
+                    onLoggedIn = {
+                        navController.navigate("home") {
+                            popUpTo("home") { inclusive = true }
+                        }
+                    },
+                    onChangeInstance = { navController.popBackStack() },
                 )
             }
             composable("server/{accountId}") { entry ->

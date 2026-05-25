@@ -19,22 +19,18 @@ struct AppNavigator: View {
 
     var body: some View {
         Group {
-            if !deps.auth.hasInstance {
-                InstanceView(showCancel: deps.auth.isAddingServer) {
-                    deps.auth.cancelAddServer()
-                }
-            } else if !deps.auth.isAuthenticated {
+            if deps.auth.accounts.isEmpty {
+                // First launch — no accounts at all.
+                InstanceView()
+            } else if deps.auth.accounts.allSatisfy({ $0.token == nil }) {
+                // Every account is signed out — show login for the most recent.
                 LoginView()
             } else {
-                // Keying off the active account id forces SwiftUI to tear down and
-                // rebuild MainNavigator (and its GRDB ValueObservations) when the
-                // user switches between accounts. The DB pool itself is swapped by
-                // SyncManager before this id changes.
                 MainNavigator()
                     .id(deps.auth.activeAccountId ?? "none")
             }
         }
-        .transaction { $0.animation = nil } // Prevent auth transitions from affecting child navigation
+        .transaction { $0.animation = nil }
     }
 }
 

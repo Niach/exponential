@@ -72,7 +72,8 @@ class SettingsViewModel @Inject constructor(
             emptyList(),
         )
 
-    fun startAddServer() = auth.startAddServer()
+    // startAddServer removed — Settings now navigates to the instance route
+    // directly via the onAddServer callback.
 
     /// Settings → Workspaces tap. Same-server taps just `select(workspaceId)`
     /// then the caller navigates to "workspace-settings"; cross-server taps
@@ -99,6 +100,7 @@ fun SettingsScreen(
     onOpenWorkspaceSettings: () -> Unit,
     onOpenAdminUsers: () -> Unit,
     onOpenAdminWorkspaces: () -> Unit,
+    onAddServer: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val isAdmin by viewModel.isAdmin.collectAsState()
@@ -142,7 +144,7 @@ fun SettingsScreen(
                     headlineContent = { Text("Add server") },
                     leadingContent = { Icon(Icons.Filled.Add, contentDescription = null) },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-                    modifier = Modifier.clickable { viewModel.startAddServer() },
+                    modifier = Modifier.clickable { onAddServer() },
                 )
                 HorizontalDivider()
             }

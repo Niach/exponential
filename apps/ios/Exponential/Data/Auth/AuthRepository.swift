@@ -70,27 +70,6 @@ final class AuthRepository: @unchecked Sendable {
         republish()
     }
 
-    /// Drives the "add server" flow. Locally clears the published instance/token state so
-    /// AppNavigator routes through InstanceView → LoginView, while leaving the underlying
-    /// AccountStore untouched so cancelAddServer() can restore the prior active account.
-    private(set) var isAddingServer: Bool = false
-
-    func startAddServer() {
-        isAddingServer = true
-        activeAccountId = nil
-        instanceUrl = nil
-        token = nil
-        userEmail = nil
-        userName = nil
-        userId = nil
-        isAdmin = false
-    }
-
-    func cancelAddServer() {
-        isAddingServer = false
-        republish()
-    }
-
     // MARK: - Internals
 
     private func republish() {
@@ -103,7 +82,6 @@ final class AuthRepository: @unchecked Sendable {
         userName = active?.userName
         userId = active?.userId
         isAdmin = active?.isAdmin ?? false
-        isAddingServer = false
     }
 
     private func normalizeBaseUrl(_ input: String) -> String {
