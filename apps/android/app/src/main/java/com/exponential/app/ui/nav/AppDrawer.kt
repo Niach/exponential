@@ -39,16 +39,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.ServerWorkspaceGroup
 import com.exponential.app.data.db.WorkspaceEntity
 
 @Composable
 fun AppDrawer(
-    workspaces: List<WorkspaceEntity>,
+    serverGroups: List<ServerWorkspaceGroup>,
+    activeAccountId: String?,
     selectedWorkspace: WorkspaceEntity?,
     projects: List<ProjectEntity>,
     email: String?,
     activeProjectId: String?,
-    onSelectWorkspace: (String) -> Unit,
+    onSelectWorkspace: (accountId: String, workspaceId: String) -> Unit,
     onOpenProject: (String) -> Unit,
     onOpenIntegrations: () -> Unit,
     onSignOut: () -> Unit,
@@ -96,21 +98,27 @@ fun AppDrawer(
                     expanded = workspaceMenuOpen,
                     onDismissRequest = { workspaceMenuOpen = false },
                 ) {
-                    workspaces.forEach { ws ->
-                        DropdownMenuItem(
-                            text = { Text(ws.name) },
-                            leadingIcon = {
-                                if (ws.id == selectedWorkspace?.id) {
-                                    Icon(Icons.Filled.Check, null)
-                                } else {
-                                    WorkspaceAvatar(ws, size = 20.dp)
-                                }
-                            },
-                            onClick = {
-                                onSelectWorkspace(ws.id)
-                                workspaceMenuOpen = false
-                            },
-                        )
+                    serverGroups.forEachIndexed { idx, group ->
+                        if (idx > 0) HorizontalDivider()
+                        ServerGroupHeader(hostname = group.hostname, userEmail = group.userEmail)
+                        group.workspaces.forEach { ws ->
+                            val isActive = group.accountId == activeAccountId
+                                && ws.id == selectedWorkspace?.id
+                            DropdownMenuItem(
+                                text = { Text(ws.name) },
+                                leadingIcon = {
+                                    if (isActive) {
+                                        Icon(Icons.Filled.Check, null)
+                                    } else {
+                                        WorkspaceAvatar(ws, size = 20.dp)
+                                    }
+                                },
+                                onClick = {
+                                    onSelectWorkspace(group.accountId, ws.id)
+                                    workspaceMenuOpen = false
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -147,6 +155,32 @@ fun AppDrawer(
                 onClick = onSignOut,
             )
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun ServerGroupHeader(hostname: String, userEmail: String?) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Text(
+            hostname,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (!userEmail.isNullOrBlank()) {
+            Text(
+                userEmail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

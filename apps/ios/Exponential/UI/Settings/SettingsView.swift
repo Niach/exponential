@@ -106,6 +106,12 @@ struct SettingsView: View {
         let isActive = account.id == deps.auth.activeAccountId
         Button {
             if !isActive {
+                // Pre-open the new account's DB pool so the rebuilt UI
+                // (triggered by .id(activeAccountId) on MainNavigator) binds
+                // its ValueObservation to the correct file. SyncManager's
+                // 500ms poll would otherwise leave a window where the new
+                // observation reads the previous account's data.
+                try? deps.db.open(accountId: account.id)
                 deps.auth.switchAccount(id: account.id)
             }
         } label: {

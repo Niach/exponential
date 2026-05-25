@@ -165,6 +165,8 @@ private fun AppRoot() {
         deepLinkBus.consume()
     }
 
+    val cloudAlreadyAdded = state.accounts.any { it.instanceUrl == AppConstants.PUBLIC_CLOUD_URL }
+
     if (state.instanceUrl == null) {
         UnauthenticatedNav(
             navController = navController,
@@ -183,6 +185,7 @@ private fun AppRoot() {
             instanceUrl = state.instanceUrl ?: "",
             showCancel = state.isAddingServer,
             onCancel = { viewModel.cancelAddServer() },
+            cloudAlreadyAdded = cloudAlreadyAdded,
         )
     } else if (state.token == null) {
         UnauthenticatedNav(
@@ -202,6 +205,7 @@ private fun AppRoot() {
             instanceUrl = state.instanceUrl ?: "",
             showCancel = false,
             onCancel = null,
+            cloudAlreadyAdded = cloudAlreadyAdded,
         )
     } else {
         // Keying off the active account id forces Compose to tear down the entire
@@ -230,6 +234,7 @@ private fun UnauthenticatedNav(
     onChangeInstance: () -> Unit,
     showCancel: Boolean,
     onCancel: (() -> Unit)?,
+    cloudAlreadyAdded: Boolean,
 ) {
     NavHost(navController = navController, startDestination = startDestination) {
         composable("instance") {
@@ -237,6 +242,7 @@ private fun UnauthenticatedNav(
                 onContinue = onInstanceSet,
                 showCancel = showCancel,
                 onCancel = onCancel,
+                cloudAlreadyAdded = cloudAlreadyAdded,
             )
         }
         composable("login") {
@@ -262,7 +268,8 @@ private fun AuthenticatedShell(
 
     MainScaffold(
         navController = navController,
-        workspaces = homeState.workspaces,
+        serverGroups = homeState.serverGroups,
+        activeAccountId = homeState.activeAccountId,
         selectedWorkspace = homeState.selectedWorkspace,
         projects = homeState.projects,
         email = homeState.email,

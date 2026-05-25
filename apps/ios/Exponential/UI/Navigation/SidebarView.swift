@@ -1,17 +1,15 @@
 import SwiftUI
 
 struct SidebarView: View {
-    let workspaces: [WorkspaceEntity]
+    let groups: [ServerWorkspaceGroup]
+    let activeAccountId: String?
     let activeWorkspaceId: String?
-    let onSelectWorkspace: (String) -> Void
+    let onSelectWorkspace: (_ accountId: String, _ workspaceId: String) -> Void
 
     var body: some View {
         ZStack {
             AppBackground()
 
-            // Workspace tile shows the icon when set (icon_url), otherwise
-            // falls back to the first letter of the workspace name on a
-            // colored chip.
             VStack(spacing: 0) {
                 Text("Switch workspace")
                     .font(.subheadline.weight(.semibold))
@@ -20,31 +18,39 @@ struct SidebarView: View {
                     .padding(.bottom, 12)
 
                 ScrollView {
-                    VStack(spacing: 2) {
-                        ForEach(workspaces) { workspace in
-                            Button {
-                                onSelectWorkspace(workspace.id)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    WorkspaceAvatar(workspace: workspace)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(groups) { group in
+                            ServerGroupHeader(hostname: group.hostname, userEmail: group.userEmail)
 
-                                    Text(workspace.name)
-                                        .font(.body)
-                                        .foregroundStyle(.white)
+                            VStack(spacing: 2) {
+                                ForEach(group.workspaces) { workspace in
+                                    Button {
+                                        onSelectWorkspace(group.accountId, workspace.id)
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            WorkspaceAvatar(workspace: workspace)
 
-                                    Spacer()
+                                            Text(workspace.name)
+                                                .font(.body)
+                                                .foregroundStyle(.white)
 
-                                    if workspace.id == activeWorkspaceId {
-                                        Image(systemName: "checkmark")
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(.blue)
+                                            Spacer()
+
+                                            if group.accountId == activeAccountId
+                                                && workspace.id == activeWorkspaceId {
+                                                Image(systemName: "checkmark")
+                                                    .font(.caption.weight(.bold))
+                                                    .foregroundStyle(.blue)
+                                            }
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
+                                        .contentShape(Rectangle())
                                     }
+                                    .buttonStyle(.plain)
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .padding(.bottom, 8)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -52,6 +58,28 @@ struct SidebarView: View {
                 }
             }
         }
+    }
+}
+
+private struct ServerGroupHeader: View {
+    let hostname: String
+    let userEmail: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(hostname)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            if let userEmail, !userEmail.isEmpty {
+                Text(userEmail)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

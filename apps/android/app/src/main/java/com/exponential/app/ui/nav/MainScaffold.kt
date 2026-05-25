@@ -31,6 +31,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.ServerWorkspaceGroup
 import com.exponential.app.data.db.WorkspaceEntity
 import kotlinx.coroutines.launch
 
@@ -62,12 +63,13 @@ private const val EXPANDED_WIDTH_DP = 840
 @Composable
 fun MainScaffold(
     navController: NavHostController,
-    workspaces: List<WorkspaceEntity>,
+    serverGroups: List<ServerWorkspaceGroup>,
+    activeAccountId: String?,
     selectedWorkspace: WorkspaceEntity?,
     projects: List<ProjectEntity>,
     email: String?,
     activeProjectId: String?,
-    onSelectWorkspace: (String) -> Unit,
+    onSelectWorkspace: (accountId: String, workspaceId: String) -> Unit,
     onOpenProject: (String) -> Unit,
     onOpenIntegrations: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -78,10 +80,11 @@ fun MainScaffold(
 
     // Build the avatar-menu bag once so both shells provide identical state to
     // screens inside the NavHost via LocalAvatarMenu.
-    val avatarState = remember(workspaces, selectedWorkspace, email) {
+    val avatarState = remember(serverGroups, activeAccountId, selectedWorkspace, email) {
         AvatarMenuState(
             email = email,
-            workspaces = workspaces,
+            serverGroups = serverGroups,
+            activeAccountId = activeAccountId,
             selectedWorkspace = selectedWorkspace,
             onSelectWorkspace = onSelectWorkspace,
             onOpenSettings = onOpenSettings,
@@ -92,7 +95,8 @@ fun MainScaffold(
     if (isExpanded) {
         ExpandedShell(
             navController = navController,
-            workspaces = workspaces,
+            serverGroups = serverGroups,
+            activeAccountId = activeAccountId,
             selectedWorkspace = selectedWorkspace,
             projects = projects,
             email = email,
@@ -107,7 +111,8 @@ fun MainScaffold(
     } else {
         CompactShell(
             navController = navController,
-            workspaces = workspaces,
+            serverGroups = serverGroups,
+            activeAccountId = activeAccountId,
             selectedWorkspace = selectedWorkspace,
             projects = projects,
             email = email,
@@ -125,12 +130,13 @@ fun MainScaffold(
 @Composable
 private fun CompactShell(
     navController: NavHostController,
-    workspaces: List<WorkspaceEntity>,
+    serverGroups: List<ServerWorkspaceGroup>,
+    activeAccountId: String?,
     selectedWorkspace: WorkspaceEntity?,
     projects: List<ProjectEntity>,
     email: String?,
     activeProjectId: String?,
-    onSelectWorkspace: (String) -> Unit,
+    onSelectWorkspace: (accountId: String, workspaceId: String) -> Unit,
     onOpenProject: (String) -> Unit,
     onOpenIntegrations: () -> Unit,
     onSignOut: () -> Unit,
@@ -144,13 +150,14 @@ private fun CompactShell(
         drawerState = drawerState,
         drawerContent = {
             AppDrawer(
-                workspaces = workspaces,
+                serverGroups = serverGroups,
+                activeAccountId = activeAccountId,
                 selectedWorkspace = selectedWorkspace,
                 projects = projects,
                 email = email,
                 activeProjectId = activeProjectId,
-                onSelectWorkspace = {
-                    onSelectWorkspace(it)
+                onSelectWorkspace = { accId, wsId ->
+                    onSelectWorkspace(accId, wsId)
                     scope.launch { drawerState.close() }
                 },
                 onOpenProject = {
@@ -184,12 +191,13 @@ private fun CompactShell(
 @Composable
 private fun ExpandedShell(
     navController: NavHostController,
-    workspaces: List<WorkspaceEntity>,
+    serverGroups: List<ServerWorkspaceGroup>,
+    activeAccountId: String?,
     selectedWorkspace: WorkspaceEntity?,
     projects: List<ProjectEntity>,
     email: String?,
     activeProjectId: String?,
-    onSelectWorkspace: (String) -> Unit,
+    onSelectWorkspace: (accountId: String, workspaceId: String) -> Unit,
     onOpenProject: (String) -> Unit,
     onOpenIntegrations: () -> Unit,
     onSignOut: () -> Unit,
@@ -202,7 +210,8 @@ private fun ExpandedShell(
         drawerContent = {
             PermanentDrawerSheet(modifier = Modifier.width(320.dp)) {
                 AppDrawer(
-                    workspaces = workspaces,
+                    serverGroups = serverGroups,
+                    activeAccountId = activeAccountId,
                     selectedWorkspace = selectedWorkspace,
                     projects = projects,
                     email = email,

@@ -8,14 +8,16 @@ private let logger = Logger(subsystem: "com.straehhuber.exponential", category: 
 // Web uses @electric-sql/client; iOS and Android implement the same wire
 // format by hand. See packages/electric-protocol/README.md for the contract.
 //
-// Every shape runs an independent long-polling loop in its own Task. Each
-// poll either returns immediately with new rows or holds the connection
-// open ~60s before returning an `up-to-date` control message. There is
-// no polling timer anywhere.
+// Multi-account: each signed-in account runs its own set of 10 shape Tasks in
+// parallel, each writing to that account's per-account SQLite pool. There is
+// no global active account here — sign-out on one account just cancels its
+// pipeline without affecting any others.
 final class SyncManager: @unchecked Sendable {
     private let auth: AuthRepository
     let db: DatabaseManager
-    private var shapeTasks: [Task<Void, Never>] = []
+
+    private let lock = NSLock()
+    private var pipelines: [String: [Task<Void, Never>]] = [:]
     private var observationTask: Task<Void, Never>?
 
     init(auth: AuthRepository, db: DatabaseManager) {
@@ -26,43 +28,16 @@ final class SyncManager: @unchecked Sendable {
     func start() {
         observationTask = Task { [weak self] in
             guard let self else { return }
-            var previousUrl: String? = self.auth.instanceUrl
-            var previousToken: String? = self.auth.token
-            var previousAccountId: String? = self.auth.activeAccountId
+            // Snapshot of the signed-in accountIds we've launched pipelines for.
+            var running: Set<String> = []
 
-            if previousUrl != nil && previousToken != nil {
-                self.launchShapes()
-            }
+            // Spin once immediately so the active account's shapes start before
+            // the first poll tick (matches the previous launch-on-start behavior).
+            self.reconcile(running: &running)
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
-                let currentUrl = self.auth.instanceUrl
-                let currentToken = self.auth.token
-                let currentAccountId = self.auth.activeAccountId
-
-                if currentUrl != previousUrl || currentToken != previousToken || currentAccountId != previousAccountId {
-                    logger.info("Auth state changed — restarting shape sync")
-                    previousUrl = currentUrl
-                    previousToken = currentToken
-                    previousAccountId = currentAccountId
-                    self.cancelShapes()
-                    if let id = currentAccountId {
-                        // Swap the DB pool before launching shapes so writes land in the
-                        // correct per-account file. The pool change is observed via
-                        // .id(activeAccountId) on the navigator so GRDB observers re-bind.
-                        do {
-                            try self.db.open(accountId: id)
-                        } catch {
-                            logger.error("Failed to open DB for account \(id, privacy: .public): \(error.localizedDescription)")
-                            continue
-                        }
-                    } else {
-                        self.db.close()
-                    }
-                    if currentUrl != nil && currentToken != nil {
-                        self.launchShapes()
-                    }
-                }
+                self.reconcile(running: &running)
             }
         }
     }
@@ -70,19 +45,34 @@ final class SyncManager: @unchecked Sendable {
     func stop() {
         observationTask?.cancel()
         observationTask = nil
-        cancelShapes()
+        cancelAll()
     }
 
+    /// **Transitional**: signs out whichever account is currently the
+    /// "most-recently-used" pool in DatabaseManager. Phase C replaces every
+    /// caller with the explicit per-account variant below.
     func signOut() async {
-        // With per-account DBs, sign-out keeps the local cache so the user can resume
-        // offline browsing if they sign back in. Full deletion happens from Settings →
-        // Remove server, which calls DatabaseManager.deleteFiles(forAccountId:) directly.
-        cancelShapes()
+        if let activeId = auth.activeAccountId {
+            await signOut(accountId: activeId)
+        }
     }
 
-    /// Wait up to ~5s for the workspaces shape to land its initial snapshot.
-    /// Live sync runs automatically — this exists so UI loading indicators
-    /// have a meaningful signal to wait on instead of returning instantly.
+    func signOut(accountId: String) async {
+        // With per-account DBs and per-account pipelines, signing out just
+        // cancels that one account's shape tasks. The local cache stays so the
+        // user can resume offline browsing if they sign back in. Full deletion
+        // happens via DatabaseManager.deleteFiles(forAccountId:) from Settings.
+        let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
+        for task in tasks { task.cancel() }
+    }
+
+    /// Wait up to ~5s for the active account's workspaces shape to land its
+    /// initial snapshot. Live sync runs automatically — this exists so UI
+    /// loading indicators have a meaningful signal to wait on.
+    ///
+    /// Transitional: uses the legacy `db.dbPool` getter (the most-recently-used
+    /// account's pool). Phase B replaces the caller (`MainNavigator.onAppear`)
+    /// with per-account sync waits keyed by route accountId.
     func initialSync() async {
         let start = Date()
         while Date().timeIntervalSince(start) < 5 {
@@ -94,65 +84,110 @@ final class SyncManager: @unchecked Sendable {
         }
     }
 
-    // MARK: - Live shape sync
+    // MARK: - Reconciliation
 
-    private func cancelShapes() {
-        shapeTasks.forEach { $0.cancel() }
-        shapeTasks.removeAll()
+    private func reconcile(running: inout Set<String>) {
+        let signedIn = Set(auth.accounts.filter { $0.token != nil }.map { $0.id })
+
+        // Cancel pipelines for accounts no longer signed in.
+        for accountId in running.subtracting(signedIn) {
+            cancelPipeline(accountId: accountId)
+            running.remove(accountId)
+        }
+
+        // Launch pipelines for newly signed-in accounts.
+        for accountId in signedIn.subtracting(running) {
+            do {
+                let pool = try db.pool(forAccountId: accountId)
+                launchPipeline(accountId: accountId, pool: pool)
+                running.insert(accountId)
+            } catch {
+                logger.error(
+                    "Failed to open DB pool for account \(accountId, privacy: .public): \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
-    private func launchShapes() {
-        logger.info("Launching live shape sync (10 shapes)")
-        let db = self.db
-        let auth = self.auth
-        let baseUrl: @Sendable () -> String? = { auth.instanceUrl }
-        let token: @Sendable () -> String? = { auth.token }
+    private func cancelAll() {
+        let snapshot = lock.withLock { () -> [String: [Task<Void, Never>]] in
+            let copy = pipelines
+            pipelines.removeAll()
+            return copy
+        }
+        for (_, tasks) in snapshot { tasks.forEach { $0.cancel() } }
+    }
 
-        shapeTasks.append(makeShapeTask(
+    private func cancelPipeline(accountId: String) {
+        let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
+        for task in tasks { task.cancel() }
+        logger.info("Cancelled shape pipeline for account \(accountId, privacy: .public)")
+    }
+
+    // MARK: - Per-account shape launch
+
+    private func launchPipeline(accountId: String, pool: DatabasePool) {
+        logger.info("Launching live shape sync (10 shapes) for account \(accountId, privacy: .public)")
+
+        let auth = self.auth
+        // Per-account credential providers: read the specific account's URL +
+        // token from AuthRepository at call time, so a token refresh or a
+        // sign-out picked up by the next poll naturally flows through.
+        let baseUrl: @Sendable () -> String? = {
+            auth.accounts.first { $0.id == accountId }?.instanceUrl
+        }
+        let token: @Sendable () -> String? = {
+            auth.accounts.first { $0.id == accountId }?.token
+        }
+
+        var tasks: [Task<Void, Never>] = []
+        tasks.append(makeShapeTask(
             name: "workspaces", path: "/api/shapes/workspaces", table: "workspaces",
-            type: WorkspaceEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: WorkspaceEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "projects", path: "/api/shapes/projects", table: "projects",
-            type: ProjectEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: ProjectEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "issues", path: "/api/shapes/issues", table: "issues",
-            type: IssueEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: IssueEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "labels", path: "/api/shapes/labels", table: "labels",
-            type: LabelEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: LabelEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "issue-labels", path: "/api/shapes/issue-labels", table: "issue_labels",
-            type: IssueLabelEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: IssueLabelEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "users", path: "/api/shapes/users", table: "users",
-            type: UserEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: UserEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "workspace-members", path: "/api/shapes/workspace-members", table: "workspace_members",
-            type: WorkspaceMemberEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: WorkspaceMemberEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "workspace-invites", path: "/api/shapes/workspace-invites", table: "workspace_invites",
-            type: WorkspaceInviteEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: WorkspaceInviteEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "comments", path: "/api/shapes/comments", table: "comments",
-            type: CommentEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: CommentEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
-        shapeTasks.append(makeShapeTask(
+        tasks.append(makeShapeTask(
             name: "attachments", path: "/api/shapes/attachments", table: "attachments",
-            type: AttachmentEntity.self, db: db, baseUrl: baseUrl, token: token
+            type: AttachmentEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
+
+        lock.withLock { pipelines[accountId] = tasks }
     }
 
     private func makeShapeTask<T: Codable & FetchableRecord & PersistableRecord & Sendable>(
         name: String, path: String, table: String, type: T.Type,
-        db: DatabaseManager,
+        pool: DatabasePool,
         baseUrl: @escaping @Sendable () -> String?,
         token: @escaping @Sendable () -> String?
     ) -> Task<Void, Never> {
@@ -161,16 +196,16 @@ final class SyncManager: @unchecked Sendable {
             urlPath: path,
             baseUrlProvider: baseUrl,
             tokenProvider: token,
-            db: db,
+            pool: pool,
             onMessages: { messages in
-                try await applyBatch(messages: messages, table: table, db: db)
+                try await applyBatch(messages: messages, table: table, pool: pool)
             }
         )
         return Task {
             do {
                 try await client.run()
             } catch is CancellationError {
-                // Expected on auth change / stop()
+                // Expected on sign-out / stop()
             } catch {
                 logger.error("[\(name)] shape task ended: \(error.localizedDescription)")
             }
@@ -182,10 +217,10 @@ final class SyncManager: @unchecked Sendable {
 // Per-row writes from 8 concurrent shape loops were what starved the GRDB
 // writer and forced live sync off in the first place. Keep batched.
 private func applyBatch<T: PersistableRecord & Sendable>(
-    messages: [ShapeMessage<T>], table: String, db: DatabaseManager
+    messages: [ShapeMessage<T>], table: String, pool: DatabasePool
 ) async throws {
     guard !messages.isEmpty else { return }
-    try await db.dbPool.write { gdb in
+    try await pool.write { gdb in
         for message in messages {
             switch message {
             case let .insert(_, value):

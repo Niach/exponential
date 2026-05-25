@@ -11,7 +11,7 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
     private let urlPath: String
     private let baseUrlProvider: @Sendable () -> String?
     private let tokenProvider: @Sendable () -> String?
-    private let db: DatabaseManager
+    private let pool: DatabasePool
     private let onMessages: @Sendable ([ShapeMessage<T>]) async throws -> Void
 
     private let session: URLSession
@@ -21,14 +21,14 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
         urlPath: String,
         baseUrlProvider: @escaping @Sendable () -> String?,
         tokenProvider: @escaping @Sendable () -> String?,
-        db: DatabaseManager,
+        pool: DatabasePool,
         onMessages: @escaping @Sendable ([ShapeMessage<T>]) async throws -> Void
     ) {
         self.shapeName = shapeName
         self.urlPath = urlPath
         self.baseUrlProvider = baseUrlProvider
         self.tokenProvider = tokenProvider
-        self.db = db
+        self.pool = pool
         self.onMessages = onMessages
 
         let config = URLSessionConfiguration.default
@@ -58,7 +58,7 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
     }
 
     private func pollOnce(baseUrl: String, token: String) async throws {
-        let saved = try await db.dbPool.read { db in
+        let saved = try await pool.read { db in
             try ElectricOffset.fetchOne(db, key: shapeName)
         }
         let isInitial = saved == nil
@@ -87,7 +87,7 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
         SyncDebug.shared.log("[\(shapeName)] HTTP \(httpResponse.statusCode), \(data.count)B")
 
         if httpResponse.statusCode == 409 {
-            try await db.dbPool.write { db in
+            try await pool.write { db in
                 try ElectricOffset.deleteOne(db, key: shapeName)
             }
             try await onMessages([.mustRefetch])
@@ -115,7 +115,7 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
         }
 
         if let handle, let offset {
-            try await db.dbPool.write { db in
+            try await pool.write { db in
                 try ElectricOffset(shape: shapeName, handle: handle, offset: offset).save(db)
             }
         }

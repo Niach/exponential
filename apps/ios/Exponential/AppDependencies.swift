@@ -39,12 +39,28 @@ final class AppDependencies: @unchecked Sendable {
         let httpClient = HTTPClient(auth: auth)
         let trpc = TrpcClient(httpClient: httpClient, auth: auth)
         let db = DatabaseManager()
-        // Open the active account's DB before sync starts so observers can bind on first render.
-        if let activeId = auth.activeAccountId {
+        // Open a pool for every signed-in account so SyncManager can launch
+        // parallel shape pipelines on first tick and the UI can bind
+        // ValueObservations to any account's pool without a race. The order is
+        // active-first so the transitional `dbPool` getter resolves to the
+        // active account during the Phase A transition.
+        let activeId = auth.activeAccountId
+        let orderedAccounts: [ServerAccount] = {
+            var result = auth.accounts
+            result.sort { a, b in
+                if a.id == activeId { return true }
+                if b.id == activeId { return false }
+                return a.lastUsedAt > b.lastUsedAt
+            }
+            return result
+        }()
+        for account in orderedAccounts where account.token != nil {
             do {
-                try db.open(accountId: activeId)
+                try db.open(accountId: account.id)
             } catch {
-                logger.error("Failed to open DB for active account: \(error.localizedDescription)")
+                logger.error(
+                    "Failed to open DB for account \(account.id): \(error.localizedDescription)"
+                )
             }
         }
         let syncManager = SyncManager(auth: auth, db: db)

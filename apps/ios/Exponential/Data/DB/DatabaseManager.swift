@@ -4,42 +4,59 @@ import os
 
 private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "DatabaseManager")
 
+/// Multi-account database manager. Holds one open `DatabasePool` per signed-in
+/// account (keyed by accountId). There is no global "active" pool — callers
+/// must always pass an accountId so writes land in the right per-server file.
 final class DatabaseManager: @unchecked Sendable {
-    // Mutated via open(accountId:) when the active server account changes.
-    // Marked `var` (with a lock) so we can hot-swap the underlying file
-    // without rebuilding the manager — but consumers that hold ValueObservations
-    // bound to a specific pool must re-bind after a swap (see AppNavigator's
-    // .id(activeAccountId) trick).
     private let lock = NSLock()
-    private var currentPool: DatabasePool?
-    private var currentAccountId: String?
+    private var pools: [String: DatabasePool] = [:]
+    // Transitional: the most-recently-used account's id, set every time
+    // pool(forAccountId:) is called. Lets the legacy `dbPool` getter and
+    // `open(accountId:)`/`close()` APIs keep working for callers that haven't
+    // yet been migrated to the multi-account API. Removed once Phase B/C are
+    // complete and every caller passes an accountId.
+    private var lastUsedAccountId: String?
 
+    /// **Transitional** getter — returns the pool for the most-recently-used
+    /// account. Crashes if no pool has been opened yet. All new code should
+    /// use `pool(forAccountId:)` instead so writes can never land in the
+    /// wrong per-server file.
     var dbPool: DatabasePool {
         lock.withLock {
-            guard let pool = currentPool else {
-                fatalError("DatabaseManager.dbPool accessed before open(accountId:) was called")
+            guard let id = lastUsedAccountId, let pool = pools[id] else {
+                fatalError("DatabaseManager.dbPool accessed before any account pool was opened")
             }
             return pool
         }
     }
 
-    var isOpen: Bool {
-        lock.withLock { currentPool != nil }
+    /// **Transitional** wrapper around `pool(forAccountId:)`. Marks the given
+    /// account as the most-recently-used so the legacy `dbPool` getter
+    /// resolves to its pool.
+    func open(accountId: String) throws {
+        _ = try pool(forAccountId: accountId)
     }
 
-    /// Open (or switch to) the DB file for the given account. Closes the previous pool first.
-    func open(accountId: String) throws {
+    /// **Transitional**: close every pool (used by the old single-active sign-out
+    /// path). New code should call `closePool(forAccountId:)` for the specific
+    /// account that signed out.
+    func close() {
+        closeAll()
+    }
+
+    /// Get (or open) the pool for the given account. Subsequent calls for the
+    /// same accountId return the cached pool.
+    @discardableResult
+    func pool(forAccountId accountId: String) throws -> DatabasePool {
         lock.lock()
         defer { lock.unlock() }
-        if currentAccountId == accountId, currentPool != nil { return }
-
-        currentPool = nil // releases the previous pool's connections
+        if let existing = pools[accountId] { return existing }
 
         // Any device that ran a pre-consolidation build has an
-        // `exponential-<account>.sqlite` carrying the legacy singular-name schema
-        // and v1..v8 migration history. The new schema lives in the `-v2.sqlite`
-        // file, so the legacy file is unreachable forever — purge it on first
-        // launch so it doesn't sit on disk eating space.
+        // `exponential-<account>.sqlite` carrying the legacy singular-name
+        // schema and v1..v8 migration history. The new schema lives in the
+        // `-v2.sqlite` file, so the legacy file is unreachable forever —
+        // purge it on first launch so it doesn't sit on disk eating space.
         DatabaseManager.removeLegacyFile(for: accountId)
 
         let path = try DatabaseManager.fileURL(for: accountId).path
@@ -48,17 +65,37 @@ final class DatabaseManager: @unchecked Sendable {
         config.journalMode = .wal
         let pool = try DatabasePool(path: path, configuration: config)
         try DatabaseManager.runMigrations(on: pool)
-        currentPool = pool
-        currentAccountId = accountId
-        logger.info("Opened DB for account \(accountId, privacy: .public)")
+        pools[accountId] = pool
+        lastUsedAccountId = accountId
+        logger.info("Opened DB pool for account \(accountId, privacy: .public)")
+        return pool
     }
 
-    /// Close the current pool without opening a new one (e.g., when no account is active).
-    func close() {
+    /// Pool lookup without opening. Returns nil if not yet opened for this
+    /// account.
+    func poolIfOpen(forAccountId accountId: String) -> DatabasePool? {
+        lock.withLock { pools[accountId] }
+    }
+
+    /// Close the pool for an account (e.g., after sign-out or removal). The
+    /// underlying SQLite file stays on disk; use `deleteFiles(forAccountId:)`
+    /// to also wipe it.
+    func closePool(forAccountId accountId: String) {
         lock.lock()
         defer { lock.unlock() }
-        currentPool = nil
-        currentAccountId = nil
+        pools[accountId] = nil
+        if lastUsedAccountId == accountId {
+            lastUsedAccountId = pools.keys.first
+        }
+        logger.info("Closed DB pool for account \(accountId, privacy: .public)")
+    }
+
+    /// Close every open pool. Intended for app teardown / sign-out-all.
+    func closeAll() {
+        lock.lock()
+        defer { lock.unlock() }
+        pools.removeAll()
+        lastUsedAccountId = nil
     }
 
     /// Delete the underlying SQLite files for the given account.
@@ -99,7 +136,7 @@ final class DatabaseManager: @unchecked Sendable {
         // `-v2` suffix marks the post-consolidation file naming. Bumping the
         // suffix is how we force a wipe-and-resync on every existing device when
         // the local schema is fundamentally reshaped (table renames, dropped
-        // columns) — see open(accountId:) for the legacy cleanup.
+        // columns).
         return dbDir.appendingPathComponent("exponential-\(accountId)-v2.sqlite")
     }
 
@@ -253,8 +290,8 @@ final class DatabaseManager: @unchecked Sendable {
         try migrator.migrate(dbPool)
     }
 
-    func clearAllData() throws {
-        guard let pool = lock.withLock({ currentPool }) else { return }
+    func clearAllData(forAccountId accountId: String) throws {
+        guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
             try db.execute(sql: "DELETE FROM attachments")

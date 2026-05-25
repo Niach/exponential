@@ -2,6 +2,7 @@ package com.exponential.app.ui.nav
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.db.ServerWorkspaceGroup
 import com.exponential.app.data.db.WorkspaceEntity
 
 // Data the top-bar avatar button needs. Provided once by MainScaffold so
@@ -36,9 +38,10 @@ import com.exponential.app.data.db.WorkspaceEntity
 @Immutable
 data class AvatarMenuState(
     val email: String?,
-    val workspaces: List<WorkspaceEntity>,
+    val serverGroups: List<ServerWorkspaceGroup>,
+    val activeAccountId: String?,
     val selectedWorkspace: WorkspaceEntity?,
-    val onSelectWorkspace: (String) -> Unit,
+    val onSelectWorkspace: (accountId: String, workspaceId: String) -> Unit,
     val onOpenSettings: () -> Unit,
     val onSignOut: () -> Unit,
 )
@@ -104,22 +107,43 @@ fun AvatarMenuButton() {
             menuOpen = false
         },
     ) {
-        state.workspaces.forEach { ws ->
-            DropdownMenuItem(
-                text = { Text(ws.name) },
-                leadingIcon = {
-                    if (ws.id == state.selectedWorkspace?.id) {
-                        Icon(Icons.Filled.Check, contentDescription = null)
-                    } else {
-                        Box(Modifier.size(20.dp))
-                    }
-                },
-                onClick = {
-                    state.onSelectWorkspace(ws.id)
-                    workspaceSubOpen = false
-                    menuOpen = false
-                },
-            )
+        state.serverGroups.forEachIndexed { idx, group ->
+            if (idx > 0) HorizontalDivider()
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    group.hostname,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (!group.userEmail.isNullOrBlank()) {
+                    Text(
+                        group.userEmail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            group.workspaces.forEach { ws ->
+                val isActive = group.accountId == state.activeAccountId
+                    && ws.id == state.selectedWorkspace?.id
+                DropdownMenuItem(
+                    text = { Text(ws.name) },
+                    leadingIcon = {
+                        if (isActive) {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                        } else {
+                            Box(Modifier.size(20.dp))
+                        }
+                    },
+                    onClick = {
+                        state.onSelectWorkspace(group.accountId, ws.id)
+                        workspaceSubOpen = false
+                        menuOpen = false
+                    },
+                )
+            }
         }
     }
 }

@@ -12,6 +12,17 @@ struct InstanceView: View {
         input.count > 8
     }
 
+    // The cloud preset is offered only when there isn't already an account for
+    // it. Re-tapping it from the add-server flow when the cloud account exists
+    // re-activates the existing account through upsertAndActivate, which mid-
+    // flight republishes a non-nil token and races SyncManager's DB swap —
+    // hiding the button removes that path entirely. Users can still switch to
+    // the existing cloud account from Settings.
+    private var cloudAlreadyAdded: Bool {
+        let normalized = AppConstants.publicCloudUrl
+        return deps.auth.accounts.contains { $0.instanceUrl == normalized }
+    }
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -30,42 +41,44 @@ struct InstanceView: View {
                 Spacer().frame(height: 32)
 
                 VStack(alignment: .leading, spacing: 16) {
-                    Button {
-                        deps.auth.setInstanceUrl(AppConstants.publicCloudUrl)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "cloud")
-                                .font(.body)
-                                .foregroundStyle(.white)
-                            Text("Use Exponential Cloud")
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(.white)
-                            Spacer()
-                            Image(systemName: "arrow.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    if !cloudAlreadyAdded {
+                        Button {
+                            deps.auth.setInstanceUrl(AppConstants.publicCloudUrl)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "cloud")
+                                    .font(.body)
+                                    .foregroundStyle(.white)
+                                Text("Use Exponential Cloud")
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.white)
+                                Spacer()
+                                Image(systemName: "arrow.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .padding(.horizontal, 14)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 14)
-                    }
-                    .background(Color.white.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                    )
+                        .background(Color.white.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                        )
 
-                    HStack(spacing: 12) {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.12))
-                            .frame(height: 0.5)
-                        Text("or self-host")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        Rectangle()
-                            .fill(Color.white.opacity(0.12))
-                            .frame(height: 0.5)
+                        HStack(spacing: 12) {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.12))
+                                .frame(height: 0.5)
+                            Text("or self-host")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            Rectangle()
+                                .fill(Color.white.opacity(0.12))
+                                .frame(height: 0.5)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {

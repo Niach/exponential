@@ -36,6 +36,12 @@ fun InstanceScreen(
     onContinue: (String) -> Unit,
     showCancel: Boolean = false,
     onCancel: (() -> Unit)? = null,
+    // The cloud preset is hidden when a cloud account already exists in the
+    // AccountStore. Re-activating it from the add-server flow re-runs
+    // upsertAndActivate which races SyncManager's DB swap — easier to remove
+    // the path entirely. Users can still switch back to the existing cloud
+    // account from Settings.
+    cloudAlreadyAdded: Boolean = false,
 ) {
     var input by remember { mutableStateOf(TextFieldValue("https://")) }
     val canSubmit = input.text.length > 8
@@ -55,27 +61,29 @@ fun InstanceScreen(
         )
         Spacer(Modifier.height(24.dp))
 
-        Button(
-            onClick = { onContinue(AppConstants.PUBLIC_CLOUD_URL) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Use Exponential Cloud")
+        if (!cloudAlreadyAdded) {
+            Button(
+                onClick = { onContinue(AppConstants.PUBLIC_CLOUD_URL) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Use Exponential Cloud")
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HorizontalDivider(modifier = Modifier.weight(1f))
+                Text(
+                    "or self-host",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                HorizontalDivider(modifier = Modifier.weight(1f))
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
-
-        Spacer(Modifier.height(16.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            HorizontalDivider(modifier = Modifier.weight(1f))
-            Text(
-                "or self-host",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-            HorizontalDivider(modifier = Modifier.weight(1f))
-        }
-
-        Spacer(Modifier.height(16.dp))
 
         Text(
             "Self-hosted? Enter the full URL of your server.",
