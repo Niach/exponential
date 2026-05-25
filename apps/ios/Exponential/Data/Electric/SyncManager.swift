@@ -109,43 +109,43 @@ final class SyncManager: @unchecked Sendable {
         let token: @Sendable () -> String? = { auth.token }
 
         shapeTasks.append(makeShapeTask(
-            name: "workspaces", path: "/api/shapes/workspaces", table: "workspace",
+            name: "workspaces", path: "/api/shapes/workspaces", table: "workspaces",
             type: WorkspaceEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "projects", path: "/api/shapes/projects", table: "project",
+            name: "projects", path: "/api/shapes/projects", table: "projects",
             type: ProjectEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "issues", path: "/api/shapes/issues", table: "issue",
+            name: "issues", path: "/api/shapes/issues", table: "issues",
             type: IssueEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "labels", path: "/api/shapes/labels", table: "label",
+            name: "labels", path: "/api/shapes/labels", table: "labels",
             type: LabelEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "issue-labels", path: "/api/shapes/issue-labels", table: "issue_label",
+            name: "issue-labels", path: "/api/shapes/issue-labels", table: "issue_labels",
             type: IssueLabelEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "users", path: "/api/shapes/users", table: "user",
+            name: "users", path: "/api/shapes/users", table: "users",
             type: UserEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "workspace-members", path: "/api/shapes/workspace-members", table: "workspace_member",
+            name: "workspace-members", path: "/api/shapes/workspace-members", table: "workspace_members",
             type: WorkspaceMemberEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "workspace-invites", path: "/api/shapes/workspace-invites", table: "workspace_invite",
+            name: "workspace-invites", path: "/api/shapes/workspace-invites", table: "workspace_invites",
             type: WorkspaceInviteEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "comments", path: "/api/shapes/comments", table: "comment",
+            name: "comments", path: "/api/shapes/comments", table: "comments",
             type: CommentEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
         shapeTasks.append(makeShapeTask(
-            name: "attachments", path: "/api/shapes/attachments", table: "attachment",
+            name: "attachments", path: "/api/shapes/attachments", table: "attachments",
             type: AttachmentEntity.self, db: db, baseUrl: baseUrl, token: token
         ))
     }

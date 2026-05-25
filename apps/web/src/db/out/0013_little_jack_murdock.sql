@@ -1,1 +1,0 @@
-ALTER TYPE "public"."workspace_member_role" ADD VALUE 'agent';

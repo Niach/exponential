@@ -46,8 +46,10 @@ struct AttachmentListView: View {
                     .order(Column("created_at").asc)
                     .fetchAll(db)
             }
-            for try await rows in obs.values(in: deps.db.dbPool) {
-                self.attachments = rows
+            Task {
+                for try await rows in obs.values(in: deps.db.dbPool) {
+                    self.attachments = rows
+                }
             }
         }
     }

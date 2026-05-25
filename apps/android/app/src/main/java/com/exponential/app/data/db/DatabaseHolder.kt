@@ -35,17 +35,20 @@ class DatabaseHolder @Inject constructor(
         synchronized(lock) {
             if (currentAccountId == accountId && _database.value != null) return
             _database.value?.close()
+            // Any device that ran a pre-consolidation build has an
+            // `exponential-<account>.db` carrying the v5 schema (plus three
+            // explicit Migration objects). The post-consolidation schema lives
+            // in `-v2.db`, so the legacy file is unreachable forever — purge it
+            // on first launch so it doesn't sit in the app's databases dir.
+            context.deleteDatabase("exponential-$accountId.db")
             val db = Room.databaseBuilder(
                 context,
                 ExponentialDatabase::class.java,
-                "exponential-$accountId.db",
+                "exponential-$accountId-v2.db",
             )
-                .addMigrations(
-                    ExponentialDatabase.MIGRATION_2_3,
-                    ExponentialDatabase.MIGRATION_3_4,
-                    ExponentialDatabase.MIGRATION_4_5,
-                )
-                .fallbackToDestructiveMigration()
+                // The schema is canonical; if it ever drifts we wipe and let
+                // Electric resync. No explicit Migration objects on purpose.
+                .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             _database.value = db
             currentAccountId = accountId
@@ -63,6 +66,8 @@ class DatabaseHolder @Inject constructor(
     fun deleteFiles(accountId: String) {
         synchronized(lock) {
             if (currentAccountId == accountId) close()
+            context.deleteDatabase("exponential-$accountId-v2.db")
+            // Also delete any pre-consolidation file if it survived an upgrade.
             context.deleteDatabase("exponential-$accountId.db")
         }
     }

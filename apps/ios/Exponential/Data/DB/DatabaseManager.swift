@@ -34,6 +34,14 @@ final class DatabaseManager: @unchecked Sendable {
         if currentAccountId == accountId, currentPool != nil { return }
 
         currentPool = nil // releases the previous pool's connections
+
+        // Any device that ran a pre-consolidation build has an
+        // `exponential-<account>.sqlite` carrying the legacy singular-name schema
+        // and v1..v8 migration history. The new schema lives in the `-v2.sqlite`
+        // file, so the legacy file is unreachable forever — purge it on first
+        // launch so it doesn't sit on disk eating space.
+        DatabaseManager.removeLegacyFile(for: accountId)
+
         let path = try DatabaseManager.fileURL(for: accountId).path
         var config = Configuration()
         config.foreignKeysEnabled = true
@@ -64,6 +72,18 @@ final class DatabaseManager: @unchecked Sendable {
             let target = parent.appendingPathComponent(base + suffix)
             try? fm.removeItem(at: target)
         }
+        // Also remove any legacy pre-v2 file if it survived an upgrade.
+        removeLegacyFile(for: accountId)
+    }
+
+    private static func removeLegacyFile(for accountId: String) {
+        let fm = FileManager.default
+        guard let parent = try? fileURL(for: accountId).deletingLastPathComponent() else { return }
+        let legacyBase = "exponential-\(accountId).sqlite"
+        for suffix in ["", "-wal", "-shm"] {
+            let target = parent.appendingPathComponent(legacyBase + suffix)
+            try? fm.removeItem(at: target)
+        }
     }
 
     static func fileURL(for accountId: String) throws -> URL {
@@ -76,58 +96,68 @@ final class DatabaseManager: @unchecked Sendable {
         )
         let dbDir = appSupportDir.appendingPathComponent("Exponential", isDirectory: true)
         try fm.createDirectory(at: dbDir, withIntermediateDirectories: true)
-        return dbDir.appendingPathComponent("exponential-\(accountId).sqlite")
+        // `-v2` suffix marks the post-consolidation file naming. Bumping the
+        // suffix is how we force a wipe-and-resync on every existing device when
+        // the local schema is fundamentally reshaped (table renames, dropped
+        // columns) — see open(accountId:) for the legacy cleanup.
+        return dbDir.appendingPathComponent("exponential-\(accountId)-v2.sqlite")
     }
 
     private static func runMigrations(on dbPool: DatabasePool) throws {
         var migrator = DatabaseMigrator()
 
+        // Single canonical schema. Mirrors the Postgres tables Electric syncs to
+        // mobile, with column names and nullability matching packages/db-schema.
+        // SQLite type affinities are looser than Postgres — uuid/timestamp/date
+        // columns are stored as text (ISO-8601 for timestamps), enums as text,
+        // jsonb (issues.description, comments.body) as text.
         migrator.registerMigration("v1_initial") { db in
-            try db.create(table: "electric_offset", ifNotExists: true) { t in
+            try db.create(table: "electric_offsets", ifNotExists: true) { t in
                 t.primaryKey("shape", .text)
                 t.column("handle", .text).notNull()
                 t.column("offset", .text).notNull()
             }
 
-            try db.create(table: "workspace", ifNotExists: true) { t in
+            try db.create(table: "workspaces", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
                 t.column("name", .text).notNull()
                 t.column("slug", .text).notNull()
                 t.column("icon_url", .text)
                 t.column("is_public", .boolean).notNull().defaults(to: false)
-                t.column("public_write_policy", .text)
+                t.column("public_write_policy", .text).notNull().defaults(to: "members")
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "project", ifNotExists: true) { t in
+            try db.create(table: "projects", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
-                t.column("workspace_id", .text).notNull()
+                t.column("workspace_id", .text).notNull().indexed()
                 t.column("name", .text).notNull()
                 t.column("slug", .text).notNull()
                 t.column("prefix", .text).notNull()
-                t.column("color", .text)
-                t.column("sort_order", .double)
+                t.column("color", .text).notNull().defaults(to: "#6366f1")
+                t.column("sort_order", .double).notNull().defaults(to: 0)
                 t.column("archived_at", .text)
+                t.column("github_repo", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "issue", ifNotExists: true) { t in
+            try db.create(table: "issues", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
-                t.column("project_id", .text).notNull()
-                t.column("number", .integer)
-                t.column("identifier", .text)
+                t.column("project_id", .text).notNull().indexed()
+                t.column("number", .integer).notNull().defaults(to: 0)
+                t.column("identifier", .text).notNull().defaults(to: "")
                 t.column("title", .text).notNull()
                 t.column("description", .text)
-                t.column("status", .text).notNull()
-                t.column("priority", .text).notNull()
+                t.column("status", .text).notNull().defaults(to: "backlog")
+                t.column("priority", .text).notNull().defaults(to: "none")
                 t.column("assignee_id", .text)
-                t.column("creator_id", .text)
+                t.column("creator_id", .text).notNull()
                 t.column("due_date", .text)
                 t.column("due_time", .text)
                 t.column("end_time", .text)
-                t.column("sort_order", .double)
+                t.column("sort_order", .double).notNull().defaults(to: 0)
                 t.column("completed_at", .text)
                 t.column("archived_at", .text)
                 t.column("recurrence_interval", .integer)
@@ -135,27 +165,35 @@ final class DatabaseManager: @unchecked Sendable {
                 t.column("google_calendar_event_id", .text)
                 t.column("google_calendar_last_synced_at", .text)
                 t.column("google_calendar_last_sync_error", .text)
+                t.column("agent_plan_state", .text)
+                t.column("agent_plan_revision", .integer).notNull().defaults(to: 0)
+                t.column("agent_plan_approved_at", .text)
+                t.column("agent_plan_approved_by", .text)
+                t.column("agent_last_comment_seen_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "label", ifNotExists: true) { t in
+            try db.create(table: "labels", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
-                t.column("workspace_id", .text).notNull()
+                t.column("workspace_id", .text).notNull().indexed()
                 t.column("name", .text).notNull()
-                t.column("color", .text).notNull()
+                t.column("color", .text).notNull().defaults(to: "#6366f1")
+                t.column("sort_order", .double).notNull().defaults(to: 0)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "issue_label", ifNotExists: true) { t in
-                t.primaryKey("id", .text)
+            // Composite PK matches Postgres exactly. The shape proxy sends
+            // (issue_id, label_id, workspace_id) — no synthetic surrogate `id`.
+            try db.create(table: "issue_labels", ifNotExists: true) { t in
                 t.column("issue_id", .text).notNull()
-                t.column("label_id", .text).notNull()
-                t.column("created_at", .text).notNull()
+                t.column("label_id", .text).notNull().indexed()
+                t.column("workspace_id", .text).notNull().indexed()
+                t.primaryKey(["issue_id", "label_id"])
             }
 
-            try db.create(table: "user", ifNotExists: true) { t in
+            try db.create(table: "users", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
                 t.column("name", .text)
                 t.column("email", .text).notNull()
@@ -164,65 +202,39 @@ final class DatabaseManager: @unchecked Sendable {
                 t.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "workspace_member", ifNotExists: true) { t in
+            try db.create(table: "workspace_members", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
-                t.column("workspace_id", .text).notNull()
-                t.column("user_id", .text).notNull()
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("user_id", .text).notNull().indexed()
                 t.column("role", .text).notNull()
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "workspace_invite", ifNotExists: true) { t in
+            try db.create(table: "workspace_invites", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
-                t.column("workspace_id", .text).notNull()
+                t.column("workspace_id", .text).notNull().indexed()
                 t.column("role", .text).notNull()
-                t.column("token", .text).notNull()
+                t.column("token", .text).notNull().indexed()
                 t.column("expires_at", .text).notNull()
                 t.column("accepted_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
-        }
 
-        migrator.registerMigration("v2_public_workspace") { db in
-            try db.alter(table: "workspace") { t in
-                t.add(column: "is_public", .boolean).notNull().defaults(to: false)
-                t.add(column: "public_write_policy", .text)
-            }
-        }
-
-        migrator.registerMigration("v3_comments") { db in
-            try db.create(table: "comment", ifNotExists: true) { t in
+            try db.create(table: "comments", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
                 t.column("issue_id", .text).notNull().indexed()
                 t.column("workspace_id", .text).notNull().indexed()
                 t.column("author_id", .text).notNull()
                 t.column("body", .text)
+                t.column("kind", .text).notNull().defaults(to: "regular")
                 t.column("edited_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
-        }
 
-        migrator.registerMigration("v4_comment_kind") { db in
-            try db.alter(table: "comment") { t in
-                t.add(column: "kind", .text).notNull().defaults(to: "regular")
-            }
-        }
-
-        migrator.registerMigration("v5_issue_agent_plan") { db in
-            try db.alter(table: "issue") { t in
-                t.add(column: "agent_plan_state", .text)
-                t.add(column: "agent_plan_revision", .integer).notNull().defaults(to: 0)
-                t.add(column: "agent_plan_approved_at", .text)
-                t.add(column: "agent_plan_approved_by", .text)
-                t.add(column: "agent_last_comment_seen_at", .text)
-            }
-        }
-
-        migrator.registerMigration("v6_attachments") { db in
-            try db.create(table: "attachment", ifNotExists: true) { t in
+            try db.create(table: "attachments", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
                 t.column("workspace_id", .text).notNull().indexed()
                 t.column("issue_id", .text).notNull().indexed()
@@ -238,29 +250,23 @@ final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        migrator.registerMigration("v7_project_github_repo") { db in
-            try db.alter(table: "project") { t in
-                t.add(column: "github_repo", .text)
-            }
-        }
-
         try migrator.migrate(dbPool)
     }
 
     func clearAllData() throws {
         guard let pool = lock.withLock({ currentPool }) else { return }
         try pool.write { db in
-            try db.execute(sql: "DELETE FROM electric_offset")
-            try db.execute(sql: "DELETE FROM attachment")
-            try db.execute(sql: "DELETE FROM comment")
-            try db.execute(sql: "DELETE FROM issue_label")
-            try db.execute(sql: "DELETE FROM issue")
-            try db.execute(sql: "DELETE FROM label")
-            try db.execute(sql: "DELETE FROM project")
-            try db.execute(sql: "DELETE FROM workspace_member")
-            try db.execute(sql: "DELETE FROM workspace_invite")
-            try db.execute(sql: "DELETE FROM workspace")
-            try db.execute(sql: "DELETE FROM user")
+            try db.execute(sql: "DELETE FROM electric_offsets")
+            try db.execute(sql: "DELETE FROM attachments")
+            try db.execute(sql: "DELETE FROM comments")
+            try db.execute(sql: "DELETE FROM issue_labels")
+            try db.execute(sql: "DELETE FROM issues")
+            try db.execute(sql: "DELETE FROM labels")
+            try db.execute(sql: "DELETE FROM projects")
+            try db.execute(sql: "DELETE FROM workspace_members")
+            try db.execute(sql: "DELETE FROM workspace_invites")
+            try db.execute(sql: "DELETE FROM workspaces")
+            try db.execute(sql: "DELETE FROM users")
         }
     }
 }

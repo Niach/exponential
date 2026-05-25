@@ -33,9 +33,7 @@ struct IssueDetailView: View {
                                     .padding(.vertical, 4)
                                     .glassButton()
                             }
-                            if let badge = planStateBadge(for: issue) {
-                                badge
-                            }
+                            planStateBadge(for: issue)
                             Spacer()
                             Menu {
                                 Button(issue.archivedAt == nil ? "Archive" : "Unarchive") {

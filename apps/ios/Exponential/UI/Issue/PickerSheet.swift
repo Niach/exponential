@@ -17,18 +17,24 @@ struct PickerSheet<Item, ID: Hashable, Row: View>: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    private struct IdentifiedItem: Identifiable {
+        let id: ID
+        let value: Item
+    }
+
     var body: some View {
+        let identified = items.map { IdentifiedItem(id: idFor($0), value: $0) }
         NavigationStack {
             List {
-                ForEach(items, id: idFor) { item in
+                ForEach(identified) { wrapped in
                     Button {
-                        onSelect(item)
+                        onSelect(wrapped.value)
                         dismiss()
                     } label: {
                         HStack {
-                            row(item)
+                            row(wrapped.value)
                             Spacer()
-                            if let selectedID, idFor(item) == selectedID {
+                            if let selectedID, wrapped.id == selectedID {
                                 Image(systemName: "checkmark")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.tint)

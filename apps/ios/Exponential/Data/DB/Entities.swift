@@ -4,7 +4,7 @@ import GRDB
 // MARK: - Electric Offset
 
 struct ElectricOffset: Codable, FetchableRecord, PersistableRecord {
-    static let databaseTableName = "electric_offset"
+    static let databaseTableName = "electric_offsets"
 
     let shape: String
     let handle: String
@@ -14,7 +14,7 @@ struct ElectricOffset: Codable, FetchableRecord, PersistableRecord {
 // MARK: - Workspace
 
 struct WorkspaceEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "workspace"
+    static let databaseTableName = "workspaces"
 
     let id: String
     let name: String
@@ -60,7 +60,7 @@ extension WorkspaceEntity: Codable {
 // MARK: - Project
 
 struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "project"
+    static let databaseTableName = "projects"
 
     let id: String
     let workspaceId: String
@@ -88,7 +88,7 @@ struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identifiable,
 // MARK: - Issue
 
 struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "issue"
+    static let databaseTableName = "issues"
 
     let id: String
     let projectId: String
@@ -198,7 +198,7 @@ extension IssueEntity: Codable {
 // MARK: - Label
 
 struct LabelEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "label"
+    static let databaseTableName = "labels"
 
     let id: String
     let workspaceId: String
@@ -220,27 +220,23 @@ struct LabelEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, S
 // MARK: - IssueLabel
 
 struct IssueLabelEntity: Codable, FetchableRecord, PersistableRecord, Sendable {
-    static let databaseTableName = "issue_label"
+    static let databaseTableName = "issue_labels"
 
-    let id: String?
     let issueId: String
     let labelId: String
-    let workspaceId: String?
-    let createdAt: String?
+    let workspaceId: String
 
     enum CodingKeys: String, CodingKey {
-        case id
         case issueId = "issue_id"
         case labelId = "label_id"
         case workspaceId = "workspace_id"
-        case createdAt = "created_at"
     }
 }
 
 // MARK: - User
 
 struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "user"
+    static let databaseTableName = "users"
 
     let id: String
     let name: String?
@@ -259,7 +255,7 @@ struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Se
 // MARK: - WorkspaceMember
 
 struct WorkspaceMemberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "workspace_member"
+    static let databaseTableName = "workspace_members"
 
     let id: String
     let workspaceId: String
@@ -280,7 +276,7 @@ struct WorkspaceMemberEntity: Codable, FetchableRecord, PersistableRecord, Ident
 // MARK: - WorkspaceInvite
 
 struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "workspace_invite"
+    static let databaseTableName = "workspace_invites"
 
     let id: String
     let workspaceId: String
@@ -320,7 +316,7 @@ enum CommentKind: String, Codable, Sendable {
 }
 
 struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "comment"
+    static let databaseTableName = "comments"
 
     let id: String
     let issueId: String
@@ -378,7 +374,7 @@ extension CommentEntity: Codable {
 // MARK: - Attachment
 
 struct AttachmentEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    static let databaseTableName = "attachment"
+    static let databaseTableName = "attachments"
 
     let id: String
     let workspaceId: String

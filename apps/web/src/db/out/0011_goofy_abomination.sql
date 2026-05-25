@@ -1,2 +1,0 @@
-CREATE TYPE "public"."public_write_policy" AS ENUM('members', 'everyone');--> statement-breakpoint
-ALTER TABLE "workspaces" ADD COLUMN "public_write_policy" "public_write_policy" DEFAULT 'members' NOT NULL;
