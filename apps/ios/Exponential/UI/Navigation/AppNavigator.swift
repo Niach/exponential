@@ -6,6 +6,7 @@ enum AppRoute: Hashable {
     case project(id: String)
     case issue(id: String)
     case settings
+    case serverDetail(accountId: String)
     case workspaceSettings(workspaceId: String)
     case integrations
     case adminUsers
@@ -114,6 +115,12 @@ struct MainNavigator: View {
                 workspaceState.pendingProjectIdAfterSwitch = nil
                 path.append(AppRoute.project(id: pendingProjectId))
             }
+            // Same handoff for Settings → Workspaces → cross-server tap.
+            if let pendingWorkspaceSettingsId = workspaceState.pendingWorkspaceSettingsIdAfterSwitch {
+                workspaceState.pendingWorkspaceSettingsIdAfterSwitch = nil
+                path.append(AppRoute.settings)
+                path.append(AppRoute.workspaceSettings(workspaceId: pendingWorkspaceSettingsId))
+            }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
             workspaceLoader?.refresh()
@@ -149,6 +156,8 @@ struct MainNavigator: View {
             IssueDetailView(issueId: id)
         case .settings:
             SettingsView()
+        case let .serverDetail(accountId):
+            ServerDetailView(accountId: accountId)
         case let .workspaceSettings(workspaceId):
             WorkspaceSettingsView(workspaceId: workspaceId)
         case .integrations:

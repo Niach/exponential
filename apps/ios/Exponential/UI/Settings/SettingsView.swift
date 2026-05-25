@@ -3,7 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(WorkspaceState.self) private var workspaceState
-    @State private var accountToRemove: ServerAccount?
+    @State private var workspaceLoader: MultiAccountWorkspaceLoader?
+    @State private var pendingWorkspaceId: String?
 
     var body: some View {
         ZStack {
@@ -11,13 +12,12 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    accountSection
-                    accountsSection
+                    serversSection
+                    workspacesSection
                     generalSection
                     if deps.auth.isAdmin {
                         adminSection
                     }
-                    signOutSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -26,58 +26,27 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .alert(
-            "Remove \(accountToRemove?.displayHost ?? "server")?",
-            isPresented: Binding(get: { accountToRemove != nil }, set: { if !$0 { accountToRemove = nil } })
-        ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Remove", role: .destructive) {
-                if let acc = accountToRemove {
-                    deps.auth.removeAccount(id: acc.id)
-                    DatabaseManager.deleteFiles(forAccountId: acc.id)
-                }
-                accountToRemove = nil
+        .navigationDestination(item: $pendingWorkspaceId) { workspaceId in
+            WorkspaceSettingsView(workspaceId: workspaceId)
+        }
+        .onAppear {
+            if workspaceLoader == nil {
+                workspaceLoader = MultiAccountWorkspaceLoader(auth: deps.auth)
             }
-        } message: {
-            Text("This will sign you out and delete cached data for this server. The server can be re-added at any time.")
+        }
+        .onChange(of: deps.auth.accounts) { _, _ in
+            workspaceLoader?.refresh()
         }
     }
 
-    private var accountSection: some View {
-        sectionStack(title: "Signed in as") {
-            HStack(spacing: 10) {
-                Image(systemName: "person.crop.circle")
-                    .font(.title3)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                VStack(alignment: .leading, spacing: 2) {
-                    if let name = deps.auth.userName, !name.isEmpty {
-                        Text(name)
-                            .font(.body)
-                            .foregroundStyle(.white)
-                    }
-                    Text(deps.auth.userEmail ?? "Signed in")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    if let url = deps.auth.instanceUrl,
-                       let host = URL(string: url)?.host {
-                        Text(host)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                    }
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .glassRow()
-        }
-    }
-
-    private var accountsSection: some View {
+    private var serversSection: some View {
         sectionStack(title: "Servers") {
             VStack(spacing: 6) {
                 ForEach(deps.auth.accounts) { account in
-                    accountRow(account)
+                    NavigationLink(value: AppRoute.serverDetail(accountId: account.id)) {
+                        serverRow(account)
+                    }
+                    .buttonStyle(.plain)
                 }
                 Button {
                     deps.auth.startAddServer()
@@ -102,51 +71,101 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func accountRow(_ account: ServerAccount) -> some View {
-        let isActive = account.id == deps.auth.activeAccountId
-        Button {
-            if !isActive {
-                // Pre-open the new account's DB pool so the rebuilt UI
-                // (triggered by .id(activeAccountId) on MainNavigator) binds
-                // its ValueObservation to the correct file. SyncManager's
-                // 500ms poll would otherwise leave a window where the new
-                // observation reads the previous account's data.
-                try? deps.db.open(accountId: account.id)
-                deps.auth.switchAccount(id: account.id)
-            }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+    private func serverRow(_ account: ServerAccount) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "server.rack")
+                .font(.body)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(account.displayHost)
                     .font(.body)
-                    .foregroundStyle(isActive ? Color.accentColor : .white.opacity(TextOpacity.tertiary))
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(account.displayHost)
-                        .font(.body)
-                        .foregroundStyle(.white)
-                    if let email = account.userEmail, !email.isEmpty {
-                        Text(email)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    } else if account.token == nil {
-                        Text("Signed out")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .foregroundStyle(.white)
+                if account.token == nil {
+                    Text("Signed out")
+                        .font(.caption)
+                        .foregroundStyle(.orange.opacity(0.85))
+                } else if let email = account.userEmail, !email.isEmpty {
+                    Text(email)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .glassRow()
+    }
+
+    private var workspacesSection: some View {
+        sectionStack(title: "Workspaces") {
+            let groups = workspaceLoader?.groups ?? []
+            if groups.isEmpty {
+                Text("No workspaces synced yet.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.horizontal, 4)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(groups) { group in
+                        workspaceGroupBlock(group)
                     }
                 }
-                Spacer()
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .glassRow()
         }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button(role: .destructive) {
-                accountToRemove = account
-            } label: {
-                Label("Remove server", systemImage: "trash")
+    }
+
+    @ViewBuilder
+    private func workspaceGroupBlock(_ group: ServerWorkspaceGroup) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(group.hostname)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .padding(.horizontal, 4)
+
+            VStack(spacing: 6) {
+                ForEach(group.workspaces) { workspace in
+                    Button {
+                        handleWorkspaceTap(accountId: group.accountId, workspaceId: workspace.id)
+                    } label: {
+                        HStack(spacing: 12) {
+                            WorkspaceAvatar(workspace: workspace, size: 22)
+                            Text(workspace.name)
+                                .font(.body)
+                                .foregroundStyle(.white)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .glassRow()
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+        }
+    }
+
+    /// Open WorkspaceSettings for any workspace on any server. The current
+    /// WorkspaceSettingsView reads from the active account's pool, so we
+    /// silently switch the active account first if needed.
+    /// Same-server taps push the route directly via `pendingWorkspaceId`
+    /// (used as a NavigationDestination trigger below); cross-server taps
+    /// stash the workspaceId in WorkspaceState and let the rebuilt
+    /// MainNavigator's onAppear push the route once the new pool is live.
+    private func handleWorkspaceTap(accountId: String, workspaceId: String) {
+        if accountId == deps.auth.activeAccountId {
+            pendingWorkspaceId = workspaceId
+        } else {
+            workspaceState.pendingWorkspaceSettingsIdAfterSwitch = workspaceId
+            try? deps.db.open(accountId: accountId)
+            deps.auth.switchAccount(id: accountId)
         }
     }
 
@@ -157,13 +176,6 @@ struct SettingsView: View {
                     settingsRow(icon: "puzzlepiece.extension", title: "Integrations")
                 }
                 .buttonStyle(.plain)
-
-                if let workspaceId = workspaceState.activeWorkspace?.id {
-                    NavigationLink(value: AppRoute.workspaceSettings(workspaceId: workspaceId)) {
-                        settingsRow(icon: "building.2", title: "Workspace settings")
-                    }
-                    .buttonStyle(.plain)
-                }
 
                 if let url = feedbackUrl() {
                     Button {
@@ -199,26 +211,6 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
         }
-    }
-
-    private var signOutSection: some View {
-        Button {
-            deps.auth.clearToken()
-            Task { await deps.syncManager.signOut() }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.body)
-                Text("Sign out")
-                    .font(.body)
-                Spacer()
-            }
-            .foregroundStyle(.red.opacity(0.85))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .glassRow()
-        }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder

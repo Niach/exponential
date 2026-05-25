@@ -19,6 +19,11 @@ final class WorkspaceState {
     // account's MainNavigator instance appears, then clears the field.
     var pendingProjectIdAfterSwitch: String?
 
+    // Same idea for Settings → Workspaces → tap a workspace on a different
+    // server: pre-set the workspaceId then switchAccount; MainNavigator's
+    // onAppear pushes .workspaceSettings after the rebuild.
+    var pendingWorkspaceSettingsIdAfterSwitch: String?
+
     var activeWorkspace: WorkspaceEntity? {
         workspaces.first { $0.id == activeWorkspaceId } ?? workspaces.first
     }
