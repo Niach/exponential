@@ -9,18 +9,12 @@ import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.IssueDao
+import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
-import com.exponential.app.data.db.IssueLabelDao
 import com.exponential.app.data.db.IssueLabelEntity
-import com.exponential.app.data.db.LabelDao
 import com.exponential.app.data.db.LabelEntity
-import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
-import com.exponential.app.data.db.UserDao
 import com.exponential.app.data.db.UserEntity
-import com.exponential.app.data.db.WorkspaceDao
-import com.exponential.app.data.db.WorkspaceMemberDao
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
@@ -65,13 +59,7 @@ data class IssueListState(
 @HiltViewModel
 class IssueListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val projectDao: ProjectDao,
-    private val issueDao: IssueDao,
-    private val issueLabelDao: IssueLabelDao,
-    private val labelDao: LabelDao,
-    private val userDao: UserDao,
-    private val workspaceDao: WorkspaceDao,
-    private val workspaceMemberDao: WorkspaceMemberDao,
+    private val holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val issueImagesApi: IssueImagesApi,
@@ -80,6 +68,8 @@ class IssueListViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val projectId: String = savedStateHandle["projectId"] ?: ""
+    private val accountId = auth.activeAccountId.value ?: ""
+    private val db = holder.database(forAccountId = accountId)
 
     private val _filters = MutableStateFlow(IssueFilters())
     val filters: StateFlow<IssueFilters> = _filters
@@ -90,16 +80,16 @@ class IssueListViewModel @Inject constructor(
     private val _project = MutableStateFlow<ProjectEntity?>(null)
 
     private val labelsForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else labelDao.observeByWorkspace(project.workspaceId)
+        if (project == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(project.workspaceId)
     }
     private val issueLabelsForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else issueLabelDao.observeByWorkspace(project.workspaceId)
+        if (project == null) flowOf(emptyList()) else db.issueLabelDao().observeByWorkspace(project.workspaceId)
     }
     private val workspaceForProject = _project.flatMapLatest { project ->
-        if (project == null) flowOf(null) else workspaceDao.observeById(project.workspaceId)
+        if (project == null) flowOf(null) else db.workspaceDao().observeById(project.workspaceId)
     }
     private val membersForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else workspaceMemberDao.observeByWorkspace(project.workspaceId)
+        if (project == null) flowOf(emptyList()) else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
     }
 
     val permissions: StateFlow<WorkspacePermissions> = combine(
@@ -120,13 +110,13 @@ class IssueListViewModel @Inject constructor(
     val state: StateFlow<IssueListState> = combine(
         listOf(
             _project,
-            issueDao.observeByProject(projectId),
+            db.issueDao().observeByProject(projectId),
             labelsForWorkspace,
             issueLabelsForWorkspace,
             _filters,
             _busy,
             _error,
-            userDao.observeAll(),
+            db.userDao().observeAll(),
             _refreshing,
         )
     ) { values ->
@@ -181,7 +171,7 @@ class IssueListViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            projectDao.observeAll().collect { all ->
+            db.projectDao().observeAll().collect { all ->
                 _project.value = all.firstOrNull { it.id == projectId }
             }
         }

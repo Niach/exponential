@@ -21,7 +21,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
@@ -51,22 +50,6 @@ class SyncManager @Inject constructor(
                 .map { list -> list.filter { it.token != null }.map { it.id }.toSet() }
                 .distinctUntilChanged()
                 .collect { signedIn -> reconcile(signedIn) }
-        }
-        // Transitional: keep `DatabaseHolder.current()` pointed at the active
-        // account so legacy UI paths (DAO facades' single-active flow,
-        // ValueObservations bound to `holder.database`) follow account
-        // switches. Removed in Phase B once routes carry accountId.
-        scope.launch {
-            auth.activeAccountId
-                .filterNotNull()
-                .distinctUntilChanged()
-                .collect { accountId ->
-                    try {
-                        databaseHolder.database(forAccountId = accountId)
-                    } catch (t: Throwable) {
-                        android.util.Log.e("SyncManager", "Failed to mark current for $accountId", t)
-                    }
-                }
         }
     }
 

@@ -10,17 +10,11 @@ import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.IssueDao
+import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
-import com.exponential.app.data.db.IssueLabelDao
-import com.exponential.app.data.db.LabelDao
 import com.exponential.app.data.db.LabelEntity
-import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
-import com.exponential.app.data.db.UserDao
 import com.exponential.app.data.db.UserEntity
-import com.exponential.app.data.db.WorkspaceDao
-import com.exponential.app.data.db.WorkspaceMemberDao
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkspacePermissions
@@ -50,13 +44,7 @@ data class IssueDetailState(
 @HiltViewModel
 class IssueDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val issueDao: IssueDao,
-    private val projectDao: ProjectDao,
-    private val labelDao: LabelDao,
-    private val issueLabelDao: IssueLabelDao,
-    private val userDao: UserDao,
-    private val workspaceDao: WorkspaceDao,
-    private val workspaceMemberDao: WorkspaceMemberDao,
+    private val holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
@@ -66,17 +54,19 @@ class IssueDetailViewModel @Inject constructor(
 ) : ViewModel() {
 
     val issueId: String = savedStateHandle["issueId"] ?: ""
+    private val accountId = auth.activeAccountId.value ?: ""
+    private val db = holder.database(forAccountId = accountId)
 
-    private val issueFlow = issueDao.observeById(issueId)
+    private val issueFlow = db.issueDao().observeById(issueId)
     private val _project = MutableStateFlow<ProjectEntity?>(null)
     private val workspaceLabelsFlow = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else labelDao.observeByWorkspace(project.workspaceId)
+        if (project == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(project.workspaceId)
     }
     private val workspaceForProject = _project.flatMapLatest { project ->
-        if (project == null) flowOf(null) else workspaceDao.observeById(project.workspaceId)
+        if (project == null) flowOf(null) else db.workspaceDao().observeById(project.workspaceId)
     }
     private val membersForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else workspaceMemberDao.observeByWorkspace(project.workspaceId)
+        if (project == null) flowOf(emptyList()) else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
     }
 
     val permissions: StateFlow<WorkspacePermissions> = combine(
@@ -98,8 +88,8 @@ class IssueDetailViewModel @Inject constructor(
         issueFlow,
         _project,
         workspaceLabelsFlow,
-        issueLabelDao.observeByIssue(issueId),
-        userDao.observeAll(),
+        db.issueLabelDao().observeByIssue(issueId),
+        db.userDao().observeAll(),
     ) { issue, project, allLabels, joins, users ->
         val labelsById = allLabels.associateBy { it.id }
         IssueDetailState(
@@ -117,7 +107,7 @@ class IssueDetailViewModel @Inject constructor(
             issueFlow
                 .flatMapLatest { issue ->
                     if (issue == null) flowOf(null)
-                    else projectDao.observeAll().map { projects ->
+                    else db.projectDao().observeAll().map { projects ->
                         projects.firstOrNull { it.id == issue.projectId }
                     }
                 }

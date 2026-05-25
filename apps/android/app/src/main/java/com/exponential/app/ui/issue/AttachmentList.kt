@@ -33,8 +33,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.db.AttachmentDao
 import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -134,12 +135,16 @@ private fun formatBytes(bytes: Long): String {
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AttachmentListViewModel @Inject constructor(
-    private val attachmentDao: AttachmentDao,
+    private val holder: DatabaseHolder,
+    private val auth: AuthRepository,
 ) : ViewModel() {
+    private val accountId = auth.activeAccountId.value ?: ""
+    private val db = holder.database(forAccountId = accountId)
+
     private val issueIdFlow = MutableStateFlow<String?>(null)
 
     val attachments: StateFlow<List<AttachmentEntity>> = issueIdFlow.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else attachmentDao.observeByIssue(id)
+        if (id == null) flowOf(emptyList()) else db.attachmentDao().observeByIssue(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun bind(issueId: String) {

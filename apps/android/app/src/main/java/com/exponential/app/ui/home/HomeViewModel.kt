@@ -5,13 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.MultiAccountProjectRepository
 import com.exponential.app.data.db.MultiAccountWorkspaceRepository
-import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.ServerProjectGroup
 import com.exponential.app.data.db.ServerWorkspaceGroup
-import com.exponential.app.data.db.WorkspaceDao
 import com.exponential.app.data.db.WorkspaceEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -46,17 +45,19 @@ data class HomeState(
 class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val workspacesApi: WorkspacesApi,
-    private val workspaceDao: WorkspaceDao,
-    private val projectDao: ProjectDao,
+    private val holder: DatabaseHolder,
     private val selection: WorkspaceSelection,
     private val multiAccountWorkspaces: MultiAccountWorkspaceRepository,
     private val multiAccountProjects: MultiAccountProjectRepository,
 ) : ViewModel() {
 
-    private val workspacesFlow = workspaceDao.observeAll()
+    private val accountId = auth.activeAccountId.value ?: ""
+    private val db = holder.database(forAccountId = accountId)
+
+    private val workspacesFlow = db.workspaceDao().observeAll()
 
     private val projectsFlow = selection.selectedId.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else projectDao.observeByWorkspace(id)
+        if (id == null) flowOf(emptyList()) else db.projectDao().observeByWorkspace(id)
     }
 
     // Pre-combine the new cross-server inputs into a single Flow so the outer
@@ -96,7 +97,7 @@ class HomeViewModel @Inject constructor(
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
                 val workspace = workspacesApi.ensureDefault(accountId)
-                workspaceDao.upsert(workspace)
+                db.workspaceDao().upsert(workspace)
                 if (selection.selectedId.value == null) selection.select(workspace.id)
                 _error.value = null
             } catch (error: Throwable) {

@@ -5,11 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AgentPlanApi
 import com.exponential.app.data.api.CommentsApi
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.CommentDao
 import com.exponential.app.data.db.CommentEntity
-import com.exponential.app.data.db.IssueDao
+import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
-import com.exponential.app.data.db.UserDao
 import com.exponential.app.data.db.UserEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -33,24 +31,25 @@ data class CommentThreadState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class CommentThreadViewModel @Inject constructor(
-    private val commentDao: CommentDao,
-    private val issueDao: IssueDao,
-    private val userDao: UserDao,
+    private val holder: DatabaseHolder,
     private val commentsApi: CommentsApi,
     private val agentPlanApi: AgentPlanApi,
     private val auth: AuthRepository,
 ) : ViewModel() {
 
+    private val accountId = auth.activeAccountId.value ?: ""
+    private val db = holder.database(forAccountId = accountId)
+
     private val issueIdFlow = MutableStateFlow<String?>(null)
 
     val state: StateFlow<CommentThreadState> = combine(
         issueIdFlow.flatMapLatest { id ->
-            if (id == null) flowOf(null) else issueDao.observeById(id)
+            if (id == null) flowOf(null) else db.issueDao().observeById(id)
         },
         issueIdFlow.flatMapLatest { id ->
-            if (id == null) flowOf(emptyList()) else commentDao.observeByIssue(id)
+            if (id == null) flowOf(emptyList()) else db.commentDao().observeByIssue(id)
         },
-        userDao.observeAll(),
+        db.userDao().observeAll(),
         auth.userId,
         auth.isAdmin,
     ) { issue, comments, users, userId, isAdmin ->

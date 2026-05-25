@@ -23,24 +23,13 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         createIssueNotificationChannel()
-        // Open a Room instance for every signed-in account up front so the
-        // DAO facades' `holder.database` StateFlow has something to emit
-        // before SyncManager's first reconcile tick lands. Without this,
-        // HomeViewModel.bootstrap() can race the first pipeline launch and
-        // throw on `holder.current()`. Open non-active first then active
-        // last so the active account is what the transitional `current()`
-        // resolves to.
-        val activeId = auth.activeAccountId.value
-        val accounts = auth.accounts.value
-        for (account in accounts) {
-            if (account.id == activeId) continue
+        // Open a Room instance for every signed-in account up front so
+        // ViewModels that resolve `holder.database(forAccountId:)` at init
+        // time get a cached instance instead of racing the first
+        // SyncManager reconcile tick.
+        for (account in auth.accounts.value) {
             if (account.token != null) {
                 databaseHolder.database(forAccountId = account.id)
-            }
-        }
-        activeId?.let { id ->
-            if (accounts.any { it.id == id && it.token != null }) {
-                databaseHolder.database(forAccountId = id)
             }
         }
         syncManager.start()
