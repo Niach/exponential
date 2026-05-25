@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,13 +36,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.ServerProjectGroup
+import com.exponential.app.data.db.WorkspaceBlock
 import com.exponential.app.ui.nav.AvatarMenuButton
 import com.exponential.app.ui.nav.LocalDrawerOpener
+import com.exponential.app.ui.nav.WorkspaceAvatar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onOpenProject: (String) -> Unit,
+    onOpenProject: (accountId: String, projectId: String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -55,9 +57,7 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(state.selectedWorkspace?.name ?: "Workspace")
-                },
+                title = { Text("Projects") },
                 navigationIcon = {
                     IconButton(onClick = { openDrawer() }) {
                         Icon(Icons.Filled.Menu, contentDescription = "Menu")
@@ -71,13 +71,16 @@ fun HomeScreen(
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (state.projects.isEmpty()) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (state.projectTree.isEmpty()) {
                 EmptyState(message = error ?: "No projects yet — create one on the web.")
             } else {
-                ProjectList(
-                    projects = state.projects,
-                    onOpenProject = onOpenProject,
+                ProjectTree(
+                    groups = state.projectTree,
+                    onOpenProject = { accountId, projectId ->
+                        val sameServer = viewModel.onProjectTap(accountId, projectId)
+                        if (sameServer) onOpenProject(accountId, projectId)
+                    },
                 )
             }
         }
@@ -98,17 +101,81 @@ private fun EmptyState(message: String) {
 }
 
 @Composable
-private fun ProjectList(
-    projects: List<ProjectEntity>,
-    onOpenProject: (String) -> Unit,
+private fun ProjectTree(
+    groups: List<ServerProjectGroup>,
+    onOpenProject: (accountId: String, projectId: String) -> Unit,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        items(projects, key = { it.id }) { project ->
-            ProjectRow(project, onClick = { onOpenProject(project.id) })
+        items(groups, key = { it.accountId }) { group ->
+            ServerSection(group = group, onOpenProject = onOpenProject)
+        }
+    }
+}
+
+@Composable
+private fun ServerSection(
+    group: ServerProjectGroup,
+    onOpenProject: (accountId: String, projectId: String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+            Text(
+                group.hostname,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!group.userEmail.isNullOrBlank()) {
+                Text(
+                    group.userEmail,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        group.workspaceBlocks.forEach { block ->
+            WorkspaceBlockView(
+                accountId = group.accountId,
+                block = block,
+                onOpenProject = onOpenProject,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceBlockView(
+    accountId: String,
+    block: WorkspaceBlock,
+    onOpenProject: (accountId: String, projectId: String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            WorkspaceAvatar(block.workspace, size = 18.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                block.workspace.name,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "${block.projects.size}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        block.projects.forEach { project ->
+            ProjectRow(
+                project = project,
+                onClick = { onOpenProject(accountId, project.id) },
+            )
         }
     }
 }
@@ -132,6 +199,7 @@ private fun ProjectRow(project: ProjectEntity, onClick: () -> Unit) {
             project.name,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(12.dp))
         Text(

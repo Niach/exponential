@@ -18,4 +18,22 @@ class WorkspaceSelection @Inject constructor() {
     fun select(id: String) {
         _selectedId.value = id
     }
+
+    // Set just before a cross-server `auth.switchAccount(id)` from the Home
+    // tree when the user taps a project on a different server. After the
+    // `key(activeAccountId)` rebuild, AuthenticatedShell's LaunchedEffect
+    // reads this and navigates to `project/<id>` on the freshly-built
+    // NavHost, then clears the field.
+    private val _pendingProjectId = MutableStateFlow<String?>(null)
+    val pendingProjectId: StateFlow<String?> = _pendingProjectId.asStateFlow()
+
+    fun setPendingProject(projectId: String) {
+        _pendingProjectId.value = projectId
+    }
+
+    fun consumePendingProject(): String? {
+        val value = _pendingProjectId.value
+        _pendingProjectId.value = null
+        return value
+    }
 }

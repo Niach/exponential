@@ -28,6 +28,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.push.DeepLinkBus
@@ -266,6 +267,24 @@ private fun AuthenticatedShell(
     val homeState by homeViewModel.state.collectAsState()
     LaunchedEffect(Unit) { homeViewModel.bootstrap() }
 
+    // Consume any cross-server project tap that arrived before the
+    // `key(activeAccountId)` rebuild — pre-set by HomeViewModel.onProjectTap
+    // when the user picked a project on a different server.
+    val workspaceSelection: WorkspaceSelection = (LocalContext.current.applicationContext as ExponentialApp)
+        .let {
+            dagger.hilt.android.EntryPointAccessors.fromApplication(
+                it,
+                WorkspaceSelectionEntryPoint::class.java,
+            ).workspaceSelection()
+        }
+    val pendingProjectId by workspaceSelection.pendingProjectId.collectAsState()
+    LaunchedEffect(pendingProjectId) {
+        pendingProjectId?.let { projectId ->
+            workspaceSelection.consumePendingProject()
+            navController.navigate("project/$projectId") { launchSingleTop = true }
+        }
+    }
+
     MainScaffold(
         navController = navController,
         serverGroups = homeState.serverGroups,
@@ -283,7 +302,9 @@ private fun AuthenticatedShell(
         NavHost(navController = navController, startDestination = "home") {
             composable("home") {
                 HomeScreen(
-                    onOpenProject = { id -> navController.navigate("project/$id") },
+                    onOpenProject = { _, projectId ->
+                        navController.navigate("project/$projectId")
+                    },
                 )
             }
             composable("settings") {
@@ -341,4 +362,10 @@ private fun AuthenticatedShell(
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 private interface DeepLinkEntryPoint {
     fun deepLinkBus(): DeepLinkBus
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+private interface WorkspaceSelectionEntryPoint {
+    fun workspaceSelection(): WorkspaceSelection
 }

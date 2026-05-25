@@ -6,9 +6,11 @@ import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.MultiAccountProjectRepository
 import com.exponential.app.data.db.MultiAccountWorkspaceRepository
 import com.exponential.app.data.db.ProjectDao
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.ServerProjectGroup
 import com.exponential.app.data.db.ServerWorkspaceGroup
 import com.exponential.app.data.db.WorkspaceDao
 import com.exponential.app.data.db.WorkspaceEntity
@@ -32,9 +34,12 @@ data class HomeState(
     val error: String? = null,
     // Unified cross-server picker source. `workspaces` above stays scoped to
     // the active server so existing in-screen displays (top-bar workspace
-    // name, project list) keep working unchanged.
+    // name, drawer dropdown) keep working unchanged.
     val serverGroups: List<ServerWorkspaceGroup> = emptyList(),
     val activeAccountId: String? = null,
+    // Server > Workspace > Project tree shown on Home. Every signed-in
+    // account contributes one block.
+    val projectTree: List<ServerProjectGroup> = emptyList(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -47,6 +52,7 @@ class HomeViewModel @Inject constructor(
     private val projectDao: ProjectDao,
     private val selection: WorkspaceSelection,
     private val multiAccountWorkspaces: MultiAccountWorkspaceRepository,
+    private val multiAccountProjects: MultiAccountProjectRepository,
 ) : ViewModel() {
 
     private val workspacesFlow = workspaceDao.observeAll()
@@ -60,7 +66,8 @@ class HomeViewModel @Inject constructor(
     private val multiAccountFlow = combine(
         multiAccountWorkspaces.serverGroups,
         auth.activeAccountId,
-    ) { groups, activeAccountId -> groups to activeAccountId }
+        multiAccountProjects.serverGroups,
+    ) { groups, activeAccountId, projectTree -> Triple(groups, activeAccountId, projectTree) }
 
     val state: StateFlow<HomeState> = combine(
         workspacesFlow,
@@ -69,7 +76,7 @@ class HomeViewModel @Inject constructor(
         auth.userEmail,
         multiAccountFlow,
     ) { workspaces, selectedId, projects, email, multi ->
-        val (groups, activeAccountId) = multi
+        val (groups, activeAccountId, projectTree) = multi
         val selected = workspaces.firstOrNull { it.id == selectedId }
             ?: workspaces.firstOrNull()
         HomeState(
@@ -79,6 +86,7 @@ class HomeViewModel @Inject constructor(
             projects = projects,
             serverGroups = groups,
             activeAccountId = activeAccountId,
+            projectTree = projectTree,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
@@ -108,6 +116,20 @@ class HomeViewModel @Inject constructor(
         selection.select(workspaceId)
         if (accountId != auth.activeAccountId.value) {
             auth.switchAccount(accountId)
+        }
+    }
+
+    /// Project tap from the cross-server Home tree. Returns whether the
+    /// caller can navigate immediately (same-server) or should wait for the
+    /// activeAccountId-keyed rebuild + `pendingProjectId` consumption to do
+    /// it for them (cross-server).
+    fun onProjectTap(accountId: String, projectId: String): Boolean {
+        return if (accountId == auth.activeAccountId.value) {
+            true
+        } else {
+            selection.setPendingProject(projectId)
+            auth.switchAccount(accountId)
+            false
         }
     }
 }
