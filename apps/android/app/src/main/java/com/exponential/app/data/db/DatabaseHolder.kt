@@ -57,7 +57,7 @@ class DatabaseHolder @Inject constructor(
             )
                 // Schema is canonical; if it ever drifts we wipe and let
                 // Electric resync. No explicit Migration objects on purpose.
-                .fallbackToDestructiveMigration()
+                .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             instances[accountId] = db
             lastUsedAccountId = accountId
