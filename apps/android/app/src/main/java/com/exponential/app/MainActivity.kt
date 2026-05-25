@@ -43,6 +43,7 @@ import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.nav.MainScaffold
+import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.WorkspaceSettingsScreen
 import com.exponential.app.ui.theme.ExponentialTheme
@@ -284,6 +285,18 @@ private fun AuthenticatedShell(
             navController.navigate("project/$projectId") { launchSingleTop = true }
         }
     }
+    // Same handoff for Settings → Workspaces tap on a workspace on a
+    // different server: pendingWorkspaceSettings is flipped true, then after
+    // the activeAccountId rebuild we re-push the Settings → WorkspaceSettings
+    // stack so the user lands inside the right workspace on the right server.
+    val pendingWorkspaceSettings by workspaceSelection.pendingWorkspaceSettings.collectAsState()
+    LaunchedEffect(pendingWorkspaceSettings) {
+        if (pendingWorkspaceSettings) {
+            workspaceSelection.consumePendingWorkspaceSettings()
+            navController.navigate("settings")
+            navController.navigate("workspace-settings") { launchSingleTop = true }
+        }
+    }
 
     MainScaffold(
         navController = navController,
@@ -310,10 +323,19 @@ private fun AuthenticatedShell(
             composable("settings") {
                 SettingsScreen(
                     onOpenIntegrations = { navController.navigate("integrations") },
+                    onOpenServerDetail = { accountId ->
+                        navController.navigate("server/$accountId")
+                    },
                     onOpenWorkspaceSettings = { navController.navigate("workspace-settings") },
                     onOpenAdminUsers = { navController.navigate("admin-users") },
                     onOpenAdminWorkspaces = { navController.navigate("admin-workspaces") },
-                    onSignOut = onSignOut,
+                )
+            }
+            composable("server/{accountId}") { entry ->
+                val accountId = entry.arguments?.getString("accountId").orEmpty()
+                ServerDetailScreen(
+                    accountId = accountId,
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("workspace-settings") {

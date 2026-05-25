@@ -36,4 +36,22 @@ class WorkspaceSelection @Inject constructor() {
         _pendingProjectId.value = null
         return value
     }
+
+    // Same idea as pendingProjectId but for Settings → Workspaces taps on a
+    // workspace that lives on a different server. The pre-set
+    // `selectedId = workspaceId` already drives WorkspaceSettingsViewModel's
+    // observers correctly; this flag just tells AuthenticatedShell that a
+    // workspace-settings push is expected after the next account switch.
+    private val _pendingWorkspaceSettings = MutableStateFlow(false)
+    val pendingWorkspaceSettings: StateFlow<Boolean> = _pendingWorkspaceSettings.asStateFlow()
+
+    fun setPendingWorkspaceSettings() {
+        _pendingWorkspaceSettings.value = true
+    }
+
+    fun consumePendingWorkspaceSettings(): Boolean {
+        val value = _pendingWorkspaceSettings.value
+        _pendingWorkspaceSettings.value = false
+        return value
+    }
 }
