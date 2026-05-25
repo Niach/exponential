@@ -193,12 +193,13 @@ struct CreateIssueSheet: View {
             .onAppear {
                 titleFocused = true
                 Task {
-                    if let loaded = try? await deps.db.dbPool.read({ db in
+                    let pool = try! deps.db.pool(forAccountId: accountId)
+                    if let loaded = try? await pool.read({ db in
                         try UserEntity.fetchAll(db)
                     }) {
                         users = loaded
                     }
-                    let workspace: WorkspaceEntity? = (try? await deps.db.dbPool.read({ db -> WorkspaceEntity? in
+                    let workspace: WorkspaceEntity? = (try? await pool.read({ db -> WorkspaceEntity? in
                         guard let project = try ProjectEntity.fetchOne(db, key: projectId) else {
                             return nil
                         }
@@ -208,7 +209,7 @@ struct CreateIssueSheet: View {
                         workspace: workspace,
                         currentUserId: deps.auth.userId,
                         isAdmin: deps.auth.isAdmin,
-                        dbPool: deps.db.dbPool
+                        dbPool: pool
                     )
                 }
             }

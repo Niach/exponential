@@ -170,7 +170,7 @@ struct SettingsView: View {
             pendingWorkspaceId = workspaceId
         } else {
             workspaceState.pendingWorkspaceSettingsIdAfterSwitch = workspaceId
-            try? deps.db.open(accountId: accountId)
+            try? deps.db.pool(forAccountId: accountId)
             deps.auth.switchAccount(id: accountId)
         }
     }

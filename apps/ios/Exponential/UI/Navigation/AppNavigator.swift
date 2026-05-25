@@ -38,23 +38,9 @@ struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
     @State private var path = NavigationPath()
     @State private var workspaceState = WorkspaceState()
-    @State private var workspaceLoader: MultiAccountWorkspaceLoader?
     @State private var projectLoader: MultiAccountProjectLoader?
-    @State private var showWorkspaceSwitcher = false
     @State private var observationTask: Task<Void, Never>?
     @State private var syncing = false
-
-    var workspaceSheetHeight: CGFloat {
-        let header: CGFloat = 56
-        let rowHeight: CGFloat = 44
-        let groupHeader: CGFloat = 36
-        let bottomPadding: CGFloat = 24
-        let groups = workspaceLoader?.groups ?? []
-        let rowCount = groups.reduce(0) { $0 + $1.workspaces.count }
-        let groupCount = groups.count
-        let estimated = header + CGFloat(groupCount) * groupHeader + CGFloat(max(rowCount, 1)) * rowHeight + bottomPadding
-        return min(estimated, 480)
-    }
 
     var body: some View {
         ZStack {
@@ -63,7 +49,6 @@ struct MainNavigator: View {
             NavigationStack(path: $path) {
                 HomeView(
                     syncing: syncing,
-                    onWorkspaceTap: { showWorkspaceSwitcher = true },
                     onProjectTap: { accountId, projectId in
                         handleProjectTap(accountId: accountId, projectId: projectId)
                     },
@@ -74,23 +59,7 @@ struct MainNavigator: View {
         }
         .environment(workspaceState)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        .sheet(isPresented: $showWorkspaceSwitcher) {
-            SidebarView(
-                groups: workspaceLoader?.groups ?? [],
-                activeAccountId: deps.auth.activeAccountId,
-                activeWorkspaceId: workspaceState.activeWorkspaceId,
-                onSelectWorkspace: { accountId, workspaceId in
-                    handleWorkspacePick(accountId: accountId, workspaceId: workspaceId)
-                }
-            )
-            .presentationBackground(.ultraThinMaterial)
-            .presentationDetents([.height(workspaceSheetHeight), .medium])
-            .presentationDragIndicator(.visible)
-        }
         .onAppear {
-            if workspaceLoader == nil {
-                workspaceLoader = MultiAccountWorkspaceLoader(auth: deps.auth)
-            }
             if projectLoader == nil {
                 projectLoader = MultiAccountProjectLoader(auth: deps.auth, db: deps.db)
             }
@@ -120,7 +89,6 @@ struct MainNavigator: View {
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
-            workspaceLoader?.refresh()
             projectLoader?.refresh()
         }
         .onDisappear { stopObserving() }
@@ -141,7 +109,6 @@ struct MainNavigator: View {
         case .home:
             HomeView(
                 syncing: syncing,
-                onWorkspaceTap: { showWorkspaceSwitcher = true },
                 onProjectTap: { accountId, projectId in
                     handleProjectTap(accountId: accountId, projectId: projectId)
                 },
@@ -193,6 +160,8 @@ struct MainNavigator: View {
 
     private func startObserving() {
         observationTask = Task {
+            guard let pool = try? deps.db.pool(forAccountId: deps.auth.activeAccountId ?? "") else { return }
+
             let wsObs = ValueObservation.tracking { db in
                 try WorkspaceEntity.fetchAll(db)
             }
@@ -200,29 +169,17 @@ struct MainNavigator: View {
                 try ProjectEntity.fetchAll(db)
             }
             Task {
-                for try await ws in wsObs.values(in: deps.db.dbPool) {
+                for try await ws in wsObs.values(in: pool) {
                     await MainActor.run {
                         workspaceState.workspaces = ws
-                        // Mirror the active account's workspaces into the
-                        // cross-server loader so the picker's grouped list
-                        // includes the current server without us opening a
-                        // second DatabasePool on the same read-write file.
-                        workspaceLoader?.setActiveAccountWorkspaces(ws)
-                        // Cross-server pick from the picker pre-set this id
-                        // before auth.switchAccount; promote it now that the
-                        // new DB's workspaces have arrived.
-                        if let pending = workspaceState.pendingWorkspaceIdAfterSwitch,
-                           ws.contains(where: { $0.id == pending }) {
-                            workspaceState.activeWorkspaceId = pending
-                            workspaceState.pendingWorkspaceIdAfterSwitch = nil
-                        } else if workspaceState.activeWorkspaceId == nil, let first = ws.first {
+                        if workspaceState.activeWorkspaceId == nil, let first = ws.first {
                             workspaceState.activeWorkspaceId = first.id
                         }
                     }
                 }
             }
             Task {
-                for try await proj in projObs.values(in: deps.db.dbPool) {
+                for try await proj in projObs.values(in: pool) {
                     await MainActor.run { workspaceState.projects = proj }
                 }
             }
@@ -238,28 +195,7 @@ struct MainNavigator: View {
             // account, and let the rebuilt MainNavigator's onAppear push the
             // route once it's mounted under the new .id(activeAccountId).
             workspaceState.pendingProjectIdAfterSwitch = projectId
-            try? deps.db.open(accountId: accountId)
-            deps.auth.switchAccount(id: accountId)
-        }
-    }
-
-    private func handleWorkspacePick(accountId: String, workspaceId: String) {
-        showWorkspaceSwitcher = false
-        if accountId == deps.auth.activeAccountId {
-            workspaceState.activeWorkspaceId = workspaceId
-        } else {
-            // Tell WorkspaceState which workspace to land on once SyncManager
-            // has swapped the DB and MainNavigator has rebuilt under the new
-            // .id(activeAccountId).
-            workspaceState.pendingWorkspaceIdAfterSwitch = workspaceId
-            // Swap the DB pool *before* the auth change so the rebuilt
-            // MainNavigator binds its ValueObservation to the new account's
-            // file. SyncManager polls auth state every 500ms, which otherwise
-            // leaves a window where the new UI's observation captures the
-            // still-pointing-at-the-old-account pool, reads the previous
-            // account's workspaces, and stashes them under the new activeId —
-            // making both groups in the picker look identical.
-            try? deps.db.open(accountId: accountId)
+            try? deps.db.pool(forAccountId: accountId)
             deps.auth.switchAccount(id: accountId)
         }
     }

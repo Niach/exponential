@@ -6,13 +6,6 @@ final class WorkspaceState {
     var projects: [ProjectEntity] = []
     var activeWorkspaceId: String?
 
-    // Set just before an auth.switchAccount(id:) call from the workspace picker
-    // when the user picks a workspace on a different server. After SyncManager
-    // swaps the DB and MainNavigator rebuilds, the workspace observer in
-    // MainNavigator promotes this id to active (and clears the field) so we
-    // land on the chosen workspace instead of defaulting to the first one.
-    var pendingWorkspaceIdAfterSwitch: String?
-
     // Set just before a cross-server account switch from the Home tree when
     // the user taps a project on a different server. MainNavigator pushes
     // .project(id:) onto its NavigationPath as soon as the new active

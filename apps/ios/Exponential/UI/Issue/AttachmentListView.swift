@@ -9,6 +9,7 @@ struct AttachmentListView: View {
     let issueId: String
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
     @State private var attachments: [AttachmentEntity] = []
     @State private var observationTask: Task<Void, Never>?
 
@@ -40,6 +41,7 @@ struct AttachmentListView: View {
     private func startObserving() {
         observationTask?.cancel()
         observationTask = Task {
+            let pool = try! deps.db.pool(forAccountId: accountId)
             let obs = ValueObservation.tracking { db in
                 try AttachmentEntity
                     .filter(Column("issue_id") == issueId)
@@ -47,7 +49,7 @@ struct AttachmentListView: View {
                     .fetchAll(db)
             }
             Task {
-                for try await rows in obs.values(in: deps.db.dbPool) {
+                for try await rows in obs.values(in: pool) {
                     self.attachments = rows
                 }
             }

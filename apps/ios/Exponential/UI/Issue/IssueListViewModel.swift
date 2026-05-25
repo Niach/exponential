@@ -32,6 +32,7 @@ final class IssueListViewModel {
     func startObserving() {
         observationTask = Task { [weak self] in
             guard let self else { return }
+            let pool = try! self.db.pool(forAccountId: self.accountId)
 
             // Observe project
             let projectObservation = ValueObservation.tracking { db in
@@ -39,7 +40,7 @@ final class IssueListViewModel {
             }
             let projectTask = Task {
                 do {
-                    for try await project in projectObservation.values(in: self.db.dbPool) {
+                    for try await project in projectObservation.values(in: pool) {
                         self.project = project
                         self.refreshPermissions(for: project)
                     }
@@ -54,7 +55,7 @@ final class IssueListViewModel {
             }
             let issueTask = Task {
                 do {
-                    for try await issues in issueObservation.values(in: self.db.dbPool) {
+                    for try await issues in issueObservation.values(in: pool) {
                         self.issues = issues
                     }
                 } catch {}
@@ -66,7 +67,7 @@ final class IssueListViewModel {
             }
             let labelTask = Task {
                 do {
-                    for try await labels in labelObservation.values(in: self.db.dbPool) {
+                    for try await labels in labelObservation.values(in: pool) {
                         self.labels = labels
                     }
                 } catch {}
@@ -78,7 +79,7 @@ final class IssueListViewModel {
             }
             let issueLabelTask = Task {
                 do {
-                    for try await issueLabels in issueLabelObservation.values(in: self.db.dbPool) {
+                    for try await issueLabels in issueLabelObservation.values(in: pool) {
                         self.issueLabels = issueLabels
                     }
                 } catch {}
@@ -90,7 +91,7 @@ final class IssueListViewModel {
             }
             let userTask = Task {
                 do {
-                    for try await users in userObservation.values(in: self.db.dbPool) {
+                    for try await users in userObservation.values(in: pool) {
                         self.users = users
                     }
                 } catch {}
@@ -171,14 +172,15 @@ final class IssueListViewModel {
             permissions = .denied
             return
         }
-        let workspace: WorkspaceEntity? = (try? db.dbPool.read { db -> WorkspaceEntity? in
+        let pool = try! db.pool(forAccountId: accountId)
+        let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
             try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
         }) ?? nil
         permissions = WorkspacePermissions.resolve(
             workspace: workspace,
             currentUserId: auth.userId,
             isAdmin: auth.isAdmin,
-            dbPool: db.dbPool
+            dbPool: pool
         )
     }
 }

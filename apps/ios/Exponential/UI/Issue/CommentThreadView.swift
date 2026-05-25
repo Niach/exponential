@@ -161,6 +161,8 @@ struct CommentThreadView: View {
     private func startObserving() {
         observationTask?.cancel()
         observationTask = Task {
+            let pool = try! deps.db.pool(forAccountId: accountId)
+
             let commentObs = ValueObservation.tracking { db in
                 try CommentEntity
                     .filter(Column("issue_id") == issue.id)
@@ -168,7 +170,7 @@ struct CommentThreadView: View {
                     .fetchAll(db)
             }
             Task {
-                for try await rows in commentObs.values(in: deps.db.dbPool) {
+                for try await rows in commentObs.values(in: pool) {
                     self.comments = rows
                 }
             }
@@ -177,7 +179,7 @@ struct CommentThreadView: View {
                 try UserEntity.fetchAll(db)
             }
             Task {
-                for try await rows in userObs.values(in: deps.db.dbPool) {
+                for try await rows in userObs.values(in: pool) {
                     self.users = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
                 }
             }

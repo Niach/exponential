@@ -10,40 +10,6 @@ private let logger = Logger(subsystem: "com.straehhuber.exponential", category: 
 final class DatabaseManager: @unchecked Sendable {
     private let lock = NSLock()
     private var pools: [String: DatabasePool] = [:]
-    // Transitional: the most-recently-used account's id, set every time
-    // pool(forAccountId:) is called. Lets the legacy `dbPool` getter and
-    // `open(accountId:)`/`close()` APIs keep working for callers that haven't
-    // yet been migrated to the multi-account API. Removed once Phase B/C are
-    // complete and every caller passes an accountId.
-    private var lastUsedAccountId: String?
-
-    /// **Transitional** getter — returns the pool for the most-recently-used
-    /// account. Crashes if no pool has been opened yet. All new code should
-    /// use `pool(forAccountId:)` instead so writes can never land in the
-    /// wrong per-server file.
-    var dbPool: DatabasePool {
-        lock.withLock {
-            guard let id = lastUsedAccountId, let pool = pools[id] else {
-                fatalError("DatabaseManager.dbPool accessed before any account pool was opened")
-            }
-            return pool
-        }
-    }
-
-    /// **Transitional** wrapper around `pool(forAccountId:)`. Marks the given
-    /// account as the most-recently-used so the legacy `dbPool` getter
-    /// resolves to its pool.
-    func open(accountId: String) throws {
-        _ = try pool(forAccountId: accountId)
-    }
-
-    /// **Transitional**: close every pool (used by the old single-active sign-out
-    /// path). New code should call `closePool(forAccountId:)` for the specific
-    /// account that signed out.
-    func close() {
-        closeAll()
-    }
-
     /// Get (or open) the pool for the given account. Subsequent calls for the
     /// same accountId return the cached pool.
     @discardableResult
@@ -66,7 +32,6 @@ final class DatabaseManager: @unchecked Sendable {
         let pool = try DatabasePool(path: path, configuration: config)
         try DatabaseManager.runMigrations(on: pool)
         pools[accountId] = pool
-        lastUsedAccountId = accountId
         logger.info("Opened DB pool for account \(accountId, privacy: .public)")
         return pool
     }
@@ -84,9 +49,6 @@ final class DatabaseManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         pools[accountId] = nil
-        if lastUsedAccountId == accountId {
-            lastUsedAccountId = pools.keys.first
-        }
         logger.info("Closed DB pool for account \(accountId, privacy: .public)")
     }
 
@@ -95,7 +57,6 @@ final class DatabaseManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         pools.removeAll()
-        lastUsedAccountId = nil
     }
 
     /// Delete the underlying SQLite files for the given account.

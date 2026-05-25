@@ -56,7 +56,7 @@ final class AppDependencies: @unchecked Sendable {
         }()
         for account in orderedAccounts where account.token != nil {
             do {
-                try db.open(accountId: account.id)
+                try db.pool(forAccountId: account.id)
             } catch {
                 logger.error(
                     "Failed to open DB for account \(account.id): \(error.localizedDescription)"

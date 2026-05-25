@@ -74,9 +74,11 @@ final class SyncManager: @unchecked Sendable {
     /// account's pool). Phase B replaces the caller (`MainNavigator.onAppear`)
     /// with per-account sync waits keyed by route accountId.
     func initialSync() async {
+        guard let activeId = auth.activeAccountId,
+              let pool = try? db.pool(forAccountId: activeId) else { return }
         let start = Date()
         while Date().timeIntervalSince(start) < 5 {
-            let hasData = (try? await db.dbPool.read { db in
+            let hasData = (try? await pool.read { db in
                 try WorkspaceEntity.fetchCount(db) > 0
             }) ?? false
             if hasData { return }

@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HomeView: View {
     var syncing: Bool = false
-    var onWorkspaceTap: () -> Void = {}
     var onProjectTap: (_ accountId: String, _ projectId: String) -> Void = { _, _ in }
     var projectLoader: MultiAccountProjectLoader? = nil
 

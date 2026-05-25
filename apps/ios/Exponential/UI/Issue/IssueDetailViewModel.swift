@@ -33,12 +33,13 @@ final class IssueDetailViewModel {
     func startObserving() {
         observationTask = Task { [weak self] in
             guard let self else { return }
+            let pool = try! self.db.pool(forAccountId: self.accountId)
 
             let issueObs = ValueObservation.tracking { db in
                 try IssueEntity.fetchOne(db, key: self.issueId)
             }
             Task {
-                for try await issue in issueObs.values(in: self.db.dbPool) {
+                for try await issue in issueObs.values(in: pool) {
                     if let issue {
                         let isFirstLoad = self.issue == nil
                         self.issue = issue
@@ -53,7 +54,7 @@ final class IssueDetailViewModel {
 
             let labelObs = ValueObservation.tracking { db in try LabelEntity.fetchAll(db) }
             Task {
-                for try await labels in labelObs.values(in: self.db.dbPool) {
+                for try await labels in labelObs.values(in: pool) {
                     self.labels = labels
                 }
             }
@@ -62,14 +63,14 @@ final class IssueDetailViewModel {
                 try IssueLabelEntity.filter(Column("issue_id") == self.issueId).fetchAll(db)
             }
             Task {
-                for try await il in issueLabelObs.values(in: self.db.dbPool) {
+                for try await il in issueLabelObs.values(in: pool) {
                     self.issueLabels = il
                 }
             }
 
             let userObs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
             Task {
-                for try await users in userObs.values(in: self.db.dbPool) {
+                for try await users in userObs.values(in: pool) {
                     self.users = users
                 }
             }
@@ -193,7 +194,8 @@ final class IssueDetailViewModel {
     }
 
     private func refreshPermissions(for issue: IssueEntity) {
-        let workspace: WorkspaceEntity? = (try? db.dbPool.read { db -> WorkspaceEntity? in
+        let pool = try! db.pool(forAccountId: accountId)
+        let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
             guard let project = try ProjectEntity.fetchOne(db, key: issue.projectId) else {
                 return nil
             }
@@ -203,7 +205,7 @@ final class IssueDetailViewModel {
             workspace: workspace,
             currentUserId: auth.userId,
             isAdmin: auth.isAdmin,
-            dbPool: db.dbPool
+            dbPool: pool
         )
     }
 
