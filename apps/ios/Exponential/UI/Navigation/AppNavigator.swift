@@ -42,6 +42,7 @@ struct MainNavigator: View {
     @State private var path = NavigationPath()
     @State private var workspaceState = WorkspaceState()
     @State private var workspaceLoader: MultiAccountWorkspaceLoader?
+    @State private var projectLoader: MultiAccountProjectLoader?
     @State private var showWorkspaceSwitcher = false
     @State private var observationTask: Task<Void, Never>?
     @State private var syncing = false
@@ -65,7 +66,11 @@ struct MainNavigator: View {
             NavigationStack(path: $path) {
                 HomeView(
                     syncing: syncing,
-                    onWorkspaceTap: { showWorkspaceSwitcher = true }
+                    onWorkspaceTap: { showWorkspaceSwitcher = true },
+                    onProjectTap: { accountId, projectId in
+                        handleProjectTap(accountId: accountId, projectId: projectId)
+                    },
+                    projectLoader: projectLoader
                 )
                 .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
@@ -88,6 +93,9 @@ struct MainNavigator: View {
             if workspaceLoader == nil {
                 workspaceLoader = MultiAccountWorkspaceLoader(auth: deps.auth)
             }
+            if projectLoader == nil {
+                projectLoader = MultiAccountProjectLoader(auth: deps.auth, db: deps.db)
+            }
             startObserving()
             if workspaceState.workspaces.isEmpty {
                 // Per-account DB: an empty workspace table on mount means we haven't
@@ -98,9 +106,18 @@ struct MainNavigator: View {
                     syncing = false
                 }
             }
+            // Consume any cross-server project-tap target left for us by the
+            // previous MainNavigator instance (before this account-switch
+            // rebuild). Push the project route now that the new account's
+            // pool is live.
+            if let pendingProjectId = workspaceState.pendingProjectIdAfterSwitch {
+                workspaceState.pendingProjectIdAfterSwitch = nil
+                path.append(AppRoute.project(id: pendingProjectId))
+            }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
             workspaceLoader?.refresh()
+            projectLoader?.refresh()
         }
         .onDisappear { stopObserving() }
         .onOpenURL { url in
@@ -118,7 +135,14 @@ struct MainNavigator: View {
     private func destination(for route: AppRoute) -> some View {
         switch route {
         case .home:
-            HomeView(syncing: syncing, onWorkspaceTap: { showWorkspaceSwitcher = true })
+            HomeView(
+                syncing: syncing,
+                onWorkspaceTap: { showWorkspaceSwitcher = true },
+                onProjectTap: { accountId, projectId in
+                    handleProjectTap(accountId: accountId, projectId: projectId)
+                },
+                projectLoader: projectLoader
+            )
         case let .project(id):
             IssueListView(projectId: id)
         case let .issue(id):
@@ -196,6 +220,20 @@ struct MainNavigator: View {
                     await MainActor.run { workspaceState.projects = proj }
                 }
             }
+        }
+    }
+
+    private func handleProjectTap(accountId: String, projectId: String) {
+        if accountId == deps.auth.activeAccountId {
+            // Same-server tap: just navigate.
+            path.append(AppRoute.project(id: projectId))
+        } else {
+            // Cross-server tap: stash the project id, swap pool + active
+            // account, and let the rebuilt MainNavigator's onAppear push the
+            // route once it's mounted under the new .id(activeAccountId).
+            workspaceState.pendingProjectIdAfterSwitch = projectId
+            try? deps.db.open(accountId: accountId)
+            deps.auth.switchAccount(id: accountId)
         }
     }
 

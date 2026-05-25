@@ -13,6 +13,12 @@ final class WorkspaceState {
     // land on the chosen workspace instead of defaulting to the first one.
     var pendingWorkspaceIdAfterSwitch: String?
 
+    // Set just before a cross-server account switch from the Home tree when
+    // the user taps a project on a different server. MainNavigator pushes
+    // .project(id:) onto its NavigationPath as soon as the new active
+    // account's MainNavigator instance appears, then clears the field.
+    var pendingProjectIdAfterSwitch: String?
+
     var activeWorkspace: WorkspaceEntity? {
         workspaces.first { $0.id == activeWorkspaceId } ?? workspaces.first
     }
