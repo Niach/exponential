@@ -42,7 +42,7 @@ function ColorSwatchGrid({
   )
 }
 
-export function StepLabels({ workspaceId, onNext, onSkip }: StepProps) {
+export function StepLabels({ workspaceId, onNext }: StepProps) {
   const [name, setName] = useState(``)
   const [color, setColor] = useState(LABEL_COLORS[0])
   const [created, setCreated] = useState<{ name: string; color: string }[]>([])
@@ -126,10 +126,7 @@ export function StepLabels({ workspaceId, onNext, onSkip }: StepProps) {
           <ColorSwatchGrid value={color} onChange={setColor} />
         </div>
 
-        <div className="flex justify-between">
-          <Button variant="ghost" onClick={onSkip}>
-            Skip
-          </Button>
+        <div className="flex justify-end">
           <Button onClick={onNext}>
             {created.length > 0 ? `Continue` : `Skip`}
           </Button>

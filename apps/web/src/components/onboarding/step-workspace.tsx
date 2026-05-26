@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Building2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { authClient } from "@/lib/auth/client"
 import { useWorkspaceBySlug } from "@/hooks/use-workspace-data"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,9 +21,16 @@ export function StepWorkspace({
   onNext,
   onSkip,
 }: StepProps) {
+  const { data: session } = authClient.useSession()
   const workspace = useWorkspaceBySlug(workspaceSlug)
-  const [name, setName] = useState(workspace?.name ?? ``)
+  const defaultName =
+    workspace?.name ?? (session?.user?.name ? `${session.user.name}'s Workspace` : ``)
+  const [name, setName] = useState(defaultName)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!name && defaultName) setName(defaultName)
+  }, [defaultName])
 
   const handleContinue = async () => {
     if (!name.trim()) {

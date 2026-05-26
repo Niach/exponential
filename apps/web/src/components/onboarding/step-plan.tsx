@@ -35,7 +35,7 @@ export function StepPlan({ onNext, onSkip }: StepProps) {
         </div>
         <CardTitle className="text-xl">Choose your plan</CardTitle>
         <CardDescription>
-          Start free and upgrade anytime. All plans include AI agents.
+          Start free and upgrade anytime.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

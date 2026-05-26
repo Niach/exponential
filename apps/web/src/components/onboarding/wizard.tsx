@@ -8,7 +8,6 @@ import { StepWorkspace } from "@/components/onboarding/step-workspace"
 import { StepProject } from "@/components/onboarding/step-project"
 import { StepPlan } from "@/components/onboarding/step-plan"
 import { StepLabels } from "@/components/onboarding/step-labels"
-import { StepAgent } from "@/components/onboarding/step-agent"
 import { cn } from "@/lib/utils"
 
 type StepDef = {
@@ -51,7 +50,6 @@ export function OnboardingWizard({
         condition: () => isCloud === true,
       },
       { id: `labels`, title: `Labels`, component: StepLabels },
-      { id: `agent`, title: `Agent`, component: StepAgent },
     ],
     [isCloud]
   )
@@ -88,7 +86,7 @@ export function OnboardingWizard({
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-lg space-y-8">
+      <div className="w-full max-w-2xl space-y-8">
         <div className="flex items-center justify-center gap-2">
           {steps.map((step, i) => (
             <div key={step.id} className="flex items-center gap-2">
