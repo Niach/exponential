@@ -264,7 +264,7 @@ export const auth = betterAuth({
           creem({
             apiKey: process.env.CREEM_API_KEY,
             webhookSecret: process.env.CREEM_WEBHOOK_SECRET!,
-            testMode: process.env.NODE_ENV !== `production`,
+            testMode: process.env.CREEM_API_KEY?.startsWith(`creem_test_`) ?? false,
             defaultSuccessUrl: `/settings/billing`,
             persistSubscriptions: true,
             onGrantAccess: async ({ reason, customer }) => {
