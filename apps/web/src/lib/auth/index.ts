@@ -105,7 +105,7 @@ export const auth = betterAuth({
   rateLimit: {
     enabled: process.env.NODE_ENV === `production`,
     window: 60,
-    max: 30,
+    max: 200,
   },
   socialProviders: googleSocialEnabled
     ? {

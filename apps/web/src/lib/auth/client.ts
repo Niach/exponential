@@ -22,7 +22,34 @@ export type SessionData = NonNullable<
   Awaited<ReturnType<typeof authClient.getSession>>[`data`]
 >
 
+let cachedSession: SessionData | null = null
+let cacheTimestamp = 0
+const CACHE_TTL_MS = 30_000
+
+let inflight: Promise<SessionData | null> | null = null
+
 export async function fetchSessionOnce(): Promise<SessionData | null> {
-  const result = await authClient.getSession()
-  return result.data?.session ? (result.data as SessionData) : null
+  if (cachedSession && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+    return cachedSession
+  }
+
+  if (inflight) return inflight
+
+  inflight = authClient.getSession().then((result) => {
+    const data = result.data?.session ? (result.data as SessionData) : null
+    cachedSession = data
+    cacheTimestamp = Date.now()
+    inflight = null
+    return data
+  }).catch((err) => {
+    inflight = null
+    throw err
+  })
+
+  return inflight
+}
+
+export function invalidateSessionCache() {
+  cachedSession = null
+  cacheTimestamp = 0
 }
