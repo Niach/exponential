@@ -3,8 +3,8 @@ import { AnimatePresence, motion } from "motion/react"
 import {
   AlertTriangle,
   Bell,
-  Calendar,
   ChevronDown,
+  ChevronRight,
   CircleCheck,
   CircleDashed,
   CircleX,
@@ -20,6 +20,8 @@ import {
   SignalMedium,
 } from "lucide-react"
 import { MobileIssueDetail } from "./MobileIssueDetail"
+import { MobileSearch } from "./MobileSearch"
+import { MobileCreateSheet } from "./MobileCreateSheet"
 
 type StatusKey = `backlog` | `todo` | `in_progress` | `done` | `cancelled`
 type PriorityKey = `none` | `urgent` | `high` | `medium` | `low`
@@ -79,6 +81,9 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
   const [activeTab, setActiveTab] = useState<TabKey>(`all`)
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null)
   const [userInteracted, setUserInteracted] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState(``)
+  const [createOpen, setCreateOpen] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -146,10 +151,35 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
     setSelectedIssue(issue)
   }
 
+  const handleSearch = () => {
+    setUserInteracted(true)
+    setSearchOpen(true)
+  }
+
+  const handleCreate = (title: string) => {
+    setUserInteracted(true)
+    const newId = `mnew-${Date.now()}`
+    const newIssue: Issue = {
+      id: newId,
+      ident: `EXP-${issues.length + 25}`,
+      title,
+      status: `backlog`,
+      priority: `none`,
+      labels: [],
+      assignee: `D`,
+    }
+    setIssues((xs) => [newIssue, ...xs])
+    setFlashId(newId)
+    setTimeout(() => setFlashId(null), 1100)
+  }
+
   const filtered = issues.filter((i) => {
     if (activeTab === `active`) return i.status === `in_progress`
     if (activeTab === `backlog`) return i.status === `backlog` || i.status === `todo`
     return true
+  }).filter((i) => {
+    if (!searchQuery) return true
+    return i.title.toLowerCase().includes(searchQuery.toLowerCase())
   })
 
   const inProgress = filtered.filter((i) => i.status === `in_progress`)
@@ -226,10 +256,10 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
                       <span>Acme</span>
                     </div>
                     <div className="m-nav-actions">
-                      <button className="m-icon-btn" aria-label="Search">
+                      <button className="m-icon-btn" aria-label="Search" onClick={handleSearch}>
                         <Search size={14} strokeWidth={2} />
                       </button>
-                      <button className="m-icon-btn" aria-label="New issue">
+                      <button className="m-icon-btn" aria-label="New issue" onClick={() => { setUserInteracted(true); setCreateOpen(true) }}>
                         <Plus size={15} strokeWidth={2.2} />
                       </button>
                     </div>
@@ -255,6 +285,16 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
                     </button>
                   ))}
                 </div>
+
+                <AnimatePresence>
+                  {searchOpen && (
+                    <MobileSearch
+                      query={searchQuery}
+                      onChange={setSearchQuery}
+                      onClose={() => { setSearchOpen(false); setSearchQuery(``) }}
+                    />
+                  )}
+                </AnimatePresence>
 
                 <div className="m-list">
                   {inProgress.length > 0 && (
@@ -285,6 +325,15 @@ export function ProductMobile({ animate = true }: { animate?: boolean }) {
                     />
                   )}
                 </div>
+
+                <AnimatePresence>
+                  {createOpen && (
+                    <MobileCreateSheet
+                      onClose={() => setCreateOpen(false)}
+                      onCreate={handleCreate}
+                    />
+                  )}
+                </AnimatePresence>
 
                 <span className="m-home-indicator" aria-hidden />
               </motion.div>
@@ -342,14 +391,9 @@ function MGroup({
                   ))}
                 </span>
               )}
-              {iss.due && (
-                <span className="m-row-due">
-                  <Calendar size={9} strokeWidth={2} />
-                  <span>{iss.due}</span>
-                </span>
-              )}
               <span className="m-row-assignee">{iss.assignee}</span>
             </span>
+            <ChevronRight size={12} strokeWidth={2} className="m-row-chevron" />
           </div>
         )
       })}

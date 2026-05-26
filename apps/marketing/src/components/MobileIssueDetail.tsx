@@ -1,6 +1,8 @@
+import { useState } from "react"
 import {
   AlertTriangle,
   Calendar,
+  Check,
   ChevronLeft,
   CircleCheck,
   CircleDashed,
@@ -8,12 +10,13 @@ import {
   CircleX,
   Hourglass,
   MessageSquare,
+  Pencil,
+  Sparkles,
   Minus,
   SignalHigh,
   SignalLow,
   SignalMedium,
 } from "lucide-react"
-import { IcBot } from "./icons"
 
 type StatusKey = `backlog` | `todo` | `in_progress` | `done` | `cancelled`
 type PriorityKey = `none` | `urgent` | `high` | `medium` | `low`
@@ -144,21 +147,50 @@ export function MobileIssueDetail({
           </div>
         </div>
 
-        <div className="md-comment is-agent">
-          <span className="md-comment-avatar is-bot">
-            <IcBot size={11} />
-          </span>
-          <div className="md-comment-body">
-            <div className="md-comment-meta">
-              <strong>Claude</strong>
-              <span className="md-agent-badge">Agent</span>
-              <span>1h ago</span>
-            </div>
-            <p>
-              I&apos;ll add the webhook dispatch logic. Ready to plan when you
-              assign me.
-            </p>
-          </div>
+        <PlanComment />
+      </div>
+    </div>
+  )
+}
+
+function PlanComment() {
+  const [approved, setApproved] = useState(false)
+
+  const handleApprove = () => {
+    setApproved(true)
+    setTimeout(() => setApproved(false), 2000)
+  }
+
+  return (
+    <div className="md-comment is-agent">
+      <span className="md-comment-avatar is-bot">
+        <Sparkles size={11} />
+      </span>
+      <div className="md-comment-body">
+        <div className="md-comment-meta">
+          <strong>Claude</strong>
+          <span className="md-agent-badge">Plan &middot; rev 1</span>
+          <span>just now</span>
+        </div>
+        <div className="md-plan-card">
+          <p>
+            1. Add input validation for the core module{`\n`}
+            2. Wire up the API endpoint{`\n`}
+            3. Add integration tests
+          </p>
+        </div>
+        <div className="md-plan-actions">
+          <button
+            className={`md-plan-btn ${approved ? `is-approved` : `is-primary`}`}
+            onClick={handleApprove}
+          >
+            {approved ? <Check size={11} strokeWidth={2.4} /> : <Check size={11} strokeWidth={2.4} />}
+            {approved ? `Approved` : `Approve`}
+          </button>
+          <button className="md-plan-btn">
+            <Pencil size={10} strokeWidth={2} />
+            Request changes
+          </button>
         </div>
       </div>
     </div>

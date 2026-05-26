@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         home: resolve(__dirname, `index.html`),
         docs: resolve(__dirname, `docs/index.html`),
+        "docs-selfhost": resolve(__dirname, `docs/self-host/index.html`),
         privacy: resolve(__dirname, `privacy/index.html`),
         terms: resolve(__dirname, `terms/index.html`),
       },

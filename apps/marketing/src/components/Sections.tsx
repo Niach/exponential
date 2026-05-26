@@ -12,7 +12,7 @@ export function ValueProps() {
     {
       icon: <IcZap size={22} />,
       title: `Real-time, everywhere`,
-      desc: `Electric streams every change to every client. Edits apply locally and reconcile through Postgres — no spinners, no stale lists.`,
+      desc: `Every change syncs instantly to every client. Edits apply locally and reconcile in real time — no spinners, no stale lists.`,
     },
     {
       icon: <IcShield size={22} />,
@@ -70,9 +70,8 @@ export function RepoCard() {
           lineHeight: 1.6,
         }}
       >
-        A real-time issue tracker built with TanStack Start, Electric SQL,
-        Drizzle, and Better Auth. Read the source, fork it, run it on your own
-        infrastructure.
+        A real-time issue tracker you can self-host. Read the source, fork it,
+        run it on your own infrastructure.
       </p>
 
       <a

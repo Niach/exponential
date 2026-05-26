@@ -53,7 +53,7 @@ export function FooterCTA() {
           >
             Sign up free <IcArrow size={12} />
           </a>
-          <a className="btn btn-ghost" href="/docs/#self-host">
+          <a className="btn btn-ghost" href="/docs/self-host/">
             Self-host
           </a>
         </div>

@@ -16,6 +16,7 @@ import {
   Plus,
   Server,
   Shield,
+  Sparkles,
   Tag,
   User as UserIcon,
   Zap,
@@ -60,6 +61,7 @@ export const IcChev = wrap(ChevronRight)
 export const IcChevDown = wrap(ChevronDown)
 export const IcChevSwap = wrap(ChevronsUpDown)
 export const IcSidebar = wrap(PanelLeft)
+export const IcSparkles = wrap(Sparkles)
 
 const Custom = ({
   size = 16,

@@ -44,7 +44,7 @@ export function HomePage() {
             >
               Sign up free <IcArrow size={12} />
             </a>
-            <a className="btn btn-ghost" href="/docs/#self-host">
+            <a className="btn btn-ghost" href="/docs/self-host/">
               Self-host
             </a>
             <a
@@ -139,7 +139,7 @@ export function HomePage() {
                 </li>
               </ul>
               <div className="mobile-cta">
-                <a className="btn btn-primary" href="/docs/#mobile">
+                <a className="btn btn-primary" href="/docs/#mobile-apps">
                   Read the docs <IcArrow size={12} />
                 </a>
               </div>
@@ -162,9 +162,9 @@ export function HomePage() {
                 Agents that join your workspace.
               </h2>
               <p className="section-sub">
-                Assign an issue to Claude or Codex. The companion daemon plans
-                in the comments, waits for your approval, then opens a real
-                GitHub PR. A push notification lands on your phone the moment
+                Assign an issue to Claude or Codex. The agent plans in the
+                comments, waits for your approval, then opens a real GitHub
+                PR. A push notification lands on your phone the moment
                 the plan is ready.
               </p>
               <ul className="mobile-bullets">
@@ -176,7 +176,7 @@ export function HomePage() {
                     <strong>Plan, then code.</strong>
                     <p>
                       Agents post their plan as a comment. Approve, request
-                      changes, or cancel &mdash; the daemon picks up your signal
+                      changes, or cancel &mdash; the agent picks up your signal
                       and resumes.
                     </p>
                   </div>
@@ -195,7 +195,7 @@ export function HomePage() {
                 </li>
               </ul>
               <div className="mobile-cta">
-                <a className="btn btn-primary" href="/docs/#agents">
+                <a className="btn btn-primary" href="/docs/#ai-agents">
                   Read the docs <IcArrow size={12} />
                 </a>
               </div>
@@ -220,14 +220,14 @@ export function HomePage() {
           <span className="section-eyebrow">Open source</span>
           <h2 className="section-title">Self-host it, or don&apos;t.</h2>
           <p className="section-sub">
-            The whole stack ships as Docker Compose &mdash; Postgres, Electric,
-            Caddy, S3. Or skip setup and use the free cloud.
+            The whole stack ships as Docker Compose &mdash; everything you need
+            in one command. Or skip setup and use the free cloud.
           </p>
           <div className="selfhost-grid">
             <div className="selfhost-copy">
               <CopyBlock />
               <div style={{ marginTop: 20, display: `flex`, gap: 10, flexWrap: `wrap` }}>
-                <a className="btn btn-primary" href="/docs/#self-host">
+                <a className="btn btn-primary" href="/docs/self-host/">
                   Read the docs <IcArrow size={12} />
                 </a>
                 <a

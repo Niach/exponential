@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { AnimatePresence } from "motion/react"
 import {
   AlertTriangle,
   Circle,
@@ -20,6 +21,8 @@ import {
   IcPlus,
   IcSidebar,
 } from "./icons"
+import { CreateIssueDialog } from "./CreateIssueDialog"
+import { IssueDetailPanel } from "./IssueDetailPanel"
 
 type StatusKey = `backlog` | `todo` | `in_progress` | `done` | `cancelled`
 type PriorityKey = `none` | `urgent` | `high` | `medium` | `low`
@@ -129,6 +132,8 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
   })
   const [statusDropdown, setStatusDropdown] = useState<string | null>(null)
   const [userInteracted, setUserInteracted] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const switchProject = (key: string) => {
@@ -151,6 +156,26 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
     setFlashId(issueId)
     setTimeout(() => setFlashId(null), 1100)
     setStatusDropdown(null)
+  }
+
+  const handleCreate = (title: string) => {
+    const proj = PROJECTS[projectKey]
+    const maxNum = issues.reduce((max, iss) => {
+      const m = iss.ident.match(/-(\d+)$/)
+      return m ? Math.max(max, parseInt(m[1], 10)) : max
+    }, 0)
+    const nextNum = maxNum + 1
+    const newId = `new-${Date.now()}`
+    const newIssue: Issue = {
+      id: newId,
+      ident: `${proj.prefix}-${nextNum}`,
+      title,
+      status: `backlog`,
+      priority: `none`,
+    }
+    setIssues((xs) => [newIssue, ...xs])
+    setFlashId(newId)
+    setTimeout(() => setFlashId(null), 1100)
   }
 
   useEffect(() => {
@@ -213,6 +238,7 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
   }
 
   return (
+    <>
     <div className="ex-app" onClick={() => setStatusDropdown(null)}>
       <aside className="ex-sidebar">
         <div className="ex-ws">
@@ -263,7 +289,7 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
             <button className="ex-filter-btn">
               <IcFilter size={13} /> Filter
             </button>
-            <button className="ex-new-btn">
+            <button className="ex-new-btn" onClick={() => { setUserInteracted(true); setCreateOpen(true) }}>
               <IcPlus size={13} /> New Issue
             </button>
           </div>
@@ -296,10 +322,31 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
               setStatusDropdown(statusDropdown === id ? null : id)
             }}
             onStatusChange={changeStatus}
+            onRowClick={(iss) => { setUserInteracted(true); setSelectedIssue(iss) }}
           />
         ))}
       </div>
     </div>
+    <AnimatePresence>
+      {createOpen && (
+        <CreateIssueDialog
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onCreate={handleCreate}
+          projectPrefix={PROJECTS[projectKey].prefix}
+          projectColor={PROJECTS[projectKey].color}
+        />
+      )}
+      {selectedIssue && (
+        <IssueDetailPanel
+          issue={selectedIssue}
+          projectName={PROJECTS[projectKey].name}
+          projectColor={PROJECTS[projectKey].color}
+          onClose={() => setSelectedIssue(null)}
+        />
+      )}
+    </AnimatePresence>
+    </>
   )
 }
 
@@ -313,6 +360,7 @@ function Group({
   statusDropdown,
   onStatusClick,
   onStatusChange,
+  onRowClick,
 }: {
   title: string
   kind: StatusKey
@@ -323,6 +371,7 @@ function Group({
   statusDropdown: string | null
   onStatusClick: (id: string, e: React.MouseEvent) => void
   onStatusChange: (id: string, status: StatusKey) => void
+  onRowClick: (issue: Issue) => void
 }) {
   return (
     <>
@@ -336,6 +385,7 @@ function Group({
         <div
           key={iss.id}
           className={`ex-row ${flashId === iss.id ? `is-flashing` : ``}`}
+          onClick={() => onRowClick(iss)}
         >
           <span className="ex-pri">
             <PriorityIcon kind={iss.priority} size={13} />
