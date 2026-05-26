@@ -120,10 +120,9 @@ export const oauthConsents = pgTable(`oauth_consents`, {
   updatedAt: timestamp(`updated_at`).notNull(),
 })
 
-// Table for the @creem_io/better-auth plugin. With `usePlural: true` on the
-// drizzle adapter, Better Auth looks up schema export `creemSubscriptions`
-// for the `creem_subscription` model.
-export const creemSubscriptions = pgTable(`creem_subscriptions`, {
+// Better Auth's Drizzle adapter resolves models by snake_case key, so this
+// must be exported as `creem_subscriptions` (not camelCase).
+export const creem_subscriptions = pgTable(`creem_subscriptions`, {
   id: text(`id`).primaryKey(),
   productId: text(`product_id`).notNull(),
   referenceId: text(`reference_id`)

@@ -4,7 +4,7 @@ import { db } from "@/db/connection"
 import {
   workspaceMembers,
   projects,
-  creemSubscriptions,
+  creem_subscriptions,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 
@@ -63,15 +63,15 @@ export async function getWorkspacePlan(
 
   const subs = await db
     .select({
-      productId: creemSubscriptions.productId,
-      status: creemSubscriptions.status,
+      productId: creem_subscriptions.productId,
+      status: creem_subscriptions.status,
     })
-    .from(creemSubscriptions)
+    .from(creem_subscriptions)
     .where(
-      sql`${creemSubscriptions.referenceId} IN (${sql.join(
+      sql`${creem_subscriptions.referenceId} IN (${sql.join(
         ownerIds.map((id) => sql`${id}`),
         sql`, `
-      )}) AND ${creemSubscriptions.status} IN (${sql.join(
+      )}) AND ${creem_subscriptions.status} IN (${sql.join(
         ACTIVE_STATUSES.map((s) => sql`${s}`),
         sql`, `
       )})`
