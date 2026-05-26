@@ -38,13 +38,14 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
 
     func run() async throws {
         var backoffMs: UInt64 = 500
+        var pendingRefetch = false
         while !Task.isCancelled {
             do {
                 guard let baseUrl = baseUrlProvider(), let token = tokenProvider() else {
                     try await Task.sleep(for: .seconds(2))
                     continue
                 }
-                try await pollOnce(baseUrl: baseUrl, token: token)
+                pendingRefetch = try await pollOnce(baseUrl: baseUrl, token: token, pendingRefetch: pendingRefetch)
                 backoffMs = 500
             } catch is CancellationError {
                 throw CancellationError()
@@ -57,7 +58,9 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
         }
     }
 
-    private func pollOnce(baseUrl: String, token: String) async throws {
+    /// Returns `true` when a refetch was triggered (409 or inline must-refetch)
+    /// and the next call should apply the replacement atomically.
+    private func pollOnce(baseUrl: String, token: String, pendingRefetch: Bool) async throws -> Bool {
         let saved = try await pool.read { db in
             try ElectricOffset.fetchOne(db, key: shapeName)
         }
@@ -90,8 +93,9 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
             try await pool.write { db in
                 try ElectricOffset.deleteOne(db, key: shapeName)
             }
-            try await onMessages([.mustRefetch])
-            return
+            // Don't delete table data yet — leave stale rows visible until the
+            // next poll re-fetches and replaces them atomically.
+            return true
         }
 
         if httpResponse.statusCode == 401 {
@@ -105,7 +109,30 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
         let handle = httpResponse.value(forHTTPHeaderField: "electric-handle")
         let offset = httpResponse.value(forHTTPHeaderField: "electric-offset")
 
-        let messages = decodeMessages(data)
+        var messages = decodeMessages(data)
+
+        // Handle inline must-refetch control message in the response body:
+        // strip it, clear the offset, and signal a pending refetch so the
+        // next poll replaces all rows atomically.
+        let hasInlineMustRefetch = messages.contains { if case .mustRefetch = $0 { true } else { false } }
+        if hasInlineMustRefetch {
+            messages.removeAll { if case .mustRefetch = $0 { true } else { false } }
+            try await pool.write { db in
+                try ElectricOffset.deleteOne(db, key: shapeName)
+            }
+            if !messages.isEmpty {
+                try await onMessages(messages)
+            }
+            return true
+        }
+
+        // After a 409 / inline must-refetch, this is the re-fetch with fresh
+        // data. Prepend .mustRefetch so applyBatch does DELETE + INSERTs in
+        // one transaction — ValueObservation never sees an empty table.
+        if pendingRefetch {
+            messages.insert(.mustRefetch, at: 0)
+        }
+
         let inserts = messages.filter { if case .insert = $0 { true } else { false } }.count
         let updates = messages.filter { if case .update = $0 { true } else { false } }.count
         if !messages.isEmpty {
@@ -119,6 +146,8 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
                 try ElectricOffset(shape: shapeName, handle: handle, offset: offset).save(db)
             }
         }
+
+        return false
     }
 
     private func decodeMessages(_ data: Data) -> [ShapeMessage<T>] {

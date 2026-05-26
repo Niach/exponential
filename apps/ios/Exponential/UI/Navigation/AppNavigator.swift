@@ -39,7 +39,7 @@ struct MainNavigator: View {
     @State private var path = NavigationPath()
     @State private var workspaceState = WorkspaceState()
     @State private var projectLoader: MultiAccountProjectLoader?
-    @State private var observationTask: Task<Void, Never>?
+    @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
 
     var body: some View {
@@ -159,31 +159,35 @@ struct MainNavigator: View {
     }
 
     private func startObserving() {
-        observationTask = Task {
-            guard let pool = try? deps.db.pool(forAccountId: deps.auth.activeAccountId ?? "") else { return }
+        stopObserving()
 
-            let wsObs = ValueObservation.tracking { db in
-                try WorkspaceEntity.fetchAll(db)
-            }
-            let projObs = ValueObservation.tracking { db in
-                try ProjectEntity.fetchAll(db)
-            }
-            Task {
+        guard let pool = try? deps.db.pool(forAccountId: deps.auth.activeAccountId ?? "") else { return }
+
+        let wsObs = ValueObservation.tracking { db in
+            try WorkspaceEntity.fetchAll(db)
+        }
+        let projObs = ValueObservation.tracking { db in
+            try ProjectEntity.fetchAll(db)
+        }
+
+        let wsTask = Task { @MainActor in
+            do {
                 for try await ws in wsObs.values(in: pool) {
-                    await MainActor.run {
-                        workspaceState.workspaces = ws
-                        if workspaceState.activeWorkspaceId == nil, let first = ws.first {
-                            workspaceState.activeWorkspaceId = first.id
-                        }
+                    workspaceState.workspaces = ws
+                    if workspaceState.activeWorkspaceId == nil, let first = ws.first {
+                        workspaceState.activeWorkspaceId = first.id
                     }
                 }
-            }
-            Task {
-                for try await proj in projObs.values(in: pool) {
-                    await MainActor.run { workspaceState.projects = proj }
-                }
-            }
+            } catch {}
         }
+        let projTask = Task { @MainActor in
+            do {
+                for try await proj in projObs.values(in: pool) {
+                    workspaceState.projects = proj
+                }
+            } catch {}
+        }
+        observationTasks = [wsTask, projTask]
     }
 
     private func handleProjectTap(accountId: String, projectId: String) {
@@ -201,8 +205,8 @@ struct MainNavigator: View {
     }
 
     private func stopObserving() {
-        observationTask?.cancel()
-        observationTask = nil
+        for task in observationTasks { task.cancel() }
+        observationTasks = []
     }
 }
 
