@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Issue, IssueLabel, Label } from "@/db/schema"
+import { formatDateForMutation } from "@/lib/domain"
 import { emptyFilters } from "@/lib/filters"
 import {
   buildFilteredIssues,
@@ -109,8 +110,8 @@ describe(`project-board helpers`, () => {
   })
 
   it(`sorts issues by priority within a status, overdues first`, () => {
-    const today = new Date().toISOString().slice(0, 10)
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+    const today = formatDateForMutation(new Date())!
+    const yesterday = formatDateForMutation(new Date(Date.now() - 86_400_000))!
 
     const overdueLow = makeIssue({
       id: `overdue-low`,

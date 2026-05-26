@@ -19,9 +19,8 @@ import {
 } from "@/lib/runtime-config"
 
 export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({
-  beforeLoad: async () => {
-    const result = await authClient.getSession()
-    if (!result.data?.session) {
+  beforeLoad: async ({ context }) => {
+    if (!context.session) {
       throw redirect({
         to: `/auth/login`,
         search: { redirect: undefined },

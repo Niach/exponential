@@ -4,11 +4,6 @@ import {
   inferAdditionalFields,
 } from "better-auth/client/plugins"
 import { creemClient } from "@creem_io/better-auth/client"
-import {
-  createCollection,
-  localOnlyCollectionOptions,
-} from "@tanstack/react-db"
-import { z } from "zod"
 import type { auth } from "@/lib/auth"
 
 export const authClient = createAuthClient({
@@ -23,41 +18,11 @@ export const authClient = createAuthClient({
   ],
 })
 
-type SessionData = NonNullable<
+export type SessionData = NonNullable<
   Awaited<ReturnType<typeof authClient.getSession>>[`data`]
 >
 
-type AuthCacheEntry = {
-  id: string
-  session: SessionData[`session`] | null
-  user: SessionData[`user`] | null
+export async function fetchSessionOnce(): Promise<SessionData | null> {
+  const result = await authClient.getSession()
+  return result.data?.session ? (result.data as SessionData) : null
 }
-
-const authSessionSchema = z
-  .object({
-    id: z.string(),
-    expiresAt: z.date(),
-  })
-  .passthrough()
-
-const authUserSchema = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    email: z.string(),
-  })
-  .passthrough()
-
-const authStateSchema: z.ZodType<AuthCacheEntry> = z.object({
-  id: z.string(),
-  session: authSessionSchema.nullable(),
-  user: authUserSchema.nullable(),
-})
-
-export const authStateCollection = createCollection(
-  localOnlyCollectionOptions({
-    id: `auth-state`,
-    getKey: (item) => item.id,
-    schema: authStateSchema,
-  })
-)
