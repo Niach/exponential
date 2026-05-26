@@ -118,14 +118,6 @@ export const IcX = (p: IconProps) => (
     <path d="M9 9 L15 15 M15 9 L9 15" />
   </Custom>
 )
-export const IcViewsEmpty = (p: IconProps) => (
-  <Custom {...p}>
-    <rect x="3" y="4" width="18" height="4" rx="1" />
-    <rect x="3" y="11" width="11" height="3" rx="1" />
-    <rect x="3" y="17" width="14" height="3" rx="1" />
-  </Custom>
-)
-
 export const ExpLogo = ({
   size = 22,
   color,

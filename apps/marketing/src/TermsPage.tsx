@@ -23,21 +23,20 @@ export function TermsPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · self-hosted issue tracker · last updated 2026-04-27
+            Exponential · issue tracker · last updated 2026-05-26
           </p>
 
           <p style={prose}>
             These terms govern your use of the Exponential application
-            (“Exponential”, “the app”). Exponential is published by Daniel
-            Strähhuber as a personal, open-source project. There is no hosted
-            commercial service — every deployment is operated by the person or
-            organization who installed it.
+            (“Exponential”, “the app”), whether accessed via the hosted cloud
+            service at app.exponential.at or self-hosted on your own
+            infrastructure. Exponential is published by Dennis Strähhuber.
           </p>
 
           <h2 style={h2Style}>License</h2>
           <p style={prose}>
-            Exponential is released under the MIT License. The full license
-            text and source are at{` `}
+            Exponential is released under the Elastic License 2.0 (ELv2). The
+            full license text and source are at{` `}
             <a
               href="https://github.com/Niach/exponential"
               style={linkStyle}
@@ -45,7 +44,8 @@ export function TermsPage() {
               github.com/Niach/exponential
             </a>
             . You are free to use, modify, and redistribute the software
-            subject to the terms of that license.
+            subject to the terms of that license. You may not offer the
+            software as a hosted service to third parties.
           </p>
 
           <h2 style={h2Style}>No warranty</h2>
@@ -59,13 +59,26 @@ export function TermsPage() {
             connection with the software or its use.
           </p>
 
+          <h2 style={h2Style}>Cloud service</h2>
+          <p style={prose}>
+            The hosted cloud instance at app.exponential.at is provided free
+            of charge during the current preview period. Availability, pricing,
+            and feature scope may change. Data stored on the cloud instance is
+            processed on infrastructure operated by the author; see the{` `}
+            <a href="/privacy/" style={linkStyle}>
+              Privacy Policy
+            </a>{` `}
+            for details.
+          </p>
+
           <h2 style={h2Style}>Self-hosted operation</h2>
           <p style={prose}>
-            When you install Exponential on your own infrastructure, you are
-            the operator of that instance. You are responsible for its
-            availability, security, backups, lawful use, and for any data
-            stored within it. The author of Exponential has no access to your
-            data and provides no support obligations.
+            You are free to self-host Exponential on your own infrastructure
+            for internal use without restriction. As operator of a self-hosted
+            instance, you are responsible for its availability, security,
+            backups, lawful use, and for any data stored within it. The author
+            has no access to self-hosted data and provides no support
+            obligations.
           </p>
 
           <h2 style={h2Style}>Third-party integrations</h2>

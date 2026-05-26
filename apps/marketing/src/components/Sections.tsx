@@ -1,201 +1,47 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { motion, AnimatePresence } from "motion/react"
 import { Check, GitPullRequest, MessageSquareText, X } from "lucide-react"
 import {
-  IcBot,
-  IcCopy,
-  IcGithub,
-  IcServer,
-  IcShield,
-  IcZap,
-} from "./icons"
+  cardReveal,
+  staggerContainer,
+} from "../lib/animations"
+import { IcBot, IcCopy, IcGithub, IcShield, IcZap } from "./icons"
 
-export function SectionTag({ num, label }: { num: string; label: string }) {
-  return (
-    <div className="section-tag">
-      <span className="num">{num}</span>
-      <span className="line" />
-      <span
-        className="num"
-        style={{
-          textTransform: `uppercase`,
-          letterSpacing: `0.12em`,
-          color: `var(--accent)`,
-        }}
-      >
-        {label}
-      </span>
-      <span className="line" />
-    </div>
-  )
-}
-
-export function HostTerminal() {
-  const [step, setStep] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setStep((s) => (s + 1) % 6), 1400)
-    return () => clearInterval(id)
-  }, [])
+export function ValueProps() {
+  const cards = [
+    {
+      icon: <IcZap size={22} />,
+      title: `Real-time, everywhere`,
+      desc: `Electric streams every change to every client. Edits apply locally and reconcile through Postgres — no spinners, no stale lists.`,
+    },
+    {
+      icon: <IcShield size={22} />,
+      title: `Native on every device`,
+      desc: `SwiftUI on iOS, Compose on Android. Offline-first, multi-server, live sync. Your tracker in your pocket.`,
+    },
+    {
+      icon: <IcBot size={22} />,
+      title: `AI agents that ship`,
+      desc: `Assign an issue to Claude or Codex. They plan in comments, you approve, a PR opens on GitHub.`,
+    },
+  ]
 
   return (
-    <div className="terminal">
-      <div className="terminal-bar">
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: `50%`,
-            background: `oklch(0.7 0.2 22)`,
-          }}
-        />
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: `50%`,
-            background: `oklch(0.78 0.16 75)`,
-          }}
-        />
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: `50%`,
-            background: `oklch(0.72 0.15 155)`,
-          }}
-        />
-        <span style={{ marginLeft: 8 }}>~/exponential — bash</span>
-      </div>
-      <div className="terminal-body">
-        <span className="term-comment"># 1. clone the repo</span>
-        {`\n`}
-        <span className="term-prompt">$ </span>
-        <span className="term-cmd">
-          git clone https://github.com/Niach/exponential
-        </span>
-        {`\n`}
-        <span className="term-prompt">$ </span>
-        <span className="term-cmd">cd exponential</span>
-        {`\n`}
-        {`\n`}
-        <span className="term-comment">
-          # 2. configure your .env (DB, auth, optional OIDC)
-        </span>
-        {`\n`}
-        <span className="term-prompt">$ </span>
-        <span className="term-cmd">cp .env.example .env</span>
-        {`\n`}
-        {`\n`}
-        <span className="term-comment"># 3. bring up the stack</span>
-        {`\n`}
-        <span className="term-prompt">$ </span>
-        <span className="term-cmd">docker compose up -d</span>
-        {`\n`}
-        <span className="term-out">[+] postgres   </span>
-        <span className="term-ok">healthy</span>
-        {`\n`}
-        <span className="term-out">[+] electric   </span>
-        <span className="term-ok">healthy</span>
-        {`\n`}
-        <span className="term-out">[+] garage     </span>
-        <span className="term-ok">healthy</span>
-        {`\n`}
-        <span className="term-out">[+] caddy      </span>
-        <span className="term-ok">healthy</span>
-        {`\n`}
-        {`\n`}
-        <span className="term-comment">
-          # 4. apply migrations and you're up
-        </span>
-        {`\n`}
-        <span className="term-prompt">$ </span>
-        <span className="term-cmd">bun migrate</span>
-        {`\n`}
-        <span className="term-out">  Listening on </span>
-        <span className="term-ok">https://localhost:3000</span>
-        {`\n`}
-        <span className="term-prompt">$ </span>
-        {step % 2 === 0 && <span className="cursor-blink" />}
-      </div>
-    </div>
-  )
-}
-
-export function FeatureGrid() {
-  return (
-    <div className="features">
-      <div className="feature">
-        <span className="feature-icon">
-          <IcZap size={20} />
-        </span>
-        <h3>Real-time, optimistic</h3>
-        <p>
-          Electric streams Postgres changes to every connected client.
-          Mutations apply locally and reconcile through the database — no
-          spinners, no stale lists.
-        </p>
-      </div>
-
-      <div className="feature">
-        <span className="feature-icon">
-          <IcBot size={20} />
-        </span>
-        <h3>AI agents on your hardware</h3>
-        <p>
-          A companion daemon watches issues assigned to your agent user, runs
-          Claude or Codex in a local git worktree, and opens GitHub PRs. Plans
-          land in the comment timeline first — approve, request changes, or
-          retry before any code is written.
-        </p>
-      </div>
-
-      <div className="feature">
-        <span className="feature-icon">
-          <IcZap size={20} />
-        </span>
-        <h3>Native mobile, offline-capable</h3>
-        <p>
-          SwiftUI on iOS, Compose on Android, GRDB and Room on-device,
-          ElectricSQL on the wire. Sign into multiple servers, switch in a tap,
-          edit on the subway, sync when you're back.
-        </p>
-      </div>
-
-      <div className="feature">
-        <span className="feature-icon">
-          <IcShield size={20} />
-        </span>
-        <h3>OIDC out of the box</h3>
-        <p>
-          Better Auth handles sessions and email/password. Plug in any OIDC
-          provider — Authentik, Keycloak, Google — by setting four environment
-          variables.
-        </p>
-      </div>
-
-      <div className="feature">
-        <span className="feature-icon">
-          <IcServer size={20} />
-        </span>
-        <h3>Your data, your servers</h3>
-        <p>
-          One docker-compose file: Postgres, Electric, Garage, Caddy. Issue
-          attachments live in your own S3 bucket. No SaaS dependencies, no
-          telemetry, no vendor lock-in.
-        </p>
-      </div>
-
-      <div className="feature">
-        <span className="feature-icon">
-          <IcBot size={20} />
-        </span>
-        <h3>MCP server, built in</h3>
-        <p>
-          Point Claude or any MCP-aware client at <code>/api/mcp</code> and let
-          it list, create, and update issues, projects, and labels — scoped to
-          the workspaces the user belongs to.
-        </p>
-      </div>
-    </div>
+    <motion.div
+      className="value-props"
+      variants={staggerContainer}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.2 }}
+    >
+      {cards.map((c) => (
+        <motion.div key={c.title} className="value-card" variants={cardReveal}>
+          <span className="value-card-icon">{c.icon}</span>
+          <h3>{c.title}</h3>
+          <p>{c.desc}</p>
+        </motion.div>
+      ))}
+    </motion.div>
   )
 }
 
@@ -211,7 +57,7 @@ export function RepoCard() {
 
       <div className="repo-meta">
         <span>
-          <IcShield size={12} /> MIT license
+          <IcShield size={12} /> ELv2 license
         </span>
         <span>v0.13.0</span>
       </div>
@@ -241,8 +87,7 @@ export function RepoCard() {
 
 export function CopyBlock() {
   const [copied, setCopied] = useState(false)
-  const cmd =
-    `git clone https://github.com/Niach/exponential && cd exponential && docker compose up -d`
+  const cmd = `git clone https://github.com/Niach/exponential && cd exponential && docker compose up -d`
   const onCopy = () => {
     navigator.clipboard?.writeText(cmd)
     setCopied(true)
@@ -258,57 +103,206 @@ export function CopyBlock() {
   )
 }
 
+type TimelinePhase = `idle` | `plan` | `working` | `done`
+
 export function AgentTimeline() {
+  const [phase, setPhase] = useState<TimelinePhase>(`idle`)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [userApproved, setUserApproved] = useState(false)
+
+  const startSequence = () => {
+    setPhase(`idle`)
+    setUserApproved(false)
+    timerRef.current = setTimeout(() => setPhase(`plan`), 600)
+  }
+
+  useEffect(() => {
+    startSequence()
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  const handleApprove = () => {
+    if (phase !== `plan`) return
+    setUserApproved(true)
+    setPhase(`working`)
+    timerRef.current = setTimeout(() => {
+      setPhase(`done`)
+      timerRef.current = setTimeout(() => startSequence(), 4000)
+    }, 2000)
+  }
+
+  useEffect(() => {
+    if (phase === `plan` && !userApproved) {
+      timerRef.current = setTimeout(() => {
+        handleApprove()
+      }, 3000)
+    }
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [phase, userApproved])
+
   return (
-    <div className="agent-timeline">
-      <div className="agent-tl-issue">
-        <span className="agent-tl-issue-ident">EXP-181</span>
-        <span className="agent-tl-issue-title">
-          Add CSV export of filtered views
-        </span>
-      </div>
-
-      <div className="agent-tl-card is-plan">
-        <div className="agent-tl-card-head">
-          <span className="agent-tl-avatar is-agent">
-            <IcBot size={11} />
+    <div className="agent-stage-wrap">
+      <WorkspaceMembersPreview />
+      <div className="agent-timeline">
+        <div className="agent-tl-issue">
+          <span className="agent-tl-issue-ident">EXP-181</span>
+          <span className="agent-tl-issue-title">
+            Add webhook events for issue mutations
           </span>
-          <span className="agent-tl-author">agent</span>
-          <span className="agent-tl-time">just now</span>
-          <span className="agent-tl-tag">Plan 2</span>
         </div>
-        <div className="agent-tl-card-body">
-          Add a <code>/export.csv</code> route on the project page that
-          serializes the current filtered query. Reuse{` `}
-          <code>matchesFilters()</code> from <code>lib/filters.ts</code>, write
-          headers from the visible columns.
-        </div>
-        <div className="agent-tl-actions">
-          <button className="agent-tl-btn is-primary">
-            <Check size={11} strokeWidth={2.4} /> Approve
-          </button>
-          <button className="agent-tl-btn">
-            <MessageSquareText size={11} strokeWidth={2} /> Request changes
-          </button>
-          <button className="agent-tl-btn">
-            <X size={11} strokeWidth={2.2} /> Cancel
-          </button>
-        </div>
-      </div>
 
-      <div className="agent-tl-activity">
-        <span className="agent-tl-spinner" aria-hidden />
-        <span>Agent is working — creating worktree…</span>
-      </div>
+        <AnimatePresence mode="popLayout">
+          {(phase === `plan` || phase === `working` || phase === `done`) && (
+            <motion.div
+              key="plan"
+              className="agent-tl-card is-plan"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: `easeOut` }}
+            >
+              <div className="agent-tl-card-head">
+                <span className="agent-tl-avatar is-agent">
+                  <IcBot size={11} />
+                </span>
+                <span className="agent-tl-author">Claude</span>
+                <span className="agent-tl-time">just now</span>
+                <span className="agent-tl-tag">Plan</span>
+              </div>
+              <div className="agent-tl-card-body">
+                Add a <code>webhooks</code> table and a{` `}
+                <code>dispatchWebhook()</code> helper. Fire on issue create,
+                update, and delete. Sign payloads with HMAC-SHA256.
+              </div>
+              {phase === `plan` && (
+                <div className="agent-tl-actions">
+                  <button
+                    className="agent-tl-btn is-primary"
+                    onClick={handleApprove}
+                  >
+                    <Check size={11} strokeWidth={2.4} /> Approve
+                  </button>
+                  <button className="agent-tl-btn">
+                    <MessageSquareText size={11} strokeWidth={2} /> Request
+                    changes
+                  </button>
+                  <button className="agent-tl-btn">
+                    <X size={11} strokeWidth={2.2} /> Cancel
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          )}
 
-      <div className="agent-tl-pr">
-        <span className="agent-tl-pr-icon">
-          <GitPullRequest size={11} strokeWidth={2.2} />
-        </span>
-        <span>
-          Opened PR <strong>niach/exponential#214</strong> · "Add CSV export"
-        </span>
+          {(phase === `working` || phase === `done`) && (
+            <motion.div
+              key="working"
+              className="agent-tl-activity"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: `easeOut`, delay: 0.15 }}
+            >
+              {phase === `working` ? (
+                <>
+                  <span className="agent-tl-spinner" aria-hidden />
+                  <span>Agent is working &mdash; creating worktree&hellip;</span>
+                </>
+              ) : (
+                <>
+                  <Check size={12} strokeWidth={2.4} style={{ color: `oklch(0.78 0.15 155)` }} />
+                  <span>Worktree created, writing code&hellip;</span>
+                </>
+              )}
+            </motion.div>
+          )}
+
+          {phase === `done` && (
+            <motion.div
+              key="pr"
+              className="agent-tl-pr"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: `easeOut`, delay: 0.15 }}
+            >
+              <span className="agent-tl-pr-icon">
+                <GitPullRequest size={11} strokeWidth={2.2} />
+              </span>
+              <span>
+                Opened PR <strong>niach/exponential#214</strong> &middot;
+                &ldquo;Add webhook events&rdquo;
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+    </div>
+  )
+}
+
+function WorkspaceMembersPreview() {
+  const members = [
+    {
+      name: `Danny`,
+      email: `danny@acme.io`,
+      role: `Admin`,
+      isAgent: false,
+      online: true,
+      color: `oklch(0.62 0.18 280)`,
+    },
+    {
+      name: `Claude`,
+      email: `claude@agents`,
+      role: `Agent`,
+      isAgent: true,
+      online: true,
+      color: `oklch(0.65 0.22 280)`,
+    },
+    {
+      name: `Codex`,
+      email: `codex@agents`,
+      role: `Agent`,
+      isAgent: true,
+      online: false,
+      color: `oklch(0.72 0.15 155)`,
+    },
+  ]
+
+  return (
+    <div className="ws-members-preview">
+      <div className="ws-members-head">
+        <span className="ws-members-title">Workspace members</span>
+        <span className="ws-members-count">{members.length}</span>
+      </div>
+      {members.map((m) => (
+        <div key={m.name} className="ws-member-row">
+          <span
+            className="ws-member-avatar"
+            style={{
+              background: m.isAgent
+                ? `color-mix(in oklch, ${m.color} 25%, transparent)`
+                : `rgba(255,255,255,0.1)`,
+              color: m.isAgent ? m.color : `#fff`,
+            }}
+          >
+            {m.isAgent ? <IcBot size={11} /> : m.name[0]}
+          </span>
+          <div className="ws-member-info">
+            <span className="ws-member-name">
+              {m.name}
+              {m.online && <span className="ws-member-online" />}
+            </span>
+            <span className="ws-member-email">{m.email}</span>
+          </div>
+          <span
+            className={`ws-member-badge ${m.isAgent ? `is-agent` : ``}`}
+          >
+            {m.role}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }

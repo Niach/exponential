@@ -365,27 +365,6 @@ export const attachments = pgTable(
   ]
 )
 
-export const views = pgTable(`views`, {
-  id: uuidPk(),
-  workspaceId: uuid(`workspace_id`)
-    .notNull()
-    .references(() => workspaces.id, { onDelete: `cascade` }),
-  creatorId: text(`creator_id`)
-    .notNull()
-    .references(() => users.id, { onDelete: `cascade` }),
-  name: varchar({ length: 255 }).notNull(),
-  icon: varchar({ length: 50 }),
-  filters: jsonb()
-    .notNull()
-    .default(sql`'[]'::jsonb`),
-  sortBy: jsonb(`sort_by`)
-    .notNull()
-    .default(sql`'[]'::jsonb`),
-  isShared: boolean(`is_shared`).notNull().default(false),
-  sortOrder: doublePrecision(`sort_order`).notNull().default(0),
-  ...timestamps,
-})
-
 export const pushSubscriptions = pgTable(`push_subscriptions`, {
   id: uuidPk(),
   userId: text(`user_id`)
@@ -498,13 +477,6 @@ export const createCommentSchema = createInsertSchema(comments).omit({
 
 export const selectAttachmentSchema = createSelectSchema(attachments)
 
-export const selectViewSchema = createSelectSchema(views)
-export const createViewSchema = createInsertSchema(views).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-})
-
 export const selectNotificationSchema = createSelectSchema(notifications)
 
 // ---------------------------------------------------------------------------
@@ -521,7 +493,6 @@ export type Label = InferSelectModel<typeof labels>
 export type IssueLabel = InferSelectModel<typeof issueLabels>
 export type Comment = InferSelectModel<typeof comments>
 export type Attachment = InferSelectModel<typeof attachments>
-export type View = InferSelectModel<typeof views>
 
 export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>

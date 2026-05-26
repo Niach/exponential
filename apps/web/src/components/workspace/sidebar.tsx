@@ -4,7 +4,6 @@ import {
   Check,
   ChevronsUpDown,
   FolderKanban,
-  LayoutList,
   LogIn,
   LogOut,
   Plug,
@@ -204,19 +203,6 @@ export function WorkspaceSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
 
-          <SidebarGroup>
-            <SidebarGroupLabel>Views</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton disabled>
-                    <LayoutList className="h-4 w-4" />
-                    <span className="text-muted-foreground">No views yet</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
         </SidebarContent>
 
         <SidebarFooter>

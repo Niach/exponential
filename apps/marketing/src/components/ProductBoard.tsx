@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   Circle,
@@ -19,11 +19,11 @@ import {
   IcFilter,
   IcPlus,
   IcSidebar,
-  IcViewsEmpty,
 } from "./icons"
 
 type StatusKey = `backlog` | `todo` | `in_progress` | `done` | `cancelled`
 type PriorityKey = `none` | `urgent` | `high` | `medium` | `low`
+type TabKey = `all` | `active` | `backlog`
 
 const STATUS: Record<
   StatusKey,
@@ -70,37 +70,91 @@ type Issue = {
   due?: string
 }
 
-const seedIssues: Issue[] = [
-  { id: `ex24`, ident: `EXP-24`, title: `Email digest of stale issues`, status: `todo`, priority: `urgent`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }], due: `May 2` },
-  { id: `ex23`, ident: `EXP-23`, title: `Bulk-edit selected issues`, status: `todo`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-  { id: `ex22`, ident: `EXP-22`, title: `Drag to reorder within a status group`, status: `todo`, priority: `high`, labels: [{ name: `polish`, color: `oklch(0.72 0.16 280)` }, { name: `ux`, color: `oklch(0.72 0.16 245)` }] },
-  { id: `ex21`, ident: `EXP-21`, title: `Issue templates per project`, status: `todo`, priority: `medium`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-  { id: `ex20`, ident: `EXP-20`, title: `Markdown shortcuts in description editor`, status: `todo`, priority: `low`, labels: [{ name: `editor`, color: `oklch(0.72 0.16 280)` }, { name: `polish`, color: `oklch(0.72 0.16 245)` }] },
-  { id: `ex19`, ident: `EXP-19`, title: `GitHub PR linking via commit message`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.7 0.04 245)` }, { name: `feature`, color: `oklch(0.75 0.16 75)` }] },
-  { id: `ex18`, ident: `EXP-18`, title: `Webhook events for issue mutations`, status: `todo`, priority: `low`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }, { name: `integration`, color: `oklch(0.72 0.16 245)` }, { name: `feature`, color: `oklch(0.75 0.16 75)` }] },
-  { id: `ex17`, ident: `EXP-17`, title: `Slack notifications for assigned issues`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.72 0.18 145)` }, { name: `feature`, color: `oklch(0.72 0.16 245)` }] },
-  { id: `ex16`, ident: `EXP-16`, title: `CSV export of filtered views`, status: `todo`, priority: `none`, labels: [{ name: `feature`, color: `oklch(0.7 0.15 320)` }, { name: `data`, color: `oklch(0.72 0.16 245)` }] },
-  { id: `ex15`, ident: `EXP-15`, title: `Webhook signing key rotation`, status: `todo`, priority: `low`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }, { name: `infra`, color: `oklch(0.7 0.04 245)` }] },
-  { id: `ex14`, ident: `EXP-14`, title: `Saved filter views in the sidebar`, status: `todo`, priority: `low`, labels: [{ name: `feature`, color: `oklch(0.75 0.16 75)` }] },
-  { id: `ex13`, ident: `EXP-13`, title: `Mention users in issue descriptions`, status: `todo`, priority: `low`, labels: [{ name: `editor`, color: `oklch(0.72 0.18 145)` }, { name: `feature`, color: `oklch(0.72 0.16 245)` }, { name: `ux`, color: `oklch(0.75 0.16 75)` }] },
-]
+const PROJECTS: Record<string, { name: string; color: string; prefix: string; issues: Issue[] }> = {
+  exponential: {
+    name: `Exponential`,
+    color: `oklch(0.62 0.18 280)`,
+    prefix: `EXP`,
+    issues: [
+      { id: `ex24`, ident: `EXP-24`, title: `Email digest of stale issues`, status: `todo`, priority: `urgent`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }], due: `May 2` },
+      { id: `ex23`, ident: `EXP-23`, title: `Bulk-edit selected issues`, status: `todo`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+      { id: `ex22`, ident: `EXP-22`, title: `Drag to reorder within a status group`, status: `todo`, priority: `high`, labels: [{ name: `polish`, color: `oklch(0.72 0.16 280)` }, { name: `ux`, color: `oklch(0.72 0.16 245)` }] },
+      { id: `ex21`, ident: `EXP-21`, title: `Issue templates per project`, status: `todo`, priority: `medium`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+      { id: `ex20`, ident: `EXP-20`, title: `Markdown shortcuts in description editor`, status: `todo`, priority: `low`, labels: [{ name: `editor`, color: `oklch(0.72 0.16 280)` }] },
+      { id: `ex19`, ident: `EXP-19`, title: `GitHub PR linking via commit message`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.7 0.04 245)` }] },
+      { id: `ex18`, ident: `EXP-18`, title: `Webhook events for issue mutations`, status: `todo`, priority: `low`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }] },
+      { id: `ex17`, ident: `EXP-17`, title: `Slack notifications for assigned issues`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.72 0.18 145)` }] },
+      { id: `ex15`, ident: `EXP-15`, title: `Webhook signing key rotation`, status: `in_progress`, priority: `medium`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }] },
+      { id: `ex13`, ident: `EXP-13`, title: `Mention users in issue descriptions`, status: `done`, priority: `high`, labels: [{ name: `editor`, color: `oklch(0.72 0.18 145)` }] },
+    ],
+  },
+  marketing: {
+    name: `Marketing site`,
+    color: `oklch(0.7 0.16 145)`,
+    prefix: `MKT`,
+    issues: [
+      { id: `mk5`, ident: `MKT-5`, title: `Redesign landing page hero section`, status: `in_progress`, priority: `urgent`, labels: [{ name: `design`, color: `oklch(0.72 0.16 280)` }] },
+      { id: `mk4`, ident: `MKT-4`, title: `Add interactive product demos`, status: `in_progress`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+      { id: `mk3`, ident: `MKT-3`, title: `Write documentation for self-hosting`, status: `todo`, priority: `high`, labels: [{ name: `docs`, color: `oklch(0.7 0.04 245)` }] },
+      { id: `mk2`, ident: `MKT-2`, title: `SEO meta tags and Open Graph images`, status: `todo`, priority: `medium`, labels: [{ name: `seo`, color: `oklch(0.72 0.16 60)` }] },
+      { id: `mk1`, ident: `MKT-1`, title: `Set up analytics and conversion tracking`, status: `backlog`, priority: `low`, labels: [{ name: `infra`, color: `oklch(0.7 0.04 245)` }] },
+    ],
+  },
+  mobile: {
+    name: `Mobile app`,
+    color: `oklch(0.72 0.16 60)`,
+    prefix: `MOB`,
+    issues: [
+      { id: `mo6`, ident: `MOB-6`, title: `Push notification deep links`, status: `in_progress`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+      { id: `mo5`, ident: `MOB-5`, title: `Offline queue for issue mutations`, status: `todo`, priority: `urgent`, labels: [{ name: `sync`, color: `oklch(0.72 0.16 280)` }] },
+      { id: `mo4`, ident: `MOB-4`, title: `Multi-server account switching`, status: `todo`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+      { id: `mo3`, ident: `MOB-3`, title: `Label color picker in create dialog`, status: `todo`, priority: `medium`, labels: [{ name: `ux`, color: `oklch(0.72 0.16 245)` }] },
+      { id: `mo2`, ident: `MOB-2`, title: `Attachment previews in issue detail`, status: `done`, priority: `medium`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
+      { id: `mo1`, ident: `MOB-1`, title: `Android Compose navigation transitions`, status: `done`, priority: `low`, labels: [{ name: `polish`, color: `oklch(0.72 0.16 280)` }] },
+    ],
+  },
+}
 
-type Cursor = { visible: boolean; label: string; id: string | null }
+const PROJECT_KEYS = Object.keys(PROJECTS) as (keyof typeof PROJECTS)[]
 
 export function ProductBoard({ animate = true }: { animate?: boolean }) {
-  const [issues, setIssues] = useState<Issue[]>(seedIssues)
+  const [projectKey, setProjectKey] = useState<string>(`exponential`)
+  const [issues, setIssues] = useState<Issue[]>(PROJECTS.exponential.issues)
   const [flashId, setFlashId] = useState<string | null>(null)
-  const [cursor, setCursor] = useState<Cursor>({
+  const [activeTab, setActiveTab] = useState<TabKey>(`all`)
+  const [cursor, setCursor] = useState<{ visible: boolean; label: string; id: string | null }>({
     visible: false,
     label: `danny`,
     id: null,
   })
+  const [statusDropdown, setStatusDropdown] = useState<string | null>(null)
+  const [userInteracted, setUserInteracted] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const switchProject = (key: string) => {
+    setUserInteracted(true)
+    setProjectKey(key)
+    setIssues(PROJECTS[key].issues)
+    setActiveTab(`all`)
+    setStatusDropdown(null)
+  }
+
+  const switchTab = (tab: TabKey) => {
+    setUserInteracted(true)
+    setActiveTab(tab)
+    setStatusDropdown(null)
+  }
+
+  const changeStatus = (issueId: string, newStatus: StatusKey) => {
+    setUserInteracted(true)
+    setIssues((xs) => xs.map((i) => (i.id === issueId ? { ...i, status: newStatus } : i)))
+    setFlashId(issueId)
+    setTimeout(() => setFlashId(null), 1100)
+    setStatusDropdown(null)
+  }
 
   useEffect(() => {
-    if (!animate) {
-      setIssues(seedIssues)
-      return
-    }
+    if (!animate || userInteracted) return
     let tick = 0
     const cycle = () => {
       tick++
@@ -136,24 +190,34 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
         }, 700)
         setTimeout(() => setCursor((c) => ({ ...c, visible: false })), 1700)
       } else {
-        setIssues(seedIssues)
+        setIssues(PROJECTS.exponential.issues)
       }
     }
     cycle()
-    const id = setInterval(cycle, 3800)
-    return () => clearInterval(id)
-  }, [animate])
+    intervalRef.current = setInterval(cycle, 3800)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [animate, userInteracted])
 
-  const todo = issues.filter((i) => i.status === `todo`)
-  const inProgress = issues.filter((i) => i.status === `in_progress`)
-  const done = issues.filter((i) => i.status === `done`)
+  const filtered = issues.filter((i) => {
+    if (activeTab === `active`) return i.status === `in_progress`
+    if (activeTab === `backlog`) return i.status === `backlog` || i.status === `todo`
+    return true
+  })
+
+  const groups: { key: StatusKey; title: string; items: Issue[] }[] = []
+  for (const key of [`in_progress`, `todo`, `backlog`, `done`, `cancelled`] as StatusKey[]) {
+    const items = filtered.filter((i) => i.status === key)
+    if (items.length > 0) groups.push({ key, title: STATUS[key].label, items })
+  }
 
   return (
-    <div className="ex-app">
+    <div className="ex-app" onClick={() => setStatusDropdown(null)}>
       <aside className="ex-sidebar">
         <div className="ex-ws">
           <span className="ex-ws-avatar">A</span>
-          <span className="ex-ws-name">Acme · Workspace</span>
+          <span className="ex-ws-name">Acme &middot; Workspace</span>
           <IcChevSwap size={12} />
         </div>
 
@@ -164,37 +228,19 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
               <IcPlus size={12} />
             </button>
           </div>
-          <div className="ex-side-item is-active">
-            <span
-              className="ex-proj-dot"
-              style={{ background: `oklch(0.62 0.18 280)` }}
-            />
-            <span>Exponential</span>
-          </div>
-          <div className="ex-side-item">
-            <span
-              className="ex-proj-dot"
-              style={{ background: `oklch(0.7 0.16 145)` }}
-            />
-            <span>Marketing site</span>
-          </div>
-          <div className="ex-side-item">
-            <span
-              className="ex-proj-dot"
-              style={{ background: `oklch(0.72 0.16 60)` }}
-            />
-            <span>Mobile app</span>
-          </div>
-        </div>
-
-        <div className="ex-side-section">
-          <div className="ex-side-label">
-            <span>Views</span>
-          </div>
-          <div className="ex-side-item ex-side-empty">
-            <IcViewsEmpty size={13} />
-            <span>No views yet</span>
-          </div>
+          {PROJECT_KEYS.map((k) => {
+            const p = PROJECTS[k]
+            return (
+              <div
+                key={k}
+                className={`ex-side-item ${k === projectKey ? `is-active` : ``}`}
+                onClick={() => switchProject(k)}
+              >
+                <span className="ex-proj-dot" style={{ background: p.color }} />
+                <span>{p.name}</span>
+              </div>
+            )
+          })}
         </div>
 
         <div className="ex-side-user">
@@ -224,41 +270,34 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
         </div>
 
         <div className="ex-tabs">
-          <div className="ex-tab is-active">All Issues</div>
-          <div className="ex-tab">Active</div>
-          <div className="ex-tab">Backlog</div>
+          {([`all`, `active`, `backlog`] as TabKey[]).map((tab) => (
+            <div
+              key={tab}
+              className={`ex-tab ${activeTab === tab ? `is-active` : ``}`}
+              onClick={() => switchTab(tab)}
+            >
+              {tab === `all` ? `All Issues` : tab === `active` ? `Active` : `Backlog`}
+            </div>
+          ))}
         </div>
 
-        {inProgress.length > 0 && (
+        {groups.map((g) => (
           <Group
-            title="In Progress"
-            kind="in_progress"
-            count={inProgress.length}
-            issues={inProgress}
+            key={g.key}
+            title={g.title}
+            kind={g.key}
+            count={g.items.length}
+            issues={g.items}
             flashId={flashId}
             cursor={cursor}
+            statusDropdown={statusDropdown}
+            onStatusClick={(id, e) => {
+              e.stopPropagation()
+              setStatusDropdown(statusDropdown === id ? null : id)
+            }}
+            onStatusChange={changeStatus}
           />
-        )}
-        {todo.length > 0 && (
-          <Group
-            title="Todo"
-            kind="todo"
-            count={todo.length === 12 ? 18 : todo.length}
-            issues={todo}
-            flashId={flashId}
-            cursor={cursor}
-          />
-        )}
-        {done.length > 0 && (
-          <Group
-            title="Done"
-            kind="done"
-            count={done.length}
-            issues={done}
-            flashId={flashId}
-            cursor={cursor}
-          />
-        )}
+        ))}
       </div>
     </div>
   )
@@ -271,13 +310,19 @@ function Group({
   issues,
   flashId,
   cursor,
+  statusDropdown,
+  onStatusClick,
+  onStatusChange,
 }: {
   title: string
   kind: StatusKey
   count: number
   issues: Issue[]
   flashId: string | null
-  cursor: Cursor
+  cursor: { visible: boolean; label: string; id: string | null }
+  statusDropdown: string | null
+  onStatusClick: (id: string, e: React.MouseEvent) => void
+  onStatusChange: (id: string, status: StatusKey) => void
 }) {
   return (
     <>
@@ -296,22 +341,28 @@ function Group({
             <PriorityIcon kind={iss.priority} size={13} />
           </span>
           <span className="ex-ident">{iss.ident}</span>
-          <StatusIcon kind={iss.status} />
+          <span
+            className="ex-status-click"
+            onClick={(e) => onStatusClick(iss.id, e)}
+          >
+            <StatusIcon kind={iss.status} />
+            {statusDropdown === iss.id && (
+              <StatusDropdown
+                current={iss.status}
+                onChange={(s) => onStatusChange(iss.id, s)}
+              />
+            )}
+          </span>
           <span className="ex-title">{iss.title}</span>
           <span className="ex-labels">
             {iss.labels?.map((l, i) => (
               <span key={i} className="ex-label">
-                <span
-                  className="ex-label-dot"
-                  style={{ background: l.color }}
-                />
+                <span className="ex-label-dot" style={{ background: l.color }} />
                 {l.name}
               </span>
             ))}
           </span>
-          <span className="ex-assignee" title="Danny">
-            D
-          </span>
+          <span className="ex-assignee" title="Danny">D</span>
           <span className={`ex-due ${iss.due ? `` : `is-empty`}`}>
             <IcCal size={12} />
             {iss.due && <span>{iss.due}</span>}
@@ -328,3 +379,25 @@ function Group({
   )
 }
 
+function StatusDropdown({
+  current,
+  onChange,
+}: {
+  current: StatusKey
+  onChange: (s: StatusKey) => void
+}) {
+  return (
+    <div className="ex-status-dropdown" onClick={(e) => e.stopPropagation()}>
+      {(Object.keys(STATUS) as StatusKey[]).map((key) => (
+        <div
+          key={key}
+          className={`ex-status-option ${key === current ? `is-current` : ``}`}
+          onClick={() => onChange(key)}
+        >
+          <StatusIcon kind={key} size={13} />
+          <span>{STATUS[key].label}</span>
+        </div>
+      ))}
+    </div>
+  )
+}

@@ -11,9 +11,9 @@ export function SiteHeader() {
         </a>
         <nav className="nav">
           <a href="/#features">Features</a>
-          <a href="/#install">Self-host</a>
+          <a href="/#mobile">Mobile</a>
+          <a href="/#agents">Agents</a>
           <a href="/docs/">Docs</a>
-          <a href="/#open-source">Open source</a>
         </nav>
         <div className="topbar-right">
           <a
@@ -28,12 +28,37 @@ export function SiteHeader() {
           >
             Sign in
           </a>
-          <a className="btn btn-primary btn-sm" href="/#install">
-            Self-host <IcArrow size={12} />
+          <a
+            className="btn btn-primary btn-sm"
+            href="https://app.exponential.at/auth/register"
+          >
+            Get started free
           </a>
         </div>
       </div>
     </header>
+  )
+}
+
+export function FooterCTA() {
+  return (
+    <section className="footer-cta">
+      <div className="shell footer-cta-inner">
+        <h2>Get Exponential.</h2>
+        <p>Free for individuals and teams. No credit card required.</p>
+        <div className="footer-cta-buttons">
+          <a
+            className="btn btn-primary"
+            href="https://app.exponential.at/auth/register"
+          >
+            Sign up free <IcArrow size={12} />
+          </a>
+          <a className="btn btn-ghost" href="/docs/#self-host">
+            Self-host
+          </a>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -61,7 +86,7 @@ export function SiteFooter() {
             <a href="/terms/" style={{ color: `inherit` }}>
               Terms
             </a>
-            <span>© 2026 — released under MIT</span>
+            <span>&copy; 2026 &mdash; Elastic License 2.0</span>
           </span>
         </div>
       </div>

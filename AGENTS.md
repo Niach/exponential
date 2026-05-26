@@ -173,7 +173,7 @@ apps/web/src/
 
 ### Tables
 
-`workspaces`, `projects`, `issues`, `labels`, `issue_labels`, `issue_relations`, `comments`, `attachments`, `views`, `push_subscriptions`, `notifications` + Better Auth tables (users, sessions, accounts, verifications)
+`workspaces`, `projects`, `issues`, `labels`, `issue_labels`, `issue_relations`, `comments`, `attachments`, `push_subscriptions`, `notifications` + Better Auth tables (users, sessions, accounts, verifications)
 
 ### Key Issue Fields
 
