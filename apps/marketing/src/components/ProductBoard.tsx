@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { AnimatePresence } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 import {
   AlertTriangle,
   Circle,
@@ -276,56 +276,83 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
         </div>
       </aside>
 
-      <div className="ex-main">
-        <div className="ex-titlebar">
-          <button className="ex-icon-btn" aria-label="Toggle sidebar">
-            <IcSidebar size={15} />
-          </button>
-        </div>
-
-        <div className="ex-header">
-          <h1 className="ex-h1">Issues</h1>
-          <div className="ex-header-right">
-            <button className="ex-filter-btn">
-              <IcFilter size={13} /> Filter
-            </button>
-            <button className="ex-new-btn" onClick={() => { setUserInteracted(true); setCreateOpen(true) }}>
-              <IcPlus size={13} /> New Issue
-            </button>
-          </div>
-        </div>
-
-        <div className="ex-tabs">
-          {([`all`, `active`, `backlog`] as TabKey[]).map((tab) => (
-            <div
-              key={tab}
-              className={`ex-tab ${activeTab === tab ? `is-active` : ``}`}
-              onClick={() => switchTab(tab)}
-            >
-              {tab === `all` ? `All Issues` : tab === `active` ? `Active` : `Backlog`}
+      <AnimatePresence mode="wait">
+        {selectedIssue ? (
+          <motion.div
+            key="detail"
+            className="ex-main"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <IssueDetailPanel
+              issue={selectedIssue}
+              projectName={PROJECTS[projectKey].name}
+              projectColor={PROJECTS[projectKey].color}
+              onClose={() => setSelectedIssue(null)}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="list"
+            className="ex-main"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <div className="ex-titlebar">
+              <button className="ex-icon-btn" aria-label="Toggle sidebar">
+                <IcSidebar size={15} />
+              </button>
             </div>
-          ))}
-        </div>
 
-        {groups.map((g) => (
-          <Group
-            key={g.key}
-            title={g.title}
-            kind={g.key}
-            count={g.items.length}
-            issues={g.items}
-            flashId={flashId}
-            cursor={cursor}
-            statusDropdown={statusDropdown}
-            onStatusClick={(id, e) => {
-              e.stopPropagation()
-              setStatusDropdown(statusDropdown === id ? null : id)
-            }}
-            onStatusChange={changeStatus}
-            onRowClick={(iss) => { setUserInteracted(true); setSelectedIssue(iss) }}
-          />
-        ))}
-      </div>
+            <div className="ex-header">
+              <h1 className="ex-h1">Issues</h1>
+              <div className="ex-header-right">
+                <button className="ex-filter-btn">
+                  <IcFilter size={13} /> Filter
+                </button>
+                <button className="ex-new-btn" onClick={() => { setUserInteracted(true); setCreateOpen(true) }}>
+                  <IcPlus size={13} /> New Issue
+                </button>
+              </div>
+            </div>
+
+            <div className="ex-tabs">
+              {([`all`, `active`, `backlog`] as TabKey[]).map((tab) => (
+                <div
+                  key={tab}
+                  className={`ex-tab ${activeTab === tab ? `is-active` : ``}`}
+                  onClick={() => switchTab(tab)}
+                >
+                  {tab === `all` ? `All Issues` : tab === `active` ? `Active` : `Backlog`}
+                </div>
+              ))}
+            </div>
+
+            {groups.map((g) => (
+              <Group
+                key={g.key}
+                title={g.title}
+                kind={g.key}
+                count={g.items.length}
+                issues={g.items}
+                flashId={flashId}
+                cursor={cursor}
+                statusDropdown={statusDropdown}
+                onStatusClick={(id, e) => {
+                  e.stopPropagation()
+                  setStatusDropdown(statusDropdown === id ? null : id)
+                }}
+                onStatusChange={changeStatus}
+                onRowClick={(iss) => { setUserInteracted(true); setSelectedIssue(iss) }}
+              />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
     <AnimatePresence>
       {createOpen && (
@@ -335,14 +362,6 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
           onCreate={handleCreate}
           projectPrefix={PROJECTS[projectKey].prefix}
           projectColor={PROJECTS[projectKey].color}
-        />
-      )}
-      {selectedIssue && (
-        <IssueDetailPanel
-          issue={selectedIssue}
-          projectName={PROJECTS[projectKey].name}
-          projectColor={PROJECTS[projectKey].color}
-          onClose={() => setSelectedIssue(null)}
         />
       )}
     </AnimatePresence>

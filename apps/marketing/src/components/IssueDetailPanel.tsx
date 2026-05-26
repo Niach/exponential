@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react"
-import { motion } from "motion/react"
+import { useState } from "react"
 import {
   AlertTriangle,
   CalendarDays,
   Check,
+  ChevronRight,
   Circle,
   CircleCheck,
   CircleDashed,
@@ -14,7 +14,6 @@ import {
   SignalMedium,
   Sparkles,
   Timer,
-  X,
   type LucideIcon,
 } from "lucide-react"
 
@@ -58,14 +57,6 @@ export function IssueDetailPanel({
 }) {
   const [approved, setApproved] = useState(false)
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === `Escape`) onClose()
-    }
-    window.addEventListener(`keydown`, handler)
-    return () => window.removeEventListener(`keydown`, handler)
-  }, [onClose])
-
   const handleApprove = () => {
     setApproved(true)
     setTimeout(() => setApproved(false), 1500)
@@ -77,42 +68,33 @@ export function IssueDetailPanel({
   const PrioIcon = prioCfg.icon
 
   return (
-    <>
-      <motion.div
-        className="ex-detail-overlay"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.15 }}
-        onClick={onClose}
-      />
-      <motion.div
-        className="ex-detail-panel"
-        initial={{ x: `100%` }}
-        animate={{ x: 0 }}
-        exit={{ x: `100%` }}
-        transition={{ type: `spring`, damping: 30, stiffness: 300 }}
-      >
-        <div className="ex-detail-header">
+    <div className="ex-detail-view">
+      <div className="ex-detail-breadcrumb">
+        <button className="ex-detail-breadcrumb-link" onClick={onClose}>
           <span
             className="ex-detail-breadcrumb-dot"
             style={{ background: projectColor }}
           />
           <span>{projectName}</span>
-          <span style={{ color: `var(--fg-dim)` }}>&rsaquo;</span>
-          <span className="ex-detail-breadcrumb-ident">{issue.ident}</span>
-          <button className="ex-detail-close" onClick={onClose}>
-            <X size={16} strokeWidth={1.6} />
-          </button>
-        </div>
+        </button>
+        <ChevronRight size={12} strokeWidth={1.6} style={{ color: `var(--fg-dim)` }} />
+        <span className="ex-detail-breadcrumb-ident">{issue.ident}</span>
+        <ChevronRight size={12} strokeWidth={1.6} style={{ color: `var(--fg-dim)` }} />
+        <span className="ex-detail-breadcrumb-title">{issue.title}</span>
+      </div>
 
-        <div className="ex-detail-content">
-          <div className="ex-detail-main">
+      <div className="ex-detail-body">
+        <div className="ex-detail-main">
+          <div className="ex-detail-main-inner">
             <h2 className="ex-detail-title">{issue.title}</h2>
             <p className="ex-detail-desc">
               Implement the core logic for this feature. Need to coordinate with
               the team on the API design and handle edge cases.
             </p>
+
+            <div className="ex-detail-attachment-rail">
+              <span className="ex-detail-attach-placeholder">Add description&hellip;</span>
+            </div>
 
             <div className="ex-detail-divider" />
 
@@ -177,69 +159,80 @@ export function IssueDetailPanel({
               Add a comment...
             </div>
           </div>
-
-          <div className="ex-detail-sidebar">
-            <div className="ex-detail-prop">
-              <div className="ex-detail-prop-label">Status</div>
-              <div className="ex-detail-prop-value">
-                <StatusIcon
-                  size={14}
-                  strokeWidth={1.7}
-                  style={{ color: statusCfg.color }}
-                />
-                {statusCfg.label}
-              </div>
-            </div>
-
-            <div className="ex-detail-prop">
-              <div className="ex-detail-prop-label">Priority</div>
-              <div className="ex-detail-prop-value">
-                <PrioIcon
-                  size={14}
-                  strokeWidth={2}
-                  style={{ color: prioCfg.color }}
-                />
-                {prioCfg.label}
-              </div>
-            </div>
-
-            <div className="ex-detail-prop">
-              <div className="ex-detail-prop-label">Assignee</div>
-              <div className="ex-detail-prop-value">
-                <span className="ex-detail-prop-avatar">D</span>
-                Danny
-              </div>
-            </div>
-
-            {issue.labels && issue.labels.length > 0 && (
-              <div className="ex-detail-prop">
-                <div className="ex-detail-prop-label">Labels</div>
-                <div style={{ display: `flex`, flexDirection: `column`, gap: 4 }}>
-                  {issue.labels.map((l, i) => (
-                    <span key={i} className="ex-detail-prop-label-pill">
-                      <span
-                        className="ex-detail-prop-label-dot"
-                        style={{ background: l.color }}
-                      />
-                      {l.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {issue.due && (
-              <div className="ex-detail-prop">
-                <div className="ex-detail-prop-label">Due date</div>
-                <div className="ex-detail-prop-value">
-                  <CalendarDays size={13} strokeWidth={1.6} />
-                  {issue.due}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
-      </motion.div>
-    </>
+
+        <aside className="ex-detail-sidebar">
+          <div className="ex-detail-prop">
+            <div className="ex-detail-prop-label">Status</div>
+            <div className="ex-detail-prop-value">
+              <StatusIcon
+                size={14}
+                strokeWidth={1.7}
+                style={{ color: statusCfg.color }}
+              />
+              {statusCfg.label}
+            </div>
+          </div>
+
+          <div className="ex-detail-prop">
+            <div className="ex-detail-prop-label">Priority</div>
+            <div className="ex-detail-prop-value">
+              <PrioIcon
+                size={14}
+                strokeWidth={2}
+                style={{ color: prioCfg.color }}
+              />
+              {prioCfg.label}
+            </div>
+          </div>
+
+          <div className="ex-detail-prop">
+            <div className="ex-detail-prop-label">Assignee</div>
+            <div className="ex-detail-prop-value">
+              <span className="ex-detail-prop-avatar">D</span>
+              Danny
+            </div>
+          </div>
+
+          {issue.labels && issue.labels.length > 0 && (
+            <div className="ex-detail-prop">
+              <div className="ex-detail-prop-label">Labels</div>
+              <div style={{ display: `flex`, flexDirection: `column`, gap: 4 }}>
+                {issue.labels.map((l, i) => (
+                  <span key={i} className="ex-detail-prop-label-pill">
+                    <span
+                      className="ex-detail-prop-label-dot"
+                      style={{ background: l.color }}
+                    />
+                    {l.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {issue.due && (
+            <div className="ex-detail-prop">
+              <div className="ex-detail-prop-label">Due date</div>
+              <div className="ex-detail-prop-value">
+                <CalendarDays size={13} strokeWidth={1.6} />
+                {issue.due}
+              </div>
+            </div>
+          )}
+
+          <div className="ex-detail-prop">
+            <div className="ex-detail-prop-label">Project</div>
+            <div className="ex-detail-prop-project-chip">
+              <span
+                className="ex-detail-breadcrumb-dot"
+                style={{ background: projectColor }}
+              />
+              {projectName}
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
   )
 }

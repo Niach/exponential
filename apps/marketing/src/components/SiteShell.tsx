@@ -44,7 +44,7 @@ export function FooterCTA() {
   return (
     <section className="footer-cta">
       <div className="shell footer-cta-inner">
-        <h2>Get Exponential.</h2>
+        <h2>Go Exponential.</h2>
         <p>Free for individuals and teams. No credit card required.</p>
         <div className="footer-cta-buttons">
           <a

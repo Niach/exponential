@@ -30,7 +30,7 @@ export function HomePage() {
           animate="visible"
         >
           <motion.h1 className="hero-title" variants={heroChild}>
-            Get Exponential.
+            Go Exponential.
           </motion.h1>
           <motion.p className="hero-sub" variants={heroChild}>
             The issue tracker for teams that ship. Real-time sync, native on
