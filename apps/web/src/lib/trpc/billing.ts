@@ -20,7 +20,7 @@ export const billingRouter = router({
             storageMb: Infinity,
             push: true,
           },
-          usage: { members: 0, projects: 0 },
+          usage: { members: 0, projects: 0, storageMb: 0 },
         }
       }
 

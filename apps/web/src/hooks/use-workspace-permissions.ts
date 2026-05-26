@@ -16,6 +16,7 @@ export interface WorkspacePermissions {
   billingPlan: BillingPlan | null
   canAddMoreMembers: boolean
   canAddMoreProjects: boolean
+  canAddMoreStorage: boolean
   canUsePushNotifications: boolean
 }
 
@@ -55,6 +56,10 @@ export function useWorkspacePermissions(
     const canAddMoreProjects = billingPlan
       ? billingPlan.usage.projects < billingPlan.limits.projects
       : true
+    const canAddMoreStorage = billingPlan
+      ? billingPlan.limits.storageMb === Infinity ||
+        billingPlan.usage.storageMb < billingPlan.limits.storageMb
+      : true
     const canUsePushNotifications = billingPlan
       ? billingPlan.limits.push
       : true
@@ -70,6 +75,7 @@ export function useWorkspacePermissions(
       billingPlan,
       canAddMoreMembers,
       canAddMoreProjects,
+      canAddMoreStorage,
       canUsePushNotifications,
     }
   }, [

@@ -14,6 +14,7 @@ export type BillingPlan = {
   usage: {
     members: number
     projects: number
+    storageMb: number
   }
 }
 
@@ -25,7 +26,7 @@ const UNLIMITED_PLAN: BillingPlan = {
     storageMb: Infinity,
     push: true,
   },
-  usage: { members: 0, projects: 0 },
+  usage: { members: 0, projects: 0, storageMb: 0 },
 }
 
 let isCloudCached: boolean | undefined

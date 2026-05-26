@@ -4,6 +4,7 @@ import { db } from "@/db/connection"
 import {
   workspaceMembers,
   projects,
+  attachments,
   creem_subscriptions,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
@@ -99,12 +100,13 @@ export async function getWorkspacePlan(
 export type WorkspaceUsage = {
   members: number
   projects: number
+  storageMb: number
 }
 
 export async function getWorkspaceUsage(
   workspaceId: string
 ): Promise<WorkspaceUsage> {
-  const [[memberCount], [projectCount]] = await Promise.all([
+  const [[memberCount], [projectCount], [storageSum]] = await Promise.all([
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(workspaceMembers)
@@ -113,11 +115,20 @@ export async function getWorkspaceUsage(
       .select({ count: sql<number>`count(*)::int` })
       .from(projects)
       .where(eq(projects.workspaceId, workspaceId)),
+    db
+      .select({
+        totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
+      })
+      .from(attachments)
+      .where(eq(attachments.workspaceId, workspaceId)),
   ])
+
+  const totalBytes = Number(storageSum.totalBytes)
 
   return {
     members: memberCount.count,
     projects: projectCount.count,
+    storageMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
   }
 }
 
@@ -139,6 +150,29 @@ export async function assertWithinPlanLimits(
     throw new TRPCError({
       code: `FORBIDDEN`,
       message: `Your plan allows up to ${limit} ${resource}. Upgrade to add more.`,
+    })
+  }
+}
+
+export async function assertWithinStorageLimit(
+  workspaceId: string,
+  additionalBytes: number
+): Promise<void> {
+  if (!isCloudInstance()) return
+
+  const [{ limits }, usage] = await Promise.all([
+    getWorkspacePlan(workspaceId),
+    getWorkspaceUsage(workspaceId),
+  ])
+
+  if (limits.storageMb === Infinity) return
+
+  const limitBytes = limits.storageMb * 1024 * 1024
+  const currentBytes = usage.storageMb * 1024 * 1024
+  if (currentBytes + additionalBytes > limitBytes) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Your plan allows up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of storage. Upgrade to upload more.`,
     })
   }
 }

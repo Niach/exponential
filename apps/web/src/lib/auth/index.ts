@@ -89,7 +89,12 @@ export const auth = betterAuth({
       isAdmin: {
         type: `boolean`,
         defaultValue: false,
-        // Block clients from setting this via the public auth API.
+        input: false,
+      },
+      onboardingCompletedAt: {
+        type: `date`,
+        defaultValue: null,
+        required: false,
         input: false,
       },
     },

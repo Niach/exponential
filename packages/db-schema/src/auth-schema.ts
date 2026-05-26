@@ -20,6 +20,9 @@ export const users = pgTable(`users`, {
     .notNull(),
   creemCustomerId: text(`creem_customer_id`),
   hadTrial: boolean(`had_trial`).notNull().default(false),
+  onboardingCompletedAt: timestamp(`onboarding_completed_at`, {
+    withTimezone: true,
+  }),
   createdAt: timestamp(`created_at`)
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),

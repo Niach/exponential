@@ -18,6 +18,7 @@ import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oau
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
+import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedFeedbackRouteImport } from './routes/_authenticated/feedback'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
@@ -90,6 +91,11 @@ const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
   id: '/api/auth-config',
   path: '/api/auth-config',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedFeedbackRoute = AuthenticatedFeedbackRouteImport.update({
   id: '/feedback',
@@ -249,6 +255,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/feedback': typeof AuthenticatedFeedbackRoute
+  '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -285,6 +292,7 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/feedback': typeof AuthenticatedFeedbackRoute
+  '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -325,6 +333,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/feedback': typeof AuthenticatedFeedbackRoute
+  '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -365,6 +374,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/feedback'
+    | '/onboarding'
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -401,6 +411,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/feedback'
+    | '/onboarding'
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -440,6 +451,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/_authenticated/feedback'
+    | '/_authenticated/onboarding'
     | '/api/auth-config'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -566,6 +578,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/auth-config'
       preLoaderRoute: typeof ApiAuthConfigRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/onboarding': {
+      id: '/_authenticated/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof AuthenticatedOnboardingRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/feedback': {
       id: '/_authenticated/feedback'
@@ -787,12 +806,14 @@ const AuthenticatedAdminRouteRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedFeedbackRoute: typeof AuthenticatedFeedbackRoute
+  AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedAccountIntegrationsRoute: typeof AuthenticatedAccountIntegrationsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
   AuthenticatedFeedbackRoute: AuthenticatedFeedbackRoute,
+  AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedAccountIntegrationsRoute: AuthenticatedAccountIntegrationsRoute,
 }
 
@@ -853,13 +874,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.tsx'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

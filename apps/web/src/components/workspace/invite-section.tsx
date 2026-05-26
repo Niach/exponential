@@ -1,7 +1,9 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Check, Copy, Link as LinkIcon, Loader2, Trash2 } from "lucide-react"
+import { TRPCClientError } from "@trpc/client"
 import { trpc } from "@/lib/trpc-client"
 import { useWorkspaceInvites } from "@/hooks/use-workspace-data"
+import { getRuntimeConfig } from "@/lib/runtime-config"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { UpgradeDialog } from "@/components/upgrade-dialog"
 
 export function WorkspaceInviteSection({
   workspaceId,
@@ -21,9 +24,23 @@ export function WorkspaceInviteSection({
   const [copied, setCopied] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [productIds, setProductIds] = useState<{
+    pro: string | null
+    business: string | null
+  }>({ pro: null, business: null })
   const invites = useWorkspaceInvites(workspaceId).filter(
     (invite) => !invite.acceptedAt
   )
+
+  useEffect(() => {
+    void getRuntimeConfig().then((config) => {
+      setProductIds({
+        pro: config.creemProProductId,
+        business: config.creemBusinessProductId,
+      })
+    })
+  }, [])
 
   const handleGenerate = async () => {
     setGenerating(true)
@@ -34,6 +51,10 @@ export function WorkspaceInviteSection({
       })
 
       setInviteUrl(`${window.location.origin}/invite/${token}`)
+    } catch (err) {
+      if (err instanceof TRPCClientError && err.data?.code === `FORBIDDEN`) {
+        setUpgradeOpen(true)
+      }
     } finally {
       setGenerating(false)
     }
@@ -55,6 +76,7 @@ export function WorkspaceInviteSection({
   }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Invite Members</CardTitle>
@@ -125,5 +147,15 @@ export function WorkspaceInviteSection({
         )}
       </CardContent>
     </Card>
+
+    <UpgradeDialog
+      open={upgradeOpen}
+      onOpenChange={setUpgradeOpen}
+      title="Member limit reached"
+      description="You've reached the maximum number of members for your plan. Upgrade to invite more."
+      proProductId={productIds.pro}
+      businessProductId={productIds.business}
+    />
+    </>
   )
 }
