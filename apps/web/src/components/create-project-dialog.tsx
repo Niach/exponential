@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { trpc } from "@/lib/trpc-client"
+import { invalidateBillingCache } from "@/hooks/use-billing"
 
 function derivePrefix(name: string): string {
   return name
@@ -51,6 +52,7 @@ export function CreateProjectDialog({
         prefix: prefix.trim(),
         color,
       })
+      invalidateBillingCache()
       setName(``)
       setPrefix(``)
       setColor(`#6366f1`)

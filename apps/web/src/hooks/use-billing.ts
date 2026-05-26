@@ -28,15 +28,26 @@ const UNLIMITED_PLAN: BillingPlan = {
   usage: { members: 0, projects: 0 },
 }
 
-const planCache = new Map<string, BillingPlan>()
 let isCloudCached: boolean | undefined
+const listeners = new Set<() => void>()
+
+export function invalidateBillingCache(): void {
+  listeners.forEach((l) => l())
+}
 
 export function useBillingPlan(
   workspaceId: string | undefined
 ): BillingPlan | null {
-  const [plan, setPlan] = useState<BillingPlan | null>(
-    workspaceId ? (planCache.get(workspaceId) ?? null) : null
-  )
+  const [plan, setPlan] = useState<BillingPlan | null>(null)
+  const [fetchKey, setFetchKey] = useState(0)
+
+  useEffect(() => {
+    const listener = () => setFetchKey((k) => k + 1)
+    listeners.add(listener)
+    return () => {
+      listeners.delete(listener)
+    }
+  }, [])
 
   useEffect(() => {
     if (!workspaceId) return
@@ -50,7 +61,6 @@ export function useBillingPlan(
       }
 
       if (!isCloudCached) {
-        planCache.set(workspaceId, UNLIMITED_PLAN)
         if (!cancelled) setPlan(UNLIMITED_PLAN)
         return
       }
@@ -61,18 +71,13 @@ export function useBillingPlan(
         limits: data.limits,
         usage: data.usage,
       }
-      planCache.set(workspaceId, result)
       if (!cancelled) setPlan(result)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [workspaceId])
+  }, [workspaceId, fetchKey])
 
   return plan
-}
-
-export function invalidateBillingCache(workspaceId: string): void {
-  planCache.delete(workspaceId)
 }
