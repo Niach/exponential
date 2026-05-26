@@ -118,8 +118,8 @@ async function applyCustomSql() {
   }
 }
 
-function isCloudInstance(): boolean {
-  return !process.env.PUBLIC_FEEDBACK_URL?.trim()
+export function isCloudInstance(): boolean {
+  return process.env.SELF_HOSTED !== `true`
 }
 
 let bootstrapPromise: Promise<void> | null = null

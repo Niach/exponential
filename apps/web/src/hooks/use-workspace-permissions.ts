@@ -1,17 +1,22 @@
 import { useMemo } from "react"
 import { authClient } from "@/lib/auth/client"
 import { useWorkspaceUsers } from "@/hooks/use-workspace-data"
+import { useBillingPlan, type BillingPlan } from "@/hooks/use-billing"
+import type { PlanTier } from "@/lib/billing"
 import type { Issue, Workspace } from "@/db/schema"
 
 export interface WorkspacePermissions {
   isAuthed: boolean
   isMember: boolean
   isAdmin: boolean
-  // Member OR admin. Only moderators can set issue status (other than backlog),
-  // priority, assignee, due date, or recurrence in public workspaces.
   isModerator: boolean
   canCreate: boolean
   canMutateIssue: (issue: Pick<Issue, `creatorId`>) => boolean
+  plan: PlanTier | null
+  billingPlan: BillingPlan | null
+  canAddMoreMembers: boolean
+  canAddMoreProjects: boolean
+  canUsePushNotifications: boolean
 }
 
 export function useWorkspacePermissions(
@@ -19,6 +24,7 @@ export function useWorkspacePermissions(
 ): WorkspacePermissions {
   const { data: session } = authClient.useSession()
   const { members } = useWorkspaceUsers(workspace?.id)
+  const billingPlan = useBillingPlan(workspace?.id)
 
   const currentUserId = session?.user?.id
   const isAuthed = Boolean(currentUserId)
@@ -42,6 +48,17 @@ export function useWorkspacePermissions(
       if (isAdmin) return true
       return false
     }
+
+    const canAddMoreMembers = billingPlan
+      ? billingPlan.usage.members < billingPlan.limits.members
+      : true
+    const canAddMoreProjects = billingPlan
+      ? billingPlan.usage.projects < billingPlan.limits.projects
+      : true
+    const canUsePushNotifications = billingPlan
+      ? billingPlan.limits.push
+      : true
+
     return {
       isAuthed,
       isMember,
@@ -49,6 +66,11 @@ export function useWorkspacePermissions(
       isModerator,
       canCreate,
       canMutateIssue,
+      plan: billingPlan?.plan ?? null,
+      billingPlan,
+      canAddMoreMembers,
+      canAddMoreProjects,
+      canUsePushNotifications,
     }
   }, [
     currentUserId,
@@ -57,5 +79,6 @@ export function useWorkspacePermissions(
     members,
     workspace?.isPublic,
     workspace?.publicWritePolicy,
+    billingPlan,
   ])
 }

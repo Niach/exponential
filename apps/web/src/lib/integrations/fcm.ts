@@ -45,11 +45,19 @@ export async function sendToUser(
 
   const tokens = rows.map((r) => r.token)
 
+  const headers: Record<string, string> = {
+    "Content-Type": `application/json`,
+  }
+  const relaySecret = process.env.PUSH_RELAY_SECRET
+  if (relaySecret) {
+    headers[`x-relay-secret`] = relaySecret
+  }
+
   let invalidTokens: string[] = []
   try {
     const res = await fetch(`${url}/send`, {
       method: `POST`,
-      headers: { "Content-Type": `application/json` },
+      headers,
       body: JSON.stringify({
         tokens,
         notification: { title: payload.title, body: payload.body },

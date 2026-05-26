@@ -3,6 +3,7 @@ import {
   genericOAuthClient,
   inferAdditionalFields,
 } from "better-auth/client/plugins"
+import { creemClient } from "@creem_io/better-auth/client"
 import {
   createCollection,
   localOnlyCollectionOptions,
@@ -15,7 +16,11 @@ export const authClient = createAuthClient({
     typeof window !== `undefined`
       ? window.location.origin
       : undefined,
-  plugins: [genericOAuthClient(), inferAdditionalFields<typeof auth>()],
+  plugins: [
+    genericOAuthClient(),
+    inferAdditionalFields<typeof auth>(),
+    creemClient(),
+  ],
 })
 
 type SessionData = NonNullable<

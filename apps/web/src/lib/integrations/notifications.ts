@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues, notifications, projects, users } from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
+import { canUsePush } from "@/lib/billing"
 
 /**
  * Sends a push notification to the assignee (if any, and not the actor)
@@ -33,10 +34,15 @@ export function fireAndForgetAssignmentNotify(args: {
       if (!issue) return
 
       const [project] = await db
-        .select({ name: projects.name })
+        .select({
+          name: projects.name,
+          workspaceId: projects.workspaceId,
+        })
         .from(projects)
         .where(eq(projects.id, issue.projectId))
         .limit(1)
+
+      if (project && !(await canUsePush(project.workspaceId))) return
 
       const [actor] = await db
         .select({ name: users.name, email: users.email })
@@ -92,6 +98,12 @@ export function fireAndForgetCommentNotify(args: {
         .limit(1)
       if (!issue) return
 
+      const [project] = await db
+        .select({ workspaceId: projects.workspaceId })
+        .from(projects)
+        .where(eq(projects.id, issue.projectId))
+        .limit(1)
+
       const recipientIds = new Set<string>()
       if (issue.creatorId && issue.creatorId !== actorUserId) {
         recipientIds.add(issue.creatorId)
@@ -100,6 +112,8 @@ export function fireAndForgetCommentNotify(args: {
         recipientIds.add(issue.assigneeId)
       }
       if (recipientIds.size === 0) return
+
+      if (project && !(await canUsePush(project.workspaceId))) return
 
       const [actor] = await db
         .select({ name: users.name, email: users.email })

@@ -5,6 +5,7 @@ import { and, eq, isNull } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
+import { assertWithinPlanLimits } from "@/lib/billing"
 import { workspaces as workspacesTable } from "@/db/schema"
 
 export const workspaceInvitesRouter = router({
@@ -30,6 +31,7 @@ export const workspaceInvitesRouter = router({
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId, [
         `owner`,
       ])
+      await assertWithinPlanLimits(input.workspaceId, `members`)
 
       const token = randomBytes(32).toString(`hex`)
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
@@ -51,6 +53,15 @@ export const workspaceInvitesRouter = router({
   accept: authedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const [precheck] = await ctx.db
+        .select({ workspaceId: workspaceInvites.workspaceId })
+        .from(workspaceInvites)
+        .where(eq(workspaceInvites.token, input.token))
+        .limit(1)
+      if (precheck) {
+        await assertWithinPlanLimits(precheck.workspaceId, `members`)
+      }
+
       return await ctx.db.transaction(async (tx) => {
         const [invite] = await tx
           .select()
