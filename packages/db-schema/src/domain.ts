@@ -23,12 +23,7 @@ export const publicWritePolicyValues = [`members`, `everyone`] as const
 
 export const recurrenceUnitValues = [`day`, `week`, `month`] as const
 
-export const commentKindValues = [
-  `regular`,
-  `question`,
-  `plan`,
-  `activity`,
-] as const
+export const commentKindValues = [`regular`, `question`, `plan`] as const
 
 export const agentPlanStateValues = [
   `drafting`,

@@ -112,8 +112,6 @@ struct CommentThreadView: View {
             )
         case .question:
             QuestionCommentRow(comment: comment, author: users[comment.authorId])
-        case .activity:
-            ActivityCommentRow(comment: comment)
         case .plan:
             PlanCommentRow(
                 comment: comment,
@@ -339,30 +337,6 @@ private struct QuestionCommentRow: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .padding(.vertical, 2)
-    }
-}
-
-// MARK: - Activity comment (agent tool calls)
-
-private struct ActivityCommentRow: View {
-    let comment: CommentEntity
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(systemName: "sparkles")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text(getCommentBodyText(comment.body))
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .lineLimit(2)
-            Spacer()
-            Text(relativeDate(comment.createdAt))
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        }
-        .padding(.vertical, 2)
-        .padding(.horizontal, 4)
     }
 }
 

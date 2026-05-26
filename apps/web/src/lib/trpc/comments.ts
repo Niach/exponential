@@ -53,11 +53,10 @@ export const commentsRouter = router({
         issueContext.workspaceId
       )
 
-      // Only agents may post kind='question', 'plan', or 'activity'. Anyone
-      // else is clamped to regular so the rendering affordances don't get
-      // spoofed.
+      // Only agents may post kind='question' or 'plan'. Anyone else is
+      // clamped to regular so the rendering affordances don't get spoofed.
       let kind = input.kind
-      if (kind === `question` || kind === `plan` || kind === `activity`) {
+      if (kind === `question` || kind === `plan`) {
         const member = await getWorkspaceMember(
           ctx.session.user.id,
           issueContext.workspaceId
@@ -106,15 +105,11 @@ export const commentsRouter = router({
         return { txId, comment }
       })
 
-      // Activity comments are streaming progress updates from the agent —
-      // notifying every assignee/watcher on each one would be spam.
-      if (kind !== `activity`) {
-        fireAndForgetCommentNotify({
-          issueId: input.issueId,
-          actorUserId: ctx.session.user.id,
-          commentBodyText: getCommentBodyText(input.body),
-        })
-      }
+      fireAndForgetCommentNotify({
+        issueId: input.issueId,
+        actorUserId: ctx.session.user.id,
+        commentBodyText: getCommentBodyText(input.body),
+      })
 
       return result
     }),

@@ -7,7 +7,6 @@ import { commentCollection } from "@/lib/collections"
 import { getCommentBodyText } from "@/lib/domain"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { ActivityCommentRow } from "@/components/comment-rows/activity"
 import { PlanCommentRow } from "@/components/comment-rows/plan"
 import { QuestionCommentRow } from "@/components/comment-rows/question"
 import { RegularCommentRow } from "@/components/comment-rows/regular"
@@ -195,9 +194,6 @@ export function IssueTimeline({
       )}
       {list.map((comment) => {
         const author = userMap.get(comment.authorId)
-        if (comment.kind === `activity`) {
-          return <ActivityCommentRow key={comment.id} comment={comment} />
-        }
         if (comment.kind === `question`) {
           return (
             <QuestionCommentRow

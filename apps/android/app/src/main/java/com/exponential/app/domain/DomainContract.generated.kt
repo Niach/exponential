@@ -10,7 +10,7 @@ object DomainContract {
     val recurrenceUnitValues: List<String> = listOf("day", "week", "month")
     val workspaceRoleValues: List<String> = listOf("owner", "member", "agent")
     val publicWritePolicyValues: List<String> = listOf("members", "everyone")
-    val commentKindValues: List<String> = listOf("regular", "question", "plan", "activity")
+    val commentKindValues: List<String> = listOf("regular", "question", "plan")
     val recurrenceIntervals: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30)
 
     const val workspaceRoleOwner: String = "owner"
@@ -21,5 +21,4 @@ object DomainContract {
     const val commentKindRegular: String = "regular"
     const val commentKindQuestion: String = "question"
     const val commentKindPlan: String = "plan"
-    const val commentKindActivity: String = "activity"
 }

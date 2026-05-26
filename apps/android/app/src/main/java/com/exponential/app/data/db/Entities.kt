@@ -166,12 +166,11 @@ data class CommentEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
 
-enum class CommentKind { Regular, Question, Plan, Activity }
+enum class CommentKind { Regular, Question, Plan }
 
 fun commentKindOf(raw: String?): CommentKind = when (raw) {
     "question" -> CommentKind.Question
     "plan" -> CommentKind.Plan
-    "activity" -> CommentKind.Activity
     else -> CommentKind.Regular
 }
 

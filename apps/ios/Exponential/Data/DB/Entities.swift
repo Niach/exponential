@@ -303,13 +303,11 @@ enum CommentKind: String, Codable, Sendable {
     case regular
     case question
     case plan
-    case activity
 
     init(rawString: String?) {
         switch rawString {
         case "question": self = .question
         case "plan": self = .plan
-        case "activity": self = .activity
         default: self = .regular
         }
     }

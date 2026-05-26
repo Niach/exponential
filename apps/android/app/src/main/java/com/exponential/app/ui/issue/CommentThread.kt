@@ -131,7 +131,6 @@ fun CommentThread(
                     comment = comment,
                     author = state.usersById[comment.authorId],
                 )
-                CommentKind.Activity -> ActivityCommentRow(comment = comment)
                 CommentKind.Plan -> PlanCommentRow(
                     comment = comment,
                     isLatestPlan = comment.id == latestPlanId,
@@ -326,37 +325,6 @@ private fun QuestionCommentRow(comment: CommentEntity, author: UserEntity?) {
         }
         Spacer(Modifier.height(4.dp))
         MarkdownText(bodyText)
-    }
-}
-
-@Composable
-private fun ActivityCommentRow(comment: CommentEntity) {
-    val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Filled.Build,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            bodyText,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            relativeTime(comment.createdAt),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
