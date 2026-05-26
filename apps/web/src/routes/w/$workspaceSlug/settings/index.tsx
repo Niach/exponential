@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import {
   useWorkspaceBySlug,
   useWorkspaceUsers,
@@ -32,7 +32,7 @@ export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({
 
 function WorkspaceSettings() {
   const { workspaceSlug } = Route.useParams()
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const { members, userMap } = useWorkspaceUsers(workspace?.id)
   const [config, setConfig] = useState<RuntimeConfig | null>(null)

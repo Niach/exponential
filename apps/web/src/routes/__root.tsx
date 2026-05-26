@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { SessionProvider } from "@/hooks/use-session"
 
 import "../styles.css?url"
 
@@ -93,10 +94,12 @@ function RootComponent() {
   }, [])
 
   return (
-    <TooltipProvider>
-      <Outlet />
-      {showRouterDevtools && <TanStackRouterDevtools />}
-    </TooltipProvider>
+    <SessionProvider>
+      <TooltipProvider>
+        <Outlet />
+        {showRouterDevtools && <TanStackRouterDevtools />}
+      </TooltipProvider>
+    </SessionProvider>
   )
 }
 

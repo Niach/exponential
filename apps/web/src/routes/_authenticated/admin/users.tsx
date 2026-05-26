@@ -2,7 +2,7 @@ import { useState } from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { MoreHorizontal, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -36,7 +36,7 @@ export const Route = createFileRoute(`/_authenticated/admin/users`)({
 function AdminUsers() {
   const router = useRouter()
   const { users } = Route.useLoaderData()
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const currentUserId = session?.user?.id
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)

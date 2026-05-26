@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import { useWorkspaceUsers } from "@/hooks/use-workspace-data"
 import { useBillingPlan, type BillingPlan } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
@@ -23,7 +23,7 @@ export interface WorkspacePermissions {
 export function useWorkspacePermissions(
   workspace: Workspace | null | undefined
 ): WorkspacePermissions {
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const { members } = useWorkspaceUsers(workspace?.id)
   const billingPlan = useBillingPlan(workspace?.id)
 

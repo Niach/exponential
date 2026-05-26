@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
 import { OnboardingWizard } from "@/components/onboarding/wizard"
 
@@ -11,7 +11,7 @@ export const Route = createFileRoute(`/_authenticated/onboarding`)({
 
 function OnboardingPage() {
   const navigate = useNavigate()
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const [workspace, setWorkspace] = useState<{
     id: string
     slug: string

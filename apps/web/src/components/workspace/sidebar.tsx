@@ -12,6 +12,7 @@ import {
   Shield,
 } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import { getInitials } from "@/lib/utils"
 import type { Project, Workspace } from "@/db/schema"
 import { useWorkspaceMemberships } from "@/hooks/use-workspace-data"
@@ -53,7 +54,7 @@ export function WorkspaceSidebar({
   workspace,
   projects,
 }: WorkspaceSidebarProps) {
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const navigate = useNavigate()
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)

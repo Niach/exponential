@@ -106,6 +106,9 @@ export const auth = betterAuth({
     enabled: process.env.NODE_ENV === `production`,
     window: 60,
     max: 200,
+    customRules: {
+      "/get-session": { window: 60, max: 600 },
+    },
   },
   socialProviders: googleSocialEnabled
     ? {

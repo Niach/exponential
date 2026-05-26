@@ -37,13 +37,19 @@ export async function fetchSessionOnce(): Promise<SessionData | null> {
 
   inflight = authClient.getSession().then((result) => {
     const data = result.data?.session ? (result.data as SessionData) : null
-    cachedSession = data
-    cacheTimestamp = Date.now()
+    if (data) {
+      cachedSession = data
+      cacheTimestamp = Date.now()
+    } else if (result.error && cachedSession) {
+      // 429 or transient error — return the last known session instead of
+      // treating it as "logged out" and redirecting to login.
+      cacheTimestamp = Date.now()
+    }
     inflight = null
-    return data
-  }).catch((err) => {
+    return data ?? cachedSession
+  }).catch(() => {
     inflight = null
-    throw err
+    return cachedSession
   })
 
   return inflight

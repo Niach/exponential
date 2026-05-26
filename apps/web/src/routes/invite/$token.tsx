@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,7 +20,7 @@ export const Route = createFileRoute(`/invite/$token`)({
 function InviteAcceptPage() {
   const { token } = Route.useParams()
   const navigate = useNavigate()
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
