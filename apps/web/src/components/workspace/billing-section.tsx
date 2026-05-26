@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { authClient } from "@/lib/auth/client"
 import { useBillingPlan } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
 
@@ -74,10 +73,15 @@ export function WorkspaceBillingSection({
   const handleCheckout = async (productId: string) => {
     setLoading(productId)
     try {
-      const { data } = await (authClient as any).creem.createCheckout({
-        productId,
-        successUrl: window.location.href,
+      const res = await fetch(`/api/auth/creem/create-checkout`, {
+        method: `POST`,
+        headers: { "Content-Type": `application/json` },
+        body: JSON.stringify({
+          productId,
+          successUrl: window.location.href,
+        }),
       })
+      const data = await res.json()
       if (data?.url) window.location.href = data.url
     } catch (err) {
       console.error(`[billing] checkout failed:`, err)
@@ -89,7 +93,12 @@ export function WorkspaceBillingSection({
   const handlePortal = async () => {
     setLoading(`portal`)
     try {
-      const { data } = await (authClient as any).creem.createPortal()
+      const res = await fetch(`/api/auth/creem/create-portal`, {
+        method: `POST`,
+        headers: { "Content-Type": `application/json` },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
       if (data?.url) window.location.href = data.url
     } catch (err) {
       console.error(`[billing] portal failed:`, err)

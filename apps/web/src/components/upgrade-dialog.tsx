@@ -8,7 +8,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { authClient } from "@/lib/auth/client"
 
 export function UpgradeDialog({
   open,
@@ -30,10 +29,15 @@ export function UpgradeDialog({
   const handleCheckout = async (productId: string) => {
     setLoading(true)
     try {
-      const { data } = await (authClient as any).creem.createCheckout({
-        productId,
-        successUrl: window.location.href,
+      const res = await fetch(`/api/auth/creem/create-checkout`, {
+        method: `POST`,
+        headers: { "Content-Type": `application/json` },
+        body: JSON.stringify({
+          productId,
+          successUrl: window.location.href,
+        }),
       })
+      const data = await res.json()
       if (data?.url) window.location.href = data.url
     } catch (err) {
       console.error(`[billing] checkout failed:`, err)
