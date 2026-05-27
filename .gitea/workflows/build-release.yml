@@ -40,13 +40,30 @@ jobs:
             gitea.home.straehhuber.com/niach/exponential:latest
             gitea.home.straehhuber.com/niach/exponential:${{ steps.version.outputs.VERSION }}
 
-      - name: Trigger Portainer stack redeploy
-        uses: wirgen/portainer-stack-redeploy-action@v1.1
-        with:
-          portainerUrl: ${{ vars.PORTAINER_URL }}
-          accessToken: ${{ secrets.PORTAINER_API_KEY }}
-          stackId: ${{ vars.PORTAINER_STACK_ID }}
-          endpointId: ${{ vars.PORTAINER_ENDPOINT_ID }}
+      - name: Pull new image on Portainer host
+        run: |
+          echo "Pulling gitea.home.straehhuber.com/niach/exponential:latest on endpoint ${{ vars.PORTAINER_ENDPOINT_ID }}..."
+          RESPONSE=$(curl -fsSL -X POST \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+            "${{ vars.PORTAINER_URL }}/api/endpoints/${{ vars.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=gitea.home.straehhuber.com/niach/exponential&tag=latest")
+          echo "$RESPONSE" | tail -2
+          echo "$RESPONSE" | grep -q '"Status:' && echo "Image pull completed." || { echo "Image pull may have failed"; exit 1; }
+
+      - name: Redeploy Portainer stack
+        run: |
+          echo "Fetching stack file for stack ${{ vars.PORTAINER_STACK_ID }}..."
+          STACK_FILE=$(curl -fsSL \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+            "${{ vars.PORTAINER_URL }}/api/stacks/${{ vars.PORTAINER_STACK_ID }}/file" | jq -r '.StackFileContent')
+
+          echo "Redeploying stack with pullImage: true..."
+          RESULT=$(curl -fsSL -X PUT \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "${{ vars.PORTAINER_URL }}/api/stacks/${{ vars.PORTAINER_STACK_ID }}?endpointId=${{ vars.PORTAINER_ENDPOINT_ID }}" \
+            -d "$(jq -n --arg sf "$STACK_FILE" '{stackFileContent: $sf, pullImage: true, prune: false}')")
+
+          echo "$RESULT" | jq '{Id, Name, Status}' && echo "Stack redeployed successfully." || { echo "Redeploy failed: $RESULT"; exit 1; }
 
       - name: Log out from registry
         if: always()
