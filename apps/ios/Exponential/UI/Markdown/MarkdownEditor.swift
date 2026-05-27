@@ -251,6 +251,35 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             toolbar?.updateState()
+            guard !isUpdating else { return }
+            redirectCursorFromImageLine(textView)
+        }
+
+        private func redirectCursorFromImageLine(_ textView: UITextView) {
+            let storage = textView.textStorage
+            guard storage.length > 0 else { return }
+            let sel = textView.selectedRange
+            guard sel.length == 0 else { return }
+
+            let loc = min(sel.location, storage.length - 1)
+            guard loc >= 0 else { return }
+            let paraRange = (storage.string as NSString).paragraphRange(for: NSRange(location: loc, length: 0))
+            guard paraRange.location < storage.length else { return }
+
+            var hasImage = false
+            storage.enumerateAttribute(.attachment, in: paraRange, options: []) { val, _, stop in
+                if val is NSTextAttachment { hasImage = true; stop.pointee = true }
+            }
+            guard hasImage else { return }
+
+            isUpdating = true
+            let afterPara = NSMaxRange(paraRange)
+            if afterPara < storage.length {
+                textView.selectedRange = NSRange(location: afterPara, length: 0)
+            } else if paraRange.location > 0 {
+                textView.selectedRange = NSRange(location: paraRange.location - 1, length: 0)
+            }
+            isUpdating = false
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
