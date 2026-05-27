@@ -13,7 +13,7 @@ import {
   removeMarkdownImageByOccurrence,
 } from "@/lib/storage/issue-attachments"
 import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
-import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Input } from "@/components/ui/input"
 import {
@@ -46,7 +46,7 @@ export function IssueDetailView({
   readOnly = false,
   restrictModeration = false,
 }: IssueDetailViewProps) {
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
   const isAdmin = Boolean(
     (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin

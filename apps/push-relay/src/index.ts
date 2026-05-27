@@ -101,7 +101,16 @@ const app = new Hono()
 // Unauthenticated health check for Docker HEALTHCHECK / uptime monitors
 app.get(`/healthz`, (c) => c.json({ ok: true }))
 
+const RELAY_SECRET = process.env.PUSH_RELAY_SECRET
+
 app.post(`/send`, async (c) => {
+  if (RELAY_SECRET) {
+    const provided = c.req.raw.headers.get(`x-relay-secret`)
+    if (provided !== RELAY_SECRET) {
+      return c.json({ error: `Unauthorized` }, 401)
+    }
+  }
+
   const ip = clientIp(c.req.raw.headers)
   const { allowed, remaining } = rateLimitHit(ip)
   c.header(`X-RateLimit-Remaining`, String(remaining))

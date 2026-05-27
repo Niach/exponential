@@ -18,6 +18,11 @@ export const users = pgTable(`users`, {
   isAdmin: boolean(`is_admin`)
     .$defaultFn(() => false)
     .notNull(),
+  creemCustomerId: text(`creem_customer_id`),
+  hadTrial: boolean(`had_trial`).notNull().default(false),
+  onboardingCompletedAt: timestamp(`onboarding_completed_at`, {
+    withTimezone: true,
+  }),
   createdAt: timestamp(`created_at`)
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
@@ -116,6 +121,31 @@ export const oauthConsents = pgTable(`oauth_consents`, {
   consentGiven: boolean(`consent_given`).notNull(),
   createdAt: timestamp(`created_at`).notNull(),
   updatedAt: timestamp(`updated_at`).notNull(),
+})
+
+// Better Auth's Drizzle adapter resolves models by snake_case key, so this
+// must be exported as `creem_subscriptions` (not camelCase).
+export const creem_subscriptions = pgTable(`creem_subscriptions`, {
+  id: text(`id`).primaryKey(),
+  productId: text(`product_id`).notNull(),
+  referenceId: text(`reference_id`)
+    .notNull()
+    .references(() => users.id, { onDelete: `cascade` }),
+  creemCustomerId: text(`creem_customer_id`),
+  creemSubscriptionId: text(`creem_subscription_id`),
+  creemOrderId: text(`creem_order_id`),
+  status: text(`status`).$defaultFn(() => `pending`).notNull(),
+  periodStart: timestamp(`period_start`),
+  periodEnd: timestamp(`period_end`),
+  cancelAtPeriodEnd: boolean(`cancel_at_period_end`)
+    .$defaultFn(() => false)
+    .notNull(),
+  createdAt: timestamp(`created_at`)
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+  updatedAt: timestamp(`updated_at`)
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
 })
 
 // Table for the better-auth `@better-auth/api-key` plugin. With

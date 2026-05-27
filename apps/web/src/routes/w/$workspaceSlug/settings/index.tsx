@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import {
   useWorkspaceBySlug,
   useWorkspaceUsers,
@@ -10,12 +11,16 @@ import { WorkspaceLabelsSection } from "@/components/workspace/labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace/members-section"
 import { WorkspaceAgentsSection } from "@/components/workspace/agents-section"
 import { WorkspaceProjectsSection } from "@/components/workspace/projects-section"
+import { WorkspaceBillingSection } from "@/components/workspace/billing-section"
 import { Separator } from "@/components/ui/separator"
+import {
+  getRuntimeConfig,
+  type RuntimeConfig,
+} from "@/lib/runtime-config"
 
 export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({
-  beforeLoad: async () => {
-    const result = await authClient.getSession()
-    if (!result.data?.session) {
+  beforeLoad: async ({ context }) => {
+    if (!context.session) {
       throw redirect({
         to: `/auth/login`,
         search: { redirect: undefined },
@@ -27,9 +32,14 @@ export const Route = createFileRoute(`/w/$workspaceSlug/settings/`)({
 
 function WorkspaceSettings() {
   const { workspaceSlug } = Route.useParams()
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const { members, userMap } = useWorkspaceUsers(workspace?.id)
+  const [config, setConfig] = useState<RuntimeConfig | null>(null)
+
+  useEffect(() => {
+    void getRuntimeConfig().then(setConfig)
+  }, [])
 
   const currentMember = members.find(
     (member) => member.userId === session?.user?.id
@@ -46,6 +56,14 @@ function WorkspaceSettings() {
       </div>
 
       <Separator />
+
+      {workspace && isOwner && config?.isCloud && (
+        <WorkspaceBillingSection
+          workspaceId={workspace.id}
+          proProductId={config.creemProProductId}
+          businessProductId={config.creemBusinessProductId}
+        />
+      )}
 
       {workspace && isOwner && (
         <WorkspaceGeneralSection workspace={workspace} />

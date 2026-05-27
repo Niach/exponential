@@ -1,6 +1,7 @@
 import { Crown, MoreHorizontal, Shield, UserMinus } from "lucide-react"
 import type { User, WorkspaceMember } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
+import { invalidateBillingCache } from "@/hooks/use-billing"
 import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -41,6 +42,7 @@ export function WorkspaceMembersSection({
 
   const handleRemove = async (memberId: string) => {
     await trpc.workspaceMembers.remove.mutate({ memberId })
+    invalidateBillingCache()
   }
 
   return (

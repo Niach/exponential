@@ -7,6 +7,7 @@ import {
   assertCanMutateWorkspaceResources,
   assertWorkspaceOwner,
 } from "@/lib/workspace-membership"
+import { assertWithinPlanLimits } from "@/lib/billing"
 
 function slugify(name: string): string {
   return name
@@ -36,6 +37,7 @@ export const projectsRouter = router({
         ctx.session.user.id,
         input.workspaceId
       )
+      await assertWithinPlanLimits(input.workspaceId, `projects`)
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)

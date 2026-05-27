@@ -3,11 +3,7 @@ import {
   genericOAuthClient,
   inferAdditionalFields,
 } from "better-auth/client/plugins"
-import {
-  createCollection,
-  localOnlyCollectionOptions,
-} from "@tanstack/react-db"
-import { z } from "zod"
+import { creemClient } from "@creem_io/better-auth/client"
 import type { auth } from "@/lib/auth"
 
 export const authClient = createAuthClient({
@@ -15,44 +11,51 @@ export const authClient = createAuthClient({
     typeof window !== `undefined`
       ? window.location.origin
       : undefined,
-  plugins: [genericOAuthClient(), inferAdditionalFields<typeof auth>()],
+  plugins: [
+    genericOAuthClient(),
+    inferAdditionalFields<typeof auth>(),
+    creemClient(),
+  ],
 })
 
-type SessionData = NonNullable<
+export type SessionData = NonNullable<
   Awaited<ReturnType<typeof authClient.getSession>>[`data`]
 >
 
-type AuthCacheEntry = {
-  id: string
-  session: SessionData[`session`] | null
-  user: SessionData[`user`] | null
+let cachedSession: SessionData | null = null
+let cacheTimestamp = 0
+const CACHE_TTL_MS = 30_000
+
+let inflight: Promise<SessionData | null> | null = null
+
+export async function fetchSessionOnce(): Promise<SessionData | null> {
+  if (cachedSession && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+    return cachedSession
+  }
+
+  if (inflight) return inflight
+
+  inflight = authClient.getSession().then((result) => {
+    const data = result.data?.session ? (result.data as SessionData) : null
+    if (data) {
+      cachedSession = data
+      cacheTimestamp = Date.now()
+    } else if (result.error && cachedSession) {
+      // 429 or transient error — return the last known session instead of
+      // treating it as "logged out" and redirecting to login.
+      cacheTimestamp = Date.now()
+    }
+    inflight = null
+    return data ?? cachedSession
+  }).catch(() => {
+    inflight = null
+    return cachedSession
+  })
+
+  return inflight
 }
 
-const authSessionSchema = z
-  .object({
-    id: z.string(),
-    expiresAt: z.date(),
-  })
-  .passthrough()
-
-const authUserSchema = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    email: z.string(),
-  })
-  .passthrough()
-
-const authStateSchema: z.ZodType<AuthCacheEntry> = z.object({
-  id: z.string(),
-  session: authSessionSchema.nullable(),
-  user: authUserSchema.nullable(),
-})
-
-export const authStateCollection = createCollection(
-  localOnlyCollectionOptions({
-    id: `auth-state`,
-    getKey: (item) => item.id,
-    schema: authStateSchema,
-  })
-)
+export function invalidateSessionCache() {
+  cachedSession = null
+  cacheTimestamp = 0
+}

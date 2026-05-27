@@ -15,6 +15,7 @@ import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
+import { assertWithinStorageLimit } from "@/lib/billing"
 
 async function uploadIssueImage({
   params,
@@ -60,6 +61,8 @@ async function uploadIssueImage({
       message: `Images must be 10 MB or smaller`,
     })
   }
+
+  await assertWithinStorageLimit(issueContext.workspaceId, file.size)
 
   const attachmentId = crypto.randomUUID()
   const storageKey = buildAttachmentStorageKey(

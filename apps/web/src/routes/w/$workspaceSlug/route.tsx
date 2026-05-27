@@ -5,7 +5,7 @@ import {
   redirect,
 } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
-import { authClient } from "@/lib/auth/client"
+import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceMobileTopbar } from "@/components/workspace/mobile-topbar"
@@ -18,8 +18,9 @@ import {
 export const Route = createFileRoute(`/w/$workspaceSlug`)({
   beforeLoad: async ({ params }) => {
     const slug = params.workspaceSlug
-    const sessionResult = await authClient.getSession()
-    const session = sessionResult.data?.session
+    const sessionData = await fetchSessionOnce()
+    const session = sessionData?.session ?? null
+    const user = sessionData?.user ?? null
 
     // Magic "default" slug resolves to the user's default workspace.
     if (slug === `default`) {
@@ -36,14 +37,14 @@ export const Route = createFileRoute(`/w/$workspaceSlug`)({
           params: { workspaceSlug: workspace.slug },
         })
       }
-      return
+      return { session, user }
     }
 
     // Public-aware lookup. Anonymous callers can resolve a public workspace
     // and continue; authed non-members of a private workspace get NOT_FOUND.
     try {
       await trpc.workspaces.getBySlug.query({ slug })
-      return
+      return { session, user }
     } catch (e) {
       const isNotFound =
         e instanceof TRPCClientError && e.data?.code === `NOT_FOUND`

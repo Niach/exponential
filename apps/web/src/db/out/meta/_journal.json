@@ -15,6 +15,20 @@
       "when": 1779786170714,
       "tag": "0001_neat_lily_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779821277976,
+      "tag": "0002_cheerful_patch",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779835961238,
+      "tag": "0003_elite_pretty_boy",
+      "breakpoints": true
     }
   ]
 }

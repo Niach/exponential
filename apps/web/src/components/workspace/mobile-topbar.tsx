@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import type { Project } from "@/db/schema"
 import { authClient } from "@/lib/auth/client"
+import { useSession } from "@/hooks/use-session"
 import { getInitials } from "@/lib/utils"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -36,7 +37,7 @@ export function WorkspaceMobileTopbar({
   workspaceId,
 }: WorkspaceMobileTopbarProps) {
   const params = useParams({ strict: false }) as { projectSlug?: string }
-  const { data: session } = authClient.useSession()
+  const { data: session } = useSession()
   const navigate = useNavigate()
   const [searchOpen, setSearchOpen] = useState(false)
   const activeProject = params.projectSlug

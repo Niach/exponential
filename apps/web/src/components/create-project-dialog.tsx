@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { TRPCClientError } from "@trpc/client"
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { trpc } from "@/lib/trpc-client"
+import { invalidateBillingCache } from "@/hooks/use-billing"
+import { UpgradeDialog } from "@/components/upgrade-dialog"
+import { getRuntimeConfig } from "@/lib/runtime-config"
 
 function derivePrefix(name: string): string {
   return name
@@ -33,6 +37,20 @@ export function CreateProjectDialog({
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
   const [submitting, setSubmitting] = useState(false)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [productIds, setProductIds] = useState<{
+    pro: string | null
+    business: string | null
+  }>({ pro: null, business: null })
+
+  useEffect(() => {
+    void getRuntimeConfig().then((config) => {
+      setProductIds({
+        pro: config.creemProProductId,
+        business: config.creemBusinessProductId,
+      })
+    })
+  }, [])
 
   const handleNameChange = (value: string) => {
     setName(value)
@@ -51,79 +69,96 @@ export function CreateProjectDialog({
         prefix: prefix.trim(),
         color,
       })
+      invalidateBillingCache()
       setName(``)
       setPrefix(``)
       setColor(`#6366f1`)
       onOpenChange(false)
+    } catch (err) {
+      if (err instanceof TRPCClientError && err.data?.code === `FORBIDDEN`) {
+        onOpenChange(false)
+        setUpgradeOpen(true)
+      }
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[26rem]">
-        <DialogHeader>
-          <DialogTitle>Create project</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="project-name">Name</Label>
-            <Input
-              id="project-name"
-              value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="e.g. Backend API"
-              autoFocus
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[26rem]">
+          <DialogHeader>
+            <DialogTitle>Create project</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="project-prefix">Prefix</Label>
+              <Label htmlFor="project-name">Name</Label>
               <Input
-                id="project-prefix"
-                value={prefix}
-                onChange={(e) => setPrefix(e.target.value.toUpperCase())}
-                placeholder="e.g. API"
-                maxLength={10}
+                id="project-name"
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="e.g. Backend API"
+                autoFocus
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="project-color">Color</Label>
-              <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="project-prefix">Prefix</Label>
                 <Input
-                  type="color"
-                  id="project-color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="h-9 w-9 p-1 cursor-pointer"
-                />
-                <Input
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="flex-1"
-                  maxLength={7}
+                  id="project-prefix"
+                  value={prefix}
+                  onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+                  placeholder="e.g. API"
+                  maxLength={10}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="project-color">Color</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    id="project-color"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="h-9 w-9 p-1 cursor-pointer"
+                  />
+                  <Input
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="flex-1"
+                    maxLength={7}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={!name.trim() || !prefix.trim() || submitting}
-            >
-              {submitting ? `Creating...` : `Create project`}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!name.trim() || !prefix.trim() || submitting}
+              >
+                {submitting ? `Creating...` : `Create project`}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <UpgradeDialog
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        title="Project limit reached"
+        description="You've reached the maximum number of projects for your plan. Upgrade to create more."
+        proProductId={productIds.pro}
+        businessProductId={productIds.business}
+      />
+    </>
   )
 }

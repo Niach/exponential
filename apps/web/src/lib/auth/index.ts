@@ -2,13 +2,14 @@ import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { bearer, genericOAuth, mcp } from "better-auth/plugins"
 import { apiKey } from "@better-auth/api-key"
+import { creem } from "@creem_io/better-auth"
 import { createAuthMiddleware } from "better-auth/api"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { eq, and } from "drizzle-orm"
 import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
-import { maybePromoteNewUser } from "@/lib/bootstrap-cloud"
+import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
 
 export { parseOidcProviders, type OidcProviderConfig }
 
@@ -88,7 +89,12 @@ export const auth = betterAuth({
       isAdmin: {
         type: `boolean`,
         defaultValue: false,
-        // Block clients from setting this via the public auth API.
+        input: false,
+      },
+      onboardingCompletedAt: {
+        type: `date`,
+        defaultValue: null,
+        required: false,
         input: false,
       },
     },
@@ -99,7 +105,10 @@ export const auth = betterAuth({
   rateLimit: {
     enabled: process.env.NODE_ENV === `production`,
     window: 60,
-    max: 30,
+    max: 200,
+    customRules: {
+      "/get-session": { window: 60, max: 600 },
+    },
   },
   socialProviders: googleSocialEnabled
     ? {
@@ -255,6 +264,27 @@ export const auth = betterAuth({
                 isAdmin: isAdminFromProfile(profile, p),
               }),
             })),
+          }),
+        ]
+      : []),
+    ...(isCloudInstance() && process.env.CREEM_API_KEY
+      ? [
+          creem({
+            apiKey: process.env.CREEM_API_KEY,
+            webhookSecret: process.env.CREEM_WEBHOOK_SECRET!,
+            testMode: process.env.CREEM_API_KEY?.startsWith(`creem_test_`) ?? false,
+            defaultSuccessUrl: `/settings/billing`,
+            persistSubscriptions: true,
+            onGrantAccess: async ({ reason, customer }) => {
+              process.stderr.write(
+                `[creem] access granted: ${customer.email}, reason: ${reason}\n`
+              )
+            },
+            onRevokeAccess: async ({ reason, customer }) => {
+              process.stderr.write(
+                `[creem] access revoked: ${customer.email}, reason: ${reason}\n`
+              )
+            },
           }),
         ]
       : []),

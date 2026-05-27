@@ -1,6 +1,5 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import { authClient } from "@/lib/auth/client"
 import {
   issueCollection,
   issueLabelCollection,
@@ -17,9 +16,8 @@ import { IssueDetailView } from "@/components/issue-detail-view"
 export const Route = createFileRoute(
   `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`
 )({
-  beforeLoad: async () => {
-    const result = await authClient.getSession()
-    if (!result.data?.session) {
+  beforeLoad: async ({ context }) => {
+    if (!context.session) {
       throw redirect({
         to: `/auth/login`,
         search: { redirect: undefined },
