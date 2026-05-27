@@ -301,6 +301,15 @@ export const issuesRouter = router({
           deletedStorageKeys.push(...removedKeys)
         }
 
+        if (Object.keys(setValues).length === 0) {
+          const [existing] = await tx
+            .select()
+            .from(issues)
+            .where(eq(issues.id, id))
+            .limit(1)
+          return { issue: existing!, clonedIssue: null as typeof existing | null }
+        }
+
         const [issue] = await tx
           .update(issues)
           .set(setValues)

@@ -17,7 +17,7 @@ struct MarkdownEditor: View {
 
     @State private var blocks: [ContentBlock] = []
     @State private var focusedBlockId: UUID?
-    @State private var isInternalUpdate = false
+    @State private var lastFlushedMarkdown: String = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
     @State private var cursorAfterMerge: (blockId: UUID, position: Int)?
@@ -42,6 +42,9 @@ struct MarkdownEditor: View {
                                 },
                                 onFocus: {
                                     focusedBlockId = id
+                                },
+                                onBlur: {
+                                    if focusedBlockId == id { focusedBlockId = nil }
                                 },
                                 onDeleteBackwardAtStart: {
                                     deleteImageBefore(textBlockId: id)
@@ -84,8 +87,8 @@ struct MarkdownEditor: View {
             toolbar.onImagePick = { showPhotoPicker = true }
             syncBlocksFromMarkdown()
         }
-        .onChange(of: text) { _, _ in
-            guard !isInternalUpdate else { return }
+        .onChange(of: text) { _, newText in
+            guard newText != lastFlushedMarkdown else { return }
             syncBlocksFromMarkdown()
         }
     }
@@ -97,9 +100,9 @@ struct MarkdownEditor: View {
     }
 
     private func flushBlocksToMarkdown() {
-        isInternalUpdate = true
-        text = MarkdownConversion.blocksToMarkdown(blocks)
-        isInternalUpdate = false
+        let md = MarkdownConversion.blocksToMarkdown(blocks)
+        lastFlushedMarkdown = md
+        text = md
     }
 
     // MARK: - Block Manipulation
@@ -235,7 +238,7 @@ private final class EditorTextView: UITextView {
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: self)
-        let charIndex = layoutManager.characterIndex(forPoint: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        let charIndex = layoutManager.characterIndex(for: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
         guard charIndex < textStorage.length else { return }
         let char = (textStorage.string as NSString).substring(with: NSRange(location: charIndex, length: 1))
         if char == "\u{2610}" || char == "\u{2611}" {
@@ -285,6 +288,7 @@ private struct BlockTextView: UIViewRepresentable {
 
     var onTextChange: (NSAttributedString) -> Void
     var onFocus: () -> Void
+    var onBlur: () -> Void
     var onDeleteBackwardAtStart: () -> Void
     var onPasteImage: (UIImage) -> Void
 
@@ -330,6 +334,7 @@ private struct BlockTextView: UIViewRepresentable {
 
         coord.onTextChangeCallback = onTextChange
         coord.onFocusCallback = onFocus
+        coord.onBlurCallback = onBlur
         coord.onDeleteBackwardCallback = onDeleteBackwardAtStart
         coord.onPasteImageCallback = onPasteImage
 
@@ -378,6 +383,7 @@ private struct BlockTextView: UIViewRepresentable {
 
         var onTextChangeCallback: ((NSAttributedString) -> Void)?
         var onFocusCallback: (() -> Void)?
+        var onBlurCallback: (() -> Void)?
         var onDeleteBackwardCallback: (() -> Void)?
         var onPasteImageCallback: ((UIImage) -> Void)?
 
@@ -449,6 +455,7 @@ private struct BlockTextView: UIViewRepresentable {
         func textViewDidEndEditing(_ tv: UITextView) {
             debounceTask?.cancel()
             flushNow(tv)
+            onBlurCallback?()
         }
 
         func textView(_ tv: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
