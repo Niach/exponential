@@ -87,12 +87,6 @@ struct MarkdownEditor: View {
             toolbar.onImagePick = { showPhotoPicker = true }
             syncBlocksFromMarkdown()
         }
-        .onDisappear {
-            // Force-flush any pending debounce so the text binding is up-to-date before parent saves
-            if let tv = toolbar.textView {
-                tv.resignFirstResponder()
-            }
-        }
         .onChange(of: text) { _, newText in
             guard newText != lastFlushedMarkdown else { return }
             syncBlocksFromMarkdown()
@@ -383,7 +377,6 @@ private struct BlockTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var isUpdating = false
         var lastContent: NSAttributedString?
-        var debounceTask: Task<Void, Never>?
         weak var textView: EditorTextView?
         private var placeholderLabel: UILabel?
 
@@ -399,8 +392,6 @@ private struct BlockTextView: UIViewRepresentable {
         }
 
         func onDeleteBackwardAtStart() {
-            debounceTask?.cancel()
-            if let tv = textView { flushNow(tv) }
             onDeleteBackwardCallback?()
         }
 
@@ -443,13 +434,7 @@ private struct BlockTextView: UIViewRepresentable {
             } else {
                 placeholderLabel?.isHidden = true
             }
-
-            debounceTask?.cancel()
-            debounceTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-                self?.flushNow(tv)
-            }
+            flushNow(tv)
         }
 
         func textViewDidChangeSelection(_ tv: UITextView) {
@@ -459,8 +444,6 @@ private struct BlockTextView: UIViewRepresentable {
         }
 
         func textViewDidEndEditing(_ tv: UITextView) {
-            debounceTask?.cancel()
-            flushNow(tv)
             onBlurCallback?()
         }
 
