@@ -6,6 +6,7 @@ import { useSession } from "@/hooks/use-session"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
@@ -38,9 +39,16 @@ function AdminUsers() {
   const { users } = Route.useLoaderData()
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
+  const [search, setSearch] = useState(``)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<AdminUser | null>(null)
+
+  const filteredUsers = users.filter((u: AdminUser) => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return u.name?.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+  })
 
   const handleToggleAdmin = async (user: AdminUser, next: boolean) => {
     setError(null)
@@ -78,10 +86,17 @@ function AdminUsers() {
       <div>
         <h1 className="text-2xl font-bold">Users</h1>
         <p className="text-sm text-muted-foreground">
-          {users.length} {users.length === 1 ? `user` : `users`} on this
+          {filteredUsers.length} {filteredUsers.length === 1 ? `user` : `users`} on this
           instance.
         </p>
       </div>
+
+      <Input
+        placeholder="Search by name or email…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="max-w-sm"
+      />
 
       {error && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -98,7 +113,7 @@ function AdminUsers() {
           <div>Admin</div>
           <div />
         </div>
-        {users.map((user) => {
+        {filteredUsers.map((user: AdminUser) => {
           const isSelf = user.id === currentUserId
           return (
             <div
@@ -168,7 +183,7 @@ function AdminUsers() {
                   {user.providers.length === 0 ? (
                     <span>password</span>
                   ) : (
-                    user.providers.map((p) => (
+                    user.providers.map((p: string) => (
                       <Badge key={p} variant="secondary" className="text-xs">
                         {p}
                       </Badge>
@@ -183,7 +198,7 @@ function AdminUsers() {
                     password
                   </span>
                 ) : (
-                  user.providers.map((p) => (
+                  user.providers.map((p: string) => (
                     <Badge key={p} variant="secondary" className="text-xs">
                       {p}
                     </Badge>

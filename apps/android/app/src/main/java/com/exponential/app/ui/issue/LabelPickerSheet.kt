@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,10 +37,13 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.LabelEntity
 
 private val SUGGESTED_COLORS = listOf(
-    "#6366f1", "#22c55e", "#eab308", "#ef4444", "#f97316", "#06b6d4", "#a855f7",
+    "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308",
+    "#84cc16", "#22c55e", "#10b981", "#14b8a6", "#06b6d4",
+    "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
+    "#ec4899", "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LabelPickerSheet(
     workspaceLabels: List<LabelEntity>,
@@ -101,7 +106,10 @@ fun LabelPickerSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.size(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 SUGGESTED_COLORS.forEach { color ->
                     val selected = color == newColor
                     Box(

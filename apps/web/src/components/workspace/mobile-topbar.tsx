@@ -59,7 +59,7 @@ export function WorkspaceMobileTopbar({
 
   return (
     <header className="flex items-center gap-2 border-b px-3 md:px-4 h-12">
-      <SidebarTrigger />
+      <SidebarTrigger className="md:hidden" />
       {activeProject && (
         <div className="flex items-center gap-1.5 text-sm font-medium truncate min-w-0 md:hidden">
           <span

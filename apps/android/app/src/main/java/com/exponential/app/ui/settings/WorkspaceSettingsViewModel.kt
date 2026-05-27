@@ -13,6 +13,7 @@ import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.WorkspaceEntity
 import com.exponential.app.data.db.WorkspaceInviteEntity
@@ -38,10 +39,12 @@ data class WorkspaceSettingsState(
     val members: List<MemberRow> = emptyList(),
     val invites: List<WorkspaceInviteEntity> = emptyList(),
     val labels: List<LabelEntity> = emptyList(),
+    val projects: List<ProjectEntity> = emptyList(),
     val currentUserId: String? = null,
     val transient: String? = null,
     val createdInviteToken: String? = null,
     val instanceUrl: String? = null,
+    val workspaceDeleted: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -73,9 +76,13 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val labelsFlow = selection.selectedId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(id)
     }
+    private val projectsFlow = selection.selectedId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else db.projectDao().observeByWorkspace(id)
+    }
 
     private val _transient = MutableStateFlow<String?>(null)
     private val _createdInviteToken = MutableStateFlow<String?>(null)
+    private val _workspaceDeleted = MutableStateFlow(false)
     val transient: StateFlow<String?> = _transient.asStateFlow()
 
     val state: StateFlow<WorkspaceSettingsState> = combine(
@@ -84,11 +91,13 @@ class WorkspaceSettingsViewModel @Inject constructor(
             membersFlow,
             invitesFlow,
             labelsFlow,
+            projectsFlow,
             db.userDao().observeAll(),
             auth.userId,
             auth.instanceUrl,
             _transient,
             _createdInviteToken,
+            _workspaceDeleted,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -100,20 +109,25 @@ class WorkspaceSettingsViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val labels = values[3] as List<LabelEntity>
         @Suppress("UNCHECKED_CAST")
-        val users = values[4] as List<UserEntity>
-        val currentUserId = values[5] as String?
-        val instance = values[6] as String?
-        val transient = values[7] as String?
-        val invite = values[8] as String?
+        val projects = values[4] as List<ProjectEntity>
+        @Suppress("UNCHECKED_CAST")
+        val users = values[5] as List<UserEntity>
+        val currentUserId = values[6] as String?
+        val instance = values[7] as String?
+        val transient = values[8] as String?
+        val invite = values[9] as String?
+        val deleted = values[10] as Boolean
         WorkspaceSettingsState(
             workspace = workspace,
             members = members.map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) },
             invites = invites,
             labels = labels,
+            projects = projects,
             currentUserId = currentUserId,
             transient = transient,
             createdInviteToken = invite,
             instanceUrl = instance,
+            workspaceDeleted = deleted,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspaceSettingsState())
 
@@ -162,6 +176,20 @@ class WorkspaceSettingsViewModel @Inject constructor(
     }
 
     fun consumeTransient() { _transient.value = null }
+
+    fun deleteWorkspace() = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val workspaceId = selection.selectedId.value ?: return@launch
+        runCatching { workspacesApi.delete(accountId, workspaceId) }
+            .onSuccess { _workspaceDeleted.value = true }
+            .onFailure { _transient.value = it.message }
+    }
+
+    fun deleteProject(projectId: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { workspacesApi.deleteProject(accountId, projectId) }
+            .onFailure { _transient.value = it.message }
+    }
 
     fun setPublic(isPublic: Boolean) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch

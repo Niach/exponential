@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
@@ -102,35 +103,19 @@ export function CreateProjectDialog({
                 autoFocus
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="project-prefix">Prefix</Label>
-                <Input
-                  id="project-prefix"
-                  value={prefix}
-                  onChange={(e) => setPrefix(e.target.value.toUpperCase())}
-                  placeholder="e.g. API"
-                  maxLength={10}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="project-color">Color</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="color"
-                    id="project-color"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    className="h-9 w-9 p-1 cursor-pointer"
-                  />
-                  <Input
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    className="flex-1"
-                    maxLength={7}
-                  />
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="project-prefix">Prefix</Label>
+              <Input
+                id="project-prefix"
+                value={prefix}
+                onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+                placeholder="e.g. API"
+                maxLength={10}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Color</Label>
+              <ColorSwatchGrid value={color} onChange={setColor} />
             </div>
             <DialogFooter>
               <Button

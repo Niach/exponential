@@ -12,14 +12,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { trpc } from "@/lib/trpc-client"
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, `-`)
-    .replace(/^-+|-+$/g, ``)
-    .slice(0, 48)
-}
-
 export function CreateWorkspaceDialog({
   open,
   onOpenChange,
@@ -29,25 +21,11 @@ export function CreateWorkspaceDialog({
 }) {
   const navigate = useNavigate()
   const [name, setName] = useState(``)
-  const [slug, setSlug] = useState(``)
-  const [slugDirty, setSlugDirty] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleNameChange = (value: string) => {
-    setName(value)
-    if (!slugDirty) setSlug(slugify(value))
-  }
-
-  const handleSlugChange = (value: string) => {
-    setSlugDirty(true)
-    setSlug(value.toLowerCase().replace(/[^a-z0-9-]/g, ``))
-  }
-
   const reset = () => {
     setName(``)
-    setSlug(``)
-    setSlugDirty(false)
     setError(null)
   }
 
@@ -59,7 +37,6 @@ export function CreateWorkspaceDialog({
     try {
       const result = await trpc.workspaces.create.mutate({
         name: name.trim(),
-        slug: slug.trim() || undefined,
       })
       const newSlug = result.workspace?.slug
       reset()
@@ -92,22 +69,10 @@ export function CreateWorkspaceDialog({
             <Input
               id="workspace-name"
               value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
+              onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Side Projects"
               autoFocus
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="workspace-slug">URL slug</Label>
-            <Input
-              id="workspace-slug"
-              value={slug}
-              onChange={(e) => handleSlugChange(e.target.value)}
-              placeholder="side-projects"
-            />
-            <p className="text-xs text-muted-foreground">
-              Used in the URL: /w/{slug || `your-slug`}
-            </p>
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>

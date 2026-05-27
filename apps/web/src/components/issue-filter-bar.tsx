@@ -35,7 +35,7 @@ export function IssueFilterBar({
   }
 
   return (
-    <div className="px-3 md:px-6">
+    <div className="px-4 md:px-6">
       <div className="flex items-center justify-between py-3">
         <h1 className="hidden md:block text-base font-medium">Issues</h1>
         <div className="flex items-center gap-1 ml-auto">
@@ -56,7 +56,7 @@ export function IssueFilterBar({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-1 -mx-3 px-3 md:mx-0 md:px-0 overflow-x-auto">
+      <div className="flex items-center gap-1 -mx-4 px-4 md:mx-0 md:px-0 overflow-x-auto pb-1">
         {tabs.map((tab) => (
           <Button
             key={tab.id}

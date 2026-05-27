@@ -2,8 +2,9 @@ import { useState } from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { MoreHorizontal, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -34,11 +35,18 @@ export const Route = createFileRoute(`/_authenticated/admin/workspaces`)({
 function AdminWorkspaces() {
   const router = useRouter()
   const { workspaces } = Route.useLoaderData()
+  const [search, setSearch] = useState(``)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<AdminWorkspace | null>(
     null
   )
+
+  const filteredWorkspaces = workspaces.filter((ws: AdminWorkspace) => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return ws.name.toLowerCase().includes(q) || ws.slug.toLowerCase().includes(q)
+  })
 
   const handleDelete = async () => {
     if (!confirmDelete) return
@@ -62,11 +70,18 @@ function AdminWorkspaces() {
       <div>
         <h1 className="text-2xl font-bold">Workspaces</h1>
         <p className="text-sm text-muted-foreground">
-          {workspaces.length}{` `}
-          {workspaces.length === 1 ? `workspace` : `workspaces`} on this
+          {filteredWorkspaces.length}{` `}
+          {filteredWorkspaces.length === 1 ? `workspace` : `workspaces`} on this
           instance.
         </p>
       </div>
+
+      <Input
+        placeholder="Search by name or slug…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="max-w-sm"
+      />
 
       {error && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -75,17 +90,18 @@ function AdminWorkspaces() {
       )}
 
       <div className="rounded-md border">
-        <div className="hidden md:grid grid-cols-[1fr_1fr_120px_120px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
+        <div className="hidden md:grid grid-cols-[1fr_80px_1fr_120px_120px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
           <div>Name</div>
+          <div>Plan</div>
           <div>Owners</div>
           <div>Members</div>
           <div>Projects</div>
           <div />
         </div>
-        {workspaces.map((ws) => (
+        {filteredWorkspaces.map((ws: AdminWorkspace) => (
           <div
             key={ws.id}
-            className="flex flex-col md:grid md:grid-cols-[1fr_1fr_120px_120px_40px] md:items-center gap-2 md:gap-3 border-b px-4 py-3 last:border-b-0"
+            className="flex flex-col md:grid md:grid-cols-[1fr_80px_1fr_120px_120px_40px] md:items-center gap-2 md:gap-3 border-b px-4 py-3 last:border-b-0"
           >
             <div className="flex items-start gap-2 min-w-0">
               <div className="min-w-0 flex-1">
@@ -120,6 +136,9 @@ function AdminWorkspaces() {
             </div>
             {/* Mobile meta row */}
             <div className="flex md:hidden items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <Badge variant="outline" className="text-xs capitalize">
+                {ws.plan}
+              </Badge>
               <span>
                 {ws.memberCount}{` `}
                 {ws.memberCount === 1 ? `member` : `members`}
@@ -132,7 +151,7 @@ function AdminWorkspaces() {
                 {ws.owners.length === 0 ? (
                   <span>No owners</span>
                 ) : (
-                  ws.owners.map((o) => (
+                  ws.owners.map((o: { id: string; name: string | null; email: string }) => (
                     <Badge
                       key={o.id}
                       variant="secondary"
@@ -146,13 +165,18 @@ function AdminWorkspaces() {
               </div>
             </div>
             {/* Desktop columns */}
+            <div className="hidden md:block">
+              <Badge variant="outline" className="text-xs capitalize">
+                {ws.plan}
+              </Badge>
+            </div>
             <div className="hidden md:flex flex-wrap gap-1 min-w-0">
               {ws.owners.length === 0 ? (
                 <span className="text-xs text-muted-foreground">
                   No owners
                 </span>
               ) : (
-                ws.owners.map((o) => (
+                ws.owners.map((o: { id: string; name: string | null; email: string }) => (
                   <Badge
                     key={o.id}
                     variant="secondary"

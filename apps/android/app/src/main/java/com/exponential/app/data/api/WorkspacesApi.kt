@@ -19,6 +19,12 @@ data class UpdateWorkspaceInput(
 )
 
 @Serializable
+data class DeleteWorkspaceInput(val workspaceId: String)
+
+@Serializable
+data class DeleteProjectInput(val projectId: String)
+
+@Serializable
 private object EmptyInput
 
 @Singleton
@@ -39,6 +45,26 @@ class WorkspacesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "workspaces.update",
             input = input,
             inputSerializer = UpdateWorkspaceInput.serializer(),
+            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
+        )
+    }
+
+    suspend fun delete(accountId: String, workspaceId: String) {
+        trpc.mutation(
+            accountId,
+            path = "workspaces.delete",
+            input = DeleteWorkspaceInput(workspaceId),
+            inputSerializer = DeleteWorkspaceInput.serializer(),
+            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
+        )
+    }
+
+    suspend fun deleteProject(accountId: String, projectId: String) {
+        trpc.mutation(
+            accountId,
+            path = "projects.delete",
+            input = DeleteProjectInput(projectId),
+            inputSerializer = DeleteProjectInput.serializer(),
             outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }

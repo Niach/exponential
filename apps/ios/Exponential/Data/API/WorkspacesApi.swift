@@ -18,6 +18,14 @@ struct UpdateWorkspaceInput: Encodable {
     var iconUrl: String?
 }
 
+struct DeleteWorkspaceInput: Encodable {
+    let workspaceId: String
+}
+
+struct DeleteProjectInput: Encodable {
+    let projectId: String
+}
+
 private struct EmptyInput: Encodable {}
 private struct EmptyResult: Decodable {}
 
@@ -35,5 +43,13 @@ final class WorkspacesApi: Sendable {
 
     func update(accountId: String, _ input: UpdateWorkspaceInput) async throws {
         let _: EmptyResult = try await trpc.mutation(accountId: accountId, path: "workspaces.update", input: input)
+    }
+
+    func delete(accountId: String, workspaceId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "workspaces.delete", input: DeleteWorkspaceInput(workspaceId: workspaceId))
+    }
+
+    func deleteProject(accountId: String, projectId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "projects.delete", input: DeleteProjectInput(projectId: projectId))
     }
 }

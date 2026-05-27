@@ -1,8 +1,10 @@
 import SwiftUI
 
 private let labelColors = [
-    "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
-    "#3b82f6", "#6366f1", "#a855f7", "#ec4899", "#6b7280",
+    "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308",
+    "#84cc16", "#22c55e", "#10b981", "#14b8a6", "#06b6d4",
+    "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
+    "#ec4899", "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
 ]
 
 struct WorkspaceLabelsSection: View {
@@ -99,7 +101,7 @@ struct WorkspaceLabelsSection: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     // Color palette
-                    HStack(spacing: 6) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 28), spacing: 6)], spacing: 6) {
                         ForEach(labelColors, id: \.self) { color in
                             Button {
                                 newLabelColor = color

@@ -28,6 +28,7 @@ data class AdminWorkspace(
     val id: String,
     val name: String,
     val slug: String,
+    val plan: String = "free",
     val createdAt: String? = null,
     val memberCount: Int = 0,
     val projectCount: Int = 0,

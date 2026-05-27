@@ -2,9 +2,11 @@ package com.exponential.app.ui.admin
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -69,7 +72,10 @@ class AdminUsersViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             _state.value = _state.value.copy(loading = true, error = null)
             runCatching { adminApi.listUsers(accountId) }
-                .onSuccess { _state.value = _state.value.copy(users = it, loading = false) }
+                .onSuccess { users ->
+                    val filtered = users.filter { !(it.email.startsWith("agent-") && it.email.endsWith("@exponential.local")) }
+                    _state.value = _state.value.copy(users = filtered, loading = false)
+                }
                 .onFailure { _state.value = _state.value.copy(loading = false, error = it.message) }
         }
     }
@@ -101,6 +107,17 @@ fun AdminUsersScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var pendingDelete by remember { mutableStateOf<AdminUser?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredUsers = remember(state.users, searchQuery) {
+        if (searchQuery.isBlank()) state.users
+        else {
+            val q = searchQuery.lowercase()
+            state.users.filter { user ->
+                (user.name?.lowercase()?.contains(q) == true) || user.email.lowercase().contains(q)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
@@ -133,8 +150,16 @@ fun AdminUsersScreen(
                 state.error != null -> Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error)
                 }
-                else -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                    items(state.users, key = { it.id }) { user ->
+                else -> Column(modifier = Modifier.fillMaxSize()) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search by name or email…") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+                    items(filteredUsers, key = { it.id }) { user ->
                         ListItem(
                             headlineContent = { Text(user.name ?: user.email) },
                             supportingContent = {
@@ -167,6 +192,7 @@ fun AdminUsersScreen(
                         )
                         HorizontalDivider()
                     }
+                }
                 }
             }
         }

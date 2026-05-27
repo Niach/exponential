@@ -1,9 +1,10 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, like, not, sql } from "drizzle-orm"
 import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts } from "@/db/auth-schema"
 import { workspaces, workspaceMembers, projects } from "@/db/schema"
+import { getWorkspacePlan } from "@/lib/billing"
 import type { db as Database } from "@/db/connection"
 
 export const adminRouter = router({
@@ -20,6 +21,7 @@ export const adminRouter = router({
         providers: sql<string[]>`coalesce(array_agg(distinct ${accounts.providerId}) filter (where ${accounts.providerId} is not null), '{}')`,
       })
       .from(users)
+      .where(not(like(users.email, `agent-%@exponential.local`)))
       .leftJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
       .leftJoin(accounts, eq(accounts.userId, users.id))
       .groupBy(users.id)
@@ -150,8 +152,17 @@ export const adminRouter = router({
       ownersByWs.set(o.workspaceId, list)
     }
 
+    const plans = await Promise.all(
+      wsRows.map(async (w) => {
+        const { plan } = await getWorkspacePlan(w.id)
+        return [w.id, plan] as const
+      })
+    )
+    const planMap = new Map(plans)
+
     return wsRows.map((w) => ({
       ...w,
+      plan: planMap.get(w.id) ?? `free`,
       memberCount: memberCounts.get(w.id) ?? 0,
       projectCount: projectCounts.get(w.id) ?? 0,
       owners: ownersByWs.get(w.id) ?? [],

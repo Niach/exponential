@@ -14,6 +14,7 @@ struct AdminWorkspace: Decodable, Identifiable {
     let id: String
     let name: String
     let slug: String
+    let plan: String?
     let memberCount: Int?
     let projectCount: Int?
     let owners: [AdminOwner]?

@@ -7,6 +7,15 @@ struct AdminUsersView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var deleteTarget: AdminUser?
+    @State private var searchText = ""
+
+    private var filteredUsers: [AdminUser] {
+        guard !searchText.isEmpty else { return users }
+        let q = searchText.lowercased()
+        return users.filter { user in
+            (user.name?.lowercased().contains(q) ?? false) || user.email.lowercased().contains(q)
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -17,7 +26,12 @@ struct AdminUsersView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(users) { user in
+                        TextField("Search by name or email…", text: $searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 4)
+
+                        ForEach(filteredUsers) { user in
                             HStack(spacing: 12) {
                                 // Avatar
                                 Text((user.name ?? user.email).prefix(1).uppercased())
@@ -78,7 +92,7 @@ struct AdminUsersView: View {
                 }
             }
         }
-        .navigationTitle("Users (\(users.count))")
+        .navigationTitle("Users (\(filteredUsers.count))")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .alert("Delete User", isPresented: .init(
@@ -103,6 +117,7 @@ struct AdminUsersView: View {
     private func loadUsers() async {
         do {
             users = try await deps.adminApi.listUsers(accountId: accountId)
+                .filter { !(($0.email ?? "").hasPrefix("agent-") && ($0.email ?? "").hasSuffix("@exponential.local")) }
             loading = false
         } catch {
             self.error = error.localizedDescription

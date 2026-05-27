@@ -352,8 +352,7 @@ export function CreateIssueDialog({
   const overflowMenuItems = (
     <DropdownMenuItem
       disabled={recurrence !== null}
-      onSelect={(event) => {
-        event.preventDefault()
+      onSelect={() => {
         enableRecurrence()
       }}
     >

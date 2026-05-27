@@ -1,18 +1,36 @@
 import { useEffect, useState } from "react"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
 import {
   useWorkspaceBySlug,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
 import { WorkspaceGeneralSection } from "@/components/workspace/general-section"
-import { WorkspaceInviteSection } from "@/components/workspace/invite-section"
 import { WorkspaceLabelsSection } from "@/components/workspace/labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace/members-section"
 import { WorkspaceAgentsSection } from "@/components/workspace/agents-section"
 import { WorkspaceProjectsSection } from "@/components/workspace/projects-section"
 import { WorkspaceBillingSection } from "@/components/workspace/billing-section"
 import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { trpc } from "@/lib/trpc-client"
 import {
   getRuntimeConfig,
   type RuntimeConfig,
@@ -36,6 +54,11 @@ function WorkspaceSettings() {
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const { members, userMap } = useWorkspaceUsers(workspace?.id)
   const [config, setConfig] = useState<RuntimeConfig | null>(null)
+  const navigate = useNavigate()
+
+  const [showDeleteWorkspace, setShowDeleteWorkspace] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState(``)
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false)
 
   useEffect(() => {
     void getRuntimeConfig().then(setConfig)
@@ -45,6 +68,17 @@ function WorkspaceSettings() {
     (member) => member.userId === session?.user?.id
   )
   const isOwner = currentMember?.role === `owner`
+
+  const handleDeleteWorkspace = async () => {
+    if (!workspace || deleteConfirmation !== workspace.name) return
+    setDeletingWorkspace(true)
+    try {
+      await trpc.workspaces.delete.mutate({ workspaceId: workspace.id })
+      void navigate({ to: `/` })
+    } catch {
+      setDeletingWorkspace(false)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
@@ -70,10 +104,6 @@ function WorkspaceSettings() {
       )}
 
       {workspace && isOwner && (
-        <WorkspaceInviteSection workspaceId={workspace.id} />
-      )}
-
-      {workspace && isOwner && (
         <WorkspaceAgentsSection workspaceId={workspace.id} />
       )}
 
@@ -86,11 +116,97 @@ function WorkspaceSettings() {
         userMap={userMap}
         currentUserId={session?.user?.id}
         isOwner={isOwner}
+        workspaceId={workspace?.id}
+        showInvite={isOwner}
       />
 
       <Separator />
 
       {workspace && <WorkspaceLabelsSection workspaceId={workspace.id} />}
+
+      {workspace && isOwner && !workspace.isPublic && (
+        <>
+          <Separator />
+          <Card className="border-destructive/50">
+            <CardHeader>
+              <CardTitle className="text-base text-destructive">
+                Danger Zone
+              </CardTitle>
+              <CardDescription>
+                Permanently delete this workspace and all its data.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteWorkspace(true)}
+              >
+                Delete workspace
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Dialog
+            open={showDeleteWorkspace}
+            onOpenChange={(open) => {
+              if (!open) {
+                setShowDeleteWorkspace(false)
+                setDeleteConfirmation(``)
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete workspace</DialogTitle>
+                <DialogDescription>
+                  This will permanently delete{` `}
+                  <span className="font-semibold text-foreground">
+                    {workspace.name}
+                  </span>
+                  {` `}
+                  and all its projects, issues, and data. This cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2 py-2">
+                <Label htmlFor="delete-confirm">
+                  Type{` `}
+                  <span className="font-semibold">{workspace.name}</span>
+                  {` `}to confirm
+                </Label>
+                <Input
+                  id="delete-confirm"
+                  value={deleteConfirmation}
+                  onChange={(e) => setDeleteConfirmation(e.target.value)}
+                  placeholder={workspace.name}
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowDeleteWorkspace(false)
+                    setDeleteConfirmation(``)
+                  }}
+                  disabled={deletingWorkspace}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteWorkspace}
+                  disabled={
+                    deleteConfirmation !== workspace.name || deletingWorkspace
+                  }
+                >
+                  {deletingWorkspace
+                    ? `Deleting...`
+                    : `Delete workspace`}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
     </div>
   )
 }

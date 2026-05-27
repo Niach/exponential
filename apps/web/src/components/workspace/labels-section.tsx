@@ -19,33 +19,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { LABEL_COLORS } from "@/lib/label-colors"
-
-function ColorSwatchGrid({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (color: string) => void
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {LABEL_COLORS.map((color) => (
-        <button
-          key={color}
-          type="button"
-          aria-label={`Select label color ${color}`}
-          className={`h-5 w-5 rounded-full transition-all ${
-            value === color
-              ? `ring-2 ring-offset-2 ring-offset-background ring-foreground`
-              : `hover:scale-110`
-          }`}
-          style={{ backgroundColor: color }}
-          onClick={() => onChange(color)}
-        />
-      ))}
-    </div>
-  )
-}
+import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 
 function LabelRow({
   label,

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Tag, Plus } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { LABEL_COLORS } from "@/lib/label-colors"
+import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -14,33 +15,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import type { StepProps } from "./wizard"
-
-function ColorSwatchGrid({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (color: string) => void
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {LABEL_COLORS.map((color) => (
-        <button
-          key={color}
-          type="button"
-          aria-label={`Select color ${color}`}
-          className={`h-5 w-5 rounded-full transition-all ${
-            value === color
-              ? `ring-2 ring-offset-2 ring-offset-background ring-foreground`
-              : `hover:scale-110`
-          }`}
-          style={{ backgroundColor: color }}
-          onClick={() => onChange(color)}
-        />
-      ))}
-    </div>
-  )
-}
 
 export function StepLabels({ workspaceId, onNext }: StepProps) {
   const [name, setName] = useState(``)

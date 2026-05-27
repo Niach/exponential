@@ -106,12 +106,6 @@ export const workspacesRouter = router({
     .input(
       z.object({
         name: z.string().min(1).max(255),
-        slug: z
-          .string()
-          .min(1)
-          .max(48)
-          .regex(/^[a-z0-9-]+$/, `Slug must be lowercase letters, digits, or -`)
-          .optional(),
         iconUrl: z.string().url().max(2048).optional(),
       })
     )
@@ -119,22 +113,7 @@ export const workspacesRouter = router({
       const userId = ctx.session.user.id
 
       return await ctx.db.transaction(async (tx) => {
-        const slug = input.slug
-          ? await (async () => {
-              const [existing] = await tx
-                .select({ id: workspaces.id })
-                .from(workspaces)
-                .where(eq(workspaces.slug, input.slug!))
-                .limit(1)
-              if (existing) {
-                throw new TRPCError({
-                  code: `CONFLICT`,
-                  message: `Slug already in use`,
-                })
-              }
-              return input.slug!
-            })()
-          : await uniqueSlug(tx, input.name)
+        const slug = await uniqueSlug(tx, input.name)
 
         const txId = await generateTxId(tx)
         const [workspace] = await tx
@@ -185,6 +164,34 @@ export const workspacesRouter = router({
       }
 
       return result
+    }),
+
+  delete: authedProcedure
+    .input(z.object({ workspaceId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
+
+      // Block deletion of the public workspace
+      const [workspace] = await ctx.db
+        .select({ isPublic: workspaces.isPublic })
+        .from(workspaces)
+        .where(eq(workspaces.id, input.workspaceId))
+        .limit(1)
+      if (!workspace) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
+      }
+      if (workspace.isPublic) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Cannot delete the public workspace`,
+        })
+      }
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))
+        return { ok: true, txId }
+      })
     }),
 
   // Public read of minimal workspace metadata by slug. Used by the route guard

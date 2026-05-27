@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { Tag, Plus, ArrowLeft } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { LABEL_COLORS } from "@/lib/label-colors"
+import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 import type { Label } from "@/db/schema"
 
 interface LabelPickerProps {
@@ -182,22 +183,7 @@ export function LabelPicker({
               <span className="text-xs text-muted-foreground mb-1.5 block">
                 Color
               </span>
-              <div className="flex flex-wrap gap-1.5">
-                {LABEL_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    aria-label={`Select label color ${color}`}
-                    className={`h-5 w-5 rounded-full transition-all ${
-                      newColor === color
-                        ? `ring-2 ring-offset-2 ring-offset-background ring-foreground`
-                        : `hover:scale-110`
-                    }`}
-                    style={{ backgroundColor: color }}
-                    onClick={() => setNewColor(color)}
-                  />
-                ))}
-              </div>
+              <ColorSwatchGrid value={newColor} onChange={setNewColor} />
             </div>
             <Button
               size="xs"

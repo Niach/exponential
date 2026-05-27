@@ -1,8 +1,10 @@
 package com.exponential.app.ui.admin
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -89,6 +92,17 @@ fun AdminWorkspacesScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var pendingDelete by remember { mutableStateOf<AdminWorkspace?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredWorkspaces = remember(state.workspaces, searchQuery) {
+        if (searchQuery.isBlank()) state.workspaces
+        else {
+            val q = searchQuery.lowercase()
+            state.workspaces.filter { ws ->
+                ws.name.lowercase().contains(q) || ws.slug.lowercase().contains(q)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
@@ -121,13 +135,22 @@ fun AdminWorkspacesScreen(
                 state.error != null -> Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error)
                 }
-                else -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                    items(state.workspaces, key = { it.id }) { workspace ->
+                else -> Column(modifier = Modifier.fillMaxSize()) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search by name or slug…") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+                    items(filteredWorkspaces, key = { it.id }) { workspace ->
                         ListItem(
                             headlineContent = { Text(workspace.name) },
                             supportingContent = {
+                                val planLabel = workspace.plan.replaceFirstChar { it.uppercase() }
                                 Text(
-                                    "${workspace.memberCount} member${if (workspace.memberCount == 1) "" else "s"} · " +
+                                    "$planLabel · ${workspace.memberCount} member${if (workspace.memberCount == 1) "" else "s"} · " +
                                         "${workspace.projectCount} project${if (workspace.projectCount == 1) "" else "s"}" +
                                         if (workspace.owners.isNotEmpty()) " · " + workspace.owners.joinToString { it.name ?: it.email } else "",
                                     maxLines = 1,
@@ -142,6 +165,7 @@ fun AdminWorkspacesScreen(
                             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
                         )
                         HorizontalDivider()
+                    }
                     }
                 }
             }

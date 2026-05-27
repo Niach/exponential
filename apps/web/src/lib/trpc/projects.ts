@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { projects } from "@/db/schema"
 import { eq } from "drizzle-orm"
@@ -92,6 +93,29 @@ export const projectsRouter = router({
         .returning()
 
       return { project }
+    }),
+
+  delete: authedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      // Look up the project to get its workspaceId
+      const [project] = await ctx.db
+        .select({ workspaceId: projects.workspaceId })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1)
+
+      if (!project) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Project not found` })
+      }
+
+      await assertWorkspaceOwner(ctx.session.user.id, project.workspaceId)
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx.delete(projects).where(eq(projects.id, input.projectId))
+        return { ok: true, txId }
+      })
     }),
 
   linkGithubRepo: authedProcedure

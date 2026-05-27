@@ -6,6 +6,15 @@ struct AdminWorkspacesView: View {
     @State private var workspaces: [AdminWorkspace] = []
     @State private var loading = true
     @State private var deleteTarget: AdminWorkspace?
+    @State private var searchText = ""
+
+    private var filteredWorkspaces: [AdminWorkspace] {
+        guard !searchText.isEmpty else { return workspaces }
+        let q = searchText.lowercased()
+        return workspaces.filter { ws in
+            ws.name.lowercased().contains(q) || ws.slug.lowercased().contains(q)
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -16,7 +25,12 @@ struct AdminWorkspacesView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(workspaces) { workspace in
+                        TextField("Search by name or slug…", text: $searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 4)
+
+                        ForEach(filteredWorkspaces) { workspace in
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(workspace.name)
@@ -25,6 +39,16 @@ struct AdminWorkspacesView: View {
                                     Text(workspace.slug)
                                         .font(.caption)
                                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                }
+
+                                if let plan = workspace.plan, !plan.isEmpty {
+                                    Text(plan.capitalized)
+                                        .font(.caption2.weight(.medium))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.white.opacity(0.1))
+                                        .clipShape(Capsule())
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 }
 
                                 Spacer()
@@ -57,7 +81,7 @@ struct AdminWorkspacesView: View {
                 }
             }
         }
-        .navigationTitle("Workspaces (\(workspaces.count))")
+        .navigationTitle("Workspaces (\(filteredWorkspaces.count))")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .alert("Delete Workspace", isPresented: .init(
