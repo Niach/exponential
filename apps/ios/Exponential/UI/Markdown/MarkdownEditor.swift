@@ -41,13 +41,75 @@ struct MarkdownEditor: View {
         let contentType = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
         let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
         let filename = "image-\(Int(Date().timeIntervalSince1970)).\(ext)"
-        let placeholder = MarkdownImageUtils.draftUrl()
-        pendingImages[placeholder] = PendingImage(
-            data: data,
-            filename: filename,
-            contentType: contentType
-        )
-        text += "\n![image](\(placeholder))\n"
+        let draftUrl = MarkdownImageUtils.draftUrl()
+        pendingImages[draftUrl] = PendingImage(data: data, filename: filename, contentType: contentType)
+        text += "\n![image](\(draftUrl))\n"
+    }
+}
+
+// MARK: - UITextView subclass that blocks cursor on image lines
+
+private final class BlockImageTextView: UITextView {
+    override func closestPosition(to point: CGPoint) -> UITextPosition? {
+        guard let pos = super.closestPosition(to: point) else { return nil }
+        if isOnImageLine(pos) {
+            return nudgeOffImageLine(pos) ?? pos
+        }
+        return pos
+    }
+
+    override func closestPosition(to point: CGPoint, within range: UITextRange) -> UITextPosition? {
+        guard let pos = super.closestPosition(to: point, within: range) else { return nil }
+        if isOnImageLine(pos) {
+            return nudgeOffImageLine(pos) ?? pos
+        }
+        return pos
+    }
+
+    override func paste(_ sender: Any?) {
+        let pb = UIPasteboard.general
+        if pb.hasImages, let image = pb.image, let data = image.jpegData(compressionQuality: 0.85) {
+            if let coordinator = delegate as? MarkdownEditorRepresentable.Coordinator {
+                coordinator.pasteImageData(data, filename: "pasted-\(Int(Date().timeIntervalSince1970)).jpg", contentType: "image/jpeg")
+                return
+            }
+        }
+        super.paste(sender)
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)) && UIPasteboard.general.hasImages {
+            return true
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    private func isOnImageLine(_ position: UITextPosition) -> Bool {
+        let offset = self.offset(from: beginningOfDocument, to: position)
+        guard offset >= 0, textStorage.length > 0 else { return false }
+        let loc = min(offset, textStorage.length - 1)
+        let paraRange = (textStorage.string as NSString).paragraphRange(for: NSRange(location: loc, length: 0))
+        guard paraRange.length > 0, paraRange.location < textStorage.length else { return false }
+        var found = false
+        textStorage.enumerateAttribute(.attachment, in: paraRange, options: []) { val, _, stop in
+            if val is NSTextAttachment { found = true; stop.pointee = true }
+        }
+        return found
+    }
+
+    private func nudgeOffImageLine(_ position: UITextPosition) -> UITextPosition? {
+        let offset = self.offset(from: beginningOfDocument, to: position)
+        guard textStorage.length > 0 else { return nil }
+        let loc = min(offset, textStorage.length - 1)
+        let paraRange = (textStorage.string as NSString).paragraphRange(for: NSRange(location: loc, length: 0))
+        let afterPara = NSMaxRange(paraRange)
+        if afterPara < textStorage.length {
+            return self.position(from: beginningOfDocument, offset: afterPara)
+        }
+        if paraRange.location > 0 {
+            return self.position(from: beginningOfDocument, offset: paraRange.location - 1)
+        }
+        return nil
     }
 }
 
@@ -62,8 +124,8 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     var httpClient: HTTPClient?
     @Binding var showPhotoPicker: Bool
 
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+    func makeUIView(context: Context) -> BlockImageTextView {
+        let textView = BlockImageTextView()
         textView.backgroundColor = .clear
         textView.textColor = MarkdownStyle.textColor
         textView.tintColor = MarkdownStyle.linkColor
@@ -79,18 +141,12 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
 
         let toolbar = MarkdownToolbar()
         toolbar.textView = textView
-        toolbar.onImagePick = {
-            showPhotoPicker = true
-        }
+        toolbar.onImagePick = { showPhotoPicker = true }
         textView.inputAccessoryView = toolbar
 
         let coordinator = context.coordinator
         textView.delegate = coordinator
         coordinator.toolbar = toolbar
-
-        let tapGesture = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleTap(_:)))
-        tapGesture.delegate = coordinator
-        textView.addGestureRecognizer(tapGesture)
 
         let attributed = MarkdownConversion.markdownToAttributedString(text, baseURL: baseURL)
         textView.attributedText = attributed
@@ -105,11 +161,10 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
         return textView
     }
 
-    func updateUIView(_ textView: UITextView, context: Context) {
+    func updateUIView(_ textView: BlockImageTextView, context: Context) {
         guard !context.coordinator.isUpdating else { return }
         guard text != context.coordinator.lastMarkdown else { return }
 
-        log.debug("updateUIView: text changed externally, re-parsing (\(text.count) chars)")
         context.coordinator.isUpdating = true
         context.coordinator.imageLoadTasks.removeAll()
         let savedRange = textView.selectedRange
@@ -138,9 +193,8 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     private func loadImages(for textView: UITextView, coordinator: Coordinator) {
         let attrText = textView.attributedText!
         guard attrText.length > 0 else { return }
-        let fullRange = NSRange(location: 0, length: attrText.length)
 
-        attrText.enumerateAttribute(.markdownImageURL, in: fullRange, options: []) { value, range, _ in
+        attrText.enumerateAttribute(.markdownImageURL, in: NSRange(location: 0, length: attrText.length), options: []) { value, _, _ in
             guard let urlStr = value as? String else { return }
             guard coordinator.imageLoadTasks[urlStr] == nil else { return }
 
@@ -167,8 +221,8 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
                         - textView.textContainerInset.right
                         - 2 * textView.textContainer.lineFragmentPadding
                     let displayWidth = max(min(maxWidth, fullImage.size.width), 100)
-                    let displayScale = displayWidth / fullImage.size.width
-                    let displayHeight = fullImage.size.height * displayScale
+                    let aspectRatio = fullImage.size.height / fullImage.size.width
+                    let displayHeight = displayWidth * aspectRatio
                     let displaySize = CGSize(width: displayWidth, height: displayHeight)
 
                     let scaledImage = UIGraphicsImageRenderer(size: displaySize).image { _ in
@@ -195,7 +249,7 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate {
         var parent: MarkdownEditorRepresentable
         var isUpdating = false
         var lastMarkdown = ""
@@ -206,6 +260,12 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
 
         init(parent: MarkdownEditorRepresentable) {
             self.parent = parent
+        }
+
+        func pasteImageData(_ data: Data, filename: String, contentType: String) {
+            let draftUrl = MarkdownImageUtils.draftUrl()
+            parent.pendingImages[draftUrl] = PendingImage(data: data, filename: filename, contentType: contentType)
+            parent.text += "\n![image](\(draftUrl))\n"
         }
 
         func showPlaceholder(in textView: UITextView, placeholder: String) {
@@ -251,35 +311,6 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             toolbar?.updateState()
-            guard !isUpdating else { return }
-            redirectCursorFromImageLine(textView)
-        }
-
-        private func redirectCursorFromImageLine(_ textView: UITextView) {
-            let storage = textView.textStorage
-            guard storage.length > 0 else { return }
-            let sel = textView.selectedRange
-            guard sel.length == 0 else { return }
-
-            let loc = min(sel.location, storage.length - 1)
-            guard loc >= 0 else { return }
-            let paraRange = (storage.string as NSString).paragraphRange(for: NSRange(location: loc, length: 0))
-            guard paraRange.location < storage.length else { return }
-
-            var hasImage = false
-            storage.enumerateAttribute(.attachment, in: paraRange, options: []) { val, _, stop in
-                if val is NSTextAttachment { hasImage = true; stop.pointee = true }
-            }
-            guard hasImage else { return }
-
-            isUpdating = true
-            let afterPara = NSMaxRange(paraRange)
-            if afterPara < storage.length {
-                textView.selectedRange = NSRange(location: afterPara, length: 0)
-            } else if paraRange.location > 0 {
-                textView.selectedRange = NSRange(location: paraRange.location - 1, length: 0)
-            }
-            isUpdating = false
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
@@ -290,28 +321,30 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let storage = textView.textStorage
 
-            // Prevent typing on the same line as an image — redirect to next line
-            if !text.isEmpty, storage.length > 0 {
+            // Block any edit on an image line
+            if storage.length > 0 {
                 let loc = min(range.location, storage.length - 1)
-                let paraRange = (storage.string as NSString).paragraphRange(for: NSRange(location: max(0, loc), length: 0))
-                if paraRange.location < storage.length {
+                guard loc >= 0 else { return true }
+                let paraRange = (storage.string as NSString).paragraphRange(for: NSRange(location: loc, length: 0))
+                if paraRange.location < storage.length, paraRange.length > 0 {
                     var hasImage = false
                     storage.enumerateAttribute(.attachment, in: paraRange, options: []) { val, _, stop in
                         if val is NSTextAttachment { hasImage = true; stop.pointee = true }
                     }
                     if hasImage {
-                        let afterImage = NSMaxRange(paraRange)
-                        if afterImage <= storage.length {
-                            let insertAttrs = MarkdownStyle.baseAttributes
-                            if afterImage == storage.length || (storage.string as NSString).character(at: afterImage - 1) != 0x0A {
-                                storage.insert(NSAttributedString(string: "\n", attributes: insertAttrs), at: afterImage)
-                            }
-                            let newPos = min(afterImage, storage.length)
-                            storage.insert(NSAttributedString(string: text, attributes: insertAttrs), at: newPos)
-                            textView.selectedRange = NSRange(location: newPos + text.count, length: 0)
-                            textViewDidChange(textView)
-                            return false
+                        if text.isEmpty { return false }
+                        let afterPara = NSMaxRange(paraRange)
+                        let insertPos: Int
+                        if afterPara < storage.length {
+                            insertPos = afterPara
+                        } else {
+                            storage.append(NSAttributedString(string: "\n", attributes: MarkdownStyle.baseAttributes))
+                            insertPos = storage.length
                         }
+                        storage.insert(NSAttributedString(string: text, attributes: MarkdownStyle.baseAttributes), at: insertPos)
+                        textView.selectedRange = NSRange(location: insertPos + text.count, length: 0)
+                        textViewDidChange(textView)
+                        return false
                     }
                 }
             }
@@ -323,17 +356,14 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
                 guard paraRange.location < storage.length else { return true }
                 let attrs = storage.attributes(at: paraRange.location, effectiveRange: nil)
                 if attrs[.markdownListType] as? String != nil {
-                    let paraText = (storage.string as NSString).substring(with: paraRange)
-                        .trimmingCharacters(in: .newlines)
+                    let paraText = (storage.string as NSString).substring(with: paraRange).trimmingCharacters(in: .newlines)
                     let contentOnly = paraText
                         .replacingOccurrences(of: #"^(\d+\.\s|[\u{2022}\u{2610}\u{2611}]\s?)"#, with: "", options: .regularExpression)
                         .trimmingCharacters(in: .whitespaces)
                     if contentOnly.isEmpty {
+                        if paraRange.length > 0 { storage.replaceCharacters(in: paraRange, with: "") }
                         let style = NSMutableParagraphStyle()
                         style.lineSpacing = 4
-                        if paraRange.length > 0 {
-                            storage.replaceCharacters(in: paraRange, with: "")
-                        }
                         textView.typingAttributes = MarkdownStyle.baseAttributes
                         textView.typingAttributes[.paragraphStyle] = style
                         textView.typingAttributes.removeValue(forKey: .markdownListType)
@@ -355,19 +385,15 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             let attrs = storage.attributes(at: paraRange.location, effectiveRange: nil)
             guard let listType = attrs[.markdownListType] as? String else { return true }
 
-            let paraText = (storage.string as NSString).substring(with: paraRange)
-                .trimmingCharacters(in: .newlines)
-
+            let paraText = (storage.string as NSString).substring(with: paraRange).trimmingCharacters(in: .newlines)
             let contentOnly = paraText
                 .replacingOccurrences(of: #"^(\d+\.\s|[\u{2022}\u{2610}\u{2611}]\s?)"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
 
             if contentOnly.isEmpty {
+                if paraRange.length > 0 { storage.replaceCharacters(in: paraRange, with: "") }
                 let style = NSMutableParagraphStyle()
                 style.lineSpacing = 4
-                if paraRange.length > 0 {
-                    storage.replaceCharacters(in: paraRange, with: "")
-                }
                 textView.typingAttributes = MarkdownStyle.baseAttributes
                 textView.typingAttributes[.paragraphStyle] = style
                 textView.typingAttributes.removeValue(forKey: .markdownListType)
@@ -377,7 +403,6 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
                 return false
             }
 
-            let depth = (attrs[.markdownListDepth] as? Int) ?? 0
             let newIndex: Int
             let prefix: String
             if listType == "ordered" {
@@ -395,51 +420,21 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             let newLineStr = "\n\(prefix)"
             var newAttrs = attrs
             newAttrs[.markdownListItemIndex] = newIndex
-            let newAttrStr = NSAttributedString(string: newLineStr, attributes: newAttrs)
-
-            storage.replaceCharacters(in: range, with: newAttrStr)
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: newLineStr, attributes: newAttrs))
             textView.selectedRange = NSRange(location: range.location + newLineStr.count, length: 0)
-
             textView.typingAttributes = newAttrs
-            textView.typingAttributes[.markdownListDepth] = depth
-
             textViewDidChange(textView)
             return false
         }
 
-        // Allow tap gesture to coexist with text view's built-in gestures
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            true
-        }
-
-        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let textView = gesture.view as? UITextView else { return }
-            let point = gesture.location(in: textView)
-            let layoutManager = textView.layoutManager
-            let textContainer = textView.textContainer
-
-            var fraction: CGFloat = 0
-            let glyphIndex = layoutManager.glyphIndex(for: point, in: textContainer, fractionOfDistanceThroughGlyph: &fraction)
-            let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-
-            guard charIndex < textView.textStorage.length else { return }
-
-            let char = (textView.textStorage.string as NSString).substring(with: NSRange(location: charIndex, length: 1))
-
-            if char == "\u{2610}" || char == "\u{2611}" {
-                let replacement = char == "\u{2610}" ? "\u{2611}" : "\u{2610}"
-                let attrs = textView.textStorage.attributes(at: charIndex, effectiveRange: nil)
-                textView.textStorage.replaceCharacters(in: NSRange(location: charIndex, length: 1),
-                                                        with: NSAttributedString(string: replacement, attributes: attrs))
-                textViewDidChange(textView)
-            }
+        // Checkbox toggle via interaction delegate
+        func textView(_ textView: UITextView, shouldInteractWith textAttachment: NSTextAttachment, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+            false
         }
 
         private func flushToMarkdown(_ textView: UITextView) {
             isUpdating = true
-            log.debug("flushToMarkdown: length=\(textView.textStorage.length)")
             let md = MarkdownConversion.attributedStringToMarkdown(textView.attributedText)
-            log.debug("flushToMarkdown: md=\(md.prefix(200))")
             lastMarkdown = md
             parent.text = md
             isUpdating = false
