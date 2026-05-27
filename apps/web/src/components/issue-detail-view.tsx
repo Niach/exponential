@@ -68,16 +68,36 @@ export function IssueDetailView({
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
 
-  // Reset local form state only when the visible issue changes.
+  const incomingDescription = getIssueDescriptionText(issue.description)
+  const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
+
+  // Full reset when navigating to a different issue.
   useEffect(() => {
-    const nextDescription = getIssueDescriptionText(issue.description)
     setTitle(issue.title)
-    setDescription(nextDescription)
-    descriptionRef.current = nextDescription
-    lastSavedDescriptionRef.current = normalizeIssueDescriptionText(nextDescription)
+    setDescription(incomingDescription)
+    descriptionRef.current = incomingDescription
+    lastSavedDescriptionRef.current = normalizedIncoming
     setAttachmentStatus(null)
-    editorRef.current?.setMarkdown(nextDescription)
+    editorRef.current?.setMarkdown(incomingDescription)
   }, [issue.id])
+
+  // Sync title from Electric when another client changes it,
+  // but skip if the local value matches what we'd save (user is editing).
+  useEffect(() => {
+    if (issue.title !== title && issue.title !== title.trim()) {
+      setTitle(issue.title)
+    }
+  }, [issue.title])
+
+  // Sync description from Electric when another client changes it.
+  useEffect(() => {
+    if (normalizedIncoming !== lastSavedDescriptionRef.current) {
+      setDescription(incomingDescription)
+      descriptionRef.current = incomingDescription
+      lastSavedDescriptionRef.current = normalizedIncoming
+      editorRef.current?.setMarkdown(incomingDescription)
+    }
+  }, [normalizedIncoming])
 
   const handleTitleBlur = async () => {
     if (readOnly) return
