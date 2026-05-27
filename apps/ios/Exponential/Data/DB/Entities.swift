@@ -401,7 +401,15 @@ struct AttachmentEntity: Codable, FetchableRecord, PersistableRecord, Identifiab
     }
 }
 
-// Extract the `{ "text": "..." }` field from a stored comment body.
+func getIssueDescriptionText(_ description: String?) -> String {
+    guard let description, let data = description.data(using: .utf8) else { return "" }
+    if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+       let text = dict["text"] as? String {
+        return text
+    }
+    return description
+}
+
 func getCommentBodyText(_ body: String?) -> String {
     guard let body, let data = body.data(using: .utf8) else { return "" }
     if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

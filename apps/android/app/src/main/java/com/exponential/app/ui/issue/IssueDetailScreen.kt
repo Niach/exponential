@@ -22,13 +22,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -86,7 +84,6 @@ fun IssueDetailScreen(
     var endTimePickerOpen by remember { mutableStateOf(false) }
     var recurrenceSheetOpen by remember { mutableStateOf(false) }
     var labelsOpen by remember { mutableStateOf(false) }
-    var editingDescription by remember { mutableStateOf(false) }
 
     LaunchedEffect(issue?.id) {
         if (issue != null) {
@@ -250,23 +247,14 @@ fun IssueDetailScreen(
             }
 
             Spacer(Modifier.height(20.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Description",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { editingDescription = !editingDescription }) {
-                    Icon(
-                        if (editingDescription) Icons.Filled.Visibility else Icons.Filled.Edit,
-                        contentDescription = if (editingDescription) "Preview" else "Edit",
-                    )
-                }
-            }
+            Text(
+                "Description",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             MarkdownEditor(
                 markdown = descriptionField,
-                editable = editingDescription,
+                editable = true,
                 onChange = {
                     descriptionField = it
                     viewModel.updateDescription(it)

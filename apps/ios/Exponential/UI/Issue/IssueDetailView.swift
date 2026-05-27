@@ -64,7 +64,7 @@ struct IssueDetailView: View {
                             if !focused { Task { await vm.saveTitle() } }
                         }
 
-                        // Description (markdown editor with image upload)
+                        // Description (WYSIWYG editor with image upload)
                         MarkdownEditor(
                             text: Binding(
                                 get: { vm.editingDescription },
@@ -73,8 +73,16 @@ struct IssueDetailView: View {
                                     descriptionDirty = true
                                 }
                             ),
-                            pendingImages: $pendingImages
+                            pendingImages: $pendingImages,
+                            baseURL: URL(string: deps.auth.instanceUrl ?? ""),
+                            accountId: accountId,
+                            httpClient: deps.httpClient
                         )
+                        .onDisappear {
+                            if descriptionDirty {
+                                Task { await uploadPendingAndSaveDescription(vm) }
+                            }
+                        }
                         .onChange(of: titleFocused) { _, focused in
                             if !focused && descriptionDirty {
                                 Task {

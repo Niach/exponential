@@ -45,7 +45,7 @@ final class IssueDetailViewModel {
                         self.issue = issue
                         if isFirstLoad {
                             self.editingTitle = issue.title
-                            self.editingDescription = issue.description ?? ""
+                            self.editingDescription = getIssueDescriptionText(issue.description)
                         }
                         self.refreshPermissions(for: issue)
                     }
@@ -100,7 +100,7 @@ final class IssueDetailViewModel {
 
     func saveDescription() async {
         guard let issue else { return }
-        let currentDesc = issue.description ?? ""
+        let currentDesc = getIssueDescriptionText(issue.description)
         guard editingDescription != currentDesc else { return }
         let desc = editingDescription.isEmpty ? nil : IssueDescription(text: editingDescription)
         await update(UpdateIssueInput(id: issue.id, description: desc))
