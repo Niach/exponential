@@ -59,7 +59,6 @@ struct IssueDetailView: View {
                         .onChange(of: titleFocused) { _, focused in
                             if !focused { Task { await vm.saveTitle() } }
                         }
-                        .onDisappear { Task { await vm.saveTitle() } }
 
                         // Description (WYSIWYG editor with image upload)
                         MarkdownEditor(
@@ -72,9 +71,6 @@ struct IssueDetailView: View {
                             accountId: accountId,
                             httpClient: deps.httpClient
                         )
-                        .onDisappear {
-                            Task { await uploadPendingAndSaveDescription(vm) }
-                        }
 
                         // Metadata
                         VStack(spacing: 0) {
@@ -348,7 +344,13 @@ struct IssueDetailView: View {
             }
         }
         .onDisappear {
-            viewModel?.stopObserving()
+            if let vm = viewModel {
+                Task {
+                    await vm.saveTitle()
+                    await uploadPendingAndSaveDescription(vm)
+                    vm.stopObserving()
+                }
+            }
         }
     }
 
