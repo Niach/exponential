@@ -118,32 +118,54 @@ final class IssueDetailViewModel {
 
     func setAssignee(_ userId: String?) async {
         guard let issue else { return }
-        await update(UpdateIssueInput(id: issue.id, assigneeId: userId))
+        if let userId {
+            await update(UpdateIssueInput(id: issue.id, assigneeId: userId))
+        } else {
+            var input = UpdateIssueInput(id: issue.id)
+            input.explicitNulls.insert("assigneeId")
+            await update(input)
+        }
     }
 
     func setDueDate(_ date: Date?) async {
         guard let issue else { return }
-        let dateStr = date.map { formatDate($0) }
-        await update(UpdateIssueInput(id: issue.id, dueDate: dateStr))
+        if let date {
+            await update(UpdateIssueInput(id: issue.id, dueDate: formatDate(date)))
+        } else {
+            var input = UpdateIssueInput(id: issue.id)
+            input.explicitNulls.insert("dueDate")
+            await update(input)
+        }
     }
 
     func setDueTime(_ time: String?) async {
         guard let issue else { return }
-        await update(UpdateIssueInput(id: issue.id, dueTime: time))
+        if let time {
+            await update(UpdateIssueInput(id: issue.id, dueTime: time))
+        } else {
+            var input = UpdateIssueInput(id: issue.id)
+            input.explicitNulls.insert("dueTime")
+            await update(input)
+        }
     }
 
     func setEndTime(_ time: String?) async {
         guard let issue else { return }
-        await update(UpdateIssueInput(id: issue.id, endTime: time))
+        if let time {
+            await update(UpdateIssueInput(id: issue.id, endTime: time))
+        } else {
+            var input = UpdateIssueInput(id: issue.id)
+            input.explicitNulls.insert("endTime")
+            await update(input)
+        }
     }
 
     func setRecurrence(interval: Int?, unit: RecurrenceUnit?) async {
         guard let issue else { return }
-        await update(UpdateIssueInput(
-            id: issue.id,
-            recurrenceInterval: interval,
-            recurrenceUnit: unit?.rawValue
-        ))
+        var input = UpdateIssueInput(id: issue.id, recurrenceInterval: interval, recurrenceUnit: unit?.rawValue)
+        if interval == nil { input.explicitNulls.insert("recurrenceInterval") }
+        if unit == nil { input.explicitNulls.insert("recurrenceUnit") }
+        await update(input)
     }
 
     func toggleLabel(_ labelId: String) async {

@@ -63,6 +63,7 @@ struct IssueDetailView: View {
                         .onChange(of: titleFocused) { _, focused in
                             if !focused { Task { await vm.saveTitle() } }
                         }
+                        .onDisappear { Task { await vm.saveTitle() } }
 
                         // Description (WYSIWYG editor with image upload)
                         MarkdownEditor(
