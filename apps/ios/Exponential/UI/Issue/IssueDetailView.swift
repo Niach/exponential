@@ -10,7 +10,6 @@ struct IssueDetailView: View {
     @State private var viewModel: IssueDetailViewModel?
     @State private var showDeleteConfirm = false
     @State private var pendingImages: [String: PendingImage] = [:]
-    @State private var descriptionDirty = false
     @State private var showStatusPicker = false
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
@@ -37,9 +36,6 @@ struct IssueDetailView: View {
                             planStateBadge(for: issue)
                             Spacer()
                             Menu {
-                                Button(issue.archivedAt == nil ? "Archive" : "Unarchive") {
-                                    Task { await vm.toggleArchive() }
-                                }
                                 Button("Delete issue", role: .destructive) {
                                     showDeleteConfirm = true
                                 }
@@ -69,10 +65,7 @@ struct IssueDetailView: View {
                         MarkdownEditor(
                             text: Binding(
                                 get: { vm.editingDescription },
-                                set: { newValue in
-                                    vm.editingDescription = newValue
-                                    descriptionDirty = true
-                                }
+                                set: { vm.editingDescription = $0 }
                             ),
                             pendingImages: $pendingImages,
                             baseURL: URL(string: deps.auth.instanceUrl ?? ""),
@@ -80,16 +73,7 @@ struct IssueDetailView: View {
                             httpClient: deps.httpClient
                         )
                         .onDisappear {
-                            if descriptionDirty {
-                                Task { await uploadPendingAndSaveDescription(vm) }
-                            }
-                        }
-                        .onChange(of: titleFocused) { _, focused in
-                            if !focused && descriptionDirty {
-                                Task {
-                                    await uploadPendingAndSaveDescription(vm)
-                                }
-                            }
+                            Task { await uploadPendingAndSaveDescription(vm) }
                         }
 
                         // Metadata
@@ -413,7 +397,6 @@ struct IssueDetailView: View {
                 pendingImages.removeValue(forKey: placeholder)
             }
         }
-        descriptionDirty = false
         await vm.saveDescription()
     }
 

@@ -87,6 +87,12 @@ struct MarkdownEditor: View {
             toolbar.onImagePick = { showPhotoPicker = true }
             syncBlocksFromMarkdown()
         }
+        .onDisappear {
+            // Force-flush any pending debounce so the text binding is up-to-date before parent saves
+            if let tv = toolbar.textView {
+                tv.resignFirstResponder()
+            }
+        }
         .onChange(of: text) { _, newText in
             guard newText != lastFlushedMarkdown else { return }
             syncBlocksFromMarkdown()

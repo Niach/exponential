@@ -192,15 +192,6 @@ final class IssueDetailViewModel {
         }
     }
 
-    // Toggles between "archived" (archivedAt = now) and "active" (archivedAt
-    // = null). The server clamps archivedAt for non-moderators of public
-    // workspaces, so the UI only needs to call through.
-    func toggleArchive() async {
-        guard let issue else { return }
-        let next: String? = issue.archivedAt == nil ? isoNow() : nil
-        await update(UpdateIssueInput(id: issue.id, archivedAt: next))
-    }
-
     private func isoNow() -> String {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
