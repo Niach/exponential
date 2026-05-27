@@ -9,7 +9,6 @@ struct IssueDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: IssueDetailViewModel?
     @State private var showDeleteConfirm = false
-    @State private var pendingImages: [String: PendingImage] = [:]
     @State private var showStatusPicker = false
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
@@ -66,7 +65,10 @@ struct IssueDetailView: View {
                                 get: { vm.editingDescription },
                                 set: { vm.editingDescription = $0 }
                             ),
-                            pendingImages: $pendingImages,
+                            pendingImages: Binding(
+                                get: { vm.pendingImages },
+                                set: { vm.pendingImages = $0 }
+                            ),
                             baseURL: URL(string: deps.auth.instanceUrl ?? ""),
                             accountId: accountId,
                             httpClient: deps.httpClient
@@ -375,7 +377,7 @@ struct IssueDetailView: View {
     // is the iOS analogue of Android's IssueDetailViewModel.uploadImage
     // + description rewrite pattern.
     private func uploadPendingAndSaveDescription(_ vm: IssueDetailViewModel) async {
-        let drafts = pendingImages
+        let drafts = vm.pendingImages
         for (placeholder, image) in drafts {
             do {
                 let uploaded = try await deps.issueImagesApi.upload(
@@ -390,13 +392,13 @@ struct IssueDetailView: View {
                     from: placeholder,
                     to: uploaded.url
                 )
-                pendingImages.removeValue(forKey: placeholder)
+                vm.pendingImages.removeValue(forKey: placeholder)
             } catch {
                 vm.editingDescription = MarkdownImageUtils.stripUnknownDraftImages(
                     vm.editingDescription,
-                    keep: Set(pendingImages.keys).subtracting([placeholder])
+                    keep: Set(vm.pendingImages.keys).subtracting([placeholder])
                 )
-                pendingImages.removeValue(forKey: placeholder)
+                vm.pendingImages.removeValue(forKey: placeholder)
             }
         }
         await vm.saveDescription()

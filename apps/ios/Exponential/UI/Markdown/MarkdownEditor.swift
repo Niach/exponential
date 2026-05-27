@@ -97,6 +97,7 @@ struct MarkdownEditor: View {
 
     private func syncBlocksFromMarkdown() {
         blocks = MarkdownConversion.markdownToBlocks(text, baseURL: baseURL)
+        lastFlushedMarkdown = text
     }
 
     private func flushBlocksToMarkdown() {

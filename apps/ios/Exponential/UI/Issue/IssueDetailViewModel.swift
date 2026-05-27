@@ -9,6 +9,7 @@ final class IssueDetailViewModel {
     var users: [UserEntity] = []
     var editingTitle: String = ""
     var editingDescription: String = ""
+    var pendingImages: [String: PendingImage] = [:]
     var saving = false
     var error: String?
     var permissions: WorkspacePermissions = .denied

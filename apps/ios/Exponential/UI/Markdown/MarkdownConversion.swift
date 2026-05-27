@@ -680,8 +680,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
     case CMARK_NODE_IMAGE:
         let urlStr = cmark_node_get_url(node).flatMap { String(cString: $0) } ?? ""
         let alt = collectText(from: node)
-        let resolvedStr = resolveURLString(urlStr, baseURL: context.baseURL)
-        collector.emitImage(url: resolvedStr, alt: alt)
+        collector.emitImage(url: urlStr, alt: alt)
         context.needsBlockSeparator = false
 
     case CMARK_NODE_LIST:
