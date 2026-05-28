@@ -47,6 +47,9 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
                 }
                 pendingRefetch = try await pollOnce(baseUrl: baseUrl, token: token, pendingRefetch: pendingRefetch)
                 backoffMs = 500
+                if pendingRefetch {
+                    try await Task.sleep(for: .milliseconds(500))
+                }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -88,6 +91,7 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         logger.info("[\(self.shapeName)] HTTP \(httpResponse.statusCode), \(data.count) bytes, initial=\(isInitial)")
         SyncDebug.shared.log("[\(shapeName)] HTTP \(httpResponse.statusCode), \(data.count)B")
+        SyncDebug.shared.reportShape(name: shapeName, httpStatus: httpResponse.statusCode, isLive: !isInitial)
 
         if httpResponse.statusCode == 409 {
             try await pool.write { db in
@@ -135,9 +139,10 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         let inserts = messages.filter { if case .insert = $0 { true } else { false } }.count
         let updates = messages.filter { if case .update = $0 { true } else { false } }.count
+        let partials = messages.filter { if case .partialUpdate = $0 { true } else { false } }.count
         if !messages.isEmpty {
-            logger.info("[\(self.shapeName)] \(messages.count) msgs (\(inserts) ins, \(updates) upd)")
-            SyncDebug.shared.log("[\(shapeName)] \(inserts) ins, \(updates) upd")
+            logger.info("[\(self.shapeName)] \(messages.count) msgs (\(inserts) ins, \(updates) upd, \(partials) partial)")
+            SyncDebug.shared.log("[\(shapeName)] \(inserts) ins, \(updates) upd, \(partials) partial")
             try await onMessages(messages)
         }
 
@@ -165,7 +170,6 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
     private func mapRawDict(_ dict: [String: Any]) -> ShapeMessage<T>? {
         let headers = dict["headers"] as? [String: Any] ?? [:]
 
-        // Check for control messages
         if let control = headers["control"] as? String {
             switch control {
             case "up-to-date": return .upToDate
@@ -179,30 +183,34 @@ final class ShapeClient<T: Codable & Sendable>: Sendable {
             return nil
         }
 
+        let rawValue = dict["value"] as? [String: Any]
+
         let decodedValue: T? = {
-            guard let value = dict["value"] as? [String: Any] else { return nil }
+            guard let value = rawValue else { return nil }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: value) else { return nil }
-            do {
-                let decoder = JSONDecoder()
-                // Electric sends all values as strings — use a lenient decoder
-                return try decoder.decode(T.self, from: jsonData)
-            } catch {
-                // Electric sends numbers as strings. Re-try by coercing string values.
-                let coerced = coerceStringValues(value)
-                guard let coercedData = try? JSONSerialization.data(withJSONObject: coerced) else {
-                    logger.warning("[\(self.shapeName)] value decode failed: \(error.localizedDescription)")
-                    SyncDebug.shared.log("[\(shapeName)] DECODE ERR: \(error.localizedDescription)")
-                    return nil
-                }
-                return try? JSONDecoder().decode(T.self, from: coercedData)
+            if let decoded = try? JSONDecoder().decode(T.self, from: jsonData) {
+                return decoded
             }
+            let coerced = coerceStringValues(value)
+            guard let coercedData = try? JSONSerialization.data(withJSONObject: coerced) else { return nil }
+            return try? JSONDecoder().decode(T.self, from: coercedData)
         }()
 
         switch operation {
-        case "insert": return decodedValue.map { .insert(key: key, value: $0) }
-        case "update": return decodedValue.map { .update(key: key, value: $0) }
-        case "delete": return .delete(key: key, value: decodedValue)
-        default: return nil
+        case "insert":
+            return decodedValue.map { .insert(key: key, value: $0) }
+        case "update":
+            if let value = decodedValue {
+                return .update(key: key, value: value)
+            }
+            guard let rawValue else { return nil }
+            let coerced = coerceStringValues(rawValue)
+            guard let columnData = try? JSONSerialization.data(withJSONObject: coerced) else { return nil }
+            return .partialUpdate(key: key, columns: columnData)
+        case "delete":
+            return .delete(key: key, value: decodedValue)
+        default:
+            return nil
         }
     }
 }

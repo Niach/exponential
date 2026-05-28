@@ -234,6 +234,8 @@ private struct RegularCommentRow: View {
                             Image(systemName: "ellipsis")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
                         }
                     }
                 }

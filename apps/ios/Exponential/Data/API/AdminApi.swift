@@ -42,10 +42,6 @@ struct DeleteUserInput: Encodable {
     let userId: String
 }
 
-struct DeleteWorkspaceInput: Encodable {
-    let workspaceId: String
-}
-
 private struct EmptyAdminInput: Encodable {}
 
 final class AdminApi: Sendable {

@@ -25,6 +25,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /// Multi-account sync orchestrator. Maintains one set of 10 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
@@ -122,90 +125,90 @@ class SyncManager @Inject constructor(
 
         return listOf(
             launchShape(
-                shape = "workspaces", path = "/api/shapes/workspaces",
+                shape = "workspaces", path = "/api/shapes/workspaces", tableName = "workspaces",
                 serializer = WorkspaceEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { workspaceDao.upsert(it) },
                 onUpdate = { workspaceDao.upsert(it) },
                 onDelete = { workspaceDao.deleteById(it.id) },
                 onRefetch = { workspaceDao.clear() },
             ),
             launchShape(
-                shape = "projects", path = "/api/shapes/projects",
+                shape = "projects", path = "/api/shapes/projects", tableName = "projects",
                 serializer = ProjectEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { projectDao.upsert(it) },
                 onUpdate = { projectDao.upsert(it) },
                 onDelete = { projectDao.deleteById(it.id) },
                 onRefetch = { projectDao.clear() },
             ),
             launchShape(
-                shape = "issues", path = "/api/shapes/issues",
+                shape = "issues", path = "/api/shapes/issues", tableName = "issues",
                 serializer = IssueEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { issueDao.upsert(it) },
                 onUpdate = { issueDao.upsert(it) },
                 onDelete = { issueDao.deleteById(it.id) },
                 onRefetch = { issueDao.clear() },
             ),
             launchShape(
-                shape = "labels", path = "/api/shapes/labels",
+                shape = "labels", path = "/api/shapes/labels", tableName = "labels",
                 serializer = LabelEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { labelDao.upsert(it) },
                 onUpdate = { labelDao.upsert(it) },
                 onDelete = { labelDao.deleteById(it.id) },
                 onRefetch = { labelDao.clear() },
             ),
             launchShape(
-                shape = "issue_labels", path = "/api/shapes/issue-labels",
+                shape = "issue_labels", path = "/api/shapes/issue-labels", tableName = "issue_labels",
                 serializer = IssueLabelEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { issueLabelDao.upsert(it) },
                 onUpdate = { issueLabelDao.upsert(it) },
                 onDelete = { issueLabelDao.delete(it.issueId, it.labelId) },
                 onRefetch = { issueLabelDao.clear() },
             ),
             launchShape(
-                shape = "users", path = "/api/shapes/users",
+                shape = "users", path = "/api/shapes/users", tableName = "users",
                 serializer = UserEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { userDao.upsert(it) },
                 onUpdate = { userDao.upsert(it) },
                 onDelete = { userDao.deleteById(it.id) },
                 onRefetch = { userDao.clear() },
             ),
             launchShape(
-                shape = "workspace_members", path = "/api/shapes/workspace-members",
+                shape = "workspace_members", path = "/api/shapes/workspace-members", tableName = "workspace_members",
                 serializer = WorkspaceMemberEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { workspaceMemberDao.upsert(it) },
                 onUpdate = { workspaceMemberDao.upsert(it) },
                 onDelete = { workspaceMemberDao.deleteById(it.id) },
                 onRefetch = { workspaceMemberDao.clear() },
             ),
             launchShape(
-                shape = "workspace_invites", path = "/api/shapes/workspace-invites",
+                shape = "workspace_invites", path = "/api/shapes/workspace-invites", tableName = "workspace_invites",
                 serializer = WorkspaceInviteEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { workspaceInviteDao.upsert(it) },
                 onUpdate = { workspaceInviteDao.upsert(it) },
                 onDelete = { workspaceInviteDao.deleteById(it.id) },
                 onRefetch = { workspaceInviteDao.clear() },
             ),
             launchShape(
-                shape = "comments", path = "/api/shapes/comments",
+                shape = "comments", path = "/api/shapes/comments", tableName = "comments",
                 serializer = CommentEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { commentDao.upsert(it) },
                 onUpdate = { commentDao.upsert(it) },
                 onDelete = { commentDao.deleteById(it.id) },
                 onRefetch = { commentDao.clear() },
             ),
             launchShape(
-                shape = "attachments", path = "/api/shapes/attachments",
+                shape = "attachments", path = "/api/shapes/attachments", tableName = "attachments",
                 serializer = AttachmentEntity.serializer(),
-                offsetDao = offsetDao, baseUrl = baseUrl, token = token,
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 onInsert = { attachmentDao.upsert(it) },
                 onUpdate = { attachmentDao.upsert(it) },
                 onDelete = { attachmentDao.deleteById(it.id) },
@@ -217,8 +220,10 @@ class SyncManager @Inject constructor(
     private fun <T : Any> launchShape(
         shape: String,
         path: String,
+        tableName: String,
         serializer: KSerializer<T>,
         offsetDao: com.exponential.app.data.db.ElectricOffsetDao,
+        db: ExponentialDatabase,
         baseUrl: () -> String?,
         token: () -> String?,
         onInsert: suspend (T) -> Unit,
@@ -240,6 +245,7 @@ class SyncManager @Inject constructor(
                     when (message) {
                         is ShapeMessage.Insert -> onInsert(message.value)
                         is ShapeMessage.Update -> onUpdate(message.value)
+                        is ShapeMessage.PartialUpdate -> applyPartialUpdate(db, tableName, message.key, message.columns)
                         is ShapeMessage.Delete -> message.value?.let { onDelete(it) }
                         ShapeMessage.MustRefetch -> onRefetch()
                         ShapeMessage.UpToDate -> Unit
@@ -249,4 +255,33 @@ class SyncManager @Inject constructor(
         )
         return scope.launch { shapeClient.run() }
     }
+}
+
+private fun parseIdFromKey(key: String): String? {
+    val last = key.split("/").lastOrNull() ?: return null
+    return last.trim('"')
+}
+
+private fun applyPartialUpdate(db: ExponentialDatabase, table: String, key: String, columnsJson: String) {
+    val id = parseIdFromKey(key) ?: return
+    val columns = try {
+        kotlinx.serialization.json.Json.parseToJsonElement(columnsJson).jsonObject
+    } catch (_: Exception) { return }
+
+    val filtered = columns.entries.filter { it.key != "id" }
+    if (filtered.isEmpty()) return
+
+    val setClauses = filtered.joinToString(", ") { "\"${it.key}\" = ?" }
+    val args = filtered.map { (_, value) ->
+        when {
+            value is kotlinx.serialization.json.JsonNull -> null
+            value is kotlinx.serialization.json.JsonPrimitive -> value.contentOrNull
+            else -> value.toString()
+        }
+    } + id
+
+    db.openHelper.writableDatabase.execSQL(
+        "UPDATE \"$table\" SET $setClauses WHERE \"id\" = ?",
+        args.toTypedArray(),
+    )
 }

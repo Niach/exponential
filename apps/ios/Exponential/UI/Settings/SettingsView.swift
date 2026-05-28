@@ -1,10 +1,14 @@
 import SwiftUI
 
+private struct WorkspaceNavTarget: Hashable {
+    let accountId: String
+    let workspaceId: String
+}
+
 struct SettingsView: View {
     @Environment(AppDependencies.self) private var deps
-    @Environment(WorkspaceState.self) private var workspaceState
     @State private var workspaceLoader: MultiAccountWorkspaceLoader?
-    @State private var pendingWorkspaceId: String?
+    @State private var pendingWorkspace: WorkspaceNavTarget?
     @State private var showAddServer = false
 
     var body: some View {
@@ -27,12 +31,13 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .navigationDestination(item: $pendingWorkspaceId) { workspaceId in
-            WorkspaceSettingsView(workspaceId: workspaceId)
+        .navigationDestination(item: $pendingWorkspace) { target in
+            WorkspaceSettingsView(workspaceId: target.workspaceId)
+                .environment(\.accountId, target.accountId)
         }
         .onAppear {
             if workspaceLoader == nil {
-                workspaceLoader = MultiAccountWorkspaceLoader(auth: deps.auth)
+                workspaceLoader = MultiAccountWorkspaceLoader(auth: deps.auth, db: deps.db)
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
@@ -84,7 +89,7 @@ struct SettingsView: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(account.displayHost)
+                Text(account.displayName)
                     .font(.body)
                     .foregroundStyle(.white)
                 if account.token == nil {
@@ -158,21 +163,8 @@ struct SettingsView: View {
         }
     }
 
-    /// Open WorkspaceSettings for any workspace on any server. The current
-    /// WorkspaceSettingsView reads from the active account's pool, so we
-    /// silently switch the active account first if needed.
-    /// Same-server taps push the route directly via `pendingWorkspaceId`
-    /// (used as a NavigationDestination trigger below); cross-server taps
-    /// stash the workspaceId in WorkspaceState and let the rebuilt
-    /// MainNavigator's onAppear push the route once the new pool is live.
     private func handleWorkspaceTap(accountId: String, workspaceId: String) {
-        if accountId == deps.auth.activeAccountId {
-            pendingWorkspaceId = workspaceId
-        } else {
-            workspaceState.pendingWorkspaceSettingsIdAfterSwitch = workspaceId
-            try? deps.db.pool(forAccountId: accountId)
-            deps.auth.switchAccount(id: accountId)
-        }
+        pendingWorkspace = WorkspaceNavTarget(accountId: accountId, workspaceId: workspaceId)
     }
 
     private var generalSection: some View {
@@ -180,6 +172,11 @@ struct SettingsView: View {
             VStack(spacing: 6) {
                 NavigationLink(value: AppRoute.integrations) {
                     settingsRow(icon: "puzzlepiece.extension", title: "Integrations")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink(value: AppRoute.syncDebug) {
+                    settingsRow(icon: "arrow.triangle.2.circlepath", title: "Sync diagnostics")
                 }
                 .buttonStyle(.plain)
 

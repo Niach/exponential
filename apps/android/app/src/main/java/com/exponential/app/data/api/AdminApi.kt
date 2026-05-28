@@ -42,9 +42,6 @@ data class SetAdminInput(val userId: String, val isAdmin: Boolean)
 data class DeleteUserInput(val userId: String)
 
 @Serializable
-data class DeleteWorkspaceInput(val workspaceId: String)
-
-@Serializable
 private object AdminEmptyInput
 
 @Singleton

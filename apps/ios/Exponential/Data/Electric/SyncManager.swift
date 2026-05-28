@@ -229,6 +229,8 @@ private func applyBatch<T: PersistableRecord & Sendable>(
                 try value.save(gdb)
             case let .update(_, value):
                 try value.save(gdb)
+            case let .partialUpdate(key, columnData):
+                try applyPartialUpdate(key: key, columnData: columnData, table: table, db: gdb)
             case let .delete(key, value):
                 if let value {
                     try value.delete(gdb)
@@ -241,6 +243,38 @@ private func applyBatch<T: PersistableRecord & Sendable>(
                 try gdb.execute(sql: "DELETE FROM \(table)")
             }
         }
+    }
+}
+
+private func applyPartialUpdate(key: String, columnData: Data, table: String, db: Database) throws {
+    guard let id = parseIdFromKey(key) else { return }
+    guard let columns = try? JSONSerialization.jsonObject(with: columnData) as? [String: Any] else { return }
+    let filtered = columns.filter { $0.key != "id" }
+    guard !filtered.isEmpty else { return }
+
+    let setClauses = filtered.keys.sorted().map { "\"\($0)\" = :\($0)" }
+    let sql = "UPDATE \"\(table)\" SET \(setClauses.joined(separator: ", ")) WHERE \"id\" = :_pk_id"
+
+    var args: [String: (any DatabaseValueConvertible)?] = ["_pk_id": id]
+    for (col, val) in filtered {
+        args[col] = sqlValue(from: val)
+    }
+    try db.execute(sql: sql, arguments: StatementArguments(args))
+}
+
+private func sqlValue(from value: Any) -> (any DatabaseValueConvertible)? {
+    switch value {
+    case let s as String: return s
+    case let i as Int: return i
+    case let d as Double: return d
+    case let b as Bool: return b
+    case is NSNull: return nil
+    default:
+        if let data = try? JSONSerialization.data(withJSONObject: value),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return nil
     }
 }
 

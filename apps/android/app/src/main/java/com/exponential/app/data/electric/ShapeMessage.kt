@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonElement
 sealed interface ShapeMessage<out T> {
     data class Insert<T>(val key: String, val value: T) : ShapeMessage<T>
     data class Update<T>(val key: String, val value: T) : ShapeMessage<T>
+    data class PartialUpdate(val key: String, val columns: String) : ShapeMessage<Nothing>
     data class Delete<T>(val key: String, val value: T?) : ShapeMessage<T>
     data object UpToDate : ShapeMessage<Nothing>
     data object MustRefetch : ShapeMessage<Nothing>

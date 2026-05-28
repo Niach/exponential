@@ -3,15 +3,16 @@ import GRDB
 
 enum AppRoute: Hashable {
     case home
-    case project(id: String)
-    case issue(id: String)
+    case project(accountId: String, id: String)
+    case issue(accountId: String, id: String)
     case settings
     case serverDetail(accountId: String)
-    case workspaceSettings(workspaceId: String)
+    case workspaceSettings(accountId: String, workspaceId: String)
     case integrations
     case adminUsers
     case adminWorkspaces
     case invite(token: String)
+    case syncDebug
 }
 
 struct AppNavigator: View {
@@ -65,27 +66,11 @@ struct MainNavigator: View {
             }
             startObserving()
             if workspaceState.workspaces.isEmpty {
-                // Per-account DB: an empty workspace table on mount means we haven't
-                // synced this server yet. Show a loading indicator while shapes catch up.
                 syncing = true
                 Task {
                     await deps.syncManager.initialSync()
                     syncing = false
                 }
-            }
-            // Consume any cross-server project-tap target left for us by the
-            // previous MainNavigator instance (before this account-switch
-            // rebuild). Push the project route now that the new account's
-            // pool is live.
-            if let pendingProjectId = workspaceState.pendingProjectIdAfterSwitch {
-                workspaceState.pendingProjectIdAfterSwitch = nil
-                path.append(AppRoute.project(id: pendingProjectId))
-            }
-            // Same handoff for Settings → Workspaces → cross-server tap.
-            if let pendingWorkspaceSettingsId = workspaceState.pendingWorkspaceSettingsIdAfterSwitch {
-                workspaceState.pendingWorkspaceSettingsIdAfterSwitch = nil
-                path.append(AppRoute.settings)
-                path.append(AppRoute.workspaceSettings(workspaceId: pendingWorkspaceSettingsId))
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
@@ -97,7 +82,7 @@ struct MainNavigator: View {
         }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
-                path.append(AppRoute.issue(id: issueId))
+                path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: issueId))
                 _ = deps.deepLinkBus.consume()
             }
         }
@@ -114,16 +99,19 @@ struct MainNavigator: View {
                 },
                 projectLoader: projectLoader
             )
-        case let .project(id):
+        case let .project(accountId, id):
             IssueListView(projectId: id)
-        case let .issue(id):
+                .environment(\.accountId, accountId)
+        case let .issue(accountId, id):
             IssueDetailView(issueId: id)
+                .environment(\.accountId, accountId)
         case .settings:
             SettingsView()
         case let .serverDetail(accountId):
             ServerDetailView(accountId: accountId)
-        case let .workspaceSettings(workspaceId):
+        case let .workspaceSettings(accountId, workspaceId):
             WorkspaceSettingsView(workspaceId: workspaceId)
+                .environment(\.accountId, accountId)
         case .integrations:
             IntegrationsView()
         case .adminUsers:
@@ -132,6 +120,8 @@ struct MainNavigator: View {
             AdminWorkspacesView()
         case let .invite(token):
             InviteAcceptView(token: token)
+        case .syncDebug:
+            SyncDebugView()
         }
     }
 
@@ -150,7 +140,7 @@ struct MainNavigator: View {
         }
         // Handle exp://issue/<issueId>
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
-            path.append(AppRoute.issue(id: String(issueId)))
+            path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: String(issueId)))
         }
         // Handle exp://invite/<token>
         if url.host == "invite", let token = url.pathComponents.dropFirst().first {
@@ -191,17 +181,7 @@ struct MainNavigator: View {
     }
 
     private func handleProjectTap(accountId: String, projectId: String) {
-        if accountId == deps.auth.activeAccountId {
-            // Same-server tap: just navigate.
-            path.append(AppRoute.project(id: projectId))
-        } else {
-            // Cross-server tap: stash the project id, swap pool + active
-            // account, and let the rebuilt MainNavigator's onAppear push the
-            // route once it's mounted under the new .id(activeAccountId).
-            workspaceState.pendingProjectIdAfterSwitch = projectId
-            try? deps.db.pool(forAccountId: accountId)
-            deps.auth.switchAccount(id: accountId)
-        }
+        path.append(AppRoute.project(accountId: accountId, id: projectId))
     }
 
     private func stopObserving() {

@@ -29,10 +29,10 @@ struct ServerDetailView: View {
                 .padding(.bottom, 96)
             }
         }
-        .navigationTitle(account?.displayHost ?? "Server")
+        .navigationTitle(account?.displayName ?? "Server")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .alert(
-            "Remove \(account?.displayHost ?? "server")?",
+            "Remove \(account?.displayName ?? "server")?",
             isPresented: $showRemoveConfirm
         ) {
             Button("Cancel", role: .cancel) {}
@@ -56,7 +56,7 @@ struct ServerDetailView: View {
                     .font(.title3)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(account?.displayHost ?? "")
+                    Text(account?.displayName ?? "")
                         .font(.body)
                         .foregroundStyle(.white)
                     if let email = account?.userEmail, !email.isEmpty {

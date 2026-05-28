@@ -6,7 +6,6 @@ struct HomeView: View {
     var projectLoader: MultiAccountProjectLoader? = nil
 
     @Environment(AppDependencies.self) private var deps
-    @Environment(WorkspaceState.self) private var workspaceState
 
     var body: some View {
         ZStack {
@@ -49,7 +48,7 @@ struct HomeView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                avatarMenu
+                settingsButton
             }
         }
     }
@@ -103,41 +102,14 @@ struct HomeView: View {
         }
     }
 
-    private var avatarMenu: some View {
-        Menu {
-            NavigationLink(value: AppRoute.settings) {
-                Label("Settings", systemImage: "gearshape")
-            }
-        } label: {
-            avatarCircle
+    private var settingsButton: some View {
+        NavigationLink(value: AppRoute.settings) {
+            Image(systemName: "gearshape")
+                .font(.body)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
         }
-    }
-
-    private var avatarCircle: some View {
-        Text(userInitials)
-            .font(.caption.weight(.bold))
-            .foregroundStyle(.white)
-            .frame(width: 28, height: 28)
-            .background(Color.blue.opacity(0.6))
-            .clipShape(Circle())
-    }
-
-    private var userInitials: String {
-        if let name = deps.auth.userName, !name.isEmpty {
-            let parts = name.split(separator: " ")
-            if parts.count >= 2, let first = parts.first?.first, let last = parts.last?.first {
-                return "\(first)\(last)".uppercased()
-            }
-            if let first = name.first {
-                return String(first).uppercased()
-            }
-        }
-        if let email = deps.auth.userEmail, let first = email.first {
-            return String(first).uppercased()
-        }
-        return "?"
     }
 
     @ViewBuilder

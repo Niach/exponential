@@ -209,7 +209,7 @@ struct IssueListView: View {
 
     @ViewBuilder
     private func issueRow(issue: IssueEntity, vm: IssueListViewModel) -> some View {
-        NavigationLink(value: AppRoute.issue(id: issue.id)) {
+        NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
             HStack(spacing: 10) {
                 // Priority icon
                 Image(systemName: IssuePriority.from(issue.priority).sfSymbol)

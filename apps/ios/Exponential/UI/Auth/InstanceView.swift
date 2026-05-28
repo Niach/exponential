@@ -19,7 +19,7 @@ struct InstanceView: View {
     // hiding the button removes that path entirely. Users can still switch to
     // the existing cloud account from Settings.
     private var cloudAlreadyAdded: Bool {
-        let normalized = AppConstants.publicCloudUrl
+        let normalized = AppConstants.defaultCloudUrl
         return deps.auth.accounts.contains { $0.instanceUrl == normalized }
     }
 
@@ -43,15 +43,24 @@ struct InstanceView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if !cloudAlreadyAdded {
                         Button {
-                            deps.auth.setInstanceUrl(AppConstants.publicCloudUrl)
+                            deps.auth.setInstanceUrl(AppConstants.defaultCloudUrl)
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "cloud")
-                                    .font(.body)
-                                    .foregroundStyle(.white)
-                                Text("Use Exponential Cloud")
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(.white)
+                                if AppConstants.isStaging {
+                                    Image(systemName: "flask")
+                                        .font(.body)
+                                        .foregroundStyle(.orange)
+                                    Text("Use Staging Cloud")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.white)
+                                } else {
+                                    Image(systemName: "cloud")
+                                        .font(.body)
+                                        .foregroundStyle(.white)
+                                    Text("Use Exponential Cloud")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.white)
+                                }
                                 Spacer()
                                 Image(systemName: "arrow.right")
                                     .font(.caption.weight(.semibold))

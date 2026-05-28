@@ -60,7 +60,7 @@ final class MultiAccountProjectLoader: @unchecked Sendable {
             guard !blocks.isEmpty else { return nil }
             return ServerProjectGroup(
                 accountId: account.id,
-                hostname: account.displayHost,
+                hostname: account.displayName,
                 userEmail: account.userEmail,
                 workspaceBlocks: blocks
             )

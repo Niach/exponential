@@ -19,4 +19,10 @@ struct ServerAccount: Codable, Identifiable, Equatable, Hashable, Sendable {
     var displayHost: String {
         URL(string: instanceUrl)?.host ?? instanceUrl
     }
+
+    var displayName: String {
+        if instanceUrl == AppConstants.publicCloudUrl { return "Cloud" }
+        if instanceUrl == AppConstants.stagingCloudUrl { return "Staging" }
+        return displayHost
+    }
 }

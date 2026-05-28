@@ -138,6 +138,7 @@ class ShapeClient<T : Any>(
         return when (operation) {
             "insert" -> decodedValue?.let { ShapeMessage.Insert(key, it) }
             "update" -> decodedValue?.let { ShapeMessage.Update(key, it) }
+                ?: (valueJson as? JsonObject)?.let { ShapeMessage.PartialUpdate(key, it.toString()) }
             "delete" -> ShapeMessage.Delete(key, decodedValue)
             else -> null
         }
