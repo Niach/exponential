@@ -10,7 +10,7 @@ struct CreateIssueSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var title = ""
-    @State private var description = ""
+    @State private var editor = IssueEditorModel()
     @State private var status: IssueStatus = .backlog
     @State private var priority: IssuePriority = .none
     @State private var dueDate: Date?
@@ -21,7 +21,6 @@ struct CreateIssueSheet: View {
     @State private var recurrenceUnit: RecurrenceUnit?
     @State private var selectedLabelIds: Set<String> = []
     @State private var users: [UserEntity] = []
-    @State private var pendingImages: [String: PendingImage] = [:]
     @State private var createMore = false
     @State private var loading = false
     @State private var error: String?
@@ -54,10 +53,12 @@ struct CreateIssueSheet: View {
                                     .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
                             )
 
-                        // Description (markdown editor with image upload)
+                        // Description (block-based markdown editor with images)
                         MarkdownEditor(
-                            text: $description,
-                            pendingImages: $pendingImages
+                            model: editor,
+                            baseURL: instanceBaseURL,
+                            accountId: accountId,
+                            httpClient: deps.httpClient
                         )
 
                         // Metadata row
@@ -193,7 +194,7 @@ struct CreateIssueSheet: View {
             .onAppear {
                 titleFocused = true
                 Task {
-                    let pool = try! deps.db.pool(forAccountId: accountId)
+                    guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
                     if let loaded = try? await pool.read({ db in
                         try UserEntity.fetchAll(db)
                     }) {
@@ -302,13 +303,12 @@ struct CreateIssueSheet: View {
         let dateStr = dueDate.map { formatDate($0) }
 
         // The server rejects markdown images on creation (they have to be
-        // associated with an existing issue id). Strip drafts from the
-        // initial create payload; we'll upload + restore them right after
-        // the issue exists.
-        let stripped = MarkdownImageUtils.stripUnknownDraftImages(
-            description,
-            keep: []
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        // associated with an existing issue id). Create with images stripped,
+        // then upload + patch them in once the issue exists.
+        let fullMarkdown = editor.currentMarkdown()
+        let stripped = MarkdownImageUtils
+            .stripUnknownDraftImages(fullMarkdown, keep: [])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let input = CreateIssueInput(
             projectId: projectId,
@@ -328,40 +328,29 @@ struct CreateIssueSheet: View {
         do {
             let createdId = try await deps.issuesApi.create(accountId: accountId, input)
 
-            // Upload any drafts, swap their URLs into the original
-            // description, and patch the issue with the final markdown.
-            if !pendingImages.isEmpty {
-                var finalDescription = description
-                var stillPending = pendingImages
-                for (placeholder, image) in pendingImages {
-                    do {
-                        let uploaded = try await deps.issueImagesApi.upload(
-                            accountId: accountId,
-                            issueId: createdId,
-                            data: image.data,
-                            filename: image.filename,
-                            contentType: image.contentType
-                        )
-                        finalDescription = MarkdownImageUtils.replaceImageUrl(
-                            in: finalDescription,
-                            from: placeholder,
-                            to: uploaded.url
-                        )
-                        stillPending.removeValue(forKey: placeholder)
-                    } catch {
-                        stillPending.removeValue(forKey: placeholder)
-                    }
+            // Upload drafts atomically against the new issue id and patch the
+            // final markdown (with real attachment URLs swapped in by block).
+            if !editor.pendingImages.isEmpty {
+                let api = deps.issueImagesApi
+                let acc = accountId
+                let uploader: @Sendable (PendingImage) async throws -> String = { image in
+                    let uploaded = try await api.upload(
+                        accountId: acc,
+                        issueId: createdId,
+                        data: image.data,
+                        filename: image.filename,
+                        contentType: image.contentType
+                    )
+                    return uploaded.url
                 }
-                finalDescription = MarkdownImageUtils.stripUnknownDraftImages(
-                    finalDescription,
-                    keep: []
-                )
-                if finalDescription != stripped {
+                let allUploaded = await editor.commitPendingImages(uploader: uploader)
+                let finalMarkdown = editor.currentMarkdown()
+                if allUploaded, !editor.hasUncommittedDrafts, finalMarkdown != stripped {
                     try await deps.issuesApi.update(
                         accountId: accountId,
                         UpdateIssueInput(
                             id: createdId,
-                            description: IssueDescription(text: finalDescription)
+                            description: finalMarkdown.isEmpty ? nil : IssueDescription(text: finalMarkdown)
                         )
                     )
                 }
@@ -369,8 +358,7 @@ struct CreateIssueSheet: View {
 
             if createMore {
                 title = ""
-                description = ""
-                pendingImages = [:]
+                editor = IssueEditorModel()
                 titleFocused = true
             } else {
                 dismiss()
@@ -380,6 +368,11 @@ struct CreateIssueSheet: View {
             self.error = error.localizedDescription
         }
         loading = false
+    }
+
+    private var instanceBaseURL: URL? {
+        let instanceUrl = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? deps.auth.instanceUrl
+        return instanceUrl.flatMap { URL(string: $0) }
     }
 
     private func formatDate(_ date: Date) -> String {

@@ -384,11 +384,13 @@ struct AttachmentEntity: Codable, FetchableRecord, PersistableRecord, Identifiab
     let sizeBytes: Int
     let storageKey: String
     let url: String
+    let width: Int?
+    let height: Int?
     let createdAt: String
     let updatedAt: String
 
     enum CodingKeys: String, CodingKey {
-        case id, filename, url
+        case id, filename, url, width, height
         case workspaceId = "workspace_id"
         case issueId = "issue_id"
         case commentId = "comment_id"

@@ -10,6 +10,7 @@ import {
   isAcceptedImageContentType,
   maxImageUploadBytes,
 } from "@/lib/storage/issue-attachments"
+import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
 import {
   assertWorkspaceMember,
@@ -72,6 +73,9 @@ async function uploadIssueImage({
   )
   const url = buildAttachmentUrl(attachmentId)
   const body = new Uint8Array(await file.arrayBuffer())
+  // Best-effort intrinsic dimensions so clients can pre-size the image; never
+  // block the upload if probing fails (e.g. AVIF or a truncated header).
+  const dimensions = getImageDimensions(body)
 
   await uploadObject({
     body,
@@ -91,6 +95,8 @@ async function uploadIssueImage({
       sizeBytes: file.size,
       storageKey,
       url,
+      width: dimensions?.width ?? null,
+      height: dimensions?.height ?? null,
     })
   } catch (error) {
     try {
@@ -111,6 +117,8 @@ async function uploadIssueImage({
     filename: file.name,
     contentType: file.type,
     sizeBytes: file.size,
+    width: dimensions?.width ?? null,
+    height: dimensions?.height ?? null,
   })
 }
 

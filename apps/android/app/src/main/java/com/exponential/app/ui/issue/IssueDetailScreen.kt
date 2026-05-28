@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -262,6 +263,11 @@ fun IssueDetailScreen(
                 onUploadImage = { uri -> viewModel.uploadImage(uri) },
                 imageUploadEnabled = true,
             )
+
+            // Persist any pending (debounced) description edit when leaving.
+            DisposableEffect(Unit) {
+                onDispose { viewModel.flushDescription() }
+            }
 
             Spacer(Modifier.height(20.dp))
             AttachmentList(issueId = issue.id)

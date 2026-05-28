@@ -190,6 +190,31 @@ html {
   list-style: decimal;
 }
 
+/* GFM task lists ( - [ ] / - [x] ) */
+.tiptap-content ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+
+.tiptap-content ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.tiptap-content ul[data-type="taskList"] li > label {
+  margin-top: 0.2rem;
+  user-select: none;
+}
+
+.tiptap-content ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+}
+
+.tiptap-content ul[data-type="taskList"] input[type="checkbox"] {
+  cursor: pointer;
+}
+
 .tiptap-content blockquote {
   border-left: 2px solid oklch(1 0 0 / 15%);
   padding-left: 0.75rem;

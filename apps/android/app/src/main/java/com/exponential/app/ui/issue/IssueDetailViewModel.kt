@@ -18,13 +18,17 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -40,7 +44,7 @@ data class IssueDetailState(
     val assignee: UserEntity? = null,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class IssueDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -102,6 +106,11 @@ class IssueDetailViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
 
+    // Debounced description autosave: editing fires updateDescription() on every
+    // keystroke, but we only hit the API after the user pauses (or on flush),
+    // instead of one tRPC mutation per character.
+    private val descriptionInput = MutableStateFlow<String?>(null)
+
     init {
         viewModelScope.launch {
             issueFlow
@@ -112,6 +121,12 @@ class IssueDetailViewModel @Inject constructor(
                     }
                 }
                 .collect { _project.value = it }
+        }
+        viewModelScope.launch {
+            descriptionInput
+                .filterNotNull()
+                .debounce(800)
+                .collect { saveDescription(it) }
         }
     }
 
@@ -126,14 +141,24 @@ class IssueDetailViewModel @Inject constructor(
     }
 
     fun updateDescription(text: String) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                issuesApi.update(
-                    accountId,
-                    UpdateIssueInput(id = issueId, description = IssueDescription(text))
-                )
-            }
+        descriptionInput.value = text
+    }
+
+    /** Persist the latest description immediately, e.g. when leaving the screen. */
+    fun flushDescription() {
+        val text = descriptionInput.value ?: return
+        viewModelScope.launch { saveDescription(text) }
+    }
+
+    private suspend fun saveDescription(text: String) {
+        val accountId = auth.activeAccountId.value ?: return
+        // Skip no-op saves (debounce can fire with the already-persisted value).
+        if (text == extractDescriptionMarkdown(state.value.issue?.description)) return
+        runCatching {
+            issuesApi.update(
+                accountId,
+                UpdateIssueInput(id = issueId, description = IssueDescription(text))
+            )
         }
     }
 

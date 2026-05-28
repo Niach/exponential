@@ -7,67 +7,54 @@ private let log = Logger(subsystem: "com.exponential", category: "MarkdownEditor
 
 // MARK: - Public SwiftUI View
 
+/// Block-based markdown editor. Renders the blocks owned by `IssueEditorModel`
+/// and routes every edit back through it; the model is the single source of
+/// truth and derives markdown only at save points.
 struct MarkdownEditor: View {
-    @Binding var text: String
-    @Binding var pendingImages: [String: PendingImage]
+    let model: IssueEditorModel
     var placeholder: String = "Add description..."
     var baseURL: URL?
     var accountId: String = ""
     var httpClient: HTTPClient?
 
-    @State private var blocks: [ContentBlock] = []
-    @State private var focusedBlockId: UUID?
-    @State private var lastFlushedMarkdown: String = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
-    @State private var cursorAfterMerge: (blockId: UUID, position: Int)?
+    @State private var showLinkAlert = false
+    @State private var linkURLText = ""
     @State private var toolbar = MarkdownToolbar()
 
     var body: some View {
-        ScrollViewReader { proxy in
+        ScrollViewReader { _ in
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(blocks) { block in
+                    ForEach(model.blocks) { block in
                         switch block {
                         case .text(let id, let content):
-                            BlockTextView(
+                            BlockTextEditor(
+                                model: model,
                                 blockId: id,
                                 content: content,
-                                placeholder: blocks.count == 1 && blocks.first?.id == id ? placeholder : nil,
-                                isFocused: focusedBlockId == id,
+                                revision: model.revision(for: id),
+                                isFocused: model.focusedBlockId == id,
+                                placeholder: isSolePlaceholderBlock(id) ? placeholder : nil,
                                 toolbar: toolbar,
-                                cursorPosition: cursorAfterMerge?.blockId == id ? cursorAfterMerge?.position : nil,
-                                onTextChange: { newContent in
-                                    updateTextBlock(id: id, content: newContent)
-                                },
-                                onFocus: {
-                                    focusedBlockId = id
-                                },
-                                onBlur: {
-                                    if focusedBlockId == id { focusedBlockId = nil }
-                                },
-                                onDeleteBackwardAtStart: {
-                                    deleteImageBefore(textBlockId: id)
-                                },
-                                onPasteImage: { image in
-                                    pasteImage(image)
-                                }
+                                onPasteImage: { image in insert(uiImage: image) }
                             )
                             .id(id)
 
-                        case .image(let id, let url, _):
+                        case .image(let id, let url, let alt):
                             BlockImageView(
+                                model: model,
+                                blockId: id,
                                 url: url,
-                                pendingImages: pendingImages,
+                                alt: alt,
                                 baseURL: baseURL,
                                 accountId: accountId,
                                 httpClient: httpClient,
-                                onDelete: { deleteImageBlock(id: id) },
-                                onTapBelow: {
-                                    if let idx = blocks.firstIndex(where: { $0.id == id }), idx + 1 < blocks.count {
-                                        focusedBlockId = blocks[idx + 1].id
-                                    }
-                                }
+                                pendingImages: model.pendingImages,
+                                onDelete: { model.deleteImageBlock(id: id) },
+                                onTapBelow: { focusBlock(after: id) },
+                                onRetry: { triggerRetry() }
                             )
                             .id(id)
                         }
@@ -83,83 +70,40 @@ struct MarkdownEditor: View {
             guard let newItem else { return }
             Task { await ingestPhoto(newItem) }
         }
+        .alert("Add Link", isPresented: $showLinkAlert) {
+            TextField("https://", text: $linkURLText)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+            Button("Cancel", role: .cancel) { linkURLText = "" }
+            Button("Add") {
+                applyLink(urlText: linkURLText)
+                linkURLText = ""
+            }
+        } message: {
+            Text("Link the selected text to a URL.")
+        }
         .onAppear {
             toolbar.onImagePick = { showPhotoPicker = true }
-            syncBlocksFromMarkdown()
-        }
-        .onChange(of: text) { _, newText in
-            guard newText != lastFlushedMarkdown else { return }
-            syncBlocksFromMarkdown()
+            toolbar.onInsertLink = { showLinkAlert = true }
         }
     }
 
-    // MARK: - Sync
-
-    private func syncBlocksFromMarkdown() {
-        blocks = MarkdownConversion.markdownToBlocks(text, baseURL: baseURL)
-        lastFlushedMarkdown = text
+    private func isSolePlaceholderBlock(_ id: UUID) -> Bool {
+        model.blocks.count == 1 && model.blocks.first?.id == id
     }
 
-    private func flushBlocksToMarkdown() {
-        let md = MarkdownConversion.blocksToMarkdown(blocks)
-        lastFlushedMarkdown = md
-        text = md
+    private func focusBlock(after id: UUID) {
+        guard let idx = model.blocks.firstIndex(where: { $0.id == id }), idx + 1 < model.blocks.count else { return }
+        model.setFocused(model.blocks[idx + 1].id)
     }
 
-    // MARK: - Block Manipulation
-
-    private func updateTextBlock(id: UUID, content: NSAttributedString) {
-        guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
-        blocks[idx] = .text(id: id, attributedContent: content)
-        flushBlocksToMarkdown()
+    private func triggerRetry() {
+        // Retry simply re-runs the host's commit; failed drafts still carry
+        // their in-memory data, so the next commit re-uploads them.
+        model.onEdit?()
     }
 
-    private func deleteImageBefore(textBlockId: UUID) {
-        guard let textIndex = blocks.firstIndex(where: { $0.id == textBlockId }),
-              textIndex > 0,
-              case .image = blocks[textIndex - 1] else { return }
-
-        if textIndex >= 2,
-           case .text(let prevId, let prevContent) = blocks[textIndex - 2],
-           case .text(_, let currentContent) = blocks[textIndex] {
-            let merged = NSMutableAttributedString(attributedString: prevContent)
-            let mergePoint = merged.length
-            merged.append(currentContent)
-            blocks.replaceSubrange((textIndex - 2)...textIndex, with: [
-                .text(id: prevId, attributedContent: merged),
-            ])
-            cursorAfterMerge = (blockId: prevId, position: mergePoint)
-            focusedBlockId = prevId
-        } else {
-            blocks.remove(at: textIndex - 1)
-            ContentBlock.normalize(&blocks)
-        }
-        flushBlocksToMarkdown()
-        DispatchQueue.main.async { cursorAfterMerge = nil }
-    }
-
-    private func deleteImageBlock(id: UUID) {
-        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
-        let prevIndex = index - 1
-        let nextIndex = index + 1
-
-        if prevIndex >= 0, nextIndex < blocks.count,
-           case .text(let prevId, let prevContent) = blocks[prevIndex],
-           case .text(_, let nextContent) = blocks[nextIndex] {
-            let merged = NSMutableAttributedString(attributedString: prevContent)
-            merged.append(nextContent)
-            blocks.replaceSubrange(prevIndex...nextIndex, with: [
-                .text(id: prevId, attributedContent: merged),
-            ])
-            focusedBlockId = prevId
-        } else {
-            blocks.remove(at: index)
-            ContentBlock.normalize(&blocks)
-        }
-        flushBlocksToMarkdown()
-    }
-
-    // MARK: - Image Insertion
+    // MARK: - Image insertion
 
     private func ingestPhoto(_ item: PhotosPickerItem) async {
         defer { photoItem = nil }
@@ -167,61 +111,58 @@ struct MarkdownEditor: View {
         let contentType = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
         let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
         let filename = "image-\(Int(Date().timeIntervalSince1970)).\(ext)"
-        insertImageData(data: data, filename: filename, contentType: contentType)
+        let (width, height) = pixelSize(of: data)
+        model.insertImage(data: data, filename: filename, contentType: contentType, width: width, height: height)
     }
 
-    private func pasteImage(_ image: UIImage) {
+    private func insert(uiImage image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-        insertImageData(data: data, filename: "pasted-\(Int(Date().timeIntervalSince1970)).jpg", contentType: "image/jpeg")
+        let scale = image.scale
+        let width = Int(image.size.width * scale)
+        let height = Int(image.size.height * scale)
+        model.insertImage(
+            data: data,
+            filename: "pasted-\(Int(Date().timeIntervalSince1970)).jpg",
+            contentType: "image/jpeg",
+            width: width > 0 ? width : nil,
+            height: height > 0 ? height : nil
+        )
     }
 
-    private func insertImageData(data: Data, filename: String, contentType: String) {
-        let draftUrl = MarkdownImageUtils.draftUrl()
-        pendingImages[draftUrl] = PendingImage(data: data, filename: filename, contentType: contentType)
+    private func pixelSize(of data: Data) -> (Int?, Int?) {
+        guard let image = UIImage(data: data) else { return (nil, nil) }
+        let w = Int(image.size.width * image.scale)
+        let h = Int(image.size.height * image.scale)
+        return (w > 0 ? w : nil, h > 0 ? h : nil)
+    }
 
-        guard let focusedId = focusedBlockId,
-              let blockIndex = blocks.firstIndex(where: { $0.id == focusedId }),
-              case .text(_, let content) = blocks[blockIndex] else {
-            let afterId = UUID()
-            blocks.append(.image(id: UUID(), url: draftUrl, alt: "image"))
-            blocks.append(.text(id: afterId, attributedContent: NSAttributedString()))
-            ContentBlock.normalize(&blocks)
-            focusedBlockId = afterId
-            flushBlocksToMarkdown()
-            return
-        }
+    // MARK: - Link insertion
 
-        let cursorPos = toolbar.textView?.selectedRange.location ?? content.length
-
-        let beforeContent: NSAttributedString
-        let afterContent: NSAttributedString
-
-        if cursorPos <= 0 {
-            beforeContent = NSAttributedString()
-            afterContent = content
-        } else if cursorPos >= content.length {
-            beforeContent = content
-            afterContent = NSAttributedString()
+    private func applyLink(urlText: String) {
+        let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let tv = toolbar.textView else { return }
+        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let url = URL(string: normalized) else { return }
+        let range = tv.selectedRange
+        if range.length > 0 {
+            tv.textStorage.addAttributes([
+                .link: url,
+                .foregroundColor: MarkdownStyle.linkColor,
+            ], range: range)
         } else {
-            beforeContent = content.attributedSubstring(from: NSRange(location: 0, length: cursorPos))
-            afterContent = content.attributedSubstring(from: NSRange(location: cursorPos, length: content.length - cursorPos))
+            let linkText = NSAttributedString(string: normalized, attributes: [
+                .link: url,
+                .foregroundColor: MarkdownStyle.linkColor,
+                .font: MarkdownStyle.bodyFont,
+            ])
+            tv.textStorage.insert(linkText, at: range.location)
+            tv.selectedRange = NSRange(location: range.location + linkText.length, length: 0)
         }
-
-        let beforeId = UUID()
-        let afterId = UUID()
-
-        blocks.replaceSubrange(blockIndex...blockIndex, with: [
-            .text(id: beforeId, attributedContent: beforeContent),
-            .image(id: UUID(), url: draftUrl, alt: "image"),
-            .text(id: afterId, attributedContent: afterContent),
-        ])
-
-        focusedBlockId = afterId
-        flushBlocksToMarkdown()
+        tv.delegate?.textViewDidChange?(tv)
     }
 }
 
-// MARK: - Block Text View (UIViewRepresentable)
+// MARK: - Editor Text View (UITextView subclass)
 
 private final class EditorTextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
@@ -279,18 +220,16 @@ extension EditorTextView: UIGestureRecognizerDelegate {
     }
 }
 
-private struct BlockTextView: UIViewRepresentable {
+// MARK: - Block Text Editor (UIViewRepresentable)
+
+private struct BlockTextEditor: UIViewRepresentable {
+    let model: IssueEditorModel
     let blockId: UUID
     let content: NSAttributedString
-    let placeholder: String?
+    let revision: Int
     let isFocused: Bool
+    let placeholder: String?
     let toolbar: MarkdownToolbar
-    let cursorPosition: Int?
-
-    var onTextChange: (NSAttributedString) -> Void
-    var onFocus: () -> Void
-    var onBlur: () -> Void
-    var onDeleteBackwardAtStart: () -> Void
     var onPasteImage: (UIImage) -> Void
 
     func makeUIView(context: Context) -> EditorTextView {
@@ -303,55 +242,57 @@ private struct BlockTextView: UIViewRepresentable {
         tv.isScrollEnabled = false
         tv.alwaysBounceVertical = false
         tv.textContainerInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
-        tv.keyboardAppearance = .dark
+        tv.keyboardAppearance = .dark // app chrome is forced-dark
         tv.autocorrectionType = .default
         tv.autocapitalizationType = .sentences
         tv.typingAttributes = MarkdownStyle.baseAttributes
         tv.inputAccessoryView = toolbar
-
         tv.delegate = context.coordinator
-        context.coordinator.textView = tv
 
-        let coordinator = context.coordinator
-        tv.onDeleteBackwardAtStart = { [weak coordinator] in
-            coordinator?.onDeleteBackwardAtStart()
-        }
-        tv.onPasteImage = { [weak coordinator] image in
-            coordinator?.onPasteImage(image)
-        }
+        let coord = context.coordinator
+        coord.textView = tv
+        coord.model = model
+        coord.blockId = blockId
+        coord.onPasteImage = onPasteImage
+        coord.appliedRevision = revision
 
+        tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
+        tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
+
+        coord.beginProgrammaticChange()
         tv.attributedText = content
+        coord.endProgrammaticChange()
         if content.length == 0, let placeholder {
-            coordinator.showPlaceholder(in: tv, text: placeholder)
+            coord.showPlaceholder(in: tv, text: placeholder)
         }
-
         return tv
     }
 
     func updateUIView(_ tv: EditorTextView, context: Context) {
         let coord = context.coordinator
-        guard !coord.isUpdating else { return }
-        coord.isUpdating = true
+        coord.model = model
+        coord.blockId = blockId
+        coord.onPasteImage = onPasteImage
+        tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
+        tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
 
-        coord.onTextChangeCallback = onTextChange
-        coord.onFocusCallback = onFocus
-        coord.onBlurCallback = onBlur
-        coord.onDeleteBackwardCallback = onDeleteBackwardAtStart
-        coord.onPasteImageCallback = onPasteImage
-
-        tv.onDeleteBackwardAtStart = { [weak coord] in coord?.onDeleteBackwardAtStart() }
-        tv.onPasteImage = { [weak coord] image in coord?.onPasteImage(image) }
-
-        if !coord.hasLocalEdits(for: content) {
+        // Apply EXTERNAL content changes only (structural edits / remote apply),
+        // identified by a bumped revision. The user's own keystrokes never bump
+        // the revision, so we never clobber what they just typed.
+        if revision != coord.appliedRevision {
+            coord.appliedRevision = revision
             let savedRange = tv.selectedRange
+            coord.beginProgrammaticChange()
             tv.attributedText = content
+            coord.endProgrammaticChange()
             let pos = min(savedRange.location, tv.textStorage.length)
             tv.selectedRange = NSRange(location: pos, length: 0)
-            coord.lastContent = content
         }
 
-        if let cursorPosition {
-            let pos = min(cursorPosition, tv.textStorage.length)
+        // Caret requested by a structural mutation (merge/split), applied inline
+        // — no DispatchQueue hop. Consumed once.
+        if let desired = model.consumeDesiredSelection(for: blockId) {
+            let pos = min(desired, tv.textStorage.length)
             tv.selectedRange = NSRange(location: pos, length: 0)
         }
 
@@ -368,36 +309,27 @@ private struct BlockTextView: UIViewRepresentable {
         if tv.isFirstResponder {
             toolbar.textView = tv
         }
-
-        coord.isUpdating = false
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
-        var isUpdating = false
-        var lastContent: NSAttributedString?
         weak var textView: EditorTextView?
+        var model: IssueEditorModel?
+        var blockId: UUID?
+        var onPasteImage: ((UIImage) -> Void)?
+        var appliedRevision = 0
+
+        private var isProgrammaticChange = false
         private var placeholderLabel: UILabel?
 
-        var onTextChangeCallback: ((NSAttributedString) -> Void)?
-        var onFocusCallback: (() -> Void)?
-        var onBlurCallback: (() -> Void)?
-        var onDeleteBackwardCallback: (() -> Void)?
-        var onPasteImageCallback: ((UIImage) -> Void)?
+        func beginProgrammaticChange() { isProgrammaticChange = true }
+        func endProgrammaticChange() { isProgrammaticChange = false }
 
-        func hasLocalEdits(for externalContent: NSAttributedString) -> Bool {
-            guard let last = lastContent else { return false }
-            return last.string != externalContent.string
-        }
-
-        func onDeleteBackwardAtStart() {
-            onDeleteBackwardCallback?()
-        }
-
-        func onPasteImage(_ image: UIImage) {
-            onPasteImageCallback?(image)
+        func handleDeleteBackwardAtStart() {
+            guard let model, let blockId else { return }
+            model.deleteImage(beforeTextBlock: blockId)
         }
 
         func showPlaceholder(in tv: UITextView, text: String) {
@@ -425,78 +357,59 @@ private struct BlockTextView: UIViewRepresentable {
         // MARK: UITextViewDelegate
 
         func textViewDidBeginEditing(_ tv: UITextView) {
-            onFocusCallback?()
-        }
-
-        func textViewDidChange(_ tv: UITextView) {
-            guard !isUpdating else { return }
-            if tv.textStorage.length == 0 {
-                placeholderLabel?.isHidden = false
-            } else {
-                placeholderLabel?.isHidden = true
-            }
-            flushNow(tv)
-        }
-
-        func textViewDidChangeSelection(_ tv: UITextView) {
-            if let toolbar = tv.inputAccessoryView as? MarkdownToolbar {
-                toolbar.updateState()
-            }
+            guard let blockId else { return }
+            model?.setFocused(blockId)
         }
 
         func textViewDidEndEditing(_ tv: UITextView) {
-            onBlurCallback?()
+            guard let blockId else { return }
+            model?.clearFocusIfMatches(blockId)
+        }
+
+        func textViewDidChange(_ tv: UITextView) {
+            guard !isProgrammaticChange else { return }
+            placeholderLabel?.isHidden = tv.textStorage.length != 0
+            guard let model, let blockId else { return }
+            let snapshot = NSAttributedString(attributedString: tv.attributedText)
+            model.updateText(id: blockId, content: snapshot)
+        }
+
+        func textViewDidChangeSelection(_ tv: UITextView) {
+            if !isProgrammaticChange, let model, let blockId {
+                model.updateSelection(blockId: blockId, range: tv.selectedRange)
+            }
+            (tv.inputAccessoryView as? MarkdownToolbar)?.updateState()
         }
 
         func textView(_ tv: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let storage = tv.textStorage
             guard storage.length > 0 else { return true }
+            let nsString = storage.string as NSString
 
-            // Backspace on empty list item → exit list mode
+            // Backspace on an empty list item → exit list mode.
             if text.isEmpty, range.length > 0 {
-                let clampedLoc = min(range.location, storage.length - 1)
-                guard clampedLoc >= 0 else { return true }
-                let paraRange = (storage.string as NSString).paragraphRange(for: NSRange(location: clampedLoc, length: 0))
-                guard paraRange.location < storage.length else { return true }
-                let attrs = storage.attributes(at: paraRange.location, effectiveRange: nil)
-                if attrs[.markdownListType] as? String != nil {
-                    let paraText = (storage.string as NSString).substring(with: paraRange).trimmingCharacters(in: .newlines)
-                    let content = paraText.replacingOccurrences(of: #"^(\d+\.\s|[\u{2022}\u{2610}\u{2611}]\s?)"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-                    if content.isEmpty {
-                        if paraRange.length > 0 { storage.replaceCharacters(in: paraRange, with: "") }
-                        let style = NSMutableParagraphStyle()
-                        style.lineSpacing = 4
-                        tv.typingAttributes = MarkdownStyle.baseAttributes
-                        tv.typingAttributes[.paragraphStyle] = style
-                        tv.typingAttributes.removeValue(forKey: .markdownListType)
-                        tv.typingAttributes.removeValue(forKey: .markdownListItemIndex)
-                        tv.typingAttributes.removeValue(forKey: .markdownListDepth)
-                        textViewDidChange(tv)
+                let paraRange = nsString.safeParagraphRange(at: range.location)
+                if let attrs = storage.attributesIfInBounds(at: paraRange.location),
+                   attrs[.markdownListType] as? String != nil {
+                    let paraText = nsString.substring(with: paraRange).trimmingCharacters(in: .newlines)
+                    let listContent = stripListPrefix(paraText)
+                    if listContent.isEmpty {
+                        clearListParagraph(tv: tv, storage: storage, paraRange: paraRange)
                         return false
                     }
                 }
             }
 
-            // Enter in list → continue or exit
-            guard text == "\n", range.location >= 0, storage.length > 0 else { return true }
-            let paraRange = (storage.string as NSString).paragraphRange(for: NSRange(location: min(range.location, storage.length - 1), length: 0))
-            guard paraRange.location < storage.length else { return true }
-            let attrs = storage.attributes(at: paraRange.location, effectiveRange: nil)
-            guard let listType = attrs[.markdownListType] as? String else { return true }
+            // Enter in a list → continue or exit.
+            guard text == "\n" else { return true }
+            let paraRange = nsString.safeParagraphRange(at: range.location)
+            guard let attrs = storage.attributesIfInBounds(at: paraRange.location),
+                  let listType = attrs[.markdownListType] as? String else { return true }
 
-            let paraText = (storage.string as NSString).substring(with: paraRange).trimmingCharacters(in: .newlines)
-            let listContent = paraText.replacingOccurrences(of: #"^(\d+\.\s|[\u{2022}\u{2610}\u{2611}]\s?)"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-
+            let paraText = nsString.substring(with: paraRange).trimmingCharacters(in: .newlines)
+            let listContent = stripListPrefix(paraText)
             if listContent.isEmpty {
-                if paraRange.length > 0 { storage.replaceCharacters(in: paraRange, with: "") }
-                let style = NSMutableParagraphStyle()
-                style.lineSpacing = 4
-                tv.typingAttributes = MarkdownStyle.baseAttributes
-                tv.typingAttributes[.paragraphStyle] = style
-                tv.typingAttributes.removeValue(forKey: .markdownListType)
-                tv.typingAttributes.removeValue(forKey: .markdownListItemIndex)
-                tv.typingAttributes.removeValue(forKey: .markdownListDepth)
-                textViewDidChange(tv)
+                clearListParagraph(tv: tv, storage: storage, paraRange: paraRange)
                 return false
             }
 
@@ -518,12 +431,24 @@ private struct BlockTextView: UIViewRepresentable {
             return false
         }
 
-        private func flushNow(_ tv: UITextView) {
-            isUpdating = true
-            let snapshot = NSAttributedString(attributedString: tv.attributedText)
-            lastContent = snapshot
-            onTextChangeCallback?(snapshot)
-            isUpdating = false
+        private func stripListPrefix(_ text: String) -> String {
+            text.replacingOccurrences(
+                of: #"^(\d+\.\s|[\u{2022}\u{2610}\u{2611}]\s?)"#,
+                with: "",
+                options: .regularExpression
+            ).trimmingCharacters(in: .whitespaces)
+        }
+
+        private func clearListParagraph(tv: UITextView, storage: NSTextStorage, paraRange: NSRange) {
+            if paraRange.length > 0, NSMaxRange(paraRange) <= storage.length {
+                storage.replaceCharacters(in: paraRange, with: "")
+            }
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = 4
+            var typing = MarkdownStyle.baseAttributes
+            typing[.paragraphStyle] = style
+            tv.typingAttributes = typing
+            textViewDidChange(tv)
         }
     }
 }
@@ -531,34 +456,44 @@ private struct BlockTextView: UIViewRepresentable {
 // MARK: - Block Image View
 
 private struct BlockImageView: View {
+    let model: IssueEditorModel
+    let blockId: UUID
     let url: String
-    let pendingImages: [String: PendingImage]
+    let alt: String
     let baseURL: URL?
     let accountId: String
     let httpClient: HTTPClient?
+    let pendingImages: [String: PendingImage]
     var onDelete: () -> Void
     var onTapBelow: () -> Void
+    var onRetry: () -> Void
 
     @State private var loadedImage: UIImage?
+    @State private var failed = false
+
+    private var uploadState: ImageUploadState { model.uploadState(for: blockId) }
+
+    /// Aspect ratio (width / height) used to reserve space before/while loading,
+    /// preventing the layout jump. Sourced from the decoded image, then the
+    /// pending image's measured dimensions, then a 4:3 fallback.
+    private var aspectRatio: CGFloat {
+        if let img = loadedImage, img.size.height > 0 {
+            return img.size.width / img.size.height
+        }
+        if let pending = pendingImages[url], let w = pending.width, let h = pending.height, h > 0 {
+            return CGFloat(w) / CGFloat(h)
+        }
+        return 4.0 / 3.0
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                if let loadedImage {
-                    Image(uiImage: loadedImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.06))
-                        .frame(height: 160)
-                        .overlay {
-                            Image(systemName: "photo")
-                                .foregroundStyle(.white.opacity(0.2))
-                                .font(.system(size: 32))
-                        }
-                }
+                imageBody
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(aspectRatio, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .animation(.easeInOut(duration: 0.15), value: aspectRatio)
 
                 Button(action: onDelete) {
                     Image(systemName: "xmark.circle.fill")
@@ -578,33 +513,72 @@ private struct BlockImageView: View {
         .task(id: url) { await loadImage() }
     }
 
-    private func loadImage() async {
-        do {
-            let data: Data
-            if url.hasPrefix("draft://"), let pending = pendingImages[url] {
-                data = pending.data
-            } else if url.contains("/api/"), let httpClient, !accountId.isEmpty {
-                let fullUrl: URL
-                if let parsed = URL(string: url), parsed.scheme != nil {
-                    fullUrl = parsed
-                } else if let base = baseURL {
-                    let baseStr = base.absoluteString.hasSuffix("/")
-                        ? String(base.absoluteString.dropLast())
-                        : base.absoluteString
-                    guard let resolved = URL(string: baseStr + url) else { return }
-                    fullUrl = resolved
-                } else { return }
-                let (d, _) = try await httpClient.get(fullUrl, accountId: accountId)
-                data = d
-            } else if let parsed = URL(string: url) {
-                let (d, _) = try await URLSession.shared.data(from: parsed)
-                data = d
-            } else { return }
+    @ViewBuilder
+    private var imageBody: some View {
+        if let loadedImage {
+            ZStack(alignment: .bottomLeading) {
+                Image(uiImage: loadedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                if uploadState == .uploading {
+                    uploadingOverlay
+                }
+            }
+        } else if failed {
+            placeholderTile {
+                Button(action: onRetry) {
+                    VStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 24))
+                        Text("Tap to retry")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+        } else {
+            placeholderTile {
+                ProgressView().tint(.white.opacity(0.4))
+            }
+        }
+    }
 
-            guard let image = UIImage(data: data) else { return }
-            await MainActor.run { loadedImage = image }
+    @ViewBuilder
+    private func placeholderTile<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.06))
+            .overlay { content() }
+    }
+
+    private var uploadingOverlay: some View {
+        HStack(spacing: 6) {
+            ProgressView().tint(.white).controlSize(.small)
+            Text("Uploading…").font(.caption).foregroundStyle(.white)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.black.opacity(0.45), in: Capsule())
+        .padding(8)
+    }
+
+    private func loadImage() async {
+        failed = false
+        let loader = AttachmentImageLoader(
+            baseURL: baseURL,
+            accountId: accountId,
+            httpClient: httpClient,
+            pendingImages: pendingImages
+        )
+        do {
+            let image = try await loader.load(url)
+            loadedImage = image
         } catch {
-            log.error("Image load failed for \(url): \(error.localizedDescription)")
+            // Keep any previously-loaded image (e.g. across a draft→real URL
+            // swap) rather than flashing the placeholder.
+            if loadedImage == nil {
+                failed = true
+                log.error("Image load failed for \(url, privacy: .public): \(error.localizedDescription)")
+            }
         }
     }
 }

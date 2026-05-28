@@ -357,6 +357,11 @@ export const attachments = pgTable(
     sizeBytes: bigint(`size_bytes`, { mode: `number` }).notNull(),
     storageKey: text(`storage_key`).notNull(),
     url: text().notNull(),
+    // Intrinsic pixel dimensions, probed at upload time. Nullable so legacy
+    // rows and attachments whose format we can't measure stay valid; clients
+    // use them to reserve aspect-ratio space and avoid layout shift.
+    width: integer(),
+    height: integer(),
     ...timestamps,
   },
   (table) => [

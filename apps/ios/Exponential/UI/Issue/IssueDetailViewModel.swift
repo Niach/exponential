@@ -8,8 +8,8 @@ final class IssueDetailViewModel {
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
     var editingTitle: String = ""
-    var editingDescription: String = ""
-    var pendingImages: [String: PendingImage] = [:]
+    /// Single source of truth for the description editor (blocks + pending images).
+    let editor = IssueEditorModel()
     var saving = false
     var error: String?
     var permissions: WorkspacePermissions = .denied
@@ -18,38 +18,60 @@ final class IssueDetailViewModel {
     private let issueId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
+    private let issueImagesApi: IssueImagesApi
     private let labelsApi: LabelsApi
     private let auth: AuthRepository
+    private let baseURL: URL?
     private var observationTask: Task<Void, Never>?
+    private var autosaveTask: Task<Void, Never>?
 
-    init(accountId: String, issueId: String, db: DatabaseManager, issuesApi: IssuesApi, labelsApi: LabelsApi, auth: AuthRepository) {
+    init(
+        accountId: String,
+        issueId: String,
+        db: DatabaseManager,
+        issuesApi: IssuesApi,
+        issueImagesApi: IssueImagesApi,
+        labelsApi: LabelsApi,
+        auth: AuthRepository
+    ) {
         self.accountId = accountId
         self.issueId = issueId
         self.db = db
         self.issuesApi = issuesApi
+        self.issueImagesApi = issueImagesApi
         self.labelsApi = labelsApi
         self.auth = auth
+        let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
+        self.baseURL = instanceUrl.flatMap { URL(string: $0) }
+        editor.onEdit = { [weak self] in self?.scheduleAutosave() }
     }
 
     func startObserving() {
         observationTask = Task { [weak self] in
             guard let self else { return }
-            let pool = try! self.db.pool(forAccountId: self.accountId)
+            guard let pool = try? self.db.pool(forAccountId: self.accountId) else {
+                self.error = "Couldn't open local data store"
+                return
+            }
 
             let issueObs = ValueObservation.tracking { db in
                 try IssueEntity.fetchOne(db, key: self.issueId)
             }
             Task {
                 for try await issue in issueObs.values(in: pool) {
-                    if let issue {
-                        let isFirstLoad = self.issue == nil
-                        self.issue = issue
-                        if isFirstLoad {
-                            self.editingTitle = issue.title
-                            self.editingDescription = getIssueDescriptionText(issue.description)
-                        }
-                        self.refreshPermissions(for: issue)
+                    guard let issue else { continue }
+                    let isFirstLoad = self.issue == nil
+                    self.issue = issue
+                    let remoteText = getIssueDescriptionText(issue.description)
+                    if isFirstLoad {
+                        self.editingTitle = issue.title
+                        self.editor.load(markdown: remoteText, baseURL: self.baseURL)
+                    } else {
+                        // Live-apply remote edits when safe; otherwise stash for
+                        // a user-driven reload (field-level last-write-wins).
+                        self.editor.applyRemote(markdown: remoteText, baseURL: self.baseURL)
                     }
+                    self.refreshPermissions(for: issue)
                 }
             }
 
@@ -81,6 +103,8 @@ final class IssueDetailViewModel {
     func stopObserving() {
         observationTask?.cancel()
         observationTask = nil
+        autosaveTask?.cancel()
+        autosaveTask = nil
     }
 
     var assignedLabelIds: Set<String> {
@@ -92,6 +116,10 @@ final class IssueDetailViewModel {
         return users.first { $0.id == id }
     }
 
+    func reloadRemoteDescription() {
+        editor.reloadPendingRemote(baseURL: baseURL)
+    }
+
     // MARK: - Mutations
 
     func saveTitle() async {
@@ -99,12 +127,55 @@ final class IssueDetailViewModel {
         await update(UpdateIssueInput(id: issue.id, title: editingTitle))
     }
 
-    func saveDescription() async {
+    /// Upload any pending draft images, then persist the description — but only
+    /// if every image resolved (all-or-nothing). On partial failure the failed
+    /// drafts stay pending with a retry affordance and nothing is saved.
+    func commitDescription() async {
         guard let issue else { return }
-        let currentDesc = getIssueDescriptionText(issue.description)
-        guard editingDescription != currentDesc else { return }
-        let desc = editingDescription.isEmpty ? nil : IssueDescription(text: editingDescription)
-        await update(UpdateIssueInput(id: issue.id, description: desc))
+        autosaveTask?.cancel()
+
+        let allUploaded = await editor.commitPendingImages(uploader: makeImageUploader(issueId: issue.id))
+        guard allUploaded, !editor.hasUncommittedDrafts else {
+            error = "Some images couldn't be uploaded. Tap an image to retry."
+            return
+        }
+        error = nil
+
+        let markdown = editor.currentMarkdown()
+        guard markdown != editor.lastSavedMarkdown else { return }
+
+        var input = UpdateIssueInput(id: issue.id)
+        if markdown.isEmpty {
+            input.explicitNulls.insert("description")
+        } else {
+            input.description = IssueDescription(text: markdown)
+        }
+        await update(input)
+        editor.markSaved(markdown)
+    }
+
+    private func makeImageUploader(issueId: String) -> @Sendable (PendingImage) async throws -> String {
+        let api = issueImagesApi
+        let accountId = accountId
+        return { image in
+            let uploaded = try await api.upload(
+                accountId: accountId,
+                issueId: issueId,
+                data: image.data,
+                filename: image.filename,
+                contentType: image.contentType
+            )
+            return uploaded.url
+        }
+    }
+
+    private func scheduleAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard let self, !Task.isCancelled else { return }
+            await self.commitDescription()
+        }
     }
 
     func setStatus(_ status: IssueStatus) async {
@@ -193,12 +264,6 @@ final class IssueDetailViewModel {
         }
     }
 
-    private func isoNow() -> String {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.string(from: Date())
-    }
-
     private func update(_ input: UpdateIssueInput) async {
         do {
             try await issuesApi.update(accountId: accountId, input)
@@ -208,7 +273,7 @@ final class IssueDetailViewModel {
     }
 
     private func refreshPermissions(for issue: IssueEntity) {
-        let pool = try! db.pool(forAccountId: accountId)
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
             guard let project = try ProjectEntity.fetchOne(db, key: issue.projectId) else {
                 return nil

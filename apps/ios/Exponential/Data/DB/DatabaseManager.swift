@@ -248,6 +248,15 @@ final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // Additive: intrinsic image dimensions synced from the attachments
+        // shape (nullable so legacy/non-image rows and partial updates are fine).
+        migrator.registerMigration("v2_attachment_dimensions") { db in
+            try db.alter(table: "attachments") { t in
+                t.add(column: "width", .integer)
+                t.add(column: "height", .integer)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 

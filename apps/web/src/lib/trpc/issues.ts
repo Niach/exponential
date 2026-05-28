@@ -20,11 +20,13 @@ import {
   timeOnlySchema,
 } from "@/lib/domain"
 import {
+  canonicalizeMarkdownImageUrls,
   extractAttachmentIdsFromDescription,
   hasMarkdownImages,
 } from "@/lib/storage/issue-attachments"
 import {
   collectAndDeleteRemovedAttachmentsInTx,
+  collectAndDeleteUnreferencedAttachmentsInTx,
   collectIssueAttachmentStorageKeysInTx,
   deleteStorageObjects,
 } from "@/lib/storage/issue-attachment-cleanup"
@@ -256,10 +258,10 @@ export const issuesRouter = router({
         }
 
         if (updates.description !== undefined) {
-          const nextText = getIssueDescriptionText(updates.description)
+          const rawNextText = getIssueDescriptionText(updates.description)
           const previousText = getIssueDescriptionText(currentIssue.description)
           const { attachmentIds, invalidUrls } =
-            extractAttachmentIdsFromDescription(nextText, ctx.request.url)
+            extractAttachmentIdsFromDescription(rawNextText, ctx.request.url)
 
           if (invalidUrls.length > 0) {
             throw new TRPCError({
@@ -291,6 +293,17 @@ export const issuesRouter = router({
             }
           }
 
+          // Canonicalize image URLs to the relative /api/attachments/{id} form
+          // so stored markdown is client-agnostic, and persist the canonical
+          // version (overriding the raw text the client submitted).
+          const nextText =
+            updates.description === null
+              ? ``
+              : canonicalizeMarkdownImageUrls(rawNextText, ctx.request.url)
+          if (updates.description !== null) {
+            setValues.description = { text: nextText }
+          }
+
           const removedKeys = await collectAndDeleteRemovedAttachmentsInTx(
             tx,
             id,
@@ -299,6 +312,15 @@ export const issuesRouter = router({
             ctx.request.url
           )
           deletedStorageKeys.push(...removedKeys)
+
+          // Reclaim never-referenced uploads left by an abandoned edit.
+          const orphanKeys = await collectAndDeleteUnreferencedAttachmentsInTx(
+            tx,
+            id,
+            nextText,
+            ctx.request.url
+          )
+          deletedStorageKeys.push(...orphanKeys)
         }
 
         if (Object.keys(setValues).length === 0) {

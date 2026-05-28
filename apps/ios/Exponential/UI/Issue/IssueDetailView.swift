@@ -59,17 +59,27 @@ struct IssueDetailView: View {
                             if !focused { Task { await vm.saveTitle() } }
                         }
 
-                        // Description (WYSIWYG editor with image upload)
+                        // A remote edit arrived while editing locally — offer
+                        // a non-blocking reload (field-level last-write-wins).
+                        if vm.editor.pendingRemoteMarkdown != nil {
+                            Button {
+                                vm.reloadRemoteDescription()
+                            } label: {
+                                Label("Updated by someone else — Reload", systemImage: "arrow.triangle.2.circlepath")
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.blue.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        // Description (block-based markdown editor with images)
                         MarkdownEditor(
-                            text: Binding(
-                                get: { vm.editingDescription },
-                                set: { vm.editingDescription = $0 }
-                            ),
-                            pendingImages: Binding(
-                                get: { vm.pendingImages },
-                                set: { vm.pendingImages = $0 }
-                            ),
-                            baseURL: URL(string: deps.auth.instanceUrl ?? ""),
+                            model: vm.editor,
+                            baseURL: instanceBaseURL,
                             accountId: accountId,
                             httpClient: deps.httpClient
                         )
@@ -338,6 +348,7 @@ struct IssueDetailView: View {
                     issueId: issueId,
                     db: deps.db,
                     issuesApi: deps.issuesApi,
+                    issueImagesApi: deps.issueImagesApi,
                     labelsApi: deps.labelsApi,
                     auth: deps.auth
                 )
@@ -349,11 +360,16 @@ struct IssueDetailView: View {
             if let vm = viewModel {
                 Task {
                     await vm.saveTitle()
-                    await uploadPendingAndSaveDescription(vm)
+                    await vm.commitDescription()
                     vm.stopObserving()
                 }
             }
         }
+    }
+
+    private var instanceBaseURL: URL? {
+        let instanceUrl = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? deps.auth.instanceUrl
+        return instanceUrl.flatMap { URL(string: $0) }
     }
 
     @ViewBuilder
@@ -370,38 +386,6 @@ struct IssueDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-    }
-
-    // Upload draft images, swap their placeholder URLs for the returned
-    // real URLs, then save the description through the normal path. This
-    // is the iOS analogue of Android's IssueDetailViewModel.uploadImage
-    // + description rewrite pattern.
-    private func uploadPendingAndSaveDescription(_ vm: IssueDetailViewModel) async {
-        let drafts = vm.pendingImages
-        for (placeholder, image) in drafts {
-            do {
-                let uploaded = try await deps.issueImagesApi.upload(
-                    accountId: accountId,
-                    issueId: issueId,
-                    data: image.data,
-                    filename: image.filename,
-                    contentType: image.contentType
-                )
-                vm.editingDescription = MarkdownImageUtils.replaceImageUrl(
-                    in: vm.editingDescription,
-                    from: placeholder,
-                    to: uploaded.url
-                )
-                vm.pendingImages.removeValue(forKey: placeholder)
-            } catch {
-                vm.editingDescription = MarkdownImageUtils.stripUnknownDraftImages(
-                    vm.editingDescription,
-                    keep: Set(vm.pendingImages.keys).subtracting([placeholder])
-                )
-                vm.pendingImages.removeValue(forKey: placeholder)
-            }
-        }
-        await vm.saveDescription()
     }
 
     private func parseDate(_ dateString: String?) -> Date? {

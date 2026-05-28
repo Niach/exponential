@@ -8,9 +8,10 @@ import {
 } from "react"
 import { type Editor, useEditor, EditorContent } from "@tiptap/react"
 import { StarterKit } from "@tiptap/starter-kit"
-import { Underline } from "@tiptap/extension-underline"
 import { Link } from "@tiptap/extension-link"
 import { Placeholder } from "@tiptap/extension-placeholder"
+import { TaskList } from "@tiptap/extension-task-list"
+import { TaskItem } from "@tiptap/extension-task-item"
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight"
 import { createLowlight, common } from "lowlight"
 import { Markdown } from "tiptap-markdown"
@@ -22,13 +23,13 @@ import {
   Bold,
   Italic,
   Strikethrough,
-  Underline as UnderlineIcon,
   Link as LinkIcon,
   Quote,
   RemoveFormatting,
   Code,
   List,
   ListOrdered,
+  ListChecks,
   Heading1,
   Heading2,
   Heading3,
@@ -217,12 +218,6 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
         `Italic`
       )}
       {btn(
-        editor.isActive(`underline`),
-        () => editor.chain().focus().toggleUnderline().run(),
-        <UnderlineIcon className="size-3.5" />,
-        `Underline`
-      )}
-      {btn(
         editor.isActive(`strike`),
         () => editor.chain().focus().toggleStrike().run(),
         <Strikethrough className="size-3.5" />,
@@ -259,6 +254,12 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
         () => editor.chain().focus().toggleOrderedList().run(),
         <ListOrdered className="size-3.5" />,
         `Numbered list`
+      )}
+      {btn(
+        editor.isActive(`taskList`),
+        () => editor.chain().focus().toggleTaskList().run(),
+        <ListChecks className="size-3.5" />,
+        `Task list`
       )}
       <div className="bubble-separator" />
       {btn(
@@ -303,11 +304,12 @@ export const MarkdownEditor = forwardRef<
           lowlight,
           defaultLanguage: `plaintext`,
         }),
-        Underline,
         Link.configure({
           openOnClick: false,
           HTMLAttributes: { class: `editor-link` },
         }),
+        TaskList,
+        TaskItem.configure({ nested: true }),
         MarkdownImage,
         Placeholder.configure({
           placeholder: placeholder ?? `Add description...`,

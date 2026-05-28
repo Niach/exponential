@@ -17,12 +17,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AlertDialog
@@ -51,7 +54,7 @@ import kotlinx.coroutines.launch
 
 private val BoldStyle = SpanStyle(fontWeight = FontWeight.Bold)
 private val ItalicStyle = SpanStyle(fontStyle = FontStyle.Italic)
-private val UnderlineStyle = SpanStyle(textDecoration = TextDecoration.Underline)
+private val StrikethroughStyle = SpanStyle(textDecoration = TextDecoration.LineThrough)
 
 @Composable
 fun MarkdownToolbar(
@@ -63,6 +66,7 @@ fun MarkdownToolbar(
 
     var linkDialogOpen by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
 
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
@@ -70,84 +74,120 @@ fun MarkdownToolbar(
         if (uri == null || onUploadImage == null) return@rememberLauncherForActivityResult
         scope.launch {
             uploading = true
+            uploadError = null
             try {
                 val url = onUploadImage(uri)
                 if (url != null) {
                     val alt = uri.lastPathSegment?.substringAfterLast('/') ?: "image"
                     state.insertMarkdownAfterSelection("\n\n![${alt}](${url})\n\n")
+                } else {
+                    // Surface failures instead of silently swallowing them; the
+                    // user can tap the image button again to retry.
+                    uploadError = "Couldn't add image. Tap to retry."
                 }
+            } catch (e: Throwable) {
+                uploadError = "Couldn't add image. Tap to retry."
             } finally {
                 uploading = false
             }
         }
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        ToolbarToggle(
-            icon = Icons.Filled.FormatBold,
-            label = "Bold",
-            active = state.currentSpanStyle.fontWeight == FontWeight.Bold,
-            onClick = { state.toggleSpanStyle(BoldStyle) },
-        )
-        ToolbarToggle(
-            icon = Icons.Filled.FormatItalic,
-            label = "Italic",
-            active = state.currentSpanStyle.fontStyle == FontStyle.Italic,
-            onClick = { state.toggleSpanStyle(ItalicStyle) },
-        )
-        ToolbarToggle(
-            icon = Icons.Filled.FormatUnderlined,
-            label = "Underline",
-            active = state.currentSpanStyle.textDecoration == TextDecoration.Underline,
-            onClick = { state.toggleSpanStyle(UnderlineStyle) },
-        )
-        Spacer(Modifier.width(4.dp))
-        HeadingButton(state, prefix = "# ", label = "H1")
-        HeadingButton(state, prefix = "## ", label = "H2")
-        HeadingButton(state, prefix = "### ", label = "H3")
-        Spacer(Modifier.width(4.dp))
-        ToolbarToggle(
-            icon = Icons.AutoMirrored.Filled.FormatListBulleted,
-            label = "Bullet list",
-            active = state.isUnorderedList,
-            onClick = { state.toggleUnorderedList() },
-        )
-        ToolbarToggle(
-            icon = Icons.Filled.FormatListNumbered,
-            label = "Numbered list",
-            active = state.isOrderedList,
-            onClick = { state.toggleOrderedList() },
-        )
-        ToolbarToggle(
-            icon = Icons.Filled.Code,
-            label = "Code",
-            active = state.isCodeSpan,
-            onClick = { state.toggleCodeSpan() },
-        )
-        Spacer(Modifier.width(4.dp))
-        ToolbarToggle(
-            icon = Icons.Filled.Link,
-            label = "Link",
-            active = state.isLink,
-            onClick = { linkDialogOpen = true },
-        )
-        if (onUploadImage != null) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             ToolbarToggle(
-                icon = Icons.Filled.Image,
-                label = "Image",
-                active = uploading,
-                enabled = imageUploadEnabled && !uploading,
-                onClick = {
-                    pickImage.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                },
+                icon = Icons.Filled.FormatBold,
+                label = "Bold",
+                active = state.currentSpanStyle.fontWeight == FontWeight.Bold,
+                onClick = { state.toggleSpanStyle(BoldStyle) },
+            )
+            ToolbarToggle(
+                icon = Icons.Filled.FormatItalic,
+                label = "Italic",
+                active = state.currentSpanStyle.fontStyle == FontStyle.Italic,
+                onClick = { state.toggleSpanStyle(ItalicStyle) },
+            )
+            ToolbarToggle(
+                icon = Icons.Filled.FormatStrikethrough,
+                label = "Strikethrough",
+                active = state.currentSpanStyle.textDecoration == TextDecoration.LineThrough,
+                onClick = { state.toggleSpanStyle(StrikethroughStyle) },
+            )
+            Spacer(Modifier.width(4.dp))
+            HeadingButton(state, prefix = "# ", label = "H1")
+            HeadingButton(state, prefix = "## ", label = "H2")
+            HeadingButton(state, prefix = "### ", label = "H3")
+            Spacer(Modifier.width(4.dp))
+            ToolbarToggle(
+                icon = Icons.AutoMirrored.Filled.FormatListBulleted,
+                label = "Bullet list",
+                active = state.isUnorderedList,
+                onClick = { state.toggleUnorderedList() },
+            )
+            ToolbarToggle(
+                icon = Icons.Filled.FormatListNumbered,
+                label = "Numbered list",
+                active = state.isOrderedList,
+                onClick = { state.toggleOrderedList() },
+            )
+            ToolbarToggle(
+                icon = Icons.Filled.Checklist,
+                label = "Task list",
+                active = false,
+                onClick = { state.insertMarkdownAfterSelection("\n\n- [ ] ") },
+            )
+            Spacer(Modifier.width(4.dp))
+            ToolbarToggle(
+                icon = Icons.Filled.Code,
+                label = "Inline code",
+                active = state.isCodeSpan,
+                onClick = { state.toggleCodeSpan() },
+            )
+            ToolbarToggle(
+                icon = Icons.Filled.DataObject,
+                label = "Code block",
+                active = false,
+                onClick = { state.insertMarkdownAfterSelection("\n\n```\n\n```\n\n") },
+            )
+            ToolbarToggle(
+                icon = Icons.Filled.FormatQuote,
+                label = "Quote",
+                active = false,
+                onClick = { state.insertMarkdownAfterSelection("\n\n> ") },
+            )
+            Spacer(Modifier.width(4.dp))
+            ToolbarToggle(
+                icon = Icons.Filled.Link,
+                label = "Link",
+                active = state.isLink,
+                onClick = { linkDialogOpen = true },
+            )
+            if (onUploadImage != null) {
+                ToolbarToggle(
+                    icon = Icons.Filled.Image,
+                    label = "Image",
+                    active = uploading,
+                    enabled = imageUploadEnabled && !uploading,
+                    onClick = {
+                        pickImage.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                )
+            }
+        }
+        uploadError?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
     }

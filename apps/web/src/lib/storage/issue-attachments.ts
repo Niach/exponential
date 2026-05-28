@@ -205,6 +205,24 @@ export function hasMarkdownImages(text: string) {
   return extractMarkdownImageUrls(text).length > 0
 }
 
+/**
+ * Rewrites every image whose URL resolves to one of our attachments into the
+ * canonical relative `/api/attachments/{id}` form. This makes stored markdown
+ * client-agnostic (a client that submitted an absolute/proxied URL still ends
+ * up relative) and removes the "resolved twice" class of bugs at the source.
+ */
+export function canonicalizeMarkdownImageUrls(text: string, origin: string) {
+  return updateMarkdownImages(text, (match) => {
+    const attachmentId = getAttachmentIdFromUrl(match.url, origin)
+    if (!attachmentId) return undefined
+
+    const canonical = buildAttachmentUrl(attachmentId)
+    if (match.url === canonical) return undefined
+
+    return match.markdown.replace(match.url, canonical)
+  })
+}
+
 export function stripMarkdownImages(text: string) {
   return updateMarkdownImages(text, () => ``)
 }
