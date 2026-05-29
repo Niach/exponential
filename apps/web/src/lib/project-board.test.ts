@@ -7,8 +7,6 @@ import {
   buildIssueLabelIdsMap,
   buildIssueLabelMap,
   buildVisibleIssueGroups,
-  getEditingIssue,
-  getEditingIssueLabelIds,
 } from "@/lib/project-board"
 
 function makeIssue(overrides: Partial<Issue>): Issue {
@@ -149,18 +147,4 @@ describe(`project-board helpers`, () => {
     ])
   })
 
-  it(`derives the editing issue and selected labels`, () => {
-    const issues = [makeIssue({ id: `issue-1` }), makeIssue({ id: `issue-2` })]
-    const issueLabels = [
-      makeIssueLabel({ issueId: `issue-2`, labelId: `label-1` }),
-      makeIssueLabel({ issueId: `issue-2`, labelId: `label-2` }),
-    ]
-
-    expect(getEditingIssue(issues, `issue-2`)).toEqual(issues[1])
-    expect(getEditingIssueLabelIds(issueLabels, `issue-2`)).toEqual([
-      `label-1`,
-      `label-2`,
-    ])
-    expect(getEditingIssue(issues, null)).toBeNull()
-  })
 })

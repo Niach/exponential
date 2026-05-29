@@ -63,7 +63,6 @@ function ProjectPage() {
     visibleGroups,
     workspace,
   } = useProjectBoardData({
-    editingIssueId: null,
     filters,
     projectSlug,
     workspaceSlug,

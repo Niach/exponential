@@ -17,18 +17,14 @@ import {
   buildIssueLabelIdsMap,
   buildIssueLabelMap,
   buildVisibleIssueGroups,
-  getEditingIssue,
-  getEditingIssueLabelIds,
 } from "@/lib/project-board"
 import type { Issue, IssueLabel, Label, Project } from "@/db/schema"
 
 export function useProjectBoardData({
-  editingIssueId,
   filters,
   projectSlug,
   workspaceSlug,
 }: {
-  editingIssueId: string | null
   filters: IssueFilters
   projectSlug: string
   workspaceSlug: string
@@ -95,11 +91,6 @@ export function useProjectBoardData({
     )
 
     return {
-      editingIssue: getEditingIssue(issueList, editingIssueId),
-      editingIssueLabelIds: getEditingIssueLabelIds(
-        issueLabelList,
-        editingIssueId
-      ),
       issueLabelMap,
       labelList,
       project,
@@ -109,7 +100,6 @@ export function useProjectBoardData({
       workspace,
     }
   }, [
-    editingIssueId,
     filters,
     issueLabelList,
     issueList,

@@ -114,27 +114,3 @@ export function buildVisibleIssueGroups(
 
   return groups.filter((group) => group.issues.length > 0)
 }
-
-export function getEditingIssue(
-  issues: Issue[],
-  editingIssueId: string | null
-) {
-  if (!editingIssueId) {
-    return null
-  }
-
-  return issues.find((issue) => issue.id === editingIssueId) ?? null
-}
-
-export function getEditingIssueLabelIds(
-  issueLabels: IssueLabel[],
-  editingIssueId: string | null
-) {
-  if (!editingIssueId) {
-    return []
-  }
-
-  return issueLabels
-    .filter((issueLabel) => issueLabel.issueId === editingIssueId)
-    .map((issueLabel) => issueLabel.labelId)
-}
