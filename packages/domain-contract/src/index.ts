@@ -12,6 +12,7 @@ export interface DomainContract {
   recurrenceUnit: { values: readonly string[] }
   workspaceRole: { values: readonly string[] }
   publicWritePolicy: { values: readonly string[] }
+  commentKind: { values: readonly string[] }
   recurrenceIntervals: readonly number[]
 }
 

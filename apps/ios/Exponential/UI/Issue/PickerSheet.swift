@@ -124,7 +124,7 @@ struct RecurrencePickerSheet: View {
 
                 ForEach(RecurrenceUnit.allCases) { unit in
                     Section(unit.label(for: 2).capitalized) {
-                        ForEach(recurrenceIntervals, id: \.self) { interval in
+                        ForEach(DomainContract.recurrenceIntervals, id: \.self) { interval in
                             Button {
                                 onSelect(interval, unit)
                                 dismiss()

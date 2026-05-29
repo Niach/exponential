@@ -5,9 +5,9 @@
 //
 // The mobile native enums (IssueStatus.swift, IssueStatus.kt, …) are
 // hand-written so they can carry language-specific affordances (SF Symbols,
-// Material icons, colors). They consume these generated constants for their
-// raw values, so any drift between contract.json and the native enums
-// surfaces as a compile-time failure.
+// Material icons, colors); their raw values must stay in sync with these
+// generated constants. On the web side, contract.json parity is enforced by
+// the domain-contract drift test (apps/web/src/lib/domain-contract.test.ts).
 
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"

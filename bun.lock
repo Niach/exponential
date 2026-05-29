@@ -84,6 +84,7 @@
         "@creem_io/better-auth": "^1.1.1",
         "@electric-sql/client": "^1.2.0",
         "@exp/db-schema": "workspace:*",
+        "@exp/domain-contract": "workspace:*",
         "@googleapis/calendar": "^11.0.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@tailwindcss/vite": "^4.0.6",

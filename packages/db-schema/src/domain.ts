@@ -23,6 +23,13 @@ export const publicWritePolicyValues = [`members`, `everyone`] as const
 
 export const recurrenceUnitValues = [`day`, `week`, `month`] as const
 
+// Selectable recurrence interval options shown in the editor. Mirrors
+// packages/domain-contract/contract.json (kept in sync by the domain-contract
+// drift test in apps/web).
+export const recurrenceIntervals = [
+  1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30,
+] as const
+
 export const commentKindValues = [`regular`, `question`, `plan`] as const
 
 export const agentPlanStateValues = [

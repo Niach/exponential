@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import type { RecurrenceUnit } from "@/lib/domain"
-import { recurrenceUnitValues } from "@/lib/domain"
+import { recurrenceUnitValues, recurrenceIntervals } from "@/lib/domain"
 import { formatDate } from "@/lib/utils"
 
 export interface RecurrenceValue {
@@ -28,8 +28,6 @@ interface RecurrenceEditorProps {
   onChange: (value: RecurrenceValue | null) => void
   value: RecurrenceValue
 }
-
-const intervalOptions = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
 
 export function RecurrenceEditor({
   disabled,
@@ -73,7 +71,7 @@ export function RecurrenceEditor({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {intervalOptions.map((n) => (
+          {recurrenceIntervals.map((n) => (
             <SelectItem key={n} value={String(n)}>
               {n}
             </SelectItem>
