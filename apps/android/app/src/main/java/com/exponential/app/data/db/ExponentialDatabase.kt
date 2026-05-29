@@ -17,7 +17,9 @@ import androidx.room.RoomDatabase
         AttachmentEntity::class,
         ElectricOffsetEntity::class,
     ],
-    version = 1,
+    // v2: added attachments.width / attachments.height (parity with iOS).
+    // No Migration object — DatabaseHolder uses destructive fallback + resync.
+    version = 2,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

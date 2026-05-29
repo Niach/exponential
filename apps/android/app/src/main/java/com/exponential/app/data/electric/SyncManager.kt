@@ -1,5 +1,6 @@
 package com.exponential.app.data.electric
 
+import androidx.room.withTransaction
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
@@ -240,14 +241,20 @@ class SyncManager @Inject constructor(
             offsetDao = offsetDao,
             json = json,
             onMessages = { messages ->
-                for (message in messages) {
-                    when (message) {
-                        is ShapeMessage.Insert -> onInsert(message.value)
-                        is ShapeMessage.Update -> onUpdate(message.value)
-                        is ShapeMessage.PartialUpdate -> applyPartialUpdate(db, tableName, message.key, message.columns)
-                        is ShapeMessage.Delete -> message.value?.let { onDelete(it) }
-                        ShapeMessage.MustRefetch -> onRefetch()
-                        ShapeMessage.UpToDate -> Unit
+                // Apply each long-poll batch in one transaction (parity with iOS
+                // applyBatch) so a batch is an atomic write and the concurrent
+                // shape loops don't interleave partial writes. Covers both the
+                // DAO calls and applyPartialUpdate's raw execSQL (same connection).
+                db.withTransaction {
+                    for (message in messages) {
+                        when (message) {
+                            is ShapeMessage.Insert -> onInsert(message.value)
+                            is ShapeMessage.Update -> onUpdate(message.value)
+                            is ShapeMessage.PartialUpdate -> applyPartialUpdate(db, tableName, message.key, message.columns)
+                            is ShapeMessage.Delete -> message.value?.let { onDelete(it) }
+                            ShapeMessage.MustRefetch -> onRefetch()
+                            ShapeMessage.UpToDate -> Unit
+                        }
                     }
                 }
             },

@@ -190,6 +190,10 @@ data class AttachmentEntity(
     @ColumnInfo(name = "size_bytes") @SerialName("size_bytes") @JsonNames("sizeBytes") val sizeBytes: Long,
     @ColumnInfo(name = "storage_key") @SerialName("storage_key") @JsonNames("storageKey") val storageKey: String,
     val url: String,
+    // Probed image dimensions (parity with iOS) so the client can pre-size and
+    // avoid layout shift. Nullable for non-image / not-yet-probed attachments.
+    val width: Int? = null,
+    val height: Int? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
