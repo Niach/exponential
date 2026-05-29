@@ -50,7 +50,7 @@ enum MarkdownConversion {
         }
         defer { cmark_parser_free(parser) }
 
-        for name in ["strikethrough", "table", "autolink", "tasklist"] {
+        for name in ["strikethrough", "table", "autolink"] {
             if let ext = cmark_find_syntax_extension(name) {
                 cmark_parser_attach_syntax_extension(parser, ext)
             }
@@ -171,7 +171,7 @@ enum MarkdownConversion {
         guard let parser = cmark_parser_new(CMARK_OPT_UNSAFE) else { return escapeHTML(markdown) }
         defer { cmark_parser_free(parser) }
 
-        for name in ["strikethrough", "table", "autolink", "tasklist"] {
+        for name in ["strikethrough", "table", "autolink"] {
             if let ext = cmark_find_syntax_extension(name) {
                 cmark_parser_attach_syntax_extension(parser, ext)
             }
@@ -205,7 +205,7 @@ enum MarkdownConversion {
         }
         defer { cmark_parser_free(parser) }
 
-        for name in ["strikethrough", "table", "autolink", "tasklist"] {
+        for name in ["strikethrough", "table", "autolink"] {
             if let ext = cmark_find_syntax_extension(name) {
                 cmark_parser_attach_syntax_extension(parser, ext)
             }
@@ -463,8 +463,10 @@ private func renderNode(_ node: UnsafeMutablePointer<cmark_node>, into result: N
         let ordered = context.listStack.last?.ordered ?? false
         let index = context.listStack.last?.itemIndex ?? 1
 
-        let isTaskItem = cmark_gfm_extensions_get_tasklist_item_checked(node) || isTasklistNode(node)
-        let isChecked = cmark_gfm_extensions_get_tasklist_item_checked(node)
+        let task = taskItemState(node)
+        let isTaskItem = task.isTask
+        let isChecked = task.checked
+        if isTaskItem { stripTaskMarker(node) }
 
         let listType: String
         let prefix: String
@@ -700,8 +702,10 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         let depth = context.listStack.last?.depth ?? 0
         let ordered = context.listStack.last?.ordered ?? false
         let index = context.listStack.last?.itemIndex ?? 1
-        let isTaskItem = cmark_gfm_extensions_get_tasklist_item_checked(node) || isTasklistNode(node)
-        let isChecked = cmark_gfm_extensions_get_tasklist_item_checked(node)
+        let task = taskItemState(node)
+        let isTaskItem = task.isTask
+        let isChecked = task.checked
+        if isTaskItem { stripTaskMarker(node) }
         let listType: String
         let prefix: String
         if isTaskItem {
@@ -853,17 +857,37 @@ private func escapeHTML(_ text: String) -> String {
         .replacingOccurrences(of: ">", with: "&gt;")
 }
 
-private func isTasklistNode(_ node: UnsafeMutablePointer<cmark_node>) -> Bool {
-    guard let child = cmark_node_first_child(node) else { return false }
-    if cmark_node_get_type(child) == CMARK_NODE_PARAGRAPH {
-        if let textNode = cmark_node_first_child(child),
-           cmark_node_get_type(textNode) == CMARK_NODE_TEXT,
-           let literal = cmark_node_get_literal(textNode) {
-            let text = String(cString: literal)
-            return text.hasPrefix("[ ] ") || text.hasPrefix("[x] ") || text.hasPrefix("[X] ")
-        }
+// Task-list detection WITHOUT cmark's tasklist extension. We parse `- [ ]`
+// as a plain bullet so the `[ ]`/`[x]` marker stays in the literal and inspect
+// it here — the extension consumes the marker and then can't distinguish an
+// UNCHECKED task item from a regular bullet (its checked-getter returns false
+// for both), which made unchecked checkboxes round-trip as bullets.
+private func firstTextNode(under item: UnsafeMutablePointer<cmark_node>) -> UnsafeMutablePointer<cmark_node>? {
+    guard let para = cmark_node_first_child(item),
+          cmark_node_get_type(para) == CMARK_NODE_PARAGRAPH,
+          let text = cmark_node_first_child(para),
+          cmark_node_get_type(text) == CMARK_NODE_TEXT else { return nil }
+    return text
+}
+
+private func taskItemState(_ node: UnsafeMutablePointer<cmark_node>) -> (isTask: Bool, checked: Bool) {
+    guard let textNode = firstTextNode(under: node),
+          let literal = cmark_node_get_literal(textNode) else { return (false, false) }
+    let text = String(cString: literal)
+    if text.hasPrefix("[ ] ") { return (true, false) }
+    if text.hasPrefix("[x] ") || text.hasPrefix("[X] ") { return (true, true) }
+    return (false, false)
+}
+
+private func stripTaskMarker(_ node: UnsafeMutablePointer<cmark_node>) {
+    guard let textNode = firstTextNode(under: node),
+          let literal = cmark_node_get_literal(textNode) else { return }
+    var text = String(cString: literal)
+    for marker in ["[ ] ", "[x] ", "[X] "] where text.hasPrefix(marker) {
+        text.removeFirst(marker.count)
+        break
     }
-    return false
+    text.withCString { _ = cmark_node_set_literal(textNode, $0) }
 }
 
 private func collectText(from node: UnsafeMutablePointer<cmark_node>) -> String {

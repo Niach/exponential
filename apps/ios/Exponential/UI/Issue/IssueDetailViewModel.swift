@@ -132,7 +132,6 @@ final class IssueDetailViewModel {
     /// drafts stay pending with a retry affordance and nothing is saved.
     func commitDescription() async {
         guard let issue else { return }
-        autosaveTask?.cancel()
 
         let allUploaded = await editor.commitPendingImages(uploader: makeImageUploader(issueId: issue.id))
         guard allUploaded, !editor.hasUncommittedDrafts else {
@@ -173,9 +172,16 @@ final class IssueDetailViewModel {
         autosaveTask?.cancel()
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard let self, !Task.isCancelled else { return }
-            await self.commitDescription()
+            guard !Task.isCancelled else { return }
+            // Run the save in an INDEPENDENT task: the debounce timer above is
+            // cancelled by the next keystroke, and we must not let that cancel
+            // an in-flight save's network request mid-write.
+            self?.saveNow()
         }
+    }
+
+    private func saveNow() {
+        Task { [weak self] in await self?.commitDescription() }
     }
 
     func setStatus(_ status: IssueStatus) async {
