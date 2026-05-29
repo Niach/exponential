@@ -7,7 +7,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Button } from "@/components/ui/button"
 import { CalendarDays } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { formatDate } from "@/lib/utils"
+import { formatDate, parseLocalDate } from "@/lib/utils"
 import { formatDateForMutation } from "@/lib/domain"
 
 interface DueDateDropdownProps {
@@ -21,7 +21,7 @@ export function DueDateDropdown({
   dueDate,
   disabled,
 }: DueDateDropdownProps) {
-  const dateValue = dueDate ? new Date(dueDate + `T00:00:00`) : undefined
+  const dateValue = dueDate ? parseLocalDate(dueDate) : undefined
 
   const handleSelect = async (date: Date | undefined) => {
     await trpc.issues.update.mutate({

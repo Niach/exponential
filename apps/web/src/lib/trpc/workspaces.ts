@@ -12,6 +12,7 @@ import { and, eq } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import {
   assertWorkspaceOwner,
+  assertNotPublicWorkspace,
   getWorkspaceMember,
   invalidatePublicWorkspaceCache,
 } from "@/lib/workspace-membership"
@@ -172,20 +173,10 @@ export const workspacesRouter = router({
       await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
 
       // Block deletion of the public workspace
-      const [workspace] = await ctx.db
-        .select({ isPublic: workspaces.isPublic })
-        .from(workspaces)
-        .where(eq(workspaces.id, input.workspaceId))
-        .limit(1)
-      if (!workspace) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
-      }
-      if (workspace.isPublic) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `Cannot delete the public workspace`,
-        })
-      }
+      await assertNotPublicWorkspace(input.workspaceId, {
+        message: `Cannot delete the public workspace`,
+        code: `BAD_REQUEST`,
+      })
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)

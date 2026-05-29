@@ -15,15 +15,7 @@ import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { getRuntimeConfig } from "@/lib/runtime-config"
-
-function derivePrefix(name: string): string {
-  return name
-    .split(/[\s-_]+/)
-    .map((w) => w[0] ?? ``)
-    .join(``)
-    .toUpperCase()
-    .slice(0, 5)
-}
+import { derivePrefix } from "@/lib/project"
 
 export function CreateProjectDialog({
   open,

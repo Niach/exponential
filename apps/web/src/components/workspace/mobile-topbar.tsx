@@ -12,6 +12,7 @@ import {
 import type { Project } from "@/db/schema"
 import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
+import { isAdminUser } from "@/lib/auth/app-user"
 import { getInitials } from "@/lib/utils"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -44,7 +45,7 @@ export function WorkspaceMobileTopbar({
     ? projects.find((p) => p.slug === params.projectSlug)
     : undefined
   const isAuthed = Boolean(session?.user)
-  const isAdmin = Boolean((session?.user as { isAdmin?: boolean })?.isAdmin)
+  const isAdmin = isAdminUser(session?.user)
   const userInitials = session?.user?.name
     ? getInitials(session.user.name)
     : `?`

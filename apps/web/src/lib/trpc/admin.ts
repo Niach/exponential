@@ -5,6 +5,7 @@ import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts } from "@/db/auth-schema"
 import { workspaces, workspaceMembers, projects } from "@/db/schema"
 import { getWorkspacePlan } from "@/lib/billing"
+import { assertNotPublicWorkspace } from "@/lib/workspace-membership"
 import type { db as Database } from "@/db/connection"
 
 export const adminRouter = router({
@@ -172,17 +173,10 @@ export const adminRouter = router({
   deleteWorkspace: adminProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [target] = await ctx.db
-        .select({ isPublic: workspaces.isPublic })
-        .from(workspaces)
-        .where(eq(workspaces.id, input.workspaceId))
-        .limit(1)
-      if (target?.isPublic) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `The public workspace cannot be deleted`,
-        })
-      }
+      await assertNotPublicWorkspace(input.workspaceId, {
+        message: `The public workspace cannot be deleted`,
+        code: `BAD_REQUEST`,
+      })
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))

@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
+import { isAdminUser } from "@/lib/auth/app-user"
 import { getInitials } from "@/lib/utils"
 import type { Project, Workspace } from "@/db/schema"
 import { useWorkspaceMemberships } from "@/hooks/use-workspace-data"
@@ -226,7 +227,7 @@ export function WorkspaceSidebar({
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-56">
-                {(session?.user as { isAdmin?: boolean })?.isAdmin && (
+                {isAdminUser(session?.user) && (
                   <DropdownMenuItem
                     onClick={() => navigate({ to: `/admin/users` })}
                   >

@@ -14,6 +14,8 @@ import {
 } from "@/lib/storage/issue-attachments"
 import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
 import { useSession } from "@/hooks/use-session"
+import { isAdminUser } from "@/lib/auth/app-user"
+import { parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Input } from "@/components/ui/input"
 import {
@@ -48,9 +50,7 @@ export function IssueDetailView({
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
-  const isAdmin = Boolean(
-    (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin
-  )
+  const isAdmin = isAdminUser(session?.user)
   const isMobile = useIsMobile()
 
   const editorRef = useRef<MarkdownEditorRef>(null)
@@ -190,7 +190,7 @@ export function IssueDetailView({
     setAttachmentStatus(null)
   }
 
-  const dueDate = issue.dueDate ? new Date(issue.dueDate + `T00:00:00`) : undefined
+  const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
   const imageOccurrences = extractMarkdownImageOccurrences(description)
 
   const handleRecurrenceChange = async (next: RecurrenceValue | null) => {

@@ -2,13 +2,12 @@ import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
 import { ArrowLeft, Shield, Users, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { isAdminUser } from "@/lib/auth/app-user"
 
 export const Route = createFileRoute(`/_authenticated/admin`)({
   ssr: false,
   beforeLoad: async ({ context }) => {
-    const isAdmin = (context.user as { isAdmin?: boolean } | undefined)
-      ?.isAdmin
-    if (!isAdmin) {
+    if (!isAdminUser(context.user)) {
       throw redirect({ to: `/` })
     }
   },

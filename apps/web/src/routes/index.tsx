@@ -1,13 +1,13 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { fetchSessionOnce } from "@/lib/auth/client"
+import { hasCompletedOnboarding } from "@/lib/auth/app-user"
 
 export const Route = createFileRoute(`/`)({
   ssr: false,
   beforeLoad: async () => {
     const sessionData = await fetchSessionOnce()
     if (sessionData?.user) {
-      const user = sessionData.user as { onboardingCompletedAt?: string | null }
-      if (!user.onboardingCompletedAt) {
+      if (!hasCompletedOnboarding(sessionData.user)) {
         throw redirect({ to: `/onboarding` })
       }
     }

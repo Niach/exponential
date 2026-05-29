@@ -1,28 +1,13 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { workspaceAgents, workspaceMembers, workspaces } from "@/db/schema"
+import { workspaceAgents, workspaceMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
-import { assertWorkspaceMember } from "@/lib/workspace-membership"
+import {
+  assertWorkspaceMember,
+  assertNotPublicWorkspace,
+} from "@/lib/workspace-membership"
 import { revokeWorkspaceAgent } from "@/lib/companion-agents"
-
-async function assertNotPublicWorkspace(
-  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
-  db: typeof import("@/db/connection").db,
-  workspaceId: string
-) {
-  const [target] = await db
-    .select({ isPublic: workspaces.isPublic })
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .limit(1)
-  if (target?.isPublic) {
-    throw new TRPCError({
-      code: `FORBIDDEN`,
-      message: `Membership on the public workspace cannot be modified`,
-    })
-  }
-}
 
 export const workspaceMembersRouter = router({
   updateRole: authedProcedure
@@ -43,7 +28,9 @@ export const workspaceMembersRouter = router({
         throw new TRPCError({ code: `NOT_FOUND`, message: `Member not found` })
       }
 
-      await assertNotPublicWorkspace(ctx.db, target.workspaceId)
+      await assertNotPublicWorkspace(target.workspaceId, {
+        message: `Membership on the public workspace cannot be modified`,
+      })
       await assertWorkspaceMember(ctx.session.user.id, target.workspaceId, [
         `owner`,
       ])
@@ -81,7 +68,9 @@ export const workspaceMembersRouter = router({
         throw new TRPCError({ code: `NOT_FOUND`, message: `Member not found` })
       }
 
-      await assertNotPublicWorkspace(ctx.db, target.workspaceId)
+      await assertNotPublicWorkspace(target.workspaceId, {
+        message: `Membership on the public workspace cannot be modified`,
+      })
 
       if (target.role === `agent`) {
         await assertWorkspaceMember(ctx.session.user.id, target.workspaceId, [

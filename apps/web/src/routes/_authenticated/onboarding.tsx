@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
+import { hasCompletedOnboarding } from "@/lib/auth/app-user"
 import { trpc } from "@/lib/trpc-client"
 import { OnboardingWizard } from "@/components/onboarding/wizard"
 
@@ -19,8 +20,7 @@ function OnboardingPage() {
 
   useEffect(() => {
     if (!session?.user) return
-    const user = session.user as { onboardingCompletedAt?: string | null }
-    if (user.onboardingCompletedAt) {
+    if (hasCompletedOnboarding(session.user)) {
       navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug: `default` } })
       return
     }

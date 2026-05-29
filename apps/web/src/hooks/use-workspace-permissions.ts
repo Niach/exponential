@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import { useSession } from "@/hooks/use-session"
+import { isAdminUser } from "@/lib/auth/app-user"
 import { useWorkspaceUsers } from "@/hooks/use-workspace-data"
 import { useBillingPlan, type BillingPlan } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
@@ -29,9 +30,7 @@ export function useWorkspacePermissions(
 
   const currentUserId = session?.user?.id
   const isAuthed = Boolean(currentUserId)
-  const isAdmin = Boolean(
-    currentUserId && (session?.user as { isAdmin?: boolean })?.isAdmin
-  )
+  const isAdmin = Boolean(currentUserId) && isAdminUser(session?.user)
 
   return useMemo(() => {
     const isMember = Boolean(

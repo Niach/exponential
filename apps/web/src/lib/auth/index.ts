@@ -10,6 +10,7 @@ import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
+import { isAdminUser } from "./app-user"
 
 export { parseOidcProviders, type OidcProviderConfig }
 
@@ -197,8 +198,7 @@ export const auth = betterAuth({
 
         const claims = decodeJwtPayload(account.idToken)
         const shouldBeAdmin = isAdminFromProfile(claims, provider)
-        const currentIsAdmin = (newSession.user as { isAdmin?: boolean })
-          .isAdmin
+        const currentIsAdmin = isAdminUser(newSession.user)
 
         if (shouldBeAdmin !== currentIsAdmin) {
           await db

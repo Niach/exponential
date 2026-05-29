@@ -285,6 +285,20 @@ export async function getWorkspaceById(workspaceId: string) {
   return workspace
 }
 
+export async function assertNotPublicWorkspace(
+  workspaceId: string,
+  options?: { message?: string; code?: `BAD_REQUEST` | `FORBIDDEN` }
+) {
+  const workspace = await getWorkspaceById(workspaceId)
+  if (workspace?.isPublic) {
+    throw new TRPCError({
+      code: options?.code ?? `FORBIDDEN`,
+      message:
+        options?.message ?? `This action is not allowed on the public workspace`,
+    })
+  }
+}
+
 // Resolves whether the user can read/use a workspace. Returns:
 // - { kind: 'member', workspace, member } when the user is a member
 // - { kind: 'public', workspace } when the workspace is public and user is authed

@@ -20,6 +20,7 @@ export {
   getIssueWorkspaceContext,
   getAttachmentWorkspaceContext,
   getWorkspaceById,
+  assertNotPublicWorkspace,
   resolveWorkspaceAccess,
   isWorkspaceModerator,
 } from "@/lib/auth/membership"

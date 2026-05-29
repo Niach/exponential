@@ -14,15 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 import type { StepProps } from "./wizard"
-
-function derivePrefix(name: string): string {
-  return name
-    .split(/[\s-_]+/)
-    .map((w) => w[0] ?? ``)
-    .join(``)
-    .toUpperCase()
-    .slice(0, 5)
-}
+import { derivePrefix } from "@/lib/project"
 
 export function StepProject({
   workspaceId,
