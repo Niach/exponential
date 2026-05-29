@@ -40,42 +40,6 @@ enum ContentBlock: Identifiable, Equatable {
 
 enum MarkdownConversion {
 
-    // MARK: - Markdown → NSAttributedString
-
-    static func markdownToAttributedString(_ markdown: String, baseURL: URL? = nil) -> NSAttributedString {
-        cmark_gfm_core_extensions_ensure_registered()
-
-        guard let parser = cmark_parser_new(CMARK_OPT_UNSAFE) else {
-            return NSAttributedString(string: markdown, attributes: MarkdownStyle.baseAttributes)
-        }
-        defer { cmark_parser_free(parser) }
-
-        for name in ["strikethrough", "table", "autolink"] {
-            if let ext = cmark_find_syntax_extension(name) {
-                cmark_parser_attach_syntax_extension(parser, ext)
-            }
-        }
-
-        markdown.withCString { ptr in
-            cmark_parser_feed(parser, ptr, strlen(ptr))
-        }
-
-        guard let doc = cmark_parser_finish(parser) else {
-            return NSAttributedString(string: markdown, attributes: MarkdownStyle.baseAttributes)
-        }
-        defer { cmark_node_free(doc) }
-
-        let result = NSMutableAttributedString()
-        var context = RenderContext(baseURL: baseURL)
-        renderNode(doc, into: result, context: &context)
-
-        if result.length > 0, result.string.hasSuffix("\n") {
-            result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1))
-        }
-
-        return result
-    }
-
     // MARK: - NSAttributedString → Markdown
 
     static func attributedStringToMarkdown(_ attrStr: NSAttributedString) -> String {
@@ -163,38 +127,6 @@ enum MarkdownConversion {
         return markdown.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - Markdown → HTML (kept for other callers)
-
-    static func markdownToHTML(_ markdown: String, baseURL: URL? = nil) -> String {
-        cmark_gfm_core_extensions_ensure_registered()
-
-        guard let parser = cmark_parser_new(CMARK_OPT_UNSAFE) else { return escapeHTML(markdown) }
-        defer { cmark_parser_free(parser) }
-
-        for name in ["strikethrough", "table", "autolink"] {
-            if let ext = cmark_find_syntax_extension(name) {
-                cmark_parser_attach_syntax_extension(parser, ext)
-            }
-        }
-
-        markdown.withCString { ptr in
-            cmark_parser_feed(parser, ptr, strlen(ptr))
-        }
-
-        guard let doc = cmark_parser_finish(parser) else { return escapeHTML(markdown) }
-        defer { cmark_node_free(doc) }
-
-        let extensions = cmark_parser_get_syntax_extensions(parser)
-        guard let cHTML = cmark_render_html(doc, CMARK_OPT_UNSAFE, extensions) else { return "" }
-        defer { free(cHTML) }
-
-        var html = String(cString: cHTML)
-        if let baseURL {
-            html = resolveRelativeURLs(in: html, baseURL: baseURL)
-        }
-        return html
-    }
-
     // MARK: - Markdown → Blocks
 
     static func markdownToBlocks(_ markdown: String, baseURL: URL? = nil) -> [ContentBlock] {
@@ -257,13 +189,6 @@ private struct ListContext {
     let depth: Int
 }
 
-private struct ImageInfo {
-    let url: String
-    let alt: String
-    let attachment: NSTextAttachment
-    let range: NSRange
-}
-
 private struct RenderContext {
     var baseURL: URL?
     var styleStack: [StyleFrame] = [StyleFrame(
@@ -276,7 +201,6 @@ private struct RenderContext {
     var inCodeBlock = false
     var inBlockquote = false
     var needsBlockSeparator = false
-    var imageInfos: [ImageInfo] = []
 
     var currentFont: UIFont {
         styleStack.last?.font ?? MarkdownStyle.bodyFont
@@ -314,261 +238,6 @@ private struct RenderContext {
         attrs.merge(currentExtraAttributes) { _, new in new }
         return attrs
     }
-}
-
-private func renderNode(_ node: UnsafeMutablePointer<cmark_node>, into result: NSMutableAttributedString, context: inout RenderContext) {
-    let type = cmark_node_get_type(node)
-
-    switch type {
-    case CMARK_NODE_DOCUMENT:
-        renderChildren(node, into: result, context: &context)
-
-    case CMARK_NODE_PARAGRAPH:
-        appendBlockSeparator(to: result, context: &context)
-        if context.inBlockquote {
-            context.pushStyle(
-                color: MarkdownStyle.blockquoteTextColor,
-                extra: [.markdownBlockquote: true]
-            )
-        }
-        renderChildren(node, into: result, context: &context)
-        if context.inBlockquote {
-            context.popStyle()
-        }
-        context.needsBlockSeparator = true
-
-    case CMARK_NODE_HEADING:
-        appendBlockSeparator(to: result, context: &context)
-        let level = Int(cmark_node_get_heading_level(node))
-        context.headingLevel = level
-        context.pushStyle(
-            font: MarkdownStyle.headingFont(level: level),
-            extra: [.markdownHeadingLevel: level]
-        )
-        renderChildren(node, into: result, context: &context)
-        context.popStyle()
-        context.headingLevel = 0
-        context.needsBlockSeparator = true
-
-    case CMARK_NODE_TEXT:
-        let literal = String(cString: cmark_node_get_literal(node))
-        result.append(NSAttributedString(string: literal, attributes: context.makeAttributes()))
-
-    case CMARK_NODE_SOFTBREAK:
-        result.append(NSAttributedString(string: " ", attributes: context.makeAttributes()))
-
-    case CMARK_NODE_LINEBREAK:
-        result.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))
-
-    case CMARK_NODE_STRONG:
-        let bold = addBoldTrait(to: context.currentFont)
-        context.pushStyle(font: bold)
-        renderChildren(node, into: result, context: &context)
-        context.popStyle()
-
-    case CMARK_NODE_EMPH:
-        let italic = addItalicTrait(to: context.currentFont)
-        context.pushStyle(font: italic)
-        renderChildren(node, into: result, context: &context)
-        context.popStyle()
-
-    case CMARK_NODE_CODE:
-        let literal = String(cString: cmark_node_get_literal(node))
-        var attrs = context.makeAttributes()
-        attrs[.font] = MarkdownStyle.monospaceFont
-        attrs[.backgroundColor] = MarkdownStyle.codeBackground
-        attrs[.markdownInlineCode] = true
-        result.append(NSAttributedString(string: literal, attributes: attrs))
-
-    case CMARK_NODE_CODE_BLOCK:
-        appendBlockSeparator(to: result, context: &context)
-        let literal = String(cString: cmark_node_get_literal(node))
-        let lang = cmark_node_get_fence_info(node).flatMap { String(cString: $0) }
-        var attrs = context.makeAttributes()
-        attrs[.font] = MarkdownStyle.monospaceFont
-        attrs[.backgroundColor] = MarkdownStyle.codeBlockBackground
-        attrs[.markdownCodeBlock] = true
-        if let lang, !lang.isEmpty {
-            attrs[.markdownCodeBlockLang] = lang
-        }
-        let text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
-        result.append(NSAttributedString(string: text, attributes: attrs))
-        context.needsBlockSeparator = true
-
-    case CMARK_NODE_LINK:
-        let urlStr = cmark_node_get_url(node).flatMap { String(cString: $0) } ?? ""
-        let resolved = resolveURL(urlStr, baseURL: context.baseURL)
-        var linkExtra: [NSAttributedString.Key: Any] = [:]
-        if let resolved { linkExtra[.link] = resolved }
-        context.pushStyle(
-            color: MarkdownStyle.linkColor,
-            extra: linkExtra
-        )
-        renderChildren(node, into: result, context: &context)
-        context.popStyle()
-
-    case CMARK_NODE_IMAGE:
-        let urlStr = cmark_node_get_url(node).flatMap { String(cString: $0) } ?? ""
-        let alt = collectText(from: node)
-        let resolvedStr = resolveURLString(urlStr, baseURL: context.baseURL)
-
-        if result.length > 0, !result.string.hasSuffix("\n") {
-            result.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))
-        }
-
-        let attachment = NSTextAttachment()
-        let placeholderWidth = UIScreen.main.bounds.width - 40
-        let placeholder = createPlaceholderImage(width: placeholderWidth, height: 160)
-        attachment.image = placeholder
-        attachment.bounds = CGRect(x: 0, y: 0, width: placeholderWidth, height: 160)
-
-        var attrs: [NSAttributedString.Key: Any] = context.makeAttributes()
-        attrs[.markdownImageURL] = resolvedStr
-        attrs[.markdownImageAlt] = alt
-
-        let attachStr = NSMutableAttributedString(attachment: attachment)
-        attachStr.addAttributes(attrs, range: NSRange(location: 0, length: attachStr.length))
-
-        let imageRange = NSRange(location: result.length, length: attachStr.length)
-        result.append(attachStr)
-        result.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))
-
-        context.imageInfos.append(ImageInfo(
-            url: resolvedStr,
-            alt: alt,
-            attachment: attachment,
-            range: imageRange
-        ))
-
-    case CMARK_NODE_LIST:
-        let ordered = cmark_node_get_list_type(node) == CMARK_ORDERED_LIST
-        let start = Int(cmark_node_get_list_start(node))
-        let depth = context.listStack.count
-        if depth == 0 {
-            appendBlockSeparator(to: result, context: &context)
-        }
-        context.listStack.append(ListContext(ordered: ordered, itemIndex: start, depth: depth))
-        renderChildren(node, into: result, context: &context)
-        context.listStack.removeLast()
-        if context.listStack.isEmpty {
-            context.needsBlockSeparator = true
-        }
-
-    case CMARK_NODE_ITEM:
-        if result.length > 0 && !result.string.hasSuffix("\n") {
-            result.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))
-        }
-
-        let depth = context.listStack.last?.depth ?? 0
-        let ordered = context.listStack.last?.ordered ?? false
-        let index = context.listStack.last?.itemIndex ?? 1
-
-        let task = taskItemState(node)
-        let isTaskItem = task.isTask
-        let isChecked = task.checked
-        if isTaskItem { stripTaskMarker(node) }
-
-        let listType: String
-        let prefix: String
-        if isTaskItem {
-            listType = "checklist"
-            prefix = isChecked ? "\u{2611} " : "\u{2610} "
-        } else if ordered {
-            listType = "ordered"
-            prefix = "\(index). "
-        } else {
-            listType = "bullet"
-            prefix = "\u{2022} "
-        }
-
-        if var last = context.listStack.last {
-            last.itemIndex += 1
-            context.listStack[context.listStack.count - 1] = last
-        }
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
-        let indent: CGFloat = CGFloat(depth) * 20 + 24
-        paragraphStyle.headIndent = indent
-        paragraphStyle.firstLineHeadIndent = CGFloat(depth) * 20
-
-        var prefixAttrs = context.makeAttributes()
-        prefixAttrs[.paragraphStyle] = paragraphStyle
-        prefixAttrs[.markdownListType] = listType
-        prefixAttrs[.markdownListItemIndex] = ordered ? index : 0
-        prefixAttrs[.markdownListDepth] = depth
-
-        result.append(NSAttributedString(string: prefix, attributes: prefixAttrs))
-
-        context.pushStyle(extra: [
-            .paragraphStyle: paragraphStyle,
-            .markdownListType: listType,
-            .markdownListItemIndex: ordered ? index : 0,
-            .markdownListDepth: depth,
-        ])
-        renderChildren(node, into: result, context: &context)
-        context.popStyle()
-
-    case CMARK_NODE_BLOCK_QUOTE:
-        appendBlockSeparator(to: result, context: &context)
-        context.inBlockquote = true
-        renderChildren(node, into: result, context: &context)
-        context.inBlockquote = false
-        context.needsBlockSeparator = true
-
-    case CMARK_NODE_THEMATIC_BREAK:
-        appendBlockSeparator(to: result, context: &context)
-        var attrs = context.makeAttributes()
-        attrs[.foregroundColor] = UIColor.white.withAlphaComponent(0.3)
-        result.append(NSAttributedString(string: "───", attributes: attrs))
-        context.needsBlockSeparator = true
-
-    case CMARK_NODE_HTML_BLOCK:
-        appendBlockSeparator(to: result, context: &context)
-        if let literal = cmark_node_get_literal(node) {
-            let text = String(cString: literal)
-            result.append(NSAttributedString(string: text.trimmingCharacters(in: .whitespacesAndNewlines), attributes: context.makeAttributes()))
-        }
-        context.needsBlockSeparator = true
-
-    case CMARK_NODE_HTML_INLINE:
-        if let literal = cmark_node_get_literal(node) {
-            let text = String(cString: literal)
-            result.append(NSAttributedString(string: text, attributes: context.makeAttributes()))
-        }
-
-    default:
-        if cmark_node_get_type_string(node) != nil {
-            let typeStr = String(cString: cmark_node_get_type_string(node))
-            if typeStr == "strikethrough" {
-                context.pushStyle(extra: [
-                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                    .markdownStrikethrough: true,
-                ])
-                renderChildren(node, into: result, context: &context)
-                context.popStyle()
-                return
-            }
-        }
-        renderChildren(node, into: result, context: &context)
-    }
-}
-
-private func renderChildren(_ node: UnsafeMutablePointer<cmark_node>, into result: NSMutableAttributedString, context: inout RenderContext) {
-    var child = cmark_node_first_child(node)
-    while let c = child {
-        renderNode(c, into: result, context: &context)
-        child = cmark_node_next(c)
-    }
-}
-
-private func appendBlockSeparator(to result: NSMutableAttributedString, context: inout RenderContext) {
-    guard context.needsBlockSeparator, result.length > 0 else {
-        context.needsBlockSeparator = false
-        return
-    }
-    result.append(NSAttributedString(string: "\n", attributes: MarkdownStyle.baseAttributes))
-    context.needsBlockSeparator = false
 }
 
 // MARK: - Block-Aware AST Rendering
@@ -833,30 +502,6 @@ private func resolveURL(_ urlStr: String, baseURL: URL?) -> URL? {
     return URL(string: base + urlStr)
 }
 
-private func resolveURLString(_ urlStr: String, baseURL: URL?) -> String {
-    if URL(string: urlStr)?.scheme != nil { return urlStr }
-    guard let baseURL else { return urlStr }
-    let base = baseURL.absoluteString.hasSuffix("/")
-        ? String(baseURL.absoluteString.dropLast())
-        : baseURL.absoluteString
-    return base + urlStr
-}
-
-private func resolveRelativeURLs(in html: String, baseURL: URL) -> String {
-    let base = baseURL.absoluteString.hasSuffix("/")
-        ? String(baseURL.absoluteString.dropLast())
-        : baseURL.absoluteString
-    return html
-        .replacingOccurrences(of: "src=\"/api/", with: "src=\"\(base)/api/")
-        .replacingOccurrences(of: "href=\"/api/", with: "href=\"\(base)/api/")
-}
-
-private func escapeHTML(_ text: String) -> String {
-    text.replacingOccurrences(of: "&", with: "&amp;")
-        .replacingOccurrences(of: "<", with: "&lt;")
-        .replacingOccurrences(of: ">", with: "&gt;")
-}
-
 // Task-list detection WITHOUT cmark's tasklist extension. We parse `- [ ]`
 // as a plain bullet so the `[ ]`/`[x]` marker stays in the literal and inspect
 // it here — the extension consumes the marker and then can't distinguish an
@@ -900,30 +545,6 @@ private func collectText(from node: UnsafeMutablePointer<cmark_node>) -> String 
         child = cmark_node_next(c)
     }
     return text
-}
-
-private func createPlaceholderImage(width: CGFloat, height: CGFloat) -> UIImage {
-    let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
-    return renderer.image { ctx in
-        UIColor.white.withAlphaComponent(0.06).setFill()
-        let path = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: width, height: height), cornerRadius: 8)
-        path.fill()
-
-        let icon = UIImage(systemName: "photo")?.withTintColor(
-            UIColor.white.withAlphaComponent(0.2),
-            renderingMode: .alwaysOriginal
-        )
-        if let icon {
-            let iconSize: CGFloat = 32
-            let iconRect = CGRect(
-                x: (width - iconSize) / 2,
-                y: (height - iconSize) / 2,
-                width: iconSize,
-                height: iconSize
-            )
-            icon.draw(in: iconRect)
-        }
-    }
 }
 
 // MARK: - Reverse Conversion Helpers
