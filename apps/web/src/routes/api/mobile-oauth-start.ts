@@ -24,9 +24,6 @@ async function handle({ request }: { request: Request }) {
   }
 
   const callbackURL = `${originForRequest(request)}/api/mobile-oauth-return`
-  console.log(
-    `[mobile-oauth-start] providerId=${providerId ?? "-"} social=${social ?? "-"} callbackURL=${callbackURL}`
-  )
 
   const response = social
     ? await auth.api.signInSocial({
@@ -51,7 +48,7 @@ async function handle({ request }: { request: Request }) {
     const raw = await response
       .clone()
       .text()
-      .catch(() => "<no body>")
+      .catch(() => `<no body>`)
     console.error(
       `[mobile-oauth-start] Better Auth did not return a redirect url: status=${response.status} body=${raw.slice(0, 500)}`
     )

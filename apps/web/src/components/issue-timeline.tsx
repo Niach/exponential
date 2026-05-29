@@ -22,19 +22,18 @@ interface IssueTimelineProps {
 // Regular comments the agent posts when something terminal happened. The
 // "implementing" spinner hides as soon as any of these land after approval.
 // Error-shaped ones (everything except PR-opened) also get a Retry button.
-const TERMINAL_BODY_PATTERNS = [
-  /^PR opened:/i,
-  /^Tests failed after retry/i,
-  /^Agent encountered an error/i,
-  /^No GitHub repo linked/i,
-  /Companion is not authenticated to GitHub/i,
-] as const
+const PR_OPENED_PATTERN = /^PR opened:/i
 
 const ERROR_BODY_PATTERNS = [
   /^Tests failed after retry/i,
   /^Agent encountered an error/i,
   /^No GitHub repo linked/i,
   /Companion is not authenticated to GitHub/i,
+] as const
+
+const TERMINAL_BODY_PATTERNS = [
+  PR_OPENED_PATTERN,
+  ...ERROR_BODY_PATTERNS,
 ] as const
 
 function isErrorComment(comment: Comment): boolean {

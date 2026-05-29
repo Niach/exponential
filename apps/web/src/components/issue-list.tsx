@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import { Plus, ChevronRight, Repeat } from "lucide-react"
 import type { IssueStatus } from "@/lib/domain"
+import type { IssueGroup } from "@/lib/project-board"
 
 const statusHeaderBg: Record<IssueStatus, string> = {
   backlog: `rgba(113, 113, 122, 0.08)`,
@@ -16,11 +17,6 @@ const statusHeaderBg: Record<IssueStatus, string> = {
   in_progress: `rgba(234, 179, 8, 0.10)`,
   done: `rgba(34, 197, 94, 0.10)`,
   cancelled: `rgba(113, 113, 122, 0.08)`,
-}
-
-interface IssueGroup {
-  status: IssueStatus
-  issues: Issue[]
 }
 
 interface IssueListProps {

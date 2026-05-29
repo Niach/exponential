@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,11 +35,13 @@ object HttpClientModule {
         HttpClient(CIO) {
             expectSuccess = false
             install(ContentNegotiation) { json(json) }
-            install(Logging) {
-                level = LogLevel.INFO
-                logger = object : Logger {
-                    override fun log(message: String) {
-                        android.util.Log.d("ktor", message)
+            if (BuildConfig.DEBUG) {
+                install(Logging) {
+                    level = LogLevel.INFO
+                    logger = object : Logger {
+                        override fun log(message: String) {
+                            android.util.Log.d("ktor", message)
+                        }
                     }
                 }
             }

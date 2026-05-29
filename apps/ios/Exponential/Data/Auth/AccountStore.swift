@@ -81,15 +81,6 @@ final class AccountStore: @unchecked Sendable {
         persistLocked()
     }
 
-    /// Clears the active account's token but keeps the server in the list.
-    func clearActiveToken() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let id = cachedActiveId, let idx = cached.firstIndex(where: { $0.id == id }) else { return }
-        cached[idx].token = nil
-        persistLocked()
-    }
-
     /// Switches the active account to the given id. No-op if id is unknown.
     func setActive(id: String) {
         lock.lock()

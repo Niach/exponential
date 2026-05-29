@@ -8,7 +8,6 @@ export {
   getReadableWorkspaceIds,
   getReadableProjectIds,
   getReadableUserIdsInWorkspaces,
-  getPublicProjectIds,
   invalidatePublicWorkspaceCache,
   getUserWorkspaceIds,
   getUserProjectIds,

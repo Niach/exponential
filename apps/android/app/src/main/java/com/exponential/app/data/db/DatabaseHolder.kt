@@ -49,14 +49,6 @@ class DatabaseHolder @Inject constructor(
         }
     }
 
-    /// Close every open instance. App teardown / sign-out-all.
-    fun close() {
-        synchronized(lock) {
-            instances.values.forEach { it.close() }
-            instances.clear()
-        }
-    }
-
     fun deleteFiles(accountId: String) {
         synchronized(lock) {
             close(accountId)

@@ -10,7 +10,6 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -35,10 +34,6 @@ object JsonAsStringSerializer : KSerializer<String?> {
     }
 
     override fun serialize(encoder: Encoder, value: String?) {
-        if (encoder is JsonEncoder) {
-            encoder.encodeSerializableValue(delegate, value)
-        } else {
-            encoder.encodeSerializableValue(delegate, value)
-        }
+        encoder.encodeSerializableValue(delegate, value)
     }
 }

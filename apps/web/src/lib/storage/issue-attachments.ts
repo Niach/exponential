@@ -26,7 +26,7 @@ export function buildAttachmentUrl(attachmentId: string) {
   return `/api/attachments/${attachmentId}`
 }
 
-export function sanitizeAttachmentFilename(filename: string) {
+function sanitizeAttachmentFilename(filename: string) {
   const normalized = filename
     .normalize(`NFKD`)
     .replace(/[^\x20-\x7E]/g, ``)

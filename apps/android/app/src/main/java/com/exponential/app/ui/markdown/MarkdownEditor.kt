@@ -14,7 +14,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.mohamedrejeb.richeditor.model.RichTextState
 import com.mohamedrejeb.richeditor.model.rememberRichTextState
 import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichText
@@ -97,9 +96,4 @@ fun extractDescriptionMarkdown(raw: String?): String {
             (element["text"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: raw
         } else raw
     }.getOrDefault(raw)
-}
-
-@Suppress("unused")
-private fun stableTouch(state: RichTextState) {
-    // Keep import live for IDE; intentionally unused.
 }

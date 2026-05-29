@@ -20,6 +20,7 @@ Real-time issue tracker.
 exponential/
 ├── apps/
 │   ├── web/        # TanStack Start app (the issue tracker)
+│   ├── companion/  # Long-lived agent daemon (@exp/companion): runs a coding agent (Claude Agent SDK / Codex) on assigned issues in a git worktree, opens GitHub PRs
 │   ├── push-relay/ # Standalone push notification relay (Hono/Bun, separately deployed)
 │   ├── marketing/  # Marketing site (Vite + React, deployed via Coolify)
 │   ├── ios/        # Native SwiftUI iOS app (Tuist + GRDB)
@@ -36,9 +37,9 @@ exponential/
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
-Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/tsconfig`.
+Workspace package names: `@exp/web`, `@exp/companion`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/tsconfig`.
 
-**Mobile parity:** iOS and Android sync the same nine Electric shapes the web client uses (workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, **comments**). All three clients honor `isPublic` / `publicWritePolicy` field gating via a small `WorkspacePermissions` helper that mirrors `apps/web/src/hooks/use-workspace-permissions.ts`. When changing enum values in `packages/db-schema/src/domain.ts`, also update `packages/domain-contract/contract.json` and run `bun run --filter @exp/domain-contract generate` to refresh the Swift / Kotlin constants.
+**Mobile parity:** iOS and Android sync the same ten Electric shapes the web client uses (workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, **comments**, **attachments**). All three clients honor `isPublic` / `publicWritePolicy` field gating via a small `WorkspacePermissions` helper that mirrors `apps/web/src/hooks/use-workspace-permissions.ts`. When changing enum values in `packages/db-schema/src/domain.ts`, also update `packages/domain-contract/contract.json` and run `bun run --filter @exp/domain-contract generate` to refresh the Swift / Kotlin constants.
 
 **Description / comment markdown contract:** `issues.description` and `comments.body` are jsonb `{ text: "<markdown>" }`. The markdown is **GFM** — the single interchange contract across web (TipTap + tiptap-markdown), iOS (cmark-gfm), and Android (compose-rich-editor). Supported, round-trippable features: bold, italic, strikethrough, inline code, headings (H1–H3 editable), bullet/ordered lists, **task lists** (`- [ ]`/`- [x]`), blockquote, code blocks, links, and **block/full-width inline images**. **Underline is intentionally unsupported** (no GFM representation — it does not round-trip); tables, slash commands, mentions, and image resize are intentionally out of scope. Embedded images are always stored as the relative form `![alt](/api/attachments/{id})`; the server canonicalizes image URLs to relative on save (`canonicalizeMarkdownImageUrls` in `apps/web/src/lib/storage/issue-attachments.ts`), and clients resolve to absolute only at fetch time. The iOS editor is block-based: `IssueEditorModel` (an `@Observable`) owns `[ContentBlock]` as the single source of truth and derives markdown only at save; image upload is atomic (all-or-nothing) and concurrent. Attachments carry probed `width`/`height` so clients can pre-size and avoid layout shift.
 
@@ -131,9 +132,7 @@ apps/web/src/
 ├── hooks/
 │   └── use-mobile.ts            # useIsMobile() — detects mobile breakpoint (768px)
 ├── lib/
-│   ├── auth.ts                  # Better Auth server config (genericOAuth plugin for OIDC)
-│   ├── auth-client.ts           # Better Auth client + authStateCollection (genericOAuthClient plugin)
-│   ├── auth-config.ts           # Server function exposing auth settings to client
+│   ├── auth/                    # Better Auth: index.ts (server config), client.ts (fetchSessionOnce session cache), config.ts (getAuthConfig), membership.ts, policies.ts, shape-where.ts
 │   ├── collections.ts           # Electric collection definitions (all use snakeCamelMapper)
 │   ├── electric-proxy.ts        # Shape proxy helpers (prepareElectricUrl, proxyElectricRequest)
 │   ├── filters.ts               # Issue filter types, tab presets, matchesFilters(), activeFilterCount()
@@ -149,7 +148,7 @@ apps/web/src/
 ├── routes/
 │   ├── __root.tsx               # Root layout (dark HTML, Inter font, TooltipProvider)
 │   ├── _authenticated.tsx       # Auth guard (redirect to /auth/login if no session)
-│   ├── _authenticated/w/$workspaceSlug/
+│   ├── w/$workspaceSlug/        # Top-level workspace route (own beforeLoad session gating)
 │   │   ├── route.tsx            # Workspace layout (shadcn Sidebar, project nav, user dropdown)
 │   │   └── projects/$projectSlug/index.tsx  # Project page (issue list, filtering, create/edit dialogs)
 │   ├── auth/login.tsx           # Login page
@@ -182,11 +181,11 @@ apps/web/src/
 
 ### Tables
 
-`workspaces`, `projects`, `issues`, `labels`, `issue_labels`, `issue_relations`, `comments`, `attachments`, `push_subscriptions`, `notifications` + Better Auth tables (users, sessions, accounts, verifications)
+`workspaces`, `projects`, `issues`, `labels`, `issue_labels`, `issue_relations`, `comments`, `attachments`, `workspace_members`, `workspace_invites`, `workspace_agents`, `fcm_tokens`, `push_subscriptions`, `notifications` + Better Auth tables (users, sessions, accounts, verifications, apikeys)
 
 ### Key Issue Fields
 
-`id`, `projectId`, `number`, `identifier`, `title`, `description` (jsonb), `status`, `priority`, `assigneeId`, `creatorId`, `dueDate`, `sortOrder`, `completedAt`, `archivedAt`, `createdAt`, `updatedAt`
+`id`, `projectId`, `number`, `identifier`, `title`, `description` (jsonb), `status`, `priority`, `assigneeId`, `creatorId`, `dueDate`, `sortOrder`, `completedAt`, `archivedAt`, `createdAt`, `updatedAt`, plus agent-plan fields `agentPlanState`, `agentPlanRevision`, `agentPlanApprovedAt`
 
 ### Enums
 
@@ -201,7 +200,7 @@ apps/web/src/
 
 ### Electric Shape Proxies
 
-Each synced table gets a shape proxy in `apps/web/src/routes/api/shapes/`. The proxy authenticates the request, then forwards to Electric. Client collections in `apps/web/src/lib/collections.ts` point to these proxy URLs. Current proxies: workspaces, projects, issues, labels, issue-labels.
+Each synced table gets a shape proxy in `apps/web/src/routes/api/shapes/`, built with the shared `createShapeRouteHandler` (`lib/shape-route.ts`). The proxy authenticates the request, then forwards to Electric. Client collections in `apps/web/src/lib/collections.ts` point to these proxy URLs. There is one proxy per synced table — currently workspaces, projects, issues, labels, issue-labels, users, workspace-members, workspace-invites, comments, attachments, and assigned-issues.
 
 ### Electric Collections
 
@@ -209,7 +208,7 @@ All collections in `apps/web/src/lib/collections.ts` use `columnMapper: snakeCam
 
 ### Auth Guard
 
-`_authenticated.tsx` uses `beforeLoad` with `throw redirect()` to gate routes. Session is cached in `authStateCollection` (local-only collection) to avoid re-fetching on every navigation.
+`_authenticated.tsx` uses `beforeLoad` with `throw redirect()` to gate routes. The session is fetched once via `fetchSessionOnce()` (`lib/auth/client.ts`) and cached to avoid re-fetching on every navigation.
 
 ### tRPC + Electric Sync
 
@@ -252,27 +251,39 @@ Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID s
 ## Environment Variables (.env)
 
 ```
-DATABASE_URL                  # Postgres connection string
+DATABASE_URL                  # Postgres connection string (db name: exponential)
 BETTER_AUTH_SECRET            # 32+ char secret for session signing
 BETTER_AUTH_URL               # App base URL (http://localhost:5173)
 BETTER_AUTH_TRUSTED_ORIGINS   # Comma-separated allowed origins
 ELECTRIC_URL                  # Electric service URL (http://localhost:30000)
+ELECTRIC_SOURCE_ID            # Electric Cloud source id (optional; unset for local/self-hosted)
+ELECTRIC_SECRET               # Electric Cloud source secret (optional)
 S3_ENDPOINT                   # S3-compatible storage URL (Garage default: http://localhost:3900)
 S3_ACCESS_KEY                 # S3 access key (created by `bun run storage:init`)
 S3_SECRET_KEY                 # S3 secret key (created by `bun run storage:init`)
 S3_BUCKET                     # S3 bucket for attachments (default: exponential-attachments)
 S3_REGION                     # S3 region label (default: garage)
-AUTH_OIDC_ENABLED             # Enable OIDC login (default: false)
 AUTH_PASSWORD_ENABLED         # Enable email/password login (default: true)
+OIDC_PROVIDERS                # JSON array of OIDC providers — the primary OIDC mechanism (see .env.example)
+# Legacy single-provider OIDC (used only when OIDC_PROVIDERS is unset):
+AUTH_OIDC_ENABLED             # Enable legacy single-provider OIDC (default: false)
 OIDC_CLIENT_ID                # OAuth2 client ID
 OIDC_CLIENT_SECRET            # OAuth2 client secret
 OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
 OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
+MCP_API_TOKEN                 # Static Bearer token for the MCP server
+MCP_USER_EMAIL                # MCP tool calls run as this user
 GOOGLE_CLIENT_ID              # Google OAuth client ID (required for login or Calendar)
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
 GOOGLE_CALENDAR_ENABLED       # Enable Google Calendar integration (default: false)
+SELF_HOSTED                   # 'true' for self-hosted (disables billing, unlocks plan limits)
+CREEM_API_KEY                 # Creem billing API key (cloud-only)
+CREEM_WEBHOOK_SECRET          # Creem webhook signing secret (cloud-only)
+CREEM_PRO_PRODUCT_ID          # Creem product ID for the Pro plan
+CREEM_BUSINESS_PRODUCT_ID     # Creem product ID for the Business plan
 PUSH_RELAY_URL                # URL of the push-relay service (e.g. https://push.yourapp.com)
+PUSH_RELAY_SECRET             # Shared secret between web app and push relay
 ```
 
 ## Integrations
@@ -286,6 +297,10 @@ Sync logic is in `src/lib/google-calendar.ts` and is invoked via `fireAndForgetS
 - Issue has `dueDate` AND status not in `done`/`cancelled` AND not archived → event exists
 - Otherwise → no event
 - `issues.googleCalendarEventId` tracks the synced event ID
+
+### Agent Companion
+
+The `apps/companion` daemon (`@exp/companion`) runs a coding agent (Claude Agent SDK or Codex SDK) against issues assigned to an agent member. An operator adds an agent member in workspace settings (persisted in `workspace_agents`, linked to an `apikeys` row and a `users` row, gated by `setupTokenHash`), copies the generated install command, and runs the daemon on a Linux host. It watches assigned issues over Electric, runs the agent in a git worktree, and opens a GitHub PR via the host's local `gh` auth. Every event (plan ready, questions, PR opened, errors) is also written as an issue comment, so the existing FCM push pipeline notifies the owner. Plan approval flows through the `agentPlanState` / `agentPlanRevision` / `agentPlanApprovedAt` issue fields; server logic lives in `lib/trpc/agent-plan.ts` and `lib/trpc/companion/`.
 
 ## Style Conventions
 

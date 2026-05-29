@@ -22,7 +22,6 @@ enum MarkdownStyle {
     static let codeBlockBackground = UIColor.white.withAlphaComponent(0.06)
     static let blockquoteTextColor = UIColor.white.withAlphaComponent(0.6)
     static let placeholderColor = UIColor.white.withAlphaComponent(0.3)
-    static let editorBackground = UIColor(white: 0.08, alpha: 1.0)
 
     static func headingFont(level: Int) -> UIFont {
         let sizes: [CGFloat] = [0, 24, 20, 18, 16, 15, 14]

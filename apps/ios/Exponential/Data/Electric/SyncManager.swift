@@ -48,15 +48,6 @@ final class SyncManager: @unchecked Sendable {
         cancelAll()
     }
 
-    /// **Transitional**: signs out whichever account is currently the
-    /// "most-recently-used" pool in DatabaseManager. Phase C replaces every
-    /// caller with the explicit per-account variant below.
-    func signOut() async {
-        if let activeId = auth.activeAccountId {
-            await signOut(accountId: activeId)
-        }
-    }
-
     func signOut(accountId: String) async {
         // With per-account DBs and per-account pipelines, signing out just
         // cancels that one account's shape tasks. The local cache stays so the
@@ -68,11 +59,8 @@ final class SyncManager: @unchecked Sendable {
 
     /// Wait up to ~5s for the active account's workspaces shape to land its
     /// initial snapshot. Live sync runs automatically — this exists so UI
-    /// loading indicators have a meaningful signal to wait on.
-    ///
-    /// Transitional: uses the legacy `db.dbPool` getter (the most-recently-used
-    /// account's pool). Phase B replaces the caller (`MainNavigator.onAppear`)
-    /// with per-account sync waits keyed by route accountId.
+    /// loading indicators have a meaningful signal to wait on. Resolves the
+    /// active account's pool directly via `db.pool(forAccountId:)`.
     func initialSync() async {
         guard let activeId = auth.activeAccountId,
               let pool = try? db.pool(forAccountId: activeId) else { return }
@@ -216,7 +204,7 @@ final class SyncManager: @unchecked Sendable {
 }
 
 // One transaction per long-poll batch — never one transaction per row.
-// Per-row writes from 8 concurrent shape loops were what starved the GRDB
+// Per-row writes from the concurrent shape loops were what starved the GRDB
 // writer and forced live sync off in the first place. Keep batched.
 private func applyBatch<T: PersistableRecord & Sendable>(
     messages: [ShapeMessage<T>], table: String, pool: DatabasePool

@@ -29,10 +29,4 @@ extension NSAttributedString {
         guard location >= 0, location < length else { return nil }
         return attributes(at: location, effectiveRange: nil)
     }
-
-    /// Substring for `range`, or `nil` if the range is out of bounds.
-    func attributedSubstringIfInBounds(from range: NSRange) -> NSAttributedString? {
-        guard range.location >= 0, NSMaxRange(range) <= length else { return nil }
-        return attributedSubstring(from: range)
-    }
 }

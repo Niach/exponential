@@ -1,4 +1,4 @@
-import type { Issue, IssueLabel, Label, User } from "@/db/schema"
+import type { Issue, IssueLabel, Label } from "@/db/schema"
 import type { IssueFilters } from "@/lib/filters"
 import { matchesFilters } from "@/lib/filters"
 import {
@@ -53,10 +53,6 @@ function compareIssuesForGroup(today: string) {
 export interface IssueGroup {
   issues: Issue[]
   status: IssueStatus
-}
-
-export function buildUserMap(users: User[]) {
-  return new Map(users.map((user) => [user.id, user]))
 }
 
 export function buildIssueLabelMap(issueLabels: IssueLabel[], labels: Label[]) {

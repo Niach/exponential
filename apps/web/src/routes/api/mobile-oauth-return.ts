@@ -20,13 +20,6 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
     handlers: {
       GET: async ({ request }) => {
         const cookieHeader = request.headers.get(`cookie`) ?? ``
-        console.log(
-          `[mobile-oauth-return] entered cookieNames=${cookieHeader
-            .split(`;`)
-            .map((c) => c.trim().split(`=`)[0])
-            .filter(Boolean)
-            .join(`,`)}`
-        )
         // Anti-CSRF for the deep-link hop: the cookie was set by
         // /api/mobile-oauth-start, so absence means this URL was visited
         // out-of-band. Better Auth's own state cookie already protected the
@@ -72,7 +65,6 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           })
         }
 
-        console.log(`[mobile-oauth-return] handing off to ${APP_DEEP_LINK} (token len=${token.length})`)
         const target = `${APP_DEEP_LINK}#token=${encodeURIComponent(token)}`
         // Use raw Response — Response.redirect() may reject non-http schemes.
         return new Response(null, {

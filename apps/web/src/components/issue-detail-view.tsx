@@ -25,7 +25,7 @@ import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
 
-export interface IssueDetailViewProps {
+interface IssueDetailViewProps {
   issue: Issue
   issueLabelIds: string[]
   users: User[]

@@ -53,11 +53,6 @@ final class AuthRepository: @unchecked Sendable {
         republish()
     }
 
-    func clearToken() {
-        accountStore.clearActiveToken()
-        republish()
-    }
-
     // MARK: - Multi-account
 
     func switchAccount(id: String) {

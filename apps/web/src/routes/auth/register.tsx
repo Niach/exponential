@@ -113,7 +113,7 @@ function RegisterPage() {
       }
     >
       <div className="space-y-4">
-        {oidcProviders.map((provider) => (
+        {oidcProviders.map((provider: { id: string; name: string }) => (
           <Button
             key={provider.id}
             type="button"

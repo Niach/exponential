@@ -2,10 +2,6 @@ package com.exponential.app.ui.markdown
 
 private val MARKDOWN_IMAGE_REGEX = Regex("""!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)""")
 
-/** Find every image URL in the markdown source (in document order). */
-fun collectMarkdownImageUrls(markdown: String): List<String> =
-    MARKDOWN_IMAGE_REGEX.findAll(markdown).map { it.groupValues[2] }.toList()
-
 /** Drop image references whose URL is in `urls`. */
 fun removeMarkdownImagesByUrl(markdown: String, urls: Collection<String>): String {
     if (urls.isEmpty()) return markdown

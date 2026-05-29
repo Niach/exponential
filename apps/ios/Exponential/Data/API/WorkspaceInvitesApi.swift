@@ -13,10 +13,6 @@ struct RevokeInviteInput: Encodable {
     let inviteId: String
 }
 
-struct GetByTokenInput: Encodable {
-    let token: String
-}
-
 struct InviteCreateResult: Decodable {
     let invite: InviteTokenResult
 }
