@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AuthFormShell } from "@/components/auth-form-shell"
+import {
+  OAuthProviderButtons,
+  useOAuthSignIn,
+} from "@/components/oauth-provider-buttons"
 
 export const Route = createFileRoute(`/auth/login`)({
   component: LoginPage,
@@ -17,8 +21,6 @@ export const Route = createFileRoute(`/auth/login`)({
   }),
 })
 
-const GOOGLE_PROVIDER_KEY = `__google__`
-
 function LoginPage() {
   const { redirect: redirectTo } = Route.useSearch()
   const { passwordEnabled, oidcProviders, googleLoginEnabled } =
@@ -26,10 +28,8 @@ function LoginPage() {
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
-  const [pendingProvider, setPendingProvider] = useState<string | null>(null)
-  const [error, setError] = useState(``)
-
-  const hasOauthOptions = oidcProviders.length > 0 || googleLoginEnabled
+  const { pendingProvider, error, setError, signInWithOidc, signInWithGoogle } =
+    useOAuthSignIn(redirectTo)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,34 +57,6 @@ function LoginPage() {
     }
   }
 
-  const handleOidcSignIn = async (providerId: string) => {
-    setPendingProvider(providerId)
-    setError(``)
-    try {
-      await authClient.signIn.oauth2({
-        providerId,
-        callbackURL: redirectTo || `/`,
-      })
-    } catch {
-      setError(`An unexpected error occurred`)
-      setPendingProvider(null)
-    }
-  }
-
-  const handleGoogleSignIn = async () => {
-    setPendingProvider(GOOGLE_PROVIDER_KEY)
-    setError(``)
-    try {
-      await authClient.signIn.social({
-        provider: `google`,
-        callbackURL: redirectTo || `/`,
-      })
-    } catch {
-      setError(`An unexpected error occurred`)
-      setPendingProvider(null)
-    }
-  }
-
   return (
     <AuthFormShell
       title="Sign in"
@@ -109,45 +81,15 @@ function LoginPage() {
       }
     >
       <div className="space-y-4">
-        {oidcProviders.map((provider: { id: string; name: string }) => (
-          <Button
-            key={provider.id}
-            type="button"
-            variant="outline"
-            className="w-full"
-            disabled={pendingProvider !== null}
-            onClick={() => handleOidcSignIn(provider.id)}
-          >
-            {pendingProvider === provider.id
-              ? `Redirecting...`
-              : `Sign in with ${provider.name}`}
-          </Button>
-        ))}
-
-        {googleLoginEnabled && (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            disabled={pendingProvider !== null}
-            onClick={handleGoogleSignIn}
-          >
-            {pendingProvider === GOOGLE_PROVIDER_KEY
-              ? `Redirecting...`
-              : `Sign in with Google`}
-          </Button>
-        )}
-
-        {hasOauthOptions && passwordEnabled && (
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">or</span>
-            </div>
-          </div>
-        )}
+        <OAuthProviderButtons
+          oidcProviders={oidcProviders}
+          googleLoginEnabled={googleLoginEnabled}
+          verb="Sign in"
+          pendingProvider={pendingProvider}
+          showDivider={passwordEnabled}
+          onOidc={signInWithOidc}
+          onGoogle={signInWithGoogle}
+        />
 
         {passwordEnabled && (
           <form onSubmit={handleSubmit} className="space-y-4">

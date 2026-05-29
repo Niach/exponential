@@ -10,9 +10,9 @@ import {
   Shield,
 } from "lucide-react"
 import type { Project } from "@/db/schema"
-import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
 import { isAdminUser } from "@/lib/auth/app-user"
+import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -50,13 +50,7 @@ export function WorkspaceMobileTopbar({
     ? getInitials(session.user.name)
     : `?`
 
-  const handleSignOut = async () => {
-    await authClient.signOut()
-    navigate({
-      to: `/auth/login`,
-      search: { redirect: undefined },
-    })
-  }
+  const handleSignOut = useSignOut()
 
   return (
     <header className="flex items-center gap-2 border-b px-3 md:px-4 h-12">

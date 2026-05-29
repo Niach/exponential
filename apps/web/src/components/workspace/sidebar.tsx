@@ -11,9 +11,9 @@ import {
   Settings,
   Shield,
 } from "lucide-react"
-import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
 import { isAdminUser } from "@/lib/auth/app-user"
+import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
 import type { Project, Workspace } from "@/db/schema"
 import { useWorkspaceMemberships } from "@/hooks/use-workspace-data"
@@ -62,13 +62,7 @@ export function WorkspaceSidebar({
   const { myWorkspaces } = useWorkspaceMemberships(session?.user?.id)
   const isAuthed = Boolean(session?.user)
 
-  const handleSignOut = async () => {
-    await authClient.signOut()
-    navigate({
-      to: `/auth/login`,
-      search: { redirect: undefined },
-    })
-  }
+  const handleSignOut = useSignOut()
 
   const userInitials = session?.user?.name
     ? getInitials(session.user.name)
