@@ -46,6 +46,14 @@ final class AuthRepository: @unchecked Sendable {
         republish()
     }
 
+    /// Resolves the API base URL for an account, falling back to the active
+    /// instance URL. Shared by the issue detail and create-issue screens.
+    func instanceBaseURL(forAccountId accountId: String) -> URL? {
+        let urlString =
+            accounts.first(where: { $0.id == accountId })?.instanceUrl ?? instanceUrl
+        return urlString.flatMap { URL(string: $0) }
+    }
+
     // MARK: - Token
 
     func setToken(_ token: String, email: String?, name: String? = nil, userId: String? = nil, isAdmin: Bool = false) {

@@ -41,7 +41,7 @@ struct AttachmentListView: View {
     private func startObserving() {
         observationTask?.cancel()
         observationTask = Task {
-            let pool = try! deps.db.pool(forAccountId: accountId)
+            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
             let obs = ValueObservation.tracking { db in
                 try AttachmentEntity
                     .filter(Column("issue_id") == issueId)

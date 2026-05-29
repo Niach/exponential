@@ -32,7 +32,7 @@ final class IssueListViewModel {
     func startObserving() {
         observationTask = Task { [weak self] in
             guard let self else { return }
-            let pool = try! self.db.pool(forAccountId: self.accountId)
+            guard let pool = try? self.db.pool(forAccountId: self.accountId) else { return }
 
             // Observe project
             let projectObservation = ValueObservation.tracking { db in
@@ -172,7 +172,10 @@ final class IssueListViewModel {
             permissions = .denied
             return
         }
-        let pool = try! db.pool(forAccountId: accountId)
+        guard let pool = try? db.pool(forAccountId: accountId) else {
+            permissions = .denied
+            return
+        }
         let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
             try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
         }) ?? nil

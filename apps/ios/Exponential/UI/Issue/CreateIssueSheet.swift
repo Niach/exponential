@@ -371,8 +371,7 @@ struct CreateIssueSheet: View {
     }
 
     private var instanceBaseURL: URL? {
-        let instanceUrl = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? deps.auth.instanceUrl
-        return instanceUrl.flatMap { URL(string: $0) }
+        deps.auth.instanceBaseURL(forAccountId: accountId)
     }
 
     private func formatDate(_ date: Date) -> String {

@@ -159,7 +159,7 @@ struct CommentThreadView: View {
     private func startObserving() {
         observationTask?.cancel()
         observationTask = Task {
-            let pool = try! deps.db.pool(forAccountId: accountId)
+            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
 
             let commentObs = ValueObservation.tracking { db in
                 try CommentEntity
