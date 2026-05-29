@@ -41,42 +41,38 @@ class LabelsApi @Inject constructor(private val trpc: TrpcClient) {
         ).label
 
     suspend fun update(accountId: String, input: UpdateLabelInput) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "labels.update",
             input = input,
             inputSerializer = UpdateLabelInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 
     suspend fun delete(accountId: String, workspaceId: String, labelId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "labels.delete",
             input = DeleteLabelInput(workspaceId, labelId),
             inputSerializer = DeleteLabelInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 
     suspend fun addLabel(accountId: String, issueId: String, labelId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "issueLabels.add",
             input = IssueLabelInput(issueId, labelId),
             inputSerializer = IssueLabelInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 
     suspend fun removeLabel(accountId: String, issueId: String, labelId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "issueLabels.remove",
             input = IssueLabelInput(issueId, labelId),
             inputSerializer = IssueLabelInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 }

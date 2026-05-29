@@ -40,32 +40,29 @@ class WorkspacesApi @Inject constructor(private val trpc: TrpcClient) {
         ).workspace
 
     suspend fun update(accountId: String, input: UpdateWorkspaceInput) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "workspaces.update",
             input = input,
             inputSerializer = UpdateWorkspaceInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 
     suspend fun delete(accountId: String, workspaceId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "workspaces.delete",
             input = DeleteWorkspaceInput(workspaceId),
             inputSerializer = DeleteWorkspaceInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 
     suspend fun deleteProject(accountId: String, projectId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "projects.delete",
             input = DeleteProjectInput(projectId),
             inputSerializer = DeleteProjectInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 }

@@ -370,17 +370,6 @@ fun IssueDetailScreen(
     }
 }
 
-private fun formatRecurrence(interval: Int?, unit: String?): String {
-    if (interval == null || unit == null) return "Does not repeat"
-    val pretty = when (unit) {
-        "day" -> if (interval == 1) "Daily" else "Every $interval days"
-        "week" -> if (interval == 1) "Weekly" else "Every $interval weeks"
-        "month" -> if (interval == 1) "Monthly" else "Every $interval months"
-        else -> "Every $interval $unit"
-    }
-    return pretty
-}
-
 // Compact pill rendered above the title when the agent has a plan in
 // flight. Hidden when there's no plan state to surface. Mirrors the state
 // derivation in apps/web/src/components/issue-timeline.tsx (~lines 421-446).

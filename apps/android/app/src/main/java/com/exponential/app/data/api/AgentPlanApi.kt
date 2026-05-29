@@ -4,7 +4,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
 
 // Mirrors apps/web/src/lib/trpc/agent-plan.ts. The daemon submits plans via
 // the same router; this Android surface only exposes the human-side
@@ -16,32 +15,29 @@ private data class IssueIdInput(@SerialName("issueId") val issueId: String)
 class AgentPlanApi @Inject constructor(private val trpc: TrpcClient) {
 
     suspend fun approvePlan(accountId: String, issueId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "agentPlan.approvePlan",
             input = IssueIdInput(issueId),
             inputSerializer = IssueIdInput.serializer(),
-            outputSerializer = JsonElement.serializer(),
         )
     }
 
     suspend fun requestChanges(accountId: String, issueId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "agentPlan.requestChanges",
             input = IssueIdInput(issueId),
             inputSerializer = IssueIdInput.serializer(),
-            outputSerializer = JsonElement.serializer(),
         )
     }
 
     suspend fun retry(accountId: String, issueId: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "agentPlan.retry",
             input = IssueIdInput(issueId),
             inputSerializer = IssueIdInput.serializer(),
-            outputSerializer = JsonElement.serializer(),
         )
     }
 }

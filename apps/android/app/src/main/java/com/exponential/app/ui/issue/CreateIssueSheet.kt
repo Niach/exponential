@@ -166,7 +166,7 @@ fun CreateIssueSheet(
                 OutlinedButton(onClick = { recurrenceSheetOpen = true }, enabled = isModerator) {
                     Icon(Icons.Filled.Repeat, null, modifier = Modifier.width(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(formatCreateRecurrence(recurrenceInterval, recurrenceUnit))
+                    Text(formatRecurrence(recurrenceInterval, recurrenceUnit))
                 }
             }
             if (error != null) {
@@ -294,15 +294,5 @@ fun CreateIssueSheet(
             },
             onDismiss = { recurrenceSheetOpen = false },
         )
-    }
-}
-
-private fun formatCreateRecurrence(interval: Int?, unit: String?): String {
-    if (interval == null || unit == null) return "Does not repeat"
-    return when (unit) {
-        "day" -> if (interval == 1) "Daily" else "Every $interval days"
-        "week" -> if (interval == 1) "Weekly" else "Every $interval weeks"
-        "month" -> if (interval == 1) "Monthly" else "Every $interval months"
-        else -> "Every $interval $unit"
     }
 }

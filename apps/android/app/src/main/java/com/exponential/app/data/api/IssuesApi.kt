@@ -71,12 +71,11 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
         ).issue
 
     suspend fun delete(accountId: String, id: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "issues.delete",
             input = DeleteIssueInput(id),
             inputSerializer = DeleteIssueInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 }

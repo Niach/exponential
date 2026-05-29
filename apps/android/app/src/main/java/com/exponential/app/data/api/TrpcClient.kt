@@ -59,6 +59,16 @@ class TrpcClient @Inject constructor(
         return decodePayload(path, text, outputSerializer)
     }
 
+    /** A mutation whose response payload is ignored (no output type needed). */
+    suspend fun <I> mutationUnit(
+        accountId: String,
+        path: String,
+        input: I,
+        inputSerializer: KSerializer<I>,
+    ) {
+        mutation(accountId, path, input, inputSerializer, JsonElement.serializer())
+    }
+
     suspend fun <I, O> query(
         accountId: String,
         path: String,

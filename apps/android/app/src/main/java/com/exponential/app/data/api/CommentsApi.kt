@@ -27,32 +27,29 @@ data class DeleteCommentInput(val id: String)
 class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
 
     suspend fun create(accountId: String, issueId: String, text: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "comments.create",
             input = CreateCommentInput(issueId, CommentBody(text)),
             inputSerializer = CreateCommentInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 
     suspend fun update(accountId: String, id: String, text: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "comments.update",
             input = UpdateCommentInput(id, CommentBody(text)),
             inputSerializer = UpdateCommentInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 
     suspend fun delete(accountId: String, id: String) {
-        trpc.mutation(
+        trpc.mutationUnit(
             accountId,
             path = "comments.delete",
             input = DeleteCommentInput(id),
             inputSerializer = DeleteCommentInput.serializer(),
-            outputSerializer = kotlinx.serialization.json.JsonElement.serializer(),
         )
     }
 }
