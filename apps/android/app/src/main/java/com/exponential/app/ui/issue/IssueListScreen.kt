@@ -243,11 +243,9 @@ fun IssueListScreen(
         IssueFilterSheet(
             filters = state.filters,
             labels = state.labels,
-            users = state.users,
             onToggleStatus = viewModel::toggleStatus,
             onTogglePriority = viewModel::togglePriority,
             onToggleLabel = viewModel::toggleLabel,
-            onToggleAssignee = viewModel::toggleAssignee,
             onClear = viewModel::clearFilters,
             onDismiss = { showFilters = false },
         )

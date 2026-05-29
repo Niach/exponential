@@ -142,7 +142,7 @@ class IssueListViewModel @Inject constructor(
             val status = IssueStatus.fromWire(issue.status)
             val priority = IssuePriority.fromWire(issue.priority)
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
-            if (!matchesFilters(status, priority, labelIds, issue.assigneeId, filters)) return@mapNotNull null
+            if (!matchesFilters(status, priority, labelIds, filters)) return@mapNotNull null
             val resolvedLabels = labelIds.mapNotNull { labelsById[it] }
             IssueWithLabels(issue, resolvedLabels)
         }
@@ -198,11 +198,6 @@ class IssueListViewModel @Inject constructor(
     fun toggleLabel(labelId: String) {
         val next = _filters.value.labelIds.toMutableSet().apply { if (!add(labelId)) remove(labelId) }
         _filters.value = _filters.value.copy(labelIds = next)
-    }
-
-    fun toggleAssignee(userId: String) {
-        val next = _filters.value.assigneeIds.toMutableSet().apply { if (!add(userId)) remove(userId) }
-        _filters.value = _filters.value.copy(assigneeIds = next)
     }
 
     fun clearFilters() {

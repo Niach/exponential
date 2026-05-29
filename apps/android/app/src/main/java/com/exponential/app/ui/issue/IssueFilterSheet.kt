@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.LabelEntity
-import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
@@ -45,11 +44,9 @@ import com.exponential.app.domain.statusIcon
 fun IssueFilterSheet(
     filters: IssueFilters,
     labels: List<LabelEntity>,
-    users: List<UserEntity>,
     onToggleStatus: (IssueStatus) -> Unit,
     onTogglePriority: (IssuePriority) -> Unit,
     onToggleLabel: (String) -> Unit,
-    onToggleAssignee: (String) -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -112,19 +109,6 @@ fun IssueFilterSheet(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(label.name)
-                    }
-                }
-            }
-
-            if (users.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                SectionLabel("Assignee")
-                users.forEach { user ->
-                    FilterCheckRow(
-                        selected = user.id in filters.assigneeIds,
-                        onClick = { onToggleAssignee(user.id) },
-                    ) {
-                        Text(user.name ?: user.email)
                     }
                 }
             }
