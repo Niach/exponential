@@ -1,5 +1,7 @@
 package com.exponential.app.ui.home
 
+import com.exponential.app.ui.parseColor
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -192,7 +194,7 @@ private fun ProjectRow(project: ProjectEntity, onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .size(10.dp)
-                .background(parseHex(project.color), shape = CircleShape),
+                .background(parseColor(project.color), shape = CircleShape),
         )
         Spacer(Modifier.width(12.dp))
         Text(
@@ -208,13 +210,4 @@ private fun ProjectRow(project: ProjectEntity, onClick: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-private fun parseHex(hex: String): Color {
-    val cleaned = hex.removePrefix("#")
-    return runCatching {
-        Color(
-            android.graphics.Color.parseColor(if (cleaned.length == 6) "#$cleaned" else "#FF$cleaned")
-        )
-    }.getOrElse { Color(0xFF6366F1) }
 }

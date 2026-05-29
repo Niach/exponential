@@ -1,5 +1,7 @@
 package com.exponential.app.ui.nav
 
+import com.exponential.app.ui.parseColor
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -205,7 +207,7 @@ private fun DrawerProjectRow(
         Box(
             modifier = Modifier
                 .size(10.dp)
-                .background(parseProjectColor(project.color), CircleShape),
+                .background(parseColor(project.color), CircleShape),
         )
         Spacer(Modifier.width(12.dp))
         Text(
@@ -242,12 +244,6 @@ private fun DrawerActionRow(
         Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
-
-private fun parseProjectColor(hex: String): Color = runCatching {
-    val cleaned = hex.removePrefix("#")
-    val value = if (cleaned.length == 6) "FF$cleaned" else cleaned
-    Color(value.toLong(radix = 16))
-}.getOrDefault(Color.Gray)
 
 // Workspace tile: shows the icon_url image when set, otherwise the first
 // letter of the workspace name on a colored chip. Keeps the workspace

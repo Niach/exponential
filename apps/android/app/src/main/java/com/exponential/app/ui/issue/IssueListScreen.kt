@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.ui.parseColor
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Code

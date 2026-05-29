@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.ui.parseColor
+
 import com.exponential.app.domain.DomainContract
 
 import androidx.compose.foundation.background
@@ -247,7 +249,7 @@ private fun GeneralTab(
                     Box(
                         modifier = Modifier
                             .size(10.dp)
-                            .background(parseLabelColor(project.color), CircleShape),
+                            .background(parseColor(project.color), CircleShape),
                     )
                 },
                 supportingContent = {
@@ -469,7 +471,7 @@ private fun LabelsTab(
             ListItem(
                 headlineContent = { Text(label.name) },
                 leadingContent = {
-                    Box(modifier = Modifier.size(14.dp).background(parseLabelColor(label.color), CircleShape))
+                    Box(modifier = Modifier.size(14.dp).background(parseColor(label.color), CircleShape))
                 },
                 trailingContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -516,9 +518,3 @@ private fun EmptyBox(text: String) {
         Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
-private fun parseLabelColor(hex: String): Color = runCatching {
-    val cleaned = hex.removePrefix("#")
-    val value = if (cleaned.length == 6) "FF$cleaned" else cleaned
-    Color(value.toLong(radix = 16))
-}.getOrDefault(Color.Gray)

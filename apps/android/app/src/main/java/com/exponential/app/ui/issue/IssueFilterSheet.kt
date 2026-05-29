@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.ui.parseColor
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -165,11 +167,4 @@ private fun FilterCheckRow(
             )
         }
     }
-}
-
-internal fun parseColor(hex: String): Color {
-    val cleaned = hex.removePrefix("#")
-    return runCatching {
-        Color(android.graphics.Color.parseColor(if (cleaned.length == 6) "#$cleaned" else "#FF$cleaned"))
-    }.getOrElse { Color(0xFF6366F1) }
 }
