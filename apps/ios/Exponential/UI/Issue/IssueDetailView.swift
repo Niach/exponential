@@ -389,9 +389,7 @@ struct IssueDetailView: View {
 
     private func parseDate(_ dateString: String?) -> Date? {
         guard let dateString else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: dateString)
+        return AppDateFormatters.yyyyMMdd.date(from: dateString)
     }
 
     // The compact pill under the identifier. Hidden when there's no agent
@@ -491,15 +489,11 @@ struct TimeFieldButton: View {
 
     private func parseTime(_ value: String?) -> Date? {
         guard let value else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.date(from: value)
+        return AppDateFormatters.HHmm.date(from: value)
     }
 
     private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+        AppDateFormatters.HHmm.string(from: date)
     }
 
     private func defaultTime() -> Date {

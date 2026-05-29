@@ -284,14 +284,11 @@ struct IssueListView: View {
     }
 
     private func formatDueDate(_ dateString: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: dateString) else { return dateString }
+        guard let date = AppDateFormatters.yyyyMMdd.date(from: dateString) else { return dateString }
         let calendar = Calendar.current
         if calendar.isDateInToday(date) { return "Today" }
         if calendar.isDateInTomorrow(date) { return "Tomorrow" }
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        return AppDateFormatters.MMMd.string(from: date)
     }
 
     // Surfaces the project's linked GitHub repo as a tappable banner. The
@@ -323,9 +320,7 @@ struct IssueListView: View {
     }
 
     private func dueDateColor(_ dateString: String) -> Color {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: dateString) else { return .white.opacity(TextOpacity.tertiary) }
+        guard let date = AppDateFormatters.yyyyMMdd.date(from: dateString) else { return .white.opacity(TextOpacity.tertiary) }
         if date < Date() { return .red }
         if Calendar.current.isDateInToday(date) { return .orange }
         return .white.opacity(TextOpacity.tertiary)

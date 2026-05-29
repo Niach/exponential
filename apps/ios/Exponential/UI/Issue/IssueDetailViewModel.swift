@@ -295,8 +295,6 @@ final class IssueDetailViewModel {
     }
 
     private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        AppDateFormatters.yyyyMMdd.string(from: date)
     }
 }
