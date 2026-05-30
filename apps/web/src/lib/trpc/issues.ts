@@ -32,7 +32,11 @@ import {
   collectIssueAttachmentStorageKeysInTx,
   deleteStorageObjects,
 } from "@/lib/storage/issue-attachment-cleanup"
-import { cloneIssueForRecurrence } from "@/lib/issue-recurrence"
+import {
+  cloneIssueForRecurrence,
+  copyRecurrenceAttachments,
+  type AttachmentCopyOp,
+} from "@/lib/issue-recurrence"
 import {
   fireAndForgetDelete,
   fireAndForgetSync,
@@ -205,6 +209,7 @@ export const issuesRouter = router({
       }
 
       const deletedStorageKeys: string[] = []
+      const attachmentCopies: AttachmentCopyOp[] = []
 
       let previousAssigneeId: string | null = null
       const { issue, clonedIssue } = await ctx.db.transaction(async (tx) => {
@@ -336,17 +341,24 @@ export const issuesRouter = router({
           nextRecurrenceInterval !== null &&
           nextRecurrenceUnit !== null
         ) {
-          const insertedClone = await cloneIssueForRecurrence(tx, {
-            sourceIssueId: id,
-            sourceProjectId: currentIssue.projectId,
-            sourceTitle: currentIssue.title,
-            sourcePriority: currentIssue.priority,
-            sourceAssigneeId: currentIssue.assigneeId,
-            sourceDescription: currentIssue.description,
-            recurrenceInterval: nextRecurrenceInterval,
-            recurrenceUnit: nextRecurrenceUnit,
-            creatorId: ctx.session.user.id,
-          })
+          const { issue: insertedClone, attachmentCopies: copies } =
+            await cloneIssueForRecurrence(tx, {
+              sourceIssueId: id,
+              sourceProjectId: currentIssue.projectId,
+              sourceWorkspaceId: issueContext.workspaceId,
+              sourceTitle: currentIssue.title,
+              sourcePriority: currentIssue.priority,
+              sourceAssigneeId: currentIssue.assigneeId,
+              // Clone from the issue's final persisted description so it stays
+              // consistent with any attachment cleanup that ran in this same
+              // mutation (e.g. an image removed alongside completion).
+              sourceDescription: issue.description,
+              recurrenceInterval: nextRecurrenceInterval,
+              recurrenceUnit: nextRecurrenceUnit,
+              creatorId: ctx.session.user.id,
+              requestUrl: ctx.request.url,
+            })
+          attachmentCopies.push(...copies)
 
           return { issue, clonedIssue: insertedClone }
         }
@@ -355,6 +367,7 @@ export const issuesRouter = router({
       })
 
       await deleteStorageObjects(deletedStorageKeys)
+      await copyRecurrenceAttachments(attachmentCopies)
 
       fireAndForgetSync(ctx.session.user.id, issue)
       if (clonedIssue) {
