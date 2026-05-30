@@ -170,11 +170,19 @@ private fun AppRoot() {
 
     val cloudAlreadyAdded = state.accounts.any { it.instanceUrl == AppConstants.PUBLIC_CLOUD_URL }
 
-    if (state.accounts.isEmpty()) {
-        // First launch — no accounts at all.
+    // Show the unauthenticated flow whenever the active account has no usable
+    // session: no accounts at all, no instance chosen yet, or an account that
+    // exists but isn't logged in (just added, signed out, or a cleared/expired
+    // token). Without this gate the home shell mounts and fires authed requests
+    // with no Authorization header, which 401 immediately. `startDestination`
+    // (computed above) routes to "instance" when no URL is set, else "login".
+    val needsAuth =
+        state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
+
+    if (needsAuth) {
         UnauthenticatedNav(
             navController = navController,
-            startDestination = "instance",
+            startDestination = startDestination,
             onInstanceSet = { url ->
                 viewModel.setInstanceUrl(url)
                 navController.navigate("login") { popUpTo("instance") { inclusive = true } }

@@ -3,8 +3,10 @@ package com.exponential.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
+import io.ktor.http.HttpStatusCode
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.MultiAccountProjectRepository
 import com.exponential.app.data.db.MultiAccountWorkspaceRepository
@@ -101,6 +103,12 @@ class HomeViewModel @Inject constructor(
                 if (selection.selectedId.value == null) selection.select(workspace.id)
                 _error.value = null
             } catch (error: Throwable) {
+                // A rejected session (expired/revoked token) can't be recovered by
+                // retrying — clear it so the app routes the active account back to
+                // login instead of looping on a 401'd home screen.
+                if (error is TrpcException && error.status == HttpStatusCode.Unauthorized) {
+                    auth.clearToken()
+                }
                 _error.value = error.message ?: "Failed to load workspace"
             }
         }
