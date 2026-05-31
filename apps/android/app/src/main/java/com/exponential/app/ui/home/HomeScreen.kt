@@ -1,9 +1,5 @@
 package com.exponential.app.ui.home
 
-import com.exponential.app.ui.parseColor
-
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,13 +9,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,52 +25,63 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.ServerProjectGroup
 import com.exponential.app.data.db.WorkspaceBlock
-import com.exponential.app.ui.nav.AvatarMenuButton
-import com.exponential.app.ui.nav.LocalDrawerOpener
-import com.exponential.app.ui.nav.WorkspaceAvatar
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.ProjectRow
+import com.exponential.app.ui.components.WorkspaceAvatar
+import com.exponential.app.ui.theme.TextEmphasis
 
+/**
+ * iOS-style "Projects" home: a single scrolling list of every signed-in
+ * account's workspaces and projects (server → workspace → project), shown
+ * inline with no drawer and no workspace switcher. Settings + account live in
+ * the top bar (gear + avatar), and everything is a push onto the back stack.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onOpenProject: (accountId: String, projectId: String) -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.state.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val openDrawer = LocalDrawerOpener.current
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.bootstrap() }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { Text("Projects") },
-                navigationIcon = {
-                    IconButton(onClick = { openDrawer() }) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                // iOS Home shows only a gear; account sign-out lives per-server
+                // in Settings → server detail.
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
                 },
-                actions = { AvatarMenuButton() },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (state.projectTree.isEmpty()) {
-                EmptyState(message = error ?: "No projects yet — create one on the web.")
+                when {
+                    error != null -> EmptyState(message = error!!, icon = Icons.Filled.Inbox)
+                    state.isSyncing -> LoadingState()
+                    else -> EmptyState(message = "No projects yet", icon = Icons.Filled.Inbox)
+                }
             } else {
                 ProjectTree(
                     groups = state.projectTree,
@@ -86,19 +92,6 @@ fun HomeScreen(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun EmptyState(message: String) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            message,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -134,7 +127,7 @@ private fun ServerSection(
                 Text(
                     group.userEmail,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             }
         }
@@ -154,7 +147,7 @@ private fun WorkspaceBlockView(
     block: WorkspaceBlock,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -164,50 +157,22 @@ private fun WorkspaceBlockView(
             Text(
                 block.workspace.name,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                 modifier = Modifier.weight(1f),
             )
             Text(
                 "${block.projects.size}",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
         }
         block.projects.forEach { project ->
-            ProjectRow(
-                project = project,
-                onClick = { onOpenProject(accountId, project.id) },
-            )
+            key(project.id) {
+                ProjectRow(
+                    project = project,
+                    onClick = { onOpenProject(accountId, project.id) },
+                )
+            }
         }
-    }
-}
-
-@Composable
-private fun ProjectRow(project: ProjectEntity, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .background(parseColor(project.color), shape = CircleShape),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            project.name,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            project.prefix,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }

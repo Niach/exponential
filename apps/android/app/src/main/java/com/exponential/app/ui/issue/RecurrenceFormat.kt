@@ -5,7 +5,7 @@ package com.exponential.app.ui.issue
  * the issue detail and create screens.
  */
 internal fun formatRecurrence(interval: Int?, unit: String?): String {
-    if (interval == null || unit == null) return "Does not repeat"
+    if (interval == null || unit == null) return "Doesn't repeat"
     return when (unit) {
         "day" -> if (interval == 1) "Daily" else "Every $interval days"
         "week" -> if (interval == 1) "Weekly" else "Every $interval weeks"

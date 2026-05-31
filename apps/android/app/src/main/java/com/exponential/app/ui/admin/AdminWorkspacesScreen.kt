@@ -30,7 +30,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,7 +90,7 @@ fun AdminWorkspacesScreen(
     onBack: () -> Unit,
     viewModel: AdminWorkspacesViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<AdminWorkspace?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
@@ -121,11 +121,11 @@ fun AdminWorkspacesScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
                 ),
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             when {
@@ -162,7 +162,7 @@ fun AdminWorkspacesScreen(
                                     Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete workspace")
                                 }
                             },
-                            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                         )
                         HorizontalDivider()
                     }

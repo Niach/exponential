@@ -33,7 +33,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -147,8 +147,8 @@ fun IntegrationsScreen(
     viewModel: IntegrationsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val instanceUrl by viewModel.instanceUrl.collectAsState()
-    val state by viewModel.state.collectAsState()
+    val instanceUrl by viewModel.instanceUrl.collectAsStateWithLifecycle()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmDisconnect by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -168,11 +168,11 @@ fun IntegrationsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
                 ),
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
     ) { padding ->
         LazyColumn(
             modifier = Modifier

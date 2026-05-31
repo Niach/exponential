@@ -2,6 +2,7 @@ package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowCircleUp
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
@@ -34,15 +35,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -51,9 +55,20 @@ import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.commentKindOf
-import com.mohamedrejeb.richeditor.model.rememberRichTextState
-import com.mohamedrejeb.richeditor.ui.material3.RichText
+import com.exponential.app.ui.markdown.MarkdownView
 import kotlinx.coroutines.launch
+
+// iOS comment palette (CommentRow.swift / CommentComposer.swift) — explicit white
+// tiers because the issue screen floats on AppBackground (a Box, not a Material
+// Surface), so any Text without an explicit color would inherit LocalContentColor's
+// black default (the bug the user hit). Mirrors the glass theme exactly.
+private val CommentAuthor = Color.White.copy(alpha = 0.9f)
+private val CommentMeta = Color.White.copy(alpha = 0.5f)
+private val CommentAvatarBg = Color.White.copy(alpha = 0.08f)
+private val CommentAvatarText = Color.White.copy(alpha = 0.7f)
+private val CommentFieldBg = Color.White.copy(alpha = 0.06f)
+private val CommentFieldText = Color.White.copy(alpha = 0.9f)
+private val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 
 // Mirrors apps/web/src/components/issue-timeline.tsx: renders the four
 // comment kinds, the agent plan-approval CTAs on the latest plan, and the
@@ -65,7 +80,7 @@ fun CommentThread(
     viewModel: CommentThreadViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
     var editingId by remember { mutableStateOf<String?>(null) }
@@ -86,7 +101,7 @@ fun CommentThread(
             if (state.comments.isEmpty()) "Comments"
             else "Comments (${state.comments.size})",
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = CommentMeta,
         )
         Spacer(Modifier.height(8.dp))
 
@@ -94,11 +109,14 @@ fun CommentThread(
             Text(
                 "No comments yet. Be the first to add one.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = CommentMeta,
             )
         }
 
         state.comments.forEach { comment ->
+            // Stable identity per comment so list churn (e.g. an active Electric
+            // sync) doesn't re-key rows and force their markdown to re-parse.
+            key(comment.id) {
             when (commentKindOf(comment.kind)) {
                 CommentKind.Regular -> RegularCommentRow(
                     comment = comment,
@@ -154,19 +172,42 @@ fun CommentThread(
                     },
                 )
             }
+            }
         }
 
         Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(
+        // Glass composer matching iOS CommentComposer.swift: rounded translucent
+        // field + an up-arrow send button (blue when there's text, dimmed when empty).
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BasicTextField(
                 value = draft,
                 onValueChange = { draft = it },
-                placeholder = { Text("Write a comment…") },
-                modifier = Modifier.weight(1f),
-                maxLines = 4,
                 enabled = !sending,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = CommentFieldText),
+                cursorBrush = SolidColor(CommentAccent),
+                maxLines = 6,
+                modifier = Modifier.weight(1f),
+                decorationBox = { inner ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(CommentFieldBg)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        if (draft.isEmpty()) {
+                            Text(
+                                "Write a comment…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = CommentMeta,
+                            )
+                        }
+                        inner()
+                    }
+                },
             )
-            Spacer(Modifier.width(8.dp))
             IconButton(
                 onClick = {
                     val trimmed = draft.trim()
@@ -180,7 +221,12 @@ fun CommentThread(
                 },
                 enabled = !sending && draft.isNotBlank(),
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                Icon(
+                    Icons.Filled.ArrowCircleUp,
+                    contentDescription = "Send",
+                    modifier = Modifier.size(30.dp),
+                    tint = if (draft.isBlank()) Color.White.copy(alpha = 0.3f) else CommentAccent,
+                )
             }
         }
     }
@@ -212,22 +258,24 @@ private fun RegularCommentRow(
     ) {
         Box(
             modifier = Modifier
-                .size(28.dp)
-                .padding(top = 2.dp),
+                .size(30.dp)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(CommentAvatarBg),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 initials(author?.name ?: author?.email ?: "?"),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = CommentAvatarText,
             )
         }
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     author?.name ?: author?.email ?: "Someone",
                     style = MaterialTheme.typography.labelMedium,
+                    color = CommentAuthor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -237,13 +285,17 @@ private fun RegularCommentRow(
                     relativeTime(comment.createdAt) +
                         if (comment.editedAt != null) " · edited" else "",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = CommentMeta,
                 )
                 if (canModify && !isEditing) {
                     Spacer(Modifier.weight(1f))
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Comment actions")
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = "Comment actions",
+                                tint = CommentMeta,
+                            )
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
@@ -276,7 +328,7 @@ private fun RegularCommentRow(
                     TextButton(onClick = onCancelEdit) { Text("Cancel") }
                 }
             } else {
-                MarkdownText(bodyText)
+                MarkdownView(bodyText)
                 if (showRetry) {
                     Spacer(Modifier.height(4.dp))
                     OutlinedButton(
@@ -315,16 +367,17 @@ private fun QuestionCommentRow(comment: CommentEntity, author: UserEntity?) {
             Text(
                 (author?.name ?: author?.email ?: "Agent") + " asks",
                 style = MaterialTheme.typography.labelMedium,
+                color = CommentAuthor,
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 relativeTime(comment.createdAt),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = CommentMeta,
             )
         }
         Spacer(Modifier.height(4.dp))
-        MarkdownText(bodyText)
+        MarkdownView(bodyText)
     }
 }
 
@@ -379,7 +432,7 @@ private fun PlanCommentRow(
             }
         }
         Spacer(Modifier.height(8.dp))
-        MarkdownText(bodyText)
+        MarkdownView(bodyText)
 
         if (awaitingApproval && canApprovePlan) {
             Spacer(Modifier.height(10.dp))
@@ -405,17 +458,6 @@ private fun PlanCommentRow(
             }
         }
     }
-}
-
-@Composable
-private fun MarkdownText(markdown: String) {
-    val state = rememberRichTextState()
-    LaunchedEffect(markdown) {
-        if (state.toMarkdown() != markdown) {
-            state.setMarkdown(markdown)
-        }
-    }
-    RichText(state = state, modifier = Modifier.fillMaxWidth())
 }
 
 // Same agent terminal-error patterns the web timeline uses. Tests-failed /

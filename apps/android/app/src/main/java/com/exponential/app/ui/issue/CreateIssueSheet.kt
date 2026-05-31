@@ -45,6 +45,7 @@ import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.markdown.MarkdownEditor
 import java.util.UUID
 
@@ -102,7 +103,7 @@ fun CreateIssueSheet(
         dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
         Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-            Text("New issue", style = MaterialTheme.typography.titleMedium)
+            Text("New Issue", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = title,
@@ -151,7 +152,7 @@ fun CreateIssueSheet(
                     )
                 }
                 OutlinedButton(onClick = { datePickerOpen = true }, enabled = isModerator) {
-                    Text(dueDate ?: "Due date")
+                    Text(dueDate?.let { formatDueDate(it) } ?: "Due date")
                 }
                 if (dueDate != null) {
                     OutlinedButton(onClick = { dueTimePickerOpen = true }, enabled = isModerator) {
@@ -211,7 +212,7 @@ fun CreateIssueSheet(
                 ) {
                     Icon(Icons.Filled.Check, null)
                     Spacer(Modifier.width(6.dp))
-                    Text(if (isCreating) "Creating…" else "Create issue")
+                    Text(if (isCreating) "Creating…" else "Create")
                 }
             }
             Spacer(Modifier.height(8.dp))

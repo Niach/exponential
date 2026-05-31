@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Exponential</string>
+    <!-- app_name is provided per product flavor via resValue in build.gradle.kts
+         (production = "Exponential", staging = "Exp Staging"). -->
 </resources>

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.UpdateWorkspaceInput
@@ -172,6 +173,20 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.update(accountId, UpdateLabelInput(workspaceId, labelId, name = name)) }
+            .onFailure { _transient.value = it.message }
+    }
+
+    fun recolorLabel(labelId: String, color: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val workspaceId = selection.selectedId.value ?: return@launch
+        runCatching { labelsApi.update(accountId, UpdateLabelInput(workspaceId, labelId, color = color)) }
+            .onFailure { _transient.value = it.message }
+    }
+
+    fun createLabel(name: String, color: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val workspaceId = selection.selectedId.value ?: return@launch
+        runCatching { labelsApi.create(accountId, CreateLabelInput(workspaceId, name.trim(), color)) }
             .onFailure { _transient.value = it.message }
     }
 

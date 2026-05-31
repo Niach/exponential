@@ -40,6 +40,9 @@ data class HomeState(
     // Server > Workspace > Project tree shown on Home. Every signed-in
     // account contributes one block.
     val projectTree: List<ServerProjectGroup> = emptyList(),
+    // True while the first workspace bootstrap is in flight and nothing has
+    // synced yet — drives the Home "Syncing…" state (parity with iOS).
+    val isSyncing: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -62,13 +65,25 @@ class HomeViewModel @Inject constructor(
         if (id == null) flowOf(emptyList()) else db.projectDao().observeByWorkspace(id)
     }
 
+    private val _syncing = MutableStateFlow(false)
+
     // Pre-combine the new cross-server inputs into a single Flow so the outer
     // combine stays within kotlinx.coroutines' 5-arg typed overload.
+    private data class MultiAccount(
+        val groups: List<ServerWorkspaceGroup>,
+        val activeAccountId: String?,
+        val projectTree: List<ServerProjectGroup>,
+        val syncing: Boolean,
+    )
+
     private val multiAccountFlow = combine(
         multiAccountWorkspaces.serverGroups,
         auth.activeAccountId,
         multiAccountProjects.serverGroups,
-    ) { groups, activeAccountId, projectTree -> Triple(groups, activeAccountId, projectTree) }
+        _syncing,
+    ) { groups, activeAccountId, projectTree, syncing ->
+        MultiAccount(groups, activeAccountId, projectTree, syncing)
+    }
 
     val state: StateFlow<HomeState> = combine(
         workspacesFlow,
@@ -77,7 +92,6 @@ class HomeViewModel @Inject constructor(
         auth.userEmail,
         multiAccountFlow,
     ) { workspaces, selectedId, projects, email, multi ->
-        val (groups, activeAccountId, projectTree) = multi
         val selected = workspaces.firstOrNull { it.id == selectedId }
             ?: workspaces.firstOrNull()
         HomeState(
@@ -85,9 +99,10 @@ class HomeViewModel @Inject constructor(
             workspaces = workspaces,
             selectedWorkspace = selected,
             projects = projects,
-            serverGroups = groups,
-            activeAccountId = activeAccountId,
-            projectTree = projectTree,
+            serverGroups = multi.groups,
+            activeAccountId = multi.activeAccountId,
+            projectTree = multi.projectTree,
+            isSyncing = multi.syncing,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
@@ -96,6 +111,7 @@ class HomeViewModel @Inject constructor(
 
     fun bootstrap() {
         viewModelScope.launch {
+            _syncing.value = true
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
                 val workspace = workspacesApi.ensureDefault(accountId)
@@ -110,20 +126,14 @@ class HomeViewModel @Inject constructor(
                     auth.clearToken()
                 }
                 _error.value = error.message ?: "Failed to load workspace"
+            } finally {
+                // Always clear the spinner — the success path, the
+                // null-accountId early `return@launch`, and the catch block
+                // all funnel through here. Without this, an account that
+                // bootstraps fine but has zero projects would be stuck on a
+                // perpetual "Syncing…" state.
+                _syncing.value = false
             }
-        }
-    }
-
-    /// Cross-server-aware pick from the unified workspace picker. If the
-    /// chosen workspace lives on the active server this is just a selection
-    /// update; otherwise we pre-set the selection and switch accounts —
-    /// SyncManager swaps the DB and MainActivity's `key(activeAccountId)`
-    /// rebuilds the home UI; the new VM's combine honors the pre-set
-    /// selectedId once the new account's workspaces sync in.
-    fun selectWorkspace(accountId: String, workspaceId: String) {
-        selection.select(workspaceId)
-        if (accountId != auth.activeAccountId.value) {
-            auth.switchAccount(accountId)
         }
     }
 

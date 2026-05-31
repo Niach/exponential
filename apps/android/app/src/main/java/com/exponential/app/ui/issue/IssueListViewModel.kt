@@ -29,11 +29,15 @@ import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -42,6 +46,18 @@ import kotlinx.coroutines.launch
 data class IssueGroup(val status: IssueStatus, val issues: List<IssueWithLabels>)
 
 data class IssueWithLabels(val issue: IssueEntity, val labels: List<LabelEntity>)
+
+// Intermediate result of the heavy filter/group pipeline. Kept separate from
+// IssueListState so the transient UI flags (busy/error/refreshing) can be
+// overlaid without rebuilding the grouped list.
+private data class GroupedIssueState(
+    val project: ProjectEntity? = null,
+    val groups: List<IssueGroup> = emptyList(),
+    val filters: IssueFilters = IssueFilters(),
+    val tab: FilterTab = FilterTab.All,
+    val labels: List<LabelEntity> = emptyList(),
+    val users: List<UserEntity> = emptyList(),
+)
 
 data class IssueListState(
     val project: ProjectEntity? = null,
@@ -55,7 +71,7 @@ data class IssueListState(
     val error: String? = null,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class IssueListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -78,6 +94,16 @@ class IssueListViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     private val _refreshing = MutableStateFlow(false)
     private val _project = MutableStateFlow<ProjectEntity?>(null)
+
+    // Raw search query is updated on every keystroke (the text field stays
+    // instantly responsive via local Compose state), but the expensive
+    // filter/group recompute is driven off a debounced snapshot so it runs
+    // ~250ms after typing stops — off the keystroke and off the UI thread.
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+    private val debouncedQuery: Flow<String> = _searchQuery
+        .debounce(250)
+        .distinctUntilChanged()
 
     private val labelsForWorkspace = _project.flatMapLatest { project ->
         if (project == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(project.workspaceId)
@@ -107,17 +133,20 @@ class IssueListViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
-    val state: StateFlow<IssueListState> = combine(
+    // The heavy filter/group/sort pipeline. Recomputes only when one of its
+    // *meaningful* data inputs changes (project, issues, labels, joins, filters,
+    // users, or the debounced search query). Transient UI flags (busy / error /
+    // refreshing) are deliberately kept out so toggling them never rebuilds the
+    // grouped list.
+    private val groupedState: Flow<GroupedIssueState> = combine(
         listOf(
             _project,
             db.issueDao().observeByProject(projectId),
             labelsForWorkspace,
             issueLabelsForWorkspace,
             _filters,
-            _busy,
-            _error,
             db.userDao().observeAll(),
-            _refreshing,
+            debouncedQuery,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -129,20 +158,22 @@ class IssueListViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val joins = values[3] as List<IssueLabelEntity>
         val filters = values[4] as IssueFilters
-        val busy = values[5] as Boolean
-        val error = values[6] as String?
         @Suppress("UNCHECKED_CAST")
-        val users = values[7] as List<UserEntity>
-        val refreshing = values[8] as Boolean
+        val users = values[5] as List<UserEntity>
+        val query = values[6] as String
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
+        val trimmedQuery = query.trim()
 
         val filteredAndDecorated = issues.mapNotNull { issue ->
             val status = IssueStatus.fromWire(issue.status)
             val priority = IssuePriority.fromWire(issue.priority)
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
             if (!matchesFilters(status, priority, labelIds, filters)) return@mapNotNull null
+            if (trimmedQuery.isNotEmpty() && !issue.title.contains(trimmedQuery, ignoreCase = true)) {
+                return@mapNotNull null
+            }
             val resolvedLabels = labelIds.mapNotNull { labelsById[it] }
             IssueWithLabels(issue, resolvedLabels)
         }
@@ -156,13 +187,29 @@ class IssueListViewModel @Inject constructor(
             )
         }.filter { it.issues.isNotEmpty() }
 
-        IssueListState(
+        GroupedIssueState(
             project = project,
             groups = grouped,
             filters = filters,
             tab = deriveTab(filters.statuses),
             labels = labels,
             users = users,
+        )
+    }
+
+    val state: StateFlow<IssueListState> = combine(
+        groupedState,
+        _busy,
+        _refreshing,
+        _error,
+    ) { grouped, busy, refreshing, error ->
+        IssueListState(
+            project = grouped.project,
+            groups = grouped.groups,
+            filters = grouped.filters,
+            tab = grouped.tab,
+            labels = grouped.labels,
+            users = grouped.users,
             isCreating = busy,
             isRefreshing = refreshing,
             error = error,
@@ -204,6 +251,10 @@ class IssueListViewModel @Inject constructor(
         _filters.value = IssueFilters()
     }
 
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
     /**
      * Triggered by pull-to-refresh. Data is already live via Electric + Room,
      * so this is just a short spinner so the gesture feels acknowledged.
@@ -231,22 +282,6 @@ class IssueListViewModel @Inject constructor(
         }
     }
 
-    fun archiveIssue(issueId: String) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                issuesApi.update(
-                    accountId,
-                    UpdateIssueInput(
-                        id = issueId,
-                        archivedAt = java.time.Instant.now().toString(),
-                    )
-                )
-            }.onFailure { error ->
-                _error.value = error.message ?: "Failed to archive issue"
-            }
-        }
-    }
 
     fun createIssue(
         title: String,

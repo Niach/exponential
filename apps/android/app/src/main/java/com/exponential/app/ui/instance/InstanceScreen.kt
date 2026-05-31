@@ -55,7 +55,7 @@ fun InstanceScreen(
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
-            "Connect to Exponential",
+            if (AppConstants.IS_STAGING) "Connect to Exp Staging" else "Connect to Exponential",
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -66,7 +66,7 @@ fun InstanceScreen(
                 onClick = { onContinue(AppConstants.PUBLIC_CLOUD_URL) },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Use Exponential Cloud")
+                Text(if (AppConstants.IS_STAGING) "Use Staging Cloud" else "Use Exponential Cloud")
             }
 
             Spacer(Modifier.height(16.dp))

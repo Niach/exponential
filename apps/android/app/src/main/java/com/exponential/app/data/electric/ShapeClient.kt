@@ -4,6 +4,7 @@ import com.exponential.app.data.db.ElectricOffsetDao
 import com.exponential.app.data.db.ElectricOffsetEntity
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -28,6 +29,9 @@ import kotlin.math.min
 private const val INITIAL_OFFSET = "-1"
 private const val LIVE_TIMEOUT_MS = 60_000L
 
+/** Thrown on HTTP 401/403 so the run loop can report it as an *auth* failure. */
+private class ShapeAuthException(message: String) : Exception(message)
+
 class ShapeClient<T : Any>(
     private val client: HttpClient,
     private val baseUrlProvider: () -> String?,
@@ -38,6 +42,13 @@ class ShapeClient<T : Any>(
     private val offsetDao: ElectricOffsetDao,
     private val json: Json,
     private val onMessages: suspend (List<ShapeMessage<T>>) -> Unit,
+    // Diagnostics hooks (no-ops by default).
+    private val onPhase: (String) -> Unit = {},
+    private val onApplied: (Int) -> Unit = {},
+    // Reports a failed poll; the flag is true for auth failures (HTTP 401/403).
+    private val onError: (Boolean) -> Unit = {},
+    // Reports a successful poll, so current-health error state can be cleared.
+    private val onSuccess: () -> Unit = {},
 ) {
     private val rawMessageSerializer = kotlinx.serialization.builtins.ListSerializer(
         kotlinx.serialization.serializer<RawMessage>()
@@ -53,23 +64,39 @@ class ShapeClient<T : Any>(
                     delay(2_000)
                     continue
                 }
-                pollOnce(baseUrl)
+                pollOnce(baseUrl, token)
+                onSuccess()
                 backoffMs = 500L
             } catch (cancel: CancellationException) {
                 throw cancel
+            } catch (auth: ShapeAuthException) {
+                android.util.Log.w("ShapeClient", "[$shapeName] auth error: ${auth.message}")
+                onError(true)
+                // Keep backing off (don't hammer) — an auth failure on a
+                // requireAuth shape won't fix itself by retrying immediately.
+                delay(backoffMs)
+                backoffMs = min(backoffMs * 2, 30_000L)
             } catch (error: Throwable) {
                 android.util.Log.w("ShapeClient", "[$shapeName] error: ${error.message}", error)
+                onError(false)
                 delay(backoffMs)
                 backoffMs = min(backoffMs * 2, 30_000L)
             }
         }
     }
 
-    private suspend fun pollOnce(baseUrl: String) {
+    private suspend fun pollOnce(baseUrl: String, token: String) {
         val saved = offsetDao.get(shapeName)
         val isInitial = saved == null
+        onPhase(if (isInitial) "initial" else "live")
         val response: HttpResponse = withTimeoutOrNull(LIVE_TIMEOUT_MS + 30_000L) {
             client.get("$baseUrl$urlPath") {
+                // Authenticate the shape request so the server scopes data to
+                // this user (not just public workspaces). Mirrors TrpcClient /
+                // AuthApi / IssueImagesApi. Without this, every shape polled
+                // anonymously and only public rows synced — the root cause of
+                // missing workspaces/projects and the 401 on workspace_invites.
+                header("Authorization", "Bearer $token")
                 if (isInitial) {
                     parameter("offset", INITIAL_OFFSET)
                 } else {
@@ -85,8 +112,10 @@ class ShapeClient<T : Any>(
             onMessages(listOf(ShapeMessage.MustRefetch))
             return
         }
-        if (response.status == HttpStatusCode.Unauthorized) {
-            throw IOException("Unauthorized syncing $shapeName")
+        if (response.status == HttpStatusCode.Unauthorized ||
+            response.status == HttpStatusCode.Forbidden
+        ) {
+            throw ShapeAuthException("Unauthorized syncing $shapeName (HTTP ${response.status.value})")
         }
         if (!response.status.isSuccess()) {
             throw IOException("Shape $shapeName HTTP ${response.status.value}")
@@ -96,7 +125,15 @@ class ShapeClient<T : Any>(
         val offset = response.headers["electric-offset"]
         val body = response.bodyAsText()
         val messages = decodeMessages(body)
-        if (messages.isNotEmpty()) onMessages(messages)
+        if (messages.isNotEmpty()) {
+            onMessages(messages)
+            // Count only data ops (insert/update/partial/delete), not control msgs.
+            val dataOps = messages.count {
+                it is ShapeMessage.Insert || it is ShapeMessage.Update ||
+                    it is ShapeMessage.PartialUpdate || it is ShapeMessage.Delete
+            }
+            onApplied(dataOps)
+        }
 
         if (handle != null && offset != null) {
             offsetDao.upsert(ElectricOffsetEntity(shape = shapeName, handle = handle, offset = offset))

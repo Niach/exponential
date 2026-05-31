@@ -26,7 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,7 +87,7 @@ fun ServerDetailScreen(
     onBack: () -> Unit,
     viewModel: ServerDetailViewModel = hiltViewModel(),
 ) {
-    val accounts by viewModel.accounts.collectAsState()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val account = accounts.firstOrNull { it.id == accountId }
     var showRemoveConfirm by remember { mutableStateOf(false) }
 
@@ -101,11 +101,11 @@ fun ServerDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
                 ),
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
@@ -127,7 +127,7 @@ fun ServerDetailScreen(
                         }
                     },
                     leadingContent = { Icon(Icons.Filled.Dns, contentDescription = null) },
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                 )
                 HorizontalDivider()
             }
@@ -139,7 +139,7 @@ fun ServerDetailScreen(
                         leadingContent = {
                             Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
                         },
-                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                         modifier = Modifier.clickable {
                             viewModel.signOut(accountId)
                             onBack()
@@ -155,7 +155,7 @@ fun ServerDetailScreen(
                         leadingContent = {
                             Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
                         },
-                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                         modifier = Modifier.clickable(enabled = url != null) {
                             if (url != null) {
                                 viewModel.reauthenticate(url)
@@ -179,7 +179,7 @@ fun ServerDetailScreen(
                             tint = MaterialTheme.colorScheme.error,
                         )
                     },
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                     modifier = Modifier.clickable { showRemoveConfirm = true },
                 )
             }

@@ -1,5 +1,9 @@
 package com.exponential.app.ui.markdown
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,68 +14,43 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mohamedrejeb.richeditor.model.rememberRichTextState
-import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
-import com.mohamedrejeb.richeditor.ui.material3.RichText
-import kotlinx.coroutines.flow.distinctUntilChanged
+import com.exponential.app.ui.markdown.model.PendingImage
+import kotlinx.coroutines.launch
 
 /**
- * Wrapper around `compose-rich-editor` that round-trips markdown to/from
- * `RichTextState`. Same composable handles edit and read modes.
+ * Block-based markdown editor / viewer. In `editable` mode it renders the
+ * [EditorModel]'s rows as per-paragraph fields plus a formatting toolbar; in
+ * read mode it delegates to [MarkdownView]. The public signature is unchanged
+ * from the previous `compose-rich-editor` wrapper so all call sites compile as-is:
+ * markdown flows in via [markdown] and out via [onChange] (callers debounce).
+ *
+ * `onUploadImage` keeps its contract: it returns a real `/api/attachments/...`
+ * URL (issue detail, eager upload) or a `draft://` placeholder (create sheet,
+ * deferred upload). Either way the returned URL is inserted as an image block;
+ * draft images preview from the locally-read bytes.
  */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MarkdownEditor(
     markdown: String,
     editable: Boolean,
     onChange: (String) -> Unit,
-    onUploadImage: (suspend (uri: android.net.Uri) -> String?)? = null,
+    onUploadImage: (suspend (uri: Uri) -> String?)? = null,
     imageUploadEnabled: Boolean = onUploadImage != null,
     placeholder: String = "Add a description…",
-    minHeight: androidx.compose.ui.unit.Dp = 200.dp,
+    minHeight: Dp = 200.dp,
     modifier: Modifier = Modifier,
 ) {
-    val state = rememberRichTextState()
-
-    // Load markdown once per source change (avoid re-loading while user is editing).
-    LaunchedEffect(markdown) {
-        if (state.toMarkdown() != markdown) {
-            state.setMarkdown(markdown)
-        }
-    }
-
-    // Emit markdown updates to the parent on text changes.
-    LaunchedEffect(state, editable) {
-        if (!editable) return@LaunchedEffect
-        snapshotFlow { state.annotatedString }
-            .distinctUntilChanged()
-            .collect {
-                val current = state.toMarkdown()
-                if (current != markdown) onChange(current)
-            }
-    }
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        if (editable) {
-            MarkdownToolbar(
-                state = state,
-                onUploadImage = onUploadImage,
-                imageUploadEnabled = imageUploadEnabled,
-            )
-            OutlinedRichTextEditor(
-                state = state,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = minHeight)
-                    .padding(top = 8.dp),
-                placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            )
-        } else if (markdown.isBlank()) {
-            Box(modifier = Modifier.padding(vertical = 8.dp)) {
+    if (!editable) {
+        if (markdown.isBlank()) {
+            Box(modifier = modifier.padding(vertical = 8.dp)) {
                 Text(
                     "No description",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -79,10 +58,75 @@ fun MarkdownEditor(
                 )
             }
         } else {
-            RichText(
-                state = state,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            MarkdownView(markdown, modifier = modifier)
+        }
+        return
+    }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val model = remember { EditorModel() }
+    val currentOnChange by rememberUpdatedState(onChange)
+    val currentUploader by rememberUpdatedState(onUploadImage)
+
+    // Wire edits → markdown out (once; closure reads the latest onChange).
+    LaunchedEffect(model) {
+        model.onEdit = { currentOnChange(model.currentMarkdown()) }
+    }
+
+    // Load external markdown only when it actually differs from what we derive,
+    // so the user's own keystrokes (which already emitted this value) never reload.
+    LaunchedEffect(markdown) {
+        if (model.currentMarkdown() != markdown) model.load(markdown)
+    }
+
+    val pickImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        val uploader = currentUploader
+        if (uri == null || uploader == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = MarkdownMediaUtils.readBytes(context, uri)
+            val mime = MarkdownMediaUtils.guessMimeType(context, uri)
+            val name = MarkdownMediaUtils.guessFilename(context, uri)
+            val size = MarkdownMediaUtils.probeSize(context, uri)
+            val url = runCatching { uploader(uri) }.getOrNull() ?: return@launch
+            val pending = if (bytes != null) {
+                PendingImage(uri, bytes, name, mime, size.width, size.height)
+            } else null
+            model.insertImageUrl(url, alt = "image", pending = pending)
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        MarkdownToolbar(
+            model = model,
+            onPickImage = {
+                pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            imageEnabled = imageUploadEnabled && onUploadImage != null,
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = minHeight)
+                .padding(top = 8.dp),
+        ) {
+            val rows = model.rows
+            val soleEmptyId = rows.singleOrNull()?.let { (it as? EditorRow.Para)?.takeIf { p -> p.text.isEmpty() }?.id }
+            rows.forEach { row ->
+                key(row.id) {
+                    when (row) {
+                        is EditorRow.Para -> BlockTextField(
+                            model = model,
+                            row = row,
+                            placeholder = if (row.id == soleEmptyId) placeholder else null,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        is EditorRow.Image -> BlockImageEditView(model = model, row = row)
+                    }
+                }
+            }
         }
     }
 }

@@ -1,0 +1,219 @@
+package com.exponential.app.ui.markdown
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.markdown.model.BlockKind
+import com.exponential.app.ui.markdown.model.ListType
+import com.exponential.app.ui.markdown.model.ParagraphAttrs
+
+/**
+ * One editable paragraph line, backed by a [BasicTextField]. Per-paragraph
+ * styling (heading size / list glyph / indent / code background / quote color)
+ * lives in the decoration so the editable text stays glyph-free. Enter splits
+ * the paragraph and Backspace-at-start merges with the previous row — both routed
+ * through [EditorModel]. The field only re-seeds its value when the row's
+ * revision bumps (structural change), never on the user's own keystrokes.
+ */
+@Composable
+fun BlockTextField(
+    model: EditorModel,
+    row: EditorRow.Para,
+    placeholder: String?,
+    modifier: Modifier = Modifier,
+) {
+    val revision = model.revision(row.id)
+    var value by remember(row.id) {
+        mutableStateOf(TextFieldValue(text = row.text, selection = TextRange(row.text.length)))
+    }
+
+    // Re-seed from the model only on structural/external change (revision bump).
+    LaunchedEffect(revision) {
+        val caret = model.consumeDesiredSelection(row.id) ?: value.selection.start.coerceIn(0, row.text.length)
+        if (value.text != row.text || value.selection.start != caret) {
+            value = TextFieldValue(text = row.text, selection = TextRange(caret.coerceIn(0, row.text.length)))
+        }
+    }
+
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(model.focusedRowId) {
+        if (model.focusedRowId == row.id) {
+            // A freshly-created row (Enter/merge/insert) may not be laid out yet
+            // when this effect first runs; requestFocus() throws until the node
+            // is placed. Retry across frames so focus reliably lands on the new
+            // row instead of silently staying on the old one.
+            var attempts = 0
+            while (attempts < 8 && model.focusedRowId == row.id) {
+                if (runCatching { focusRequester.requestFocus() }.isSuccess) break
+                withFrameNanos { }
+                attempts++
+            }
+        }
+    }
+
+    val attrs = row.attrs
+    val textStyle = paragraphTextStyle(attrs)
+    val marks = row.marks
+
+    BasicTextField(
+        value = value,
+        onValueChange = { new ->
+            if (new.text.contains('\n')) {
+                // Newline(s) arrived — either Enter (one '\n' replacing the
+                // selection) or a multi-line paste. Apply against the POST-EDIT
+                // text so a replaced selection is honored and no characters are
+                // dropped; splitParagraphFrom handles 1..N resulting lines.
+                model.splitParagraphFrom(row.id, new.text)
+            } else {
+                value = new
+                if (new.text != row.text) model.updatePara(row.id, new.text, new.selection.start)
+                model.updateSelection(row.id, new.selection.start..new.selection.end)
+            }
+        },
+        textStyle = textStyle,
+        cursorBrush = SolidColor(MdStyle.Link),
+        visualTransformation = InlineMarkVisualTransformation(marks),
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { fs ->
+                if (fs.isFocused) model.setFocused(row.id) else model.clearFocusIfMatches(row.id)
+            }
+            .onPreviewKeyEvent { event ->
+                if (
+                    event.type == KeyEventType.KeyDown &&
+                    event.key == Key.Backspace &&
+                    value.selection.collapsed &&
+                    value.selection.start == 0
+                ) {
+                    val canHandle = attrs.kind != BlockKind.Paragraph || model.rows.indexOfFirst { it.id == row.id } > 0
+                    if (canHandle) {
+                        model.backspaceAtStart(row.id)
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                false
+            },
+        decorationBox = { inner ->
+            ParagraphDecoration(
+                model = model,
+                row = row,
+                showPlaceholder = placeholder != null && row.text.isEmpty(),
+                placeholder = placeholder,
+                inner = inner,
+            )
+        },
+    )
+}
+
+@Composable
+private fun ParagraphDecoration(
+    model: EditorModel,
+    row: EditorRow.Para,
+    showPlaceholder: Boolean,
+    placeholder: String?,
+    inner: @Composable () -> Unit,
+) {
+    val attrs = row.attrs
+    when (attrs.kind) {
+        BlockKind.ListItem -> {
+            val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * attrs.listDepth
+            Row(modifier = Modifier.padding(start = indent, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.Top) {
+                ListGlyph(model, row, attrs)
+                Box(Modifier.weight(1f)) { inner() }
+            }
+        }
+
+        BlockKind.CodeBlock -> {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 1.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MdStyle.CodeBlockBg)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) { inner() }
+        }
+
+        else -> {
+            Box(modifier = Modifier.padding(vertical = MdStyle.textInsetV)) {
+                if (showPlaceholder && placeholder != null) {
+                    Text(placeholder, style = LocalTextStyle.current.copy(color = MdStyle.Placeholder))
+                }
+                inner()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ListGlyph(model: EditorModel, row: EditorRow.Para, attrs: ParagraphAttrs) {
+    when (attrs.listType) {
+        ListType.Checklist -> Text(
+            text = if (attrs.checked) "☑" else "☐",
+            style = MdStyle.body,
+            modifier = Modifier
+                .width(24.dp)
+                .padding(end = 2.dp)
+                .clickable { model.toggleChecklistChecked(row.id) },
+        )
+        ListType.Ordered -> Text(
+            text = "${attrs.orderedIndex}.",
+            style = MdStyle.body,
+            modifier = Modifier.width(24.dp),
+        )
+        ListType.Bullet, null -> Text(
+            text = "•",
+            style = MdStyle.body,
+            modifier = Modifier.width(24.dp),
+        )
+    }
+}
+
+private fun paragraphTextStyle(attrs: ParagraphAttrs): TextStyle = when (attrs.kind) {
+    BlockKind.Heading -> MdStyle.heading(attrs.headingLevel)
+    BlockKind.CodeBlock -> MdStyle.mono
+    BlockKind.Blockquote -> MdStyle.body.copy(color = MdStyle.Blockquote)
+    else -> MdStyle.body
+}
+
+/** Applies inline marks as cosmetic spans; identity offset mapping (no chars added). */
+private class InlineMarkVisualTransformation(
+    private val marks: List<com.exponential.app.ui.markdown.model.InlineMark>,
+) : VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): TransformedText {
+        val annotated = InlineMarks.annotate(text.text, marks)
+        return TransformedText(annotated, OffsetMapping.Identity)
+    }
+}

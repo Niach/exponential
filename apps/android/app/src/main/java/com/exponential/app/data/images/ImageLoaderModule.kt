@@ -30,9 +30,10 @@ object ImageLoaderModule {
         .components {
             add(KtorNetworkFetcherFactory(httpClient = httpClient))
             // Issue images come back as relative paths like
-            // /api/attachments/{id}. Resolve them against the configured
-            // instance URL so Coil can fetch them; the HttpClient's
-            // DefaultRequest plugin attaches the bearer token.
+            // /api/attachments/{id}. This interceptor resolves them against the
+            // configured instance URL AND attaches the account's Bearer token
+            // (the shared HttpClient only sets Accept), so private-workspace
+            // attachments no longer 401.
             add(InstanceUrlInterceptor(auth))
         }
         .memoryCache {

@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,46 +24,44 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.data.db.UserEntity
 
 /**
- * Wraps [content] (typically the [IssueRow]) in a Material 3 [SwipeToDismissBox] with:
+ * Wraps the [IssueRow] in a Material 3 [SwipeToDismissBox] with status-change
+ * swipes that mirror the iOS issue list:
  *  - EndToStart (swipe right-to-left) → mark Done.
- *  - StartToEnd (swipe left-to-right) → archive (sets `archivedAt`).
+ *  - StartToEnd (swipe left-to-right) → move to Backlog.
  *
  * Backed by [confirmValueChange] so each gesture only fires once (when threshold is
- * crossed). For Done the state snaps back to [SwipeToDismissBoxValue.Settled] because
- * the row stays in the list under a new status section; for Archive the row drops out
- * of the list entirely (the queries filter `archived_at IS NULL`).
+ * crossed) and the row always snaps back to [SwipeToDismissBoxValue.Settled] — the
+ * row stays in the list under its new status section.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SwipeableIssueRow(
     issue: IssueEntity,
     labels: List<LabelEntity>,
+    assignee: UserEntity?,
     canMutate: Boolean,
     onMarkDone: () -> Unit,
-    onArchive: () -> Unit,
+    onMoveToBacklog: () -> Unit,
     onClick: () -> Unit,
 ) {
     if (!canMutate) {
-        IssueRow(issue, labels, onClick)
+        IssueRow(issue, labels, assignee, onClick)
         return
     }
 
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { target ->
             when (target) {
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onMarkDone()
-                    // Don't actually dismiss; we want the row to snap back.
-                    false
-                }
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onArchive()
-                    false
-                }
-                SwipeToDismissBoxValue.Settled -> true
+                SwipeToDismissBoxValue.EndToStart -> onMarkDone()
+                SwipeToDismissBoxValue.StartToEnd -> onMoveToBacklog()
+                SwipeToDismissBoxValue.Settled -> Unit
             }
+            // Never actually dismiss; status changes move the row to another
+            // section but it stays in the list.
+            false
         },
         positionalThreshold = { distance -> distance * 0.35f },
     )
@@ -82,7 +80,7 @@ fun SwipeableIssueRow(
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = true,
     ) {
-        IssueRow(issue, labels, onClick)
+        IssueRow(issue, labels, assignee, onClick)
     }
 }
 
@@ -99,7 +97,7 @@ private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
         SwipeToDismissBoxValue.StartToEnd -> SwipeBg(
             container = MaterialTheme.colorScheme.tertiaryContainer,
             content = MaterialTheme.colorScheme.onTertiaryContainer,
-            icon = Icons.Filled.Archive,
+            icon = Icons.Outlined.Circle,
             alignment = Alignment.CenterStart,
         )
         SwipeToDismissBoxValue.Settled -> SwipeBg(

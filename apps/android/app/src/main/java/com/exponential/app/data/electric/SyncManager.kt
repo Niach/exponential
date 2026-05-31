@@ -39,6 +39,7 @@ class SyncManager @Inject constructor(
     private val databaseHolder: DatabaseHolder,
     private val client: HttpClient,
     private val json: Json,
+    private val stats: SyncStats,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -62,6 +63,7 @@ class SyncManager @Inject constructor(
     /// Settings.
     suspend fun signOut(accountId: String) {
         cancelPipeline(accountId)
+        stats.clearAccount(accountId)
     }
 
     /// **Transitional**: signs out whichever account is currently the
@@ -81,6 +83,7 @@ class SyncManager @Inject constructor(
             // Cancel pipelines for accounts no longer signed in.
             for (accountId in running - signedIn) {
                 pipelines.remove(accountId)?.forEach { it.cancel() }
+                stats.clearAccount(accountId)
                 android.util.Log.i("SyncManager", "Cancelled shape pipeline for $accountId")
             }
 
@@ -101,6 +104,15 @@ class SyncManager @Inject constructor(
     // MARK: - Per-account shape launch
 
     private fun launchPipeline(accountId: String, db: ExponentialDatabase): List<Job> {
+        // Threaded into every shape so each one reports phase/rows/errors to the
+        // Sync Diagnostics screen.
+        fun reporter(shape: String) = ShapeReporter(
+            onPhase = { phase -> stats.setPhase(accountId, shape, phase) },
+            onApplied = { n -> stats.addRows(accountId, shape, n) },
+            onError = { authFailure -> stats.incError(accountId, shape, authFailure) },
+            onSuccess = { stats.clearError(accountId, shape) },
+        )
+
         // Per-account credential providers: read the specific account's URL +
         // token from AuthRepository.accounts at call time, so a future token
         // refresh on one server doesn't disturb any other.
@@ -128,6 +140,7 @@ class SyncManager @Inject constructor(
                 shape = "workspaces", path = "/api/shapes/workspaces", tableName = "workspaces",
                 serializer = WorkspaceEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("workspaces"),
                 onInsert = { workspaceDao.upsert(it) },
                 onUpdate = { workspaceDao.upsert(it) },
                 onDelete = { workspaceDao.deleteById(it.id) },
@@ -137,6 +150,7 @@ class SyncManager @Inject constructor(
                 shape = "projects", path = "/api/shapes/projects", tableName = "projects",
                 serializer = ProjectEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("projects"),
                 onInsert = { projectDao.upsert(it) },
                 onUpdate = { projectDao.upsert(it) },
                 onDelete = { projectDao.deleteById(it.id) },
@@ -146,6 +160,7 @@ class SyncManager @Inject constructor(
                 shape = "issues", path = "/api/shapes/issues", tableName = "issues",
                 serializer = IssueEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("issues"),
                 onInsert = { issueDao.upsert(it) },
                 onUpdate = { issueDao.upsert(it) },
                 onDelete = { issueDao.deleteById(it.id) },
@@ -155,6 +170,7 @@ class SyncManager @Inject constructor(
                 shape = "labels", path = "/api/shapes/labels", tableName = "labels",
                 serializer = LabelEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("labels"),
                 onInsert = { labelDao.upsert(it) },
                 onUpdate = { labelDao.upsert(it) },
                 onDelete = { labelDao.deleteById(it.id) },
@@ -164,6 +180,7 @@ class SyncManager @Inject constructor(
                 shape = "issue_labels", path = "/api/shapes/issue-labels", tableName = "issue_labels",
                 serializer = IssueLabelEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("issue_labels"),
                 onInsert = { issueLabelDao.upsert(it) },
                 onUpdate = { issueLabelDao.upsert(it) },
                 onDelete = { issueLabelDao.delete(it.issueId, it.labelId) },
@@ -173,6 +190,7 @@ class SyncManager @Inject constructor(
                 shape = "users", path = "/api/shapes/users", tableName = "users",
                 serializer = UserEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("users"),
                 onInsert = { userDao.upsert(it) },
                 onUpdate = { userDao.upsert(it) },
                 onDelete = { userDao.deleteById(it.id) },
@@ -182,6 +200,7 @@ class SyncManager @Inject constructor(
                 shape = "workspace_members", path = "/api/shapes/workspace-members", tableName = "workspace_members",
                 serializer = WorkspaceMemberEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("workspace_members"),
                 onInsert = { workspaceMemberDao.upsert(it) },
                 onUpdate = { workspaceMemberDao.upsert(it) },
                 onDelete = { workspaceMemberDao.deleteById(it.id) },
@@ -191,6 +210,7 @@ class SyncManager @Inject constructor(
                 shape = "workspace_invites", path = "/api/shapes/workspace-invites", tableName = "workspace_invites",
                 serializer = WorkspaceInviteEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("workspace_invites"),
                 onInsert = { workspaceInviteDao.upsert(it) },
                 onUpdate = { workspaceInviteDao.upsert(it) },
                 onDelete = { workspaceInviteDao.deleteById(it.id) },
@@ -200,6 +220,7 @@ class SyncManager @Inject constructor(
                 shape = "comments", path = "/api/shapes/comments", tableName = "comments",
                 serializer = CommentEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("comments"),
                 onInsert = { commentDao.upsert(it) },
                 onUpdate = { commentDao.upsert(it) },
                 onDelete = { commentDao.deleteById(it.id) },
@@ -209,6 +230,7 @@ class SyncManager @Inject constructor(
                 shape = "attachments", path = "/api/shapes/attachments", tableName = "attachments",
                 serializer = AttachmentEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("attachments"),
                 onInsert = { attachmentDao.upsert(it) },
                 onUpdate = { attachmentDao.upsert(it) },
                 onDelete = { attachmentDao.deleteById(it.id) },
@@ -226,6 +248,7 @@ class SyncManager @Inject constructor(
         db: ExponentialDatabase,
         baseUrl: () -> String?,
         token: () -> String?,
+        reporter: ShapeReporter = ShapeReporter(),
         onInsert: suspend (T) -> Unit,
         onUpdate: suspend (T) -> Unit,
         onDelete: suspend (T) -> Unit,
@@ -240,6 +263,10 @@ class SyncManager @Inject constructor(
             valueSerializer = serializer,
             offsetDao = offsetDao,
             json = json,
+            onPhase = reporter.onPhase,
+            onApplied = reporter.onApplied,
+            onError = reporter.onError,
+            onSuccess = reporter.onSuccess,
             onMessages = { messages ->
                 // Apply each long-poll batch in one transaction (parity with iOS
                 // applyBatch) so a batch is an atomic write and the concurrent
@@ -262,6 +289,15 @@ class SyncManager @Inject constructor(
         return scope.launch { shapeClient.run() }
     }
 }
+
+/** Per-shape diagnostics callbacks passed from [SyncManager] into [ShapeClient]. */
+private class ShapeReporter(
+    val onPhase: (String) -> Unit = {},
+    val onApplied: (Int) -> Unit = {},
+    // The flag is true for auth failures (HTTP 401/403).
+    val onError: (Boolean) -> Unit = {},
+    val onSuccess: () -> Unit = {},
+)
 
 private fun parseIdFromKey(key: String): String? {
     val last = key.split("/").lastOrNull() ?: return null

@@ -1,6 +1,17 @@
 package com.exponential.app.ui.markdown
 
+import java.util.UUID
+
 private val MARKDOWN_IMAGE_REGEX = Regex("""!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)""")
+
+/** A not-yet-uploaded image placeholder URL, e.g. `draft://<uuid>`. */
+fun draftUrl(): String = "draft://${UUID.randomUUID()}"
+
+fun isDraftUrl(url: String): Boolean = url.startsWith("draft://")
+
+/** True if any image reference in [markdown] is still an unuploaded draft. */
+fun hasDraftImages(markdown: String): Boolean =
+    MARKDOWN_IMAGE_REGEX.findAll(markdown).any { isDraftUrl(it.groupValues[2]) }
 
 /** Drop image references whose URL is in `urls`. */
 fun removeMarkdownImagesByUrl(markdown: String, urls: Collection<String>): String {

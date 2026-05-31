@@ -37,6 +37,29 @@ android {
         }
     }
 
+    // Product flavors mirror the iOS Tuist targets (Exponential / Exponential-Staging):
+    // `production` ships the public cloud default, `staging` co-installs under a
+    // `.staging` applicationId and defaults to next.exponential.at. The default
+    // cloud URL + a staging flag are injected via BuildConfig (read by
+    // AppConstants), and the launcher label via a per-flavor app_name resValue.
+    flavorDimensions += "env"
+    productFlavors {
+        create("production") {
+            dimension = "env"
+            resValue("string", "app_name", "Exponential")
+            buildConfigField("String", "DEFAULT_CLOUD_URL", "\"https://app.exponential.at\"")
+            buildConfigField("boolean", "IS_STAGING", "false")
+        }
+        create("staging") {
+            dimension = "env"
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            resValue("string", "app_name", "Exp Staging")
+            buildConfigField("String", "DEFAULT_CLOUD_URL", "\"https://next.exponential.at\"")
+            buildConfigField("boolean", "IS_STAGING", "true")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -90,8 +113,8 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.security.crypto)
     implementation(libs.browser)
-    implementation(libs.richeditor.compose)
-    implementation(libs.richeditor.compose.coil3)
+    implementation(libs.commonmark.core)
+    implementation(libs.commonmark.ext.strikethrough)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)
 

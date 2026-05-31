@@ -69,11 +69,13 @@ class MultiAccountProjectRepository @Inject constructor(
                             val byWorkspace = projects.groupBy { it.workspaceId }
                             val blocks = workspaces
                                 .sortedBy { it.name.lowercase() }
-                                .mapNotNull { ws ->
+                                .map { ws ->
                                     val projs = (byWorkspace[ws.id] ?: emptyList())
                                         .filter { it.archivedAt == null }
-                                    if (projs.isEmpty()) null
-                                    else WorkspaceBlock(workspace = ws, projects = projs)
+                                    // Include every workspace, even ones with an empty or
+                                    // all-archived project list — they render as a header
+                                    // with no project rows (parity with iOS Home).
+                                    WorkspaceBlock(workspace = ws, projects = projs)
                                 }
                             if (blocks.isEmpty()) null
                             else ServerProjectGroup(

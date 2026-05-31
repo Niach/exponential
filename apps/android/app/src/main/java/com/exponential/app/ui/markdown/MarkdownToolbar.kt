@@ -1,12 +1,9 @@
 package com.exponential.app.ui.markdown
 
-import android.net.Uri
-import android.webkit.MimeTypeMap
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,23 +13,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,167 +37,126 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
-import com.mohamedrejeb.richeditor.model.RichTextState
-import kotlinx.coroutines.launch
+import com.exponential.app.ui.markdown.model.BlockKind
+import com.exponential.app.ui.markdown.model.InlineKind
+import com.exponential.app.ui.markdown.model.ListType
 
-private val BoldStyle = SpanStyle(fontWeight = FontWeight.Bold)
-private val ItalicStyle = SpanStyle(fontStyle = FontStyle.Italic)
-private val StrikethroughStyle = SpanStyle(textDecoration = TextDecoration.LineThrough)
+private val PillBg = Color.White.copy(alpha = 0.10f)
+private val IconInactive = Color.White.copy(alpha = 0.65f)
+private val SepColor = Color.White.copy(alpha = 0.12f)
 
+/**
+ * Formatting bar driving the [EditorModel] — ports the iOS `MarkdownToolbar`
+ * button set, order and active-tint styling (active = link blue, no fill). Mark
+ * buttons act on the active row's selection; block buttons act on the active row.
+ */
 @Composable
 fun MarkdownToolbar(
-    state: RichTextState,
-    onUploadImage: (suspend (Uri) -> String?)?,
-    imageUploadEnabled: Boolean,
+    model: EditorModel,
+    onPickImage: () -> Unit,
+    imageEnabled: Boolean,
+    modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
-
+    val keyboard = LocalSoftwareKeyboardController.current
     var linkDialogOpen by remember { mutableStateOf(false) }
-    var uploading by remember { mutableStateOf(false) }
-    var uploadError by remember { mutableStateOf<String?>(null) }
 
-    val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri == null || onUploadImage == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            uploading = true
-            uploadError = null
-            try {
-                val url = onUploadImage(uri)
-                if (url != null) {
-                    val alt = uri.lastPathSegment?.substringAfterLast('/') ?: "image"
-                    state.insertMarkdownAfterSelection("\n\n![${alt}](${url})\n\n")
-                } else {
-                    // Surface failures instead of silently swallowing them; the
-                    // user can tap the image button again to retry.
-                    uploadError = "Couldn't add image. Tap to retry."
-                }
-            } catch (e: Throwable) {
-                uploadError = "Couldn't add image. Tap to retry."
-            } finally {
-                uploading = false
-            }
-        }
+    val activeRowId = model.activeRowId
+    val attrs = activeRowId?.let { model.attrsFor(it) }
+    val sel = model.activeSelection()
+    val hasSelection = sel != null && sel.second.last > sel.second.first
+
+    fun markActive(kind: InlineKind): Boolean {
+        val s = sel ?: return false
+        if (s.second.last <= s.second.first) return false
+        return MarkOps.hasMarkOver(model.marksFor(s.first), s.second.first, s.second.last, kind)
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
+    fun toggleMark(kind: InlineKind) {
+        val s = sel ?: return
+        if (s.second.last > s.second.first) model.toggleMark(s.first, s.second, kind)
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(PillBg),
         ) {
-            ToolbarToggle(
-                icon = Icons.Filled.FormatBold,
-                label = "Bold",
-                active = state.currentSpanStyle.fontWeight == FontWeight.Bold,
-                onClick = { state.toggleSpanStyle(BoldStyle) },
-            )
-            ToolbarToggle(
-                icon = Icons.Filled.FormatItalic,
-                label = "Italic",
-                active = state.currentSpanStyle.fontStyle == FontStyle.Italic,
-                onClick = { state.toggleSpanStyle(ItalicStyle) },
-            )
-            ToolbarToggle(
-                icon = Icons.Filled.FormatStrikethrough,
-                label = "Strikethrough",
-                active = state.currentSpanStyle.textDecoration == TextDecoration.LineThrough,
-                onClick = { state.toggleSpanStyle(StrikethroughStyle) },
-            )
-            Spacer(Modifier.width(4.dp))
-            HeadingButton(state, prefix = "# ", label = "H1")
-            HeadingButton(state, prefix = "## ", label = "H2")
-            HeadingButton(state, prefix = "### ", label = "H3")
-            Spacer(Modifier.width(4.dp))
-            ToolbarToggle(
-                icon = Icons.AutoMirrored.Filled.FormatListBulleted,
-                label = "Bullet list",
-                active = state.isUnorderedList,
-                onClick = { state.toggleUnorderedList() },
-            )
-            ToolbarToggle(
-                icon = Icons.Filled.FormatListNumbered,
-                label = "Numbered list",
-                active = state.isOrderedList,
-                onClick = { state.toggleOrderedList() },
-            )
-            ToolbarToggle(
-                icon = Icons.Filled.Checklist,
-                label = "Task list",
-                active = false,
-                onClick = { state.insertMarkdownAfterSelection("\n\n- [ ] ") },
-            )
-            Spacer(Modifier.width(4.dp))
-            ToolbarToggle(
-                icon = Icons.Filled.Code,
-                label = "Inline code",
-                active = state.isCodeSpan,
-                onClick = { state.toggleCodeSpan() },
-            )
-            ToolbarToggle(
-                icon = Icons.Filled.DataObject,
-                label = "Code block",
-                active = false,
-                onClick = { state.insertMarkdownAfterSelection("\n\n```\n\n```\n\n") },
-            )
-            ToolbarToggle(
-                icon = Icons.Filled.FormatQuote,
-                label = "Quote",
-                active = false,
-                onClick = { state.insertMarkdownAfterSelection("\n\n> ") },
-            )
-            Spacer(Modifier.width(4.dp))
-            ToolbarToggle(
-                icon = Icons.Filled.Link,
-                label = "Link",
-                active = state.isLink,
-                onClick = { linkDialogOpen = true },
-            )
-            if (onUploadImage != null) {
-                ToolbarToggle(
-                    icon = Icons.Filled.Image,
-                    label = "Image",
-                    active = uploading,
-                    enabled = imageUploadEnabled && !uploading,
-                    onClick = {
-                        pickImage.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 40.dp) // leave room for the pinned dismiss button
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
+                ToolbarButton(Icons.Filled.Image, "Image", active = false, enabled = imageEnabled) { onPickImage() }
+                Separator()
+                ToolbarButton(Icons.Filled.FormatSize, "Heading", active = attrs?.kind == BlockKind.Heading) {
+                    activeRowId?.let { model.cycleHeading(it) }
+                }
+                ToolbarButton(Icons.Filled.FormatBold, "Bold", active = markActive(InlineKind.Bold), enabled = hasSelection) {
+                    toggleMark(InlineKind.Bold)
+                }
+                ToolbarButton(Icons.Filled.FormatItalic, "Italic", active = markActive(InlineKind.Italic), enabled = hasSelection) {
+                    toggleMark(InlineKind.Italic)
+                }
+                ToolbarButton(Icons.Filled.FormatStrikethrough, "Strikethrough", active = markActive(InlineKind.Strikethrough), enabled = hasSelection) {
+                    toggleMark(InlineKind.Strikethrough)
+                }
+                Separator()
+                ToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", active = attrs?.listType == ListType.Bullet) {
+                    activeRowId?.let { model.toggleList(it, ListType.Bullet) }
+                }
+                ToolbarButton(Icons.Filled.FormatListNumbered, "Numbered list", active = attrs?.listType == ListType.Ordered) {
+                    activeRowId?.let { model.toggleList(it, ListType.Ordered) }
+                }
+                ToolbarButton(Icons.Filled.Checklist, "Task list", active = attrs?.listType == ListType.Checklist) {
+                    activeRowId?.let { model.toggleList(it, ListType.Checklist) }
+                }
+                ToolbarButton(Icons.Filled.Code, "Code block", active = attrs?.kind == BlockKind.CodeBlock) {
+                    activeRowId?.let { model.toggleCodeBlock(it) }
+                }
+                ToolbarButton(Icons.Filled.FormatQuote, "Quote", active = attrs?.kind == BlockKind.Blockquote) {
+                    activeRowId?.let { model.toggleQuote(it) }
+                }
+                Separator()
+                ToolbarButton(Icons.Filled.Link, "Link", active = markActive(InlineKind.Link)) {
+                    linkDialogOpen = true
+                }
             }
-        }
-        uploadError?.let { message ->
-            Text(
-                message,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
+            // Pinned keyboard-dismiss button at the right edge.
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                ToolbarButton(Icons.Filled.KeyboardHide, "Hide keyboard", active = false) {
+                    model.setFocused(null)
+                    keyboard?.hide()
+                }
+            }
         }
     }
 
     if (linkDialogOpen) {
         InsertLinkDialog(
-            initialText = state.selectedLinkText.orEmpty(),
-            initialUrl = state.selectedLinkUrl.orEmpty(),
             onInsert = { text, url ->
-                if (url.isNotBlank()) {
-                    state.addLink(text = text.ifBlank { url }, url = url)
-                }
                 linkDialogOpen = false
+                val s = sel
+                val normalized = if (url.contains("://")) url else "https://$url"
+                if (s != null && s.second.last > s.second.first) {
+                    model.toggleMark(s.first, s.second, InlineKind.Link, normalized)
+                } else if (s != null) {
+                    model.insertLinkText(s.first, s.second.first, text.ifBlank { normalized }, normalized)
+                }
             },
             onDismiss = { linkDialogOpen = false },
         )
@@ -208,42 +164,41 @@ fun MarkdownToolbar(
 }
 
 @Composable
-private fun HeadingButton(state: RichTextState, prefix: String, label: String) {
-    IconButton(onClick = { state.insertMarkdownAfterSelection("\n\n$prefix") }) {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-    }
-}
-
-@Composable
-private fun ToolbarToggle(
+private fun ToolbarButton(
     icon: ImageVector,
     label: String,
     active: Boolean,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        colors = if (active) {
-            IconButtonDefaults.iconButtonColors(
-                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-            )
-        } else IconButtonDefaults.iconButtonColors(),
-    ) {
-        Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp))
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(36.dp)) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (!enabled) IconInactive.copy(alpha = 0.3f) else if (active) MdStyle.Link else IconInactive,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
 @Composable
+private fun Separator() {
+    Spacer(
+        modifier = Modifier
+            .padding(horizontal = 3.dp)
+            .width(1.dp)
+            .height(18.dp)
+            .background(SepColor),
+    )
+}
+
+@Composable
 private fun InsertLinkDialog(
-    initialText: String,
-    initialUrl: String,
     onInsert: (text: String, url: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var text by remember { mutableStateOf(initialText) }
-    var url by remember { mutableStateOf(initialUrl) }
+    var text by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Insert link") },
@@ -252,7 +207,7 @@ private fun InsertLinkDialog(
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("Display text") },
+                    label = { Text("Display text (optional)") },
                     singleLine = true,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -265,35 +220,8 @@ private fun InsertLinkDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onInsert(text, url) }, enabled = url.isNotBlank()) {
-                Text("Insert")
-            }
+            TextButton(onClick = { onInsert(text, url) }, enabled = url.isNotBlank()) { Text("Insert") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-internal fun guessMimeType(context: android.content.Context, uri: Uri, fallback: String = "image/jpeg"): String {
-    val resolver = context.contentResolver
-    val type = resolver.getType(uri)
-    if (!type.isNullOrBlank()) return type
-    val ext = MimeTypeMap.getFileExtensionFromUrl(uri.toString())
-    if (!ext.isNullOrBlank()) {
-        MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.let { return it }
-    }
-    return fallback
-}
-
-internal fun guessFilename(context: android.content.Context, uri: Uri): String {
-    val resolver = context.contentResolver
-    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-        if (cursor.moveToFirst() && idx >= 0) {
-            val name = cursor.getString(idx)
-            if (!name.isNullOrBlank()) return name
-        }
-    }
-    return uri.lastPathSegment ?: "image"
 }
