@@ -356,6 +356,9 @@ struct CreateIssueSheet: View {
                 }
             }
 
+            // Remember the project so the Share Extension defaults its picker to it.
+            SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
+
             if createMore {
                 title = ""
                 editor = IssueEditorModel()

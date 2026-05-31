@@ -14,6 +14,38 @@ let sharedDependencies: [TargetDependency] = [
     .external(name: "cmark-gfm"),
     .external(name: "cmark-gfm-extensions"),
 ]
+
+// Foundation-only files reused by the Share Extension. Compiled into the
+// extension's own module (no `public` needed, no shared framework). Verified to
+// import only Foundation/Security/CryptoKit — no GRDB/Firebase/SwiftUI drag-in.
+let shareExtensionSources: SourceFilesList = [
+    "Exponential/AppConstants.swift",
+    "Exponential/Shared/**",
+    "Exponential/Data/Auth/KeychainStore.swift",
+    "Exponential/Data/Auth/AccountStore.swift",
+    "Exponential/Data/Auth/ServerAccount.swift",
+    "Exponential/Data/Auth/AuthRepository.swift",
+    "Exponential/Data/API/HTTPClient.swift",
+    "Exponential/Data/API/TrpcClient.swift",
+    "Exponential/Data/API/IssuesApi.swift",
+    "Exponential/Data/API/IssueImagesApi.swift",
+    "ShareExtension/**",
+]
+
+let shareExtensionInfoPlist: [String: Plist.Value] = [
+    "NSExtension": .dictionary([
+        "NSExtensionPointIdentifier": .string("com.apple.share-services"),
+        "NSExtensionPrincipalClass": .string("$(PRODUCT_MODULE_NAME).ShareViewController"),
+        "NSExtensionAttributes": .dictionary([
+            "NSExtensionActivationRule": .dictionary([
+                "NSExtensionActivationSupportsImageWithMaxCount": .integer(20),
+                "NSExtensionActivationSupportsText": .boolean(true),
+                "NSExtensionActivationSupportsWebURLWithMaxCount": .integer(1),
+            ]),
+        ]),
+    ]),
+]
+
 let sharedInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": "0.3.0",
     "CFBundleVersion": "3",
@@ -52,7 +84,8 @@ let project = Project(
             ]) { _, new in new }),
             sources: sharedSources,
             resources: sharedResources,
-            dependencies: sharedDependencies,
+            entitlements: "Exponential.entitlements",
+            dependencies: sharedDependencies + [.target(name: "ShareExtension")],
             settings: .settings(base: baseSettings)
         ),
         .target(
@@ -66,7 +99,38 @@ let project = Project(
             ]) { _, new in new }),
             sources: sharedSources,
             resources: sharedResources,
-            dependencies: sharedDependencies,
+            entitlements: "ExponentialStaging.entitlements",
+            dependencies: sharedDependencies + [.target(name: "ShareExtension-Staging")],
+            settings: .settings(base: baseSettings.merging([
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
+            ]) { _, new in new })
+        ),
+        .target(
+            name: "ShareExtension",
+            destinations: [.iPhone, .iPad],
+            product: .appExtension,
+            bundleId: "com.straehhuber.exponential.shareextension",
+            deploymentTargets: .iOS("17.4"),
+            infoPlist: .extendingDefault(with: shareExtensionInfoPlist.merging([
+                "CFBundleDisplayName": "Exponential",
+            ]) { _, new in new }),
+            sources: shareExtensionSources,
+            entitlements: "Exponential.entitlements",
+            dependencies: [],
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
+            name: "ShareExtension-Staging",
+            destinations: [.iPhone, .iPad],
+            product: .appExtension,
+            bundleId: "com.straehhuber.exponential.staging.shareextension",
+            deploymentTargets: .iOS("17.4"),
+            infoPlist: .extendingDefault(with: shareExtensionInfoPlist.merging([
+                "CFBundleDisplayName": "Exp Staging",
+            ]) { _, new in new }),
+            sources: shareExtensionSources,
+            entitlements: "ExponentialStaging.entitlements",
+            dependencies: [],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })

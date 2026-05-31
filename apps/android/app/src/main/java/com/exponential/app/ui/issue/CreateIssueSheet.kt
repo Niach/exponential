@@ -71,12 +71,15 @@ fun CreateIssueSheet(
     error: String?,
     users: List<UserEntity>,
     isModerator: Boolean,
+    initialTitle: String = "",
+    initialDescription: String = "",
+    initialPendingImages: Map<String, Uri> = emptyMap(),
     onDismiss: () -> Unit,
     onCreate: (CreateIssuePayload) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf(initialTitle) }
+    var description by remember { mutableStateOf(initialDescription) }
     var status by remember { mutableStateOf(IssueStatus.Backlog) }
     var priority by remember { mutableStateOf(IssuePriority.None) }
     var assigneeId by remember { mutableStateOf<String?>(null) }
@@ -94,7 +97,7 @@ fun CreateIssueSheet(
     var endTimePickerOpen by remember { mutableStateOf(false) }
     var recurrenceSheetOpen by remember { mutableStateOf(false) }
 
-    val pendingImages = remember { mutableStateMapOf<String, Uri>() }
+    val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
     val assigneeUser = users.firstOrNull { it.id == assigneeId }
 
     ModalBottomSheet(
@@ -126,6 +129,7 @@ fun CreateIssueSheet(
                 imageUploadEnabled = true,
                 placeholder = "Description (markdown supported)",
                 minHeight = 120.dp,
+                initialPendingImages = initialPendingImages,
             )
             Spacer(Modifier.height(12.dp))
             FlowRow(

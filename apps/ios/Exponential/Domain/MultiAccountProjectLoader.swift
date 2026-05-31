@@ -120,6 +120,7 @@ final class MultiAccountProjectLoader: @unchecked Sendable {
                 for try await ws in wsObs.values(in: pool) {
                     guard let self else { return }
                     self.workspacesByAccount[accountId] = ws
+                    self.writeMirror()
                 }
             } catch {
                 logger.error("Workspace stream for \(accountId, privacy: .public) ended: \(error.localizedDescription)")
@@ -130,12 +131,40 @@ final class MultiAccountProjectLoader: @unchecked Sendable {
                 for try await projects in projObs.values(in: pool) {
                     guard let self else { return }
                     self.projectsByAccount[accountId] = projects
+                    self.writeMirror()
                 }
             } catch {
                 logger.error("Project stream for \(accountId, privacy: .public) ended: \(error.localizedDescription)")
             }
         }
         observationTasks[accountId] = [wsTask, projTask]
+    }
+
+    /// Mirror every signed-in account's non-archived projects into the shared
+    /// app-group container so the Share Extension can populate its picker
+    /// without opening the (per-account, non-shared) GRDB database.
+    @MainActor
+    private func writeMirror() {
+        let signedIn = auth.accounts.filter { $0.token != nil }
+        var out: [MirroredProject] = []
+        for account in signedIn {
+            let workspacesById = Dictionary(
+                uniqueKeysWithValues: (workspacesByAccount[account.id] ?? []).map { ($0.id, $0) }
+            )
+            for project in (projectsByAccount[account.id] ?? []) where project.archivedAt == nil {
+                guard let workspace = workspacesById[project.workspaceId] else { continue }
+                out.append(MirroredProject(
+                    accountId: account.id,
+                    accountName: account.displayName,
+                    workspaceId: workspace.id,
+                    workspaceName: workspace.name,
+                    projectId: project.id,
+                    projectName: project.name,
+                    prefix: project.prefix
+                ))
+            }
+        }
+        SharedProjectMirror.write(projects: out)
     }
 
     deinit {

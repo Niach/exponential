@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -31,6 +32,8 @@ import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.WorkspaceSettingsScreen
+import com.exponential.app.ui.share.ShareTargetPickerScreen
+import com.exponential.app.ui.share.buildSharePrefill
 import com.exponential.app.ui.theme.AppBackground
 import dagger.hilt.android.EntryPointAccessors
 
@@ -44,6 +47,7 @@ import dagger.hilt.android.EntryPointAccessors
 fun AppNavHost() {
     val viewModel: AppViewModel = hiltViewModel()
     val deepLinkBus = applicationDeepLinkBus()
+    val workspaceSelection = applicationWorkspaceSelection()
     val state by viewModel.state.collectAsState()
     val navController = rememberNavController()
     val pendingTarget by deepLinkBus.target.collectAsState()
@@ -56,12 +60,20 @@ fun AppNavHost() {
 
     LaunchedEffect(pendingTarget, state.token) {
         val target = pendingTarget ?: return@LaunchedEffect
+        // Leave the target in the bus while unauthenticated so a share/deep-link
+        // received before login resumes once the token lands (token is a key).
         if (state.token == null) return@LaunchedEffect
         when (target) {
             is DeepLinkBus.Target.Issue ->
                 navController.navigate("issue/${target.id}") { launchSingleTop = true }
             is DeepLinkBus.Target.Invite ->
                 navController.navigate("invite/${target.token}") { launchSingleTop = true }
+            is DeepLinkBus.Target.ShareContent -> {
+                // Stash the shared content for the project route to consume, then
+                // route to the project picker.
+                workspaceSelection.setPendingShare(target)
+                navController.navigate("share-pick") { launchSingleTop = true }
+            }
         }
         deepLinkBus.consume()
     }
@@ -104,6 +116,7 @@ fun AppNavHost() {
                 AuthenticatedNav(
                     navController = navController,
                     cloudAlreadyAdded = cloudAlreadyAdded,
+                    activeAccountId = state.activeAccountId,
                     onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
                 )
             }
@@ -144,6 +157,7 @@ private fun UnauthenticatedNav(
 private fun AuthenticatedNav(
     navController: NavHostController,
     cloudAlreadyAdded: Boolean,
+    activeAccountId: String?,
     onSetInstanceUrl: (String) -> Unit,
 ) {
     val workspaceSelection = applicationWorkspaceSelection()
@@ -236,12 +250,36 @@ private fun AuthenticatedNav(
         composable("integrations") {
             IntegrationsScreen(onBack = { navController.popBackStack() })
         }
+        composable("share-pick") {
+            ShareTargetPickerScreen(
+                onPicked = { projectId ->
+                    navController.navigate("project/$projectId") {
+                        popUpTo("share-pick") { inclusive = true }
+                    }
+                },
+                onCancel = {
+                    // Drop the pending share so it doesn't prefill the next project opened.
+                    workspaceSelection.consumePendingShare()
+                    navController.popBackStack()
+                },
+            )
+        }
         composable("project/{projectId}") { entry ->
             val projectId = entry.arguments?.getString("projectId").orEmpty()
+            val pendingShare by workspaceSelection.pendingShare.collectAsState()
+            // Remembering the opened project drives the share picker's default.
+            LaunchedEffect(projectId) {
+                if (projectId.isNotBlank() && activeAccountId != null) {
+                    workspaceSelection.rememberLastProject(activeAccountId, projectId)
+                }
+            }
+            val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             IssueListScreen(
                 projectId = projectId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
+                sharePrefill = sharePrefill,
+                onSharePrefillConsumed = { workspaceSelection.consumePendingShare() },
             )
         }
         composable("issue/{issueId}") { entry ->

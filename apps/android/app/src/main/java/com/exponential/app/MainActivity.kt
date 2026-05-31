@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.share.ShareIntentParser
 import com.exponential.app.navigation.AppNavHost
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -52,6 +53,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        // Shared content (ACTION_SEND/_MULTIPLE) arrives with a null data URI, so
+        // this must run before the exp:// deep-link guard below. Parse + copy
+        // images while the read grant is still live (see ShareIntentParser).
+        if (intent != null && ShareIntentParser.isShareIntent(intent)) {
+            val payload = ShareIntentParser.parse(this, intent) ?: return
+            deepLinkBus.openShare(payload.text, payload.subject, payload.imageUris)
+            return
+        }
         val data = intent?.data ?: return
         if (data.scheme != "exp") return
         when (data.host) {

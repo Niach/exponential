@@ -43,6 +43,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +71,7 @@ import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.share.SharePrefill
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
@@ -82,6 +84,8 @@ fun IssueListScreen(
     projectId: String,
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit,
+    sharePrefill: SharePrefill? = null,
+    onSharePrefillConsumed: () -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -90,6 +94,17 @@ fun IssueListScreen(
     var showFilters by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
+
+    // Content shared into the app routes here with a prefill; capture it once
+    // (it gets cleared right after) and open the create sheet pre-populated.
+    var capturedPrefill by remember { mutableStateOf<SharePrefill?>(null) }
+    LaunchedEffect(sharePrefill) {
+        if (sharePrefill != null && capturedPrefill == null) {
+            capturedPrefill = sharePrefill
+            showCreate = true
+            onSharePrefillConsumed()
+        }
+    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -225,7 +240,13 @@ fun IssueListScreen(
             error = state.error,
             users = state.users,
             isModerator = permissions.isModerator,
-            onDismiss = { showCreate = false },
+            initialTitle = capturedPrefill?.title ?: "",
+            initialDescription = capturedPrefill?.description ?: "",
+            initialPendingImages = capturedPrefill?.pendingImages ?: emptyMap(),
+            onDismiss = {
+                showCreate = false
+                capturedPrefill = null
+            },
             onCreate = { payload ->
                 viewModel.createIssue(
                     title = payload.title,
@@ -240,7 +261,10 @@ fun IssueListScreen(
                     recurrenceUnit = payload.recurrenceUnit,
                     pendingImages = payload.pendingImages,
                 )
-                if (!payload.keepOpen) showCreate = false
+                if (!payload.keepOpen) {
+                    showCreate = false
+                    capturedPrefill = null
+                }
             },
         )
     }

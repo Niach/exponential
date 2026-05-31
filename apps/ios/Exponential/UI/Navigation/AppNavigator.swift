@@ -181,6 +181,8 @@ struct MainNavigator: View {
     }
 
     private func handleProjectTap(accountId: String, projectId: String) {
+        // Remember the opened project so the Share Extension defaults its picker to it.
+        SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
         path.append(AppRoute.project(accountId: accountId, id: projectId))
     }
 
