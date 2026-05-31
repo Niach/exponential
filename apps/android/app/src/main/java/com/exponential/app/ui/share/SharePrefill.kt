@@ -27,10 +27,11 @@ fun buildSharePrefill(share: DeepLinkBus.Target.ShareContent): SharePrefill {
     val text = share.text?.trim().orEmpty()
     val subject = share.subject?.trim().orEmpty()
 
+    // Image-only shares get an empty title so the user types their own.
     val title = when {
         subject.isNotBlank() -> subject
         text.isNotBlank() -> text.lineSequence().firstOrNull()?.trim()?.take(120).orEmpty()
-        else -> "Shared image"
+        else -> ""
     }
 
     val baseDescription = when {

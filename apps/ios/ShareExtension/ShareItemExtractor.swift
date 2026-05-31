@@ -37,28 +37,27 @@ enum ShareItemExtractor {
 
         if texts.isEmpty, webURL == nil, images.isEmpty { return nil }
 
-        let (title, description) = composeText(texts: texts, webURL: webURL, hasImages: !images.isEmpty)
+        let (title, description) = composeText(texts: texts, webURL: webURL)
         return SharedPayload(title: title, descriptionText: description, images: images)
     }
 
     // MARK: - Title / description
 
-    private static func composeText(texts: [String], webURL: URL?, hasImages: Bool) -> (String, String) {
+    private static func composeText(texts: [String], webURL: URL?) -> (String, String) {
         let joined = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         let urlString = webURL?.absoluteString
 
         let firstLine = joined.split(separator: "\n", maxSplits: 1).first
             .map(String.init)?.trimmingCharacters(in: .whitespaces)
 
+        // Image-only shares get an empty title so the user types their own.
         let title: String
         if let firstLine, !firstLine.isEmpty {
             title = String(firstLine.prefix(120))
         } else if let urlString {
             title = urlString
-        } else if hasImages {
-            title = "Shared image"
         } else {
-            title = "Shared"
+            title = ""
         }
 
         var description: String
