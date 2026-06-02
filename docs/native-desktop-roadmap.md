@@ -159,7 +159,21 @@ The terminal is the one genuinely platform-specific piece of the agent UI.
 Extend `apps/ios/Project.swift`. Read first: `apps/ios/Project.swift`,
 `apps/ios/Exponential/{Data,Domain,Shared,UI}`. iOS MUST stay green after each step.
 
-### A1 — Extract `ExpCore` (+ `ExpUI`); iOS stays green
+### A1 — Extract `ExpCore` (+ `ExpUI`); iOS stays green ✅ DONE
+
+> Done on branch `macos/a1-expcore`. `ExpCore` framework (`destinations: iOS + macOS`,
+> sole external dep **GRDB**, vended **dynamic** to avoid double static-linking) now
+> holds the moved Auth/API/DB/Electric/Domain/Shared + `AppConstants` layer with a
+> `public` API; the iOS app + both share extensions build green (Tuist + Xcode 26.5,
+> strict concurrency). Notes: `IssueStatus`/`IssuePriority` split (Foundation core in
+> `ExpCore`, `.color` SwiftUI extension in the app's `IssueColorExtensions.swift`);
+> `#if STAGING` in `AppConstants`/`SharedAppGroup` replaced by `Bundle.main` bundle-id
+> detection (correct from a once-compiled framework); the Share Extension still compiles
+> its own curated Foundation-only subset (no `ExpCore` link → stays GRDB-free);
+> `IssueEditorModel` dropped `import UIKit`. **`ExpUI` deferred to A2** (its only A1
+> artifact — the `.color` extensions — lives in the app until the first macOS view needs
+> it); the full toolkit-neutral `IssueEditorModel`/`MarkdownConversion` abstraction
+> stays an **A4** task.
 - New **`ExpCore`** framework target (`destinations: iOS + macOS`, dep `GRDB`).
   Move the already-Foundation/GRDB-only code (the `Project.swift`
   `shareExtensionSources` list proves these import only Foundation/Security/
@@ -249,7 +263,7 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | Milestone | Linux | macOS |
 |---|---|---|
 | M0 shared base (agent-core scaffold + contract emitters) | ✅ | ✅ (shared) |
-| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | ☐ A1–A4 |
+| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1 ✅ (ExpCore extracted); A2–A4 ☐ |
 | M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ☐ A5 |
 | M6 agent loop (Rust core) | ✅ (shared) | ✅ (shared) |
 | M7 libghostty embedded terminal | ✅ | ☐ A5 (easier — upstream Metal apprt) |
@@ -258,4 +272,8 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
 | Headless/background mode | ☐ | ☐ |
 
-**Next action:** start **A1** — extract `ExpCore` from `apps/ios`, keeping iOS green.
+**Next action:** start **A2** — add the `Exponential-macOS` (+ `-Staging`) app targets
+with a `NavigationSplitView` shell, wire `AppDependencies` + `SyncManager` against the
+now-extracted `ExpCore`, and get login + read-only live sync of all 10 shapes against
+`next.exponential.at`. (Create `ExpUI` here for the cross-platform SwiftUI views +
+`CrossPlatform.swift` shims, and relocate the `.color` extensions into it.)
