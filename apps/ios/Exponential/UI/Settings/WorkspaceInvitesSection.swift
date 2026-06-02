@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 struct WorkspaceInvitesSection: View {

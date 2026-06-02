@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 import GRDB
 import MarkdownUI

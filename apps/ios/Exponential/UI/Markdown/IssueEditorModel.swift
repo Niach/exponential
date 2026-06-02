@@ -1,6 +1,5 @@
 import Foundation
 import os
-import UIKit
 
 private let log = Logger(subsystem: "com.exponential", category: "IssueEditorModel")
 
