@@ -1,9 +1,8 @@
-import AppKit
 import ExpCore
 import ExpUI
+import Foundation
 import GRDB
 import SwiftUI
-import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -16,17 +15,21 @@ final class MacIssueDetailModel {
     var attachments: [AttachmentEntity] = []
     var permissions: WorkspacePermissions?
     var error: String?
-    var uploading = false
 
-    // Local edit buffers (seeded once on first load so live sync doesn't clobber typing).
+    // Title is a local buffer (seeded once so live sync doesn't clobber typing);
+    // the description is owned by the shared block editor.
     var editingTitle = ""
-    var editingDescription = ""
+    let editor = IssueEditorModel()
     private var seeded = false
+    private var saveTask: Task<Void, Never>?
 
     let accountId: String
     let issueId: String
     private let deps: MacAppDependencies
     private var tasks: [Task<Void, Never>] = []
+
+    var baseURL: URL? { deps.auth.instanceBaseURL(forAccountId: accountId) }
+    var httpClient: HTTPClient { deps.httpClient }
 
     init(deps: MacAppDependencies, accountId: String, issueId: String) {
         self.deps = deps
@@ -98,7 +101,10 @@ final class MacIssueDetailModel {
         if !seeded {
             seeded = true
             editingTitle = issue.title
-            editingDescription = getIssueDescriptionText(issue.description)
+            editor.load(markdown: getIssueDescriptionText(issue.description), baseURL: baseURL)
+            editor.onEdit = { [weak self] in self?.scheduleDescriptionSave() }
+        } else {
+            editor.applyRemote(markdown: getIssueDescriptionText(issue.description), baseURL: baseURL)
         }
         resolvePermissions(for: issue)
     }
@@ -129,17 +135,47 @@ final class MacIssueDetailModel {
         await update(UpdateIssueInput(id: issue.id, title: editingTitle))
     }
 
-    func saveDescription() async {
+    func scheduleDescriptionSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            await self?.commitDescription()
+        }
+    }
+
+    /// Upload any pending images, then persist the derived markdown (mirrors the
+    /// iOS IssueDetailViewModel.commitDescription flow).
+    func commitDescription() async {
         guard let issue else { return }
-        let text = editingDescription
-        guard text != getIssueDescriptionText(issue.description) else { return }
+        let uploader = makeImageUploader(issueId: issue.id)
+        let allUploaded = await editor.commitPendingImages(uploader: uploader)
+        guard allUploaded, !editor.hasUncommittedDrafts else {
+            error = "Some images couldn't be uploaded."
+            return
+        }
+        let markdown = editor.currentMarkdown()
+        guard markdown != editor.lastSavedMarkdown else { return }
         var input = UpdateIssueInput(id: issue.id)
-        if text.isEmpty {
+        if markdown.isEmpty {
             input.explicitNulls.insert("description")
         } else {
-            input.description = IssueDescription(text: text)
+            input.description = IssueDescription(text: markdown)
         }
         await update(input)
+        editor.markSaved(markdown)
+    }
+
+    private func makeImageUploader(issueId: String) -> @Sendable (PendingImage) async throws -> String {
+        let api = deps.issueImagesApi
+        let accountId = accountId
+        return { image in
+            let uploaded = try await api.upload(
+                accountId: accountId, issueId: issueId,
+                data: image.data, filename: image.filename, contentType: image.contentType
+            )
+            return uploaded.url
+        }
     }
 
     func setStatus(_ status: IssueStatus) async {
@@ -201,21 +237,6 @@ final class MacIssueDetailModel {
         catch { self.error = error.localizedDescription }
     }
 
-    func uploadImage(data: Data, filename: String, contentType: String) async {
-        guard let issue else { return }
-        uploading = true
-        do {
-            let uploaded = try await deps.issueImagesApi.upload(
-                accountId: accountId, issueId: issue.id, data: data, filename: filename, contentType: contentType
-            )
-            // Reference it in the description; the server canonicalizes the URL on save
-            // and the attachments shape will deliver the new AttachmentEntity row.
-            editingDescription += "\n\n![\(filename)](\(uploaded.url))\n"
-            await saveDescription()
-        } catch { self.error = error.localizedDescription }
-        uploading = false
-    }
-
     func attachmentURL(_ attachment: AttachmentEntity) -> URL? {
         if attachment.url.hasPrefix("http") { return URL(string: attachment.url) }
         guard let base = deps.auth.instanceBaseURL(forAccountId: accountId) else { return nil }
@@ -254,7 +275,6 @@ struct MacIssueDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var draftComment = ""
     @FocusState private var titleFocused: Bool
-    @FocusState private var descFocused: Bool
 
     var body: some View {
         Group {
@@ -271,7 +291,9 @@ struct MacIssueDetailView: View {
                 m.start()
             }
         }
-        .onDisappear { model?.stop() }
+        .onDisappear {
+            if let m = model { Task { await m.commitDescription(); m.stop() } }
+        }
     }
 
     @ViewBuilder
@@ -416,22 +438,19 @@ struct MacIssueDetailView: View {
         }
     }
 
-    // MARK: - Description (plain markdown for A3; rich editor is A4)
+    // MARK: - Description (rich block-markdown editor)
 
     private func descriptionSection(_ model: MacIssueDetailModel) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Description").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-            TextEditor(text: Binding(get: { model.editingDescription }, set: { model.editingDescription = $0 }))
-                .font(.body)
-                .frame(minHeight: 120)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .glassRow()
-                .focused($descFocused)
-                .disabled(!model.canEditContent)
-                .onChange(of: descFocused) { _, focused in
-                    if !focused { Task { await model.saveDescription() } }
-                }
+            MacMarkdownEditor(
+                model: model.editor,
+                baseURL: model.baseURL,
+                accountId: model.accountId,
+                httpClient: model.httpClient
+            )
+            .frame(minHeight: 160, maxHeight: 480)
+            .disabled(!model.canEditContent)
         }
     }
 
@@ -439,18 +458,7 @@ struct MacIssueDetailView: View {
 
     private func attachmentsSection(_ model: MacIssueDetailModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Attachments").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                Spacer()
-                Button { pickAndUpload(model) } label: {
-                    if model.uploading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Attach image", systemImage: "paperclip")
-                    }
-                }
-                .disabled(!model.canEditContent || model.uploading)
-            }
+            Text("Attachments").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
             if model.attachments.isEmpty {
                 Text("No attachments").font(.caption).foregroundStyle(.tertiary)
             } else {
@@ -470,16 +478,6 @@ struct MacIssueDetailView: View {
                 }
             }
         }
-    }
-
-    private func pickAndUpload(_ model: MacIssueDetailModel) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
-        let ext = url.pathExtension.lowercased()
-        let contentType = UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
-        Task { await model.uploadImage(data: data, filename: url.lastPathComponent, contentType: contentType) }
     }
 
     // MARK: - Comments

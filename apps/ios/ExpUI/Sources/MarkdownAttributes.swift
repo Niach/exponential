@@ -55,7 +55,7 @@ public enum MarkdownStyle {
 // MARK: - Cross-platform font-trait helpers
 
 /// Returns `font` with the bold trait added (UIKit `.traitBold` / AppKit `.bold`).
-func expBoldFont(_ font: PlatformFont) -> PlatformFont {
+public func expBoldFont(_ font: PlatformFont) -> PlatformFont {
     let descriptor = font.fontDescriptor
     #if os(macOS)
     let newDescriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.bold))
@@ -69,7 +69,7 @@ func expBoldFont(_ font: PlatformFont) -> PlatformFont {
 }
 
 /// Returns `font` with the italic trait added.
-func expItalicFont(_ font: PlatformFont) -> PlatformFont {
+public func expItalicFont(_ font: PlatformFont) -> PlatformFont {
     let descriptor = font.fontDescriptor
     #if os(macOS)
     let newDescriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.italic))
@@ -82,7 +82,7 @@ func expItalicFont(_ font: PlatformFont) -> PlatformFont {
     #endif
 }
 
-func expFontHasBold(_ font: PlatformFont?) -> Bool {
+public func expFontHasBold(_ font: PlatformFont?) -> Bool {
     guard let font else { return false }
     #if os(macOS)
     return font.fontDescriptor.symbolicTraits.contains(.bold)
@@ -91,7 +91,7 @@ func expFontHasBold(_ font: PlatformFont?) -> Bool {
     #endif
 }
 
-func expFontHasItalic(_ font: PlatformFont?) -> Bool {
+public func expFontHasItalic(_ font: PlatformFont?) -> Bool {
     guard let font else { return false }
     #if os(macOS)
     return font.fontDescriptor.symbolicTraits.contains(.italic)

@@ -16,9 +16,11 @@ struct MacCreateIssueView: View {
     @State private var assigneeId: String?
     @State private var hasDueDate = false
     @State private var dueDate = Date()
-    @State private var description = ""
+    @State private var editor = IssueEditorModel()
     @State private var loading = false
     @State private var error: String?
+
+    private var baseURL: URL? { deps.auth.instanceBaseURL(forAccountId: accountId) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -46,11 +48,8 @@ struct MacCreateIssueView: View {
             }
 
             Text("Description").font(.caption).foregroundStyle(.secondary)
-            TextEditor(text: $description)
-                .frame(minHeight: 100)
-                .scrollContentBackground(.hidden)
-                .padding(6)
-                .glassRow()
+            MacMarkdownEditor(model: editor, baseURL: baseURL, accountId: accountId, httpClient: deps.httpClient)
+                .frame(minHeight: 160, maxHeight: 360)
 
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
 
@@ -63,7 +62,7 @@ struct MacCreateIssueView: View {
             }
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: 520)
     }
 
     private func create() async {
@@ -78,18 +77,41 @@ struct MacCreateIssueView: View {
         } else {
             dateStr = nil
         }
-        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip draft images: they must be attached to an existing issue id, so
+        // they're uploaded after creation (mirrors iOS CreateIssueSheet).
+        let stripped = MarkdownImageUtils
+            .stripUnknownDraftImages(editor.currentMarkdown(), keep: [])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let input = CreateIssueInput(
             projectId: projectId,
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             status: status.rawValue,
             priority: priority.rawValue,
             assigneeId: assigneeId,
-            description: trimmedDesc.isEmpty ? nil : IssueDescription(text: trimmedDesc),
+            description: stripped.isEmpty ? nil : IssueDescription(text: stripped),
             dueDate: dateStr
         )
         do {
-            _ = try await deps.issuesApi.create(accountId: accountId, input)
+            let createdId = try await deps.issuesApi.create(accountId: accountId, input)
+            if !editor.pendingImages.isEmpty {
+                let api = deps.issueImagesApi
+                let acc = accountId
+                let uploader: @Sendable (PendingImage) async throws -> String = { image in
+                    let uploaded = try await api.upload(
+                        accountId: acc, issueId: createdId,
+                        data: image.data, filename: image.filename, contentType: image.contentType
+                    )
+                    return uploaded.url
+                }
+                let allUploaded = await editor.commitPendingImages(uploader: uploader)
+                let finalMarkdown = editor.currentMarkdown()
+                if allUploaded, !editor.hasUncommittedDrafts, finalMarkdown != stripped {
+                    try await deps.issuesApi.update(
+                        accountId: accountId,
+                        UpdateIssueInput(id: createdId, description: finalMarkdown.isEmpty ? nil : IssueDescription(text: finalMarkdown))
+                    )
+                }
+            }
             onCreated()
             dismiss()
         } catch {
