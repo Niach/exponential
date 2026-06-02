@@ -190,7 +190,7 @@ Extend `apps/ios/Project.swift`. Read first: `apps/ios/Project.swift`,
   per-platform render layers) so one model serves both the iOS and macOS editors.
 - **Gate:** iOS builds + runs unchanged.
 
-### A2 — macOS skeleton + read-only live sync
+### A2 — macOS skeleton + read-only live sync 🔶 built; runtime gate pending
 - New app targets **`Exponential-macOS`** + **`-Staging`**. `NavigationSplitView`
   shell (account/workspace sidebar | project+issue list | issue detail) replacing
   the iOS `AppNavigator` `NavigationStack`; menu `.commands`; `Settings` scene.
@@ -198,6 +198,21 @@ Extend `apps/ios/Project.swift`. Read first: `apps/ios/Project.swift`,
   `ASWebAuthenticationSession` anchored to `NSWindow`), multi-account, read-only
   live sync of all 10 shapes.
 - **Gate:** log in against `next.exponential.at`; all 10 shapes live-sync.
+
+> **Done (build + launch):** `ExpUI` framework extracted (theme/colors/avatar/
+> CrossPlatform shims, shared iOS+macOS). `Exponential-macOS(-Staging)` targets
+> build green and **launch cleanly** (all four dynamic frameworks — ExpCore, ExpUI,
+> GRDB, GRDBSQLite — embed/sign/load; no crash). Implemented: `MacAppDependencies`
+> (composition root, no Firebase/push; pre-opens pools + starts `SyncManager`),
+> `MacLoginView`/`MacLoginViewModel` (instance picker + password + OAuth via
+> `ASWebAuthenticationSession`/`NSWindow` anchor), `MacShell` (3-column split view),
+> read-only `MacIssueListView`/`MacIssueDetailView` (GRDB `ValueObservation`),
+> `MacSettingsView`. `KeychainStore` now uses the default keychain on macOS (no
+> access group → no signed entitlement needed).
+> **Still to verify (runtime, needs an interactive run on the Mac):** the actual
+> log-in + 10-shape live-sync against `next.exponential.at`. Run the
+> `Exponential-macOS-Staging` scheme (its bundle id → `next.exponential.at`), sign
+> in, confirm projects/issues populate. This is the only unverified part of A2.
 
 ### A3 — macOS CRUD
 Create/edit/delete issues; comments (`regular`/`question`/`plan`); labels;
@@ -263,7 +278,7 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | Milestone | Linux | macOS |
 |---|---|---|
 | M0 shared base (agent-core scaffold + contract emitters) | ✅ | ✅ (shared) |
-| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1 ✅ (ExpCore extracted); A2–A4 ☐ |
+| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1 ✅ ExpCore · A2 🔶 ExpUI+shell+login+read-only-sync (build+launch green; runtime sync unverified) · A3–A4 ☐ |
 | M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ☐ A5 |
 | M6 agent loop (Rust core) | ✅ (shared) | ✅ (shared) |
 | M7 libghostty embedded terminal | ✅ | ☐ A5 (easier — upstream Metal apprt) |
@@ -272,8 +287,10 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
 | Headless/background mode | ☐ | ☐ |
 
-**Next action:** start **A2** — add the `Exponential-macOS` (+ `-Staging`) app targets
-with a `NavigationSplitView` shell, wire `AppDependencies` + `SyncManager` against the
-now-extracted `ExpCore`, and get login + read-only live sync of all 10 shapes against
-`next.exponential.at`. (Create `ExpUI` here for the cross-platform SwiftUI views +
-`CrossPlatform.swift` shims, and relocate the `.color` extensions into it.)
+**Next action:** verify the A2 runtime gate (run `Exponential-macOS-Staging`, log in to
+`next.exponential.at`, confirm 10-shape sync), then start **A3** — macOS CRUD: wire the
+remaining `*Api` services into `MacAppDependencies`, add create/edit/delete for issues,
+comments, labels, attachments view + image upload, and filtering/search +
+workspace/member/invite settings. Reuse the tRPC services from `ExpCore`; build the
+macOS-native pickers/sheets (avoid the iOS-only `.navigationBarTitleDisplayMode` /
+`presentationDetents` — use the `CrossPlatform.swift` shims).
