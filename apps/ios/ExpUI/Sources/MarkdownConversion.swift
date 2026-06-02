@@ -2,22 +2,26 @@ import cmark_gfm
 import cmark_gfm_extensions
 import Foundation
 import os
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 private let log = Logger(subsystem: "com.exponential", category: "MarkdownConversion")
 
-enum ContentBlock: Identifiable, Equatable {
+public enum ContentBlock: Identifiable, Equatable {
     case text(id: UUID, attributedContent: NSAttributedString)
     case image(id: UUID, url: String, alt: String)
 
-    var id: UUID {
+    public var id: UUID {
         switch self {
         case .text(let id, _): return id
         case .image(let id, _, _): return id
         }
     }
 
-    static func normalize(_ blocks: inout [ContentBlock]) {
+    public static func normalize(_ blocks: inout [ContentBlock]) {
         if blocks.isEmpty {
             blocks = [.text(id: UUID(), attributedContent: NSAttributedString())]
             return
@@ -38,11 +42,11 @@ enum ContentBlock: Identifiable, Equatable {
     }
 }
 
-enum MarkdownConversion {
+public enum MarkdownConversion {
 
     // MARK: - NSAttributedString → Markdown
 
-    static func attributedStringToMarkdown(_ attrStr: NSAttributedString) -> String {
+    public static func attributedStringToMarkdown(_ attrStr: NSAttributedString) -> String {
         let fullText = attrStr.string
         guard !fullText.isEmpty else { return "" }
 
@@ -129,7 +133,7 @@ enum MarkdownConversion {
 
     // MARK: - Markdown → Blocks
 
-    static func markdownToBlocks(_ markdown: String, baseURL: URL? = nil) -> [ContentBlock] {
+    public static func markdownToBlocks(_ markdown: String, baseURL: URL? = nil) -> [ContentBlock] {
         cmark_gfm_core_extensions_ensure_registered()
 
         guard let parser = cmark_parser_new(CMARK_OPT_UNSAFE) else {
@@ -160,7 +164,7 @@ enum MarkdownConversion {
 
     // MARK: - Blocks → Markdown
 
-    static func blocksToMarkdown(_ blocks: [ContentBlock]) -> String {
+    public static func blocksToMarkdown(_ blocks: [ContentBlock]) -> String {
         var parts: [String] = []
         for block in blocks {
             switch block {
@@ -178,8 +182,8 @@ enum MarkdownConversion {
 // MARK: - AST Rendering
 
 private struct StyleFrame {
-    var font: UIFont
-    var foregroundColor: UIColor
+    var font: PlatformFont
+    var foregroundColor: PlatformColor
     var extraAttributes: [NSAttributedString.Key: Any]
 }
 
@@ -202,11 +206,11 @@ private struct RenderContext {
     var inBlockquote = false
     var needsBlockSeparator = false
 
-    var currentFont: UIFont {
+    var currentFont: PlatformFont {
         styleStack.last?.font ?? MarkdownStyle.bodyFont
     }
 
-    var currentColor: UIColor {
+    var currentColor: PlatformColor {
         styleStack.last?.foregroundColor ?? MarkdownStyle.textColor
     }
 
@@ -218,7 +222,7 @@ private struct RenderContext {
         return merged
     }
 
-    mutating func pushStyle(font: UIFont? = nil, color: UIColor? = nil, extra: [NSAttributedString.Key: Any] = [:]) {
+    mutating func pushStyle(font: PlatformFont? = nil, color: PlatformColor? = nil, extra: [NSAttributedString.Key: Any] = [:]) {
         styleStack.append(StyleFrame(
             font: font ?? currentFont,
             foregroundColor: color ?? currentColor,
@@ -307,13 +311,13 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         collector.currentText.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))
 
     case CMARK_NODE_STRONG:
-        let bold = addBoldTrait(to: context.currentFont)
+        let bold = expBoldFont(context.currentFont)
         context.pushStyle(font: bold)
         renderChildrenToBlocks(node, collector: collector, context: &context)
         context.popStyle()
 
     case CMARK_NODE_EMPH:
-        let italic = addItalicTrait(to: context.currentFont)
+        let italic = expItalicFont(context.currentFont)
         context.pushStyle(font: italic)
         renderChildrenToBlocks(node, collector: collector, context: &context)
         context.popStyle()
@@ -421,7 +425,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
     case CMARK_NODE_THEMATIC_BREAK:
         appendBlockSeparatorToCollector(collector: collector, context: &context)
         var attrs = context.makeAttributes()
-        attrs[.foregroundColor] = UIColor.white.withAlphaComponent(0.3)
+        attrs[.foregroundColor] = PlatformColor.white.withAlphaComponent(0.3)
         collector.currentText.append(NSAttributedString(string: "───", attributes: attrs))
         context.needsBlockSeparator = true
 
@@ -471,24 +475,6 @@ private func appendBlockSeparatorToCollector(collector: BlockCollector, context:
     }
     collector.currentText.append(NSAttributedString(string: "\n", attributes: MarkdownStyle.baseAttributes))
     context.needsBlockSeparator = false
-}
-
-// MARK: - Font Helpers
-
-private func addBoldTrait(to font: UIFont) -> UIFont {
-    let descriptor = font.fontDescriptor
-    var traits = descriptor.symbolicTraits
-    traits.insert(.traitBold)
-    guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return font }
-    return UIFont(descriptor: newDescriptor, size: font.pointSize)
-}
-
-private func addItalicTrait(to font: UIFont) -> UIFont {
-    let descriptor = font.fontDescriptor
-    var traits = descriptor.symbolicTraits
-    traits.insert(.traitItalic)
-    guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return font }
-    return UIFont(descriptor: newDescriptor, size: font.pointSize)
 }
 
 // MARK: - URL Helpers
@@ -614,9 +600,9 @@ private func extractInlineMarkdown(from attrStr: NSAttributedString, isHeading: 
             return
         }
 
-        let font = attrs[.font] as? UIFont
-        let isBold = font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true && !isHeading
-        let isItalic = font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true
+        let font = attrs[.font] as? PlatformFont
+        let isBold = expFontHasBold(font) && !isHeading
+        let isItalic = expFontHasItalic(font)
         let isStrike = attrs[.markdownStrikethrough] as? Bool == true
 
         var text = substring

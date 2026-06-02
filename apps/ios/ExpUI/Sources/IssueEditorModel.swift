@@ -4,7 +4,7 @@ import os
 private let log = Logger(subsystem: "com.exponential", category: "IssueEditorModel")
 
 /// Upload state for an inline image block, surfaced as status / retry UI.
-enum ImageUploadState: Equatable, Sendable {
+public enum ImageUploadState: Equatable, Sendable {
     case idle
     case uploading
     case failed
@@ -17,33 +17,33 @@ enum ImageUploadState: Equatable, Sendable {
 /// race and the per-keystroke cmark re-serialization.
 @MainActor
 @Observable
-final class IssueEditorModel {
+public final class IssueEditorModel {
     /// The document, as ordered text/image blocks. Mutated only through the
     /// intent methods below so revisions and pending state stay consistent.
-    private(set) var blocks: [ContentBlock] = []
+    public private(set) var blocks: [ContentBlock] = []
 
     /// In-memory image data keyed by its `draft://` placeholder URL, kept until
     /// the image is uploaded and its block URL swapped to the real attachment.
-    var pendingImages: [String: PendingImage] = [:]
+    public var pendingImages: [String: PendingImage] = [:]
 
     /// Currently focused text block, drives first-responder + autosave-on-blur.
-    private(set) var focusedBlockId: UUID?
+    public private(set) var focusedBlockId: UUID?
 
     /// A remote (Electric) update that arrived while the user was actively
     /// editing or had unsaved edits — surfaced as a non-blocking reload banner.
-    private(set) var pendingRemoteMarkdown: String?
+    public private(set) var pendingRemoteMarkdown: String?
 
     /// Markdown last persisted to the server, used to detect local dirtiness.
-    private(set) var lastSavedMarkdown: String = ""
+    public private(set) var lastSavedMarkdown: String = ""
 
     /// Per-image upload state for inline status / retry affordances.
-    private(set) var imageUploadStates: [UUID: ImageUploadState] = [:]
+    public private(set) var imageUploadStates: [UUID: ImageUploadState] = [:]
 
     /// Caret the editor should move to after the next structural mutation.
-    private(set) var desiredSelection: (blockId: UUID, location: Int)?
+    public private(set) var desiredSelection: (blockId: UUID, location: Int)?
 
     /// Invoked on user-originated edits so the host can schedule a debounced save.
-    var onEdit: (() -> Void)?
+    public var onEdit: (() -> Void)?
 
     // Monotonic content revisions, bumped ONLY for external/structural changes
     // (load, remote apply, insert, delete, merge) — never for the user's own
@@ -54,7 +54,7 @@ final class IssueEditorModel {
     // Last known caret in the focused text block, used for image insertion.
     private var selection: (blockId: UUID, range: NSRange)?
 
-    init() {
+    public init() {
         // Always start with one empty text block so a fresh editor (e.g. the
         // create sheet, before any load) is immediately typeable.
         let id = UUID()
@@ -64,20 +64,20 @@ final class IssueEditorModel {
 
     // MARK: - Derived state
 
-    func currentMarkdown() -> String {
+    public func currentMarkdown() -> String {
         MarkdownConversion.blocksToMarkdown(blocks)
     }
 
-    var isEditing: Bool { focusedBlockId != nil }
-    var isDirty: Bool { currentMarkdown() != lastSavedMarkdown }
-    var hasUncommittedDrafts: Bool { MarkdownImageUtils.hasDraftImages(currentMarkdown()) }
+    public var isEditing: Bool { focusedBlockId != nil }
+    public var isDirty: Bool { currentMarkdown() != lastSavedMarkdown }
+    public var hasUncommittedDrafts: Bool { MarkdownImageUtils.hasDraftImages(currentMarkdown()) }
 
-    func revision(for id: UUID) -> Int { revisions[id] ?? 0 }
-    func uploadState(for id: UUID) -> ImageUploadState { imageUploadStates[id] ?? .idle }
+    public func revision(for id: UUID) -> Int { revisions[id] ?? 0 }
+    public func uploadState(for id: UUID) -> ImageUploadState { imageUploadStates[id] ?? .idle }
 
     // MARK: - Loading / reconciliation
 
-    func load(markdown: String, baseURL: URL?) {
+    public func load(markdown: String, baseURL: URL?) {
         blocks = MarkdownConversion.markdownToBlocks(markdown, baseURL: baseURL)
         bumpAllRevisions()
         // Baseline against the DERIVED markdown, not the raw input: the
@@ -91,7 +91,7 @@ final class IssueEditorModel {
 
     /// Apply a remote markdown update if safe (not actively editing, no unsaved
     /// local edits). Otherwise stash it for a user-driven reload (LWW + banner).
-    func applyRemote(markdown: String, baseURL: URL?) {
+    public func applyRemote(markdown: String, baseURL: URL?) {
         // Normalize the remote text through the same block round-trip so
         // cosmetic serialization differences don't read as real changes.
         let normalizedRemote = MarkdownConversion.blocksToMarkdown(
@@ -109,30 +109,30 @@ final class IssueEditorModel {
         }
     }
 
-    func reloadPendingRemote(baseURL: URL?) {
+    public func reloadPendingRemote(baseURL: URL?) {
         guard let pending = pendingRemoteMarkdown else { return }
         load(markdown: pending, baseURL: baseURL)
     }
 
-    func markSaved(_ markdown: String) {
+    public func markSaved(_ markdown: String) {
         lastSavedMarkdown = markdown
         if pendingRemoteMarkdown == markdown { pendingRemoteMarkdown = nil }
     }
 
     // MARK: - Focus / selection (reported by the text views)
 
-    func setFocused(_ id: UUID?) { focusedBlockId = id }
+    public func setFocused(_ id: UUID?) { focusedBlockId = id }
 
-    func clearFocusIfMatches(_ id: UUID) {
+    public func clearFocusIfMatches(_ id: UUID) {
         if focusedBlockId == id { focusedBlockId = nil }
     }
 
-    func updateSelection(blockId: UUID, range: NSRange) {
+    public func updateSelection(blockId: UUID, range: NSRange) {
         selection = (blockId, range)
     }
 
     /// The post-mutation caret location for `id`, consumed once.
-    func consumeDesiredSelection(for id: UUID) -> Int? {
+    public func consumeDesiredSelection(for id: UUID) -> Int? {
         guard desiredSelection?.blockId == id else { return nil }
         let location = desiredSelection?.location
         desiredSelection = nil
@@ -141,7 +141,7 @@ final class IssueEditorModel {
 
     // MARK: - Text editing
 
-    func updateText(id: UUID, content: NSAttributedString) {
+    public func updateText(id: UUID, content: NSAttributedString) {
         guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
         // No revision bump: the originating text view already holds this content.
         blocks[idx] = .text(id: id, attributedContent: content)
@@ -150,7 +150,7 @@ final class IssueEditorModel {
 
     // MARK: - Image insertion
 
-    func insertImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {
+    public func insertImage(data: Data, filename: String, contentType: String, width: Int?, height: Int?) {
         let draftUrl = MarkdownImageUtils.draftUrl()
         pendingImages[draftUrl] = PendingImage(
             data: data, filename: filename, contentType: contentType, width: width, height: height
@@ -209,7 +209,7 @@ final class IssueEditorModel {
 
     /// Backspace at the start of a text block deletes the image immediately
     /// above it, merging the surrounding text blocks when both exist.
-    func deleteImage(beforeTextBlock textBlockId: UUID) {
+    public func deleteImage(beforeTextBlock textBlockId: UUID) {
         guard let textIndex = blocks.firstIndex(where: { $0.id == textBlockId }),
               textIndex > 0,
               case .image = blocks[textIndex - 1] else { return }
@@ -235,7 +235,7 @@ final class IssueEditorModel {
         notifyEdit()
     }
 
-    func deleteImageBlock(id: UUID) {
+    public func deleteImageBlock(id: UUID) {
         guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
         imageUploadStates[id] = nil
         dropPendingDraft(at: index)
@@ -268,7 +268,7 @@ final class IssueEditorModel {
     /// the returned attachment URLs. Returns `true` only if every referenced
     /// draft resolved (so the caller may persist). On any failure the failed
     /// drafts are kept with a retry state and the description is NOT saved.
-    func commitPendingImages(
+    public func commitPendingImages(
         uploader: @escaping @Sendable (PendingImage) async throws -> String
     ) async -> Bool {
         removeDanglingDraftBlocks()

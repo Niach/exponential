@@ -1,30 +1,38 @@
 import Foundation
 
-struct PendingImage: Sendable {
-    let data: Data
-    let filename: String
-    let contentType: String
+public struct PendingImage: Sendable {
+    public let data: Data
+    public let filename: String
+    public let contentType: String
     /// Intrinsic pixel size of the image, derived locally at insert time so the
     /// editor can reserve correct aspect-ratio space before/while uploading.
-    var width: Int?
-    var height: Int?
+    public var width: Int?
+    public var height: Int?
+
+    public init(data: Data, filename: String, contentType: String, width: Int? = nil, height: Int? = nil) {
+        self.data = data
+        self.filename = filename
+        self.contentType = contentType
+        self.width = width
+        self.height = height
+    }
 }
 
 /// A single `![alt](url "title")` occurrence parsed out of a markdown string.
 /// Mirrors `MarkdownImageOccurrence` in the web backend
 /// (`apps/web/src/lib/storage/issue-attachments.ts`) so all clients agree on
 /// image rewrite/removal semantics byte-for-byte.
-struct MarkdownImageOccurrence {
-    let alt: String
-    let url: String
-    let occurrenceIndex: Int
+public struct MarkdownImageOccurrence {
+    public let alt: String
+    public let url: String
+    public let occurrenceIndex: Int
     /// Range of the full `![alt](url)` token within the source string.
-    let range: NSRange
+    public let range: NSRange
     /// Range of just the URL within the source string.
-    let urlRange: NSRange
+    public let urlRange: NSRange
 }
 
-enum MarkdownImageUtils {
+public enum MarkdownImageUtils {
     // Matches the web pattern exactly: alt = group 1, url = group 2, optional
     // quoted title is consumed but not captured. Stops the URL at the first
     // whitespace so `![a](u "t")` parses cleanly.
@@ -36,7 +44,7 @@ enum MarkdownImageUtils {
 
     // MARK: - Parsing
 
-    static func occurrences(in markdown: String) -> [MarkdownImageOccurrence] {
+    public static func occurrences(in markdown: String) -> [MarkdownImageOccurrence] {
         guard let regex else { return [] }
         let ns = markdown as NSString
         let full = NSRange(location: 0, length: ns.length)
@@ -55,19 +63,19 @@ enum MarkdownImageUtils {
         }
     }
 
-    static func extractImageUrls(from markdown: String) -> [String] {
+    public static func extractImageUrls(from markdown: String) -> [String] {
         occurrences(in: markdown).map(\.url)
     }
 
-    static func hasDraftImages(_ markdown: String) -> Bool {
+    public static func hasDraftImages(_ markdown: String) -> Bool {
         occurrences(in: markdown).contains { $0.url.hasPrefix("draft://") }
     }
 
-    static func draftUrl() -> String {
+    public static func draftUrl() -> String {
         "draft://\(UUID().uuidString)"
     }
 
-    static func isDraft(_ url: String) -> Bool {
+    public static func isDraft(_ url: String) -> Bool {
         url.hasPrefix("draft://")
     }
 
@@ -76,7 +84,7 @@ enum MarkdownImageUtils {
     /// Rebuilds `markdown`, letting `transform` return a replacement for each
     /// image occurrence (or `nil` to keep it verbatim). Mirrors the web
     /// `updateMarkdownImages` so rewrite results match the server exactly.
-    static func updateImages(
+    public static func updateImages(
         in markdown: String,
         transform: (MarkdownImageOccurrence) -> String?
     ) -> String {
@@ -100,7 +108,7 @@ enum MarkdownImageUtils {
     /// `oldUrl`, preserving alt text and any title verbatim. Targeted by URL
     /// (not a blind substring replace) so alt text containing the URL string
     /// can never be corrupted.
-    static func replaceImageUrl(in markdown: String, from oldUrl: String, to newUrl: String) -> String {
+    public static func replaceImageUrl(in markdown: String, from oldUrl: String, to newUrl: String) -> String {
         let oldNS = oldUrl as NSString
         let escapedNew = newUrl
         return updateImages(in: markdown) { occ -> String? in
@@ -118,7 +126,7 @@ enum MarkdownImageUtils {
     /// Removes `![alt](draft://…)` references whose placeholder is no longer in
     /// `keep` (e.g. the user undid the insertion, or the upload failed and we
     /// are dropping a dangling draft). Only draft URLs are ever removed.
-    static func stripUnknownDraftImages(_ markdown: String, keep: Set<String>) -> String {
+    public static func stripUnknownDraftImages(_ markdown: String, keep: Set<String>) -> String {
         updateImages(in: markdown) { occ in
             (isDraft(occ.url) && !keep.contains(occ.url)) ? "" : nil
         }

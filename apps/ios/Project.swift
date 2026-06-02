@@ -24,7 +24,13 @@ let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
 // colors, WorkspaceAvatar, CrossPlatform shims) shared by the iOS and macOS apps.
 // SwiftUI only; depends on ExpCore for the domain enums/entities it renders.
 let expUiSources: SourceFilesList = ["ExpUI/Sources/**"]
-let expUiDependencies: [TargetDependency] = [.target(name: "ExpCore")]
+let expUiDependencies: [TargetDependency] = [
+    .target(name: "ExpCore"),
+    // The shared block-based markdown editor core (IssueEditorModel +
+    // MarkdownConversion) lives in ExpUI and parses GFM via cmark.
+    .external(name: "cmark-gfm"),
+    .external(name: "cmark-gfm-extensions"),
+]
 
 // macOS app (A2): native SwiftUI shell reusing ExpCore (data/sync) + ExpUI
 // (theme). No Firebase/push/share-extension. GRDB is a direct dep for the

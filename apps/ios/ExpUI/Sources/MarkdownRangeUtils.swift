@@ -1,15 +1,15 @@
-import UIKit
+import Foundation
 
 // Bounds-checked NSRange / paragraph helpers shared by the editor and toolbar.
 // Centralizes the clamping logic that used to be duplicated (and occasionally
-// wrong) in MarkdownEditor.shouldChangeTextIn and MarkdownToolbar.paragraphRange.
+// wrong) in the editor's shouldChangeTextIn and the toolbar's paragraphRange.
 
 extension NSString {
     /// The paragraph range for the caret at `location`, safe for empty strings
     /// and end-of-string carets (where `paragraphRange(for:)` can misbehave).
     /// Returns an empty range at `length` when the caret sits past a trailing
     /// newline so callers can treat it as "fresh paragraph, no attributes".
-    func safeParagraphRange(at location: Int) -> NSRange {
+    public func safeParagraphRange(at location: Int) -> NSRange {
         guard length > 0 else { return NSRange(location: 0, length: 0) }
         let clamped = max(0, min(location, length))
         if clamped >= length {
@@ -25,7 +25,7 @@ extension NSString {
 
 extension NSAttributedString {
     /// Attributes at `location`, or `nil` if the location is out of bounds.
-    func attributesIfInBounds(at location: Int) -> [NSAttributedString.Key: Any]? {
+    public func attributesIfInBounds(at location: Int) -> [NSAttributedString.Key: Any]? {
         guard location >= 0, location < length else { return nil }
         return attributes(at: location, effectiveRange: nil)
     }
