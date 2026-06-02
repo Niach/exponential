@@ -12,7 +12,14 @@ import Security
 /// so accounts move into the shared group immediately after the update.
 public final class KeychainStore: Sendable {
     private let service = "com.straehhuber.exponential"
-    private let accessGroup = SharedAppGroup.keychainAccessGroup
+    // macOS has no Share Extension to share the keychain with, so it uses the
+    // default keychain (no access group). This avoids requiring a signed
+    // keychain-access-group entitlement just to read/write credentials locally.
+    #if os(macOS)
+    private let accessGroup: String? = nil
+    #else
+    private let accessGroup: String? = SharedAppGroup.keychainAccessGroup
+    #endif
 
     public init() {}
 
@@ -35,14 +42,14 @@ public final class KeychainStore: Sendable {
         deleteItem(key, useAccessGroup: true)
         deleteItem(key, useAccessGroup: false)
         guard let value, let data = value.data(using: .utf8) else { return }
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecAttrAccessGroup as String: accessGroup,
         ]
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         SecItemAdd(query as CFDictionary, nil)
     }
 
@@ -61,7 +68,7 @@ public final class KeychainStore: Sendable {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        if useAccessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        if useAccessGroup, let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else { return nil }
@@ -74,7 +81,7 @@ public final class KeychainStore: Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        if useAccessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        if useAccessGroup, let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         SecItemDelete(query as CFDictionary)
     }
 }

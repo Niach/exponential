@@ -26,6 +26,27 @@ let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
 let expUiSources: SourceFilesList = ["ExpUI/Sources/**"]
 let expUiDependencies: [TargetDependency] = [.target(name: "ExpCore")]
 
+// macOS app (A2): native SwiftUI shell reusing ExpCore (data/sync) + ExpUI
+// (theme). No Firebase/push/share-extension. GRDB is a direct dep for the
+// ValueObservation queries in the read-only view models.
+let macSources: SourceFilesList = ["ExponentialMac/**"]
+let macDependencies: [TargetDependency] = [
+    .target(name: "ExpCore"),
+    .target(name: "ExpUI"),
+    .external(name: "GRDB"),
+]
+let macInfoPlist: [String: Plist.Value] = [
+    "CFBundleShortVersionString": "0.1.0",
+    "CFBundleVersion": "1",
+    "CFBundleURLTypes": .array([
+        .dictionary([
+            "CFBundleURLSchemes": .array([.string("exp")]),
+            "CFBundleURLName": .string("com.straehhuber.exponential.oauth"),
+        ]),
+    ]),
+    "LSApplicationCategoryType": .string("public.app-category.productivity"),
+]
+
 // Foundation-only files reused by the Share Extension. Compiled into the
 // extension's own module (no `public` needed, no shared framework). Verified to
 // import only Foundation/Security/CryptoKit — no GRDB/Firebase/SwiftUI drag-in.
@@ -168,6 +189,34 @@ let project = Project(
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
         ),
+        .target(
+            name: "Exponential-macOS",
+            destinations: [.mac],
+            product: .app,
+            bundleId: "com.straehhuber.exponential.mac",
+            deploymentTargets: .macOS("14.0"),
+            infoPlist: .extendingDefault(with: macInfoPlist.merging([
+                "CFBundleDisplayName": "Exponential",
+            ]) { _, new in new }),
+            sources: macSources,
+            dependencies: macDependencies,
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
+            name: "Exponential-macOS-Staging",
+            destinations: [.mac],
+            product: .app,
+            bundleId: "com.straehhuber.exponential.mac.staging",
+            deploymentTargets: .macOS("14.0"),
+            infoPlist: .extendingDefault(with: macInfoPlist.merging([
+                "CFBundleDisplayName": "Exp Mac Staging",
+            ]) { _, new in new }),
+            sources: macSources,
+            dependencies: macDependencies,
+            settings: .settings(base: baseSettings.merging([
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
+            ]) { _, new in new })
+        ),
     ],
     schemes: [
         .scheme(
@@ -177,6 +226,18 @@ let project = Project(
         .scheme(
             name: "ExpUI",
             buildAction: .buildAction(targets: ["ExpUI"])
+        ),
+        .scheme(
+            name: "Exponential-macOS",
+            buildAction: .buildAction(targets: ["Exponential-macOS"]),
+            runAction: .runAction(configuration: .debug),
+            archiveAction: .archiveAction(configuration: .release)
+        ),
+        .scheme(
+            name: "Exponential-macOS-Staging",
+            buildAction: .buildAction(targets: ["Exponential-macOS-Staging"]),
+            runAction: .runAction(configuration: .debug),
+            archiveAction: .archiveAction(configuration: .release)
         ),
         .scheme(
             name: "Exponential",
