@@ -19,6 +19,7 @@ struct MacShell: View {
     @State private var projectLoader: MultiAccountProjectLoader?
     @State private var selectedProject: ProjectRef?
     @State private var selectedIssue: IssueRef?
+    @State private var settingsTarget: WorkspaceSettingsTarget?
 
     var body: some View {
         NavigationSplitView {
@@ -55,6 +56,11 @@ struct MacShell: View {
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
         .onChange(of: selectedProject) { _, _ in selectedIssue = nil }
+        .sheet(item: $settingsTarget) { target in
+            MacWorkspaceSettingsView(target: target)
+                .environment(deps)
+                .preferredColorScheme(.dark)
+        }
     }
 
     @ViewBuilder
@@ -63,7 +69,7 @@ struct MacShell: View {
             ForEach(projectLoader?.groups ?? []) { group in
                 Section(group.hostname) {
                     ForEach(group.workspaceBlocks) { block in
-                        workspaceHeader(block.workspace)
+                        workspaceHeader(block.workspace, accountId: group.accountId)
                         ForEach(block.projects) { project in
                             projectRow(project)
                                 .tag(ProjectRef(accountId: group.accountId, projectId: project.id))
@@ -75,14 +81,21 @@ struct MacShell: View {
         .listStyle(.sidebar)
     }
 
-    private func workspaceHeader(_ workspace: WorkspaceEntity) -> some View {
+    private func workspaceHeader(_ workspace: WorkspaceEntity, accountId: String) -> some View {
         HStack(spacing: 6) {
             WorkspaceAvatar(workspace: workspace, size: 16)
             Text(workspace.name)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+            Spacer()
         }
         .padding(.top, 4)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("Workspace Settings…") {
+                settingsTarget = WorkspaceSettingsTarget(accountId: accountId, workspaceId: workspace.id)
+            }
+        }
     }
 
     private func projectRow(_ project: ProjectEntity) -> some View {

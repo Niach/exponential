@@ -1,7 +1,9 @@
+import AppKit
 import ExpCore
 import ExpUI
 import GRDB
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -11,8 +13,10 @@ final class MacIssueDetailModel {
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
     var comments: [CommentEntity] = []
+    var attachments: [AttachmentEntity] = []
     var permissions: WorkspacePermissions?
     var error: String?
+    var uploading = false
 
     // Local edit buffers (seeded once on first load so live sync doesn't clobber typing).
     var editingTitle = ""
@@ -59,6 +63,9 @@ final class MacIssueDetailModel {
         let commentObs = ValueObservation.tracking { db in
             try CommentEntity.filter(Column("issue_id") == issueId).order(Column("created_at").asc).fetchAll(db)
         }
+        let attachmentObs = ValueObservation.tracking { db in
+            try AttachmentEntity.filter(Column("issue_id") == issueId).order(Column("created_at").asc).fetchAll(db)
+        }
 
         tasks.append(Task { @MainActor [weak self] in
             do { for try await row in issueObs.values(in: pool) { self?.applyIssue(row) } } catch {}
@@ -74,6 +81,9 @@ final class MacIssueDetailModel {
         })
         tasks.append(Task { @MainActor [weak self] in
             do { for try await rows in commentObs.values(in: pool) { self?.comments = rows } } catch {}
+        })
+        tasks.append(Task { @MainActor [weak self] in
+            do { for try await rows in attachmentObs.values(in: pool) { self?.attachments = rows } } catch {}
         })
     }
 
@@ -191,6 +201,27 @@ final class MacIssueDetailModel {
         catch { self.error = error.localizedDescription }
     }
 
+    func uploadImage(data: Data, filename: String, contentType: String) async {
+        guard let issue else { return }
+        uploading = true
+        do {
+            let uploaded = try await deps.issueImagesApi.upload(
+                accountId: accountId, issueId: issue.id, data: data, filename: filename, contentType: contentType
+            )
+            // Reference it in the description; the server canonicalizes the URL on save
+            // and the attachments shape will deliver the new AttachmentEntity row.
+            editingDescription += "\n\n![\(filename)](\(uploaded.url))\n"
+            await saveDescription()
+        } catch { self.error = error.localizedDescription }
+        uploading = false
+    }
+
+    func attachmentURL(_ attachment: AttachmentEntity) -> URL? {
+        if attachment.url.hasPrefix("http") { return URL(string: attachment.url) }
+        guard let base = deps.auth.instanceBaseURL(forAccountId: accountId) else { return nil }
+        return URL(string: base.absoluteString + attachment.url)
+    }
+
     func deleteIssue() async -> Bool {
         guard let issue else { return false }
         do {
@@ -253,6 +284,8 @@ struct MacIssueDetailView: View {
                 labelsSection(model)
                 Divider()
                 descriptionSection(model)
+                Divider()
+                attachmentsSection(model)
                 Divider()
                 commentsSection(model)
                 if let error = model.error {
@@ -400,6 +433,53 @@ struct MacIssueDetailView: View {
                     if !focused { Task { await model.saveDescription() } }
                 }
         }
+    }
+
+    // MARK: - Attachments
+
+    private func attachmentsSection(_ model: MacIssueDetailModel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Attachments").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                Spacer()
+                Button { pickAndUpload(model) } label: {
+                    if model.uploading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Attach image", systemImage: "paperclip")
+                    }
+                }
+                .disabled(!model.canEditContent || model.uploading)
+            }
+            if model.attachments.isEmpty {
+                Text("No attachments").font(.caption).foregroundStyle(.tertiary)
+            } else {
+                ForEach(model.attachments) { att in
+                    Button {
+                        if let url = model.attachmentURL(att) { Platform.open(url) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: att.contentType.hasPrefix("image") ? "photo" : "paperclip")
+                            Text(att.filename).lineLimit(1)
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(att.sizeBytes), countStyle: .file))
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func pickAndUpload(_ model: MacIssueDetailModel) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
+        let ext = url.pathExtension.lowercased()
+        let contentType = UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
+        Task { await model.uploadImage(data: data, filename: url.lastPathComponent, contentType: contentType) }
     }
 
     // MARK: - Comments
