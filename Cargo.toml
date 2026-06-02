@@ -1,0 +1,11 @@
+# Rust workspace for the Exponential desktop apps' shared native libraries.
+# Currently hosts `agent-core` — the cross-platform agent loop consumed by the
+# macOS (Swift) and Linux (Zig) desktop apps over a C ABI. See crates/agent-core.
+[workspace]
+resolver = "2"
+members = ["crates/agent-core"]
+
+[profile.release]
+# Smaller, faster-to-load dylib for bundling inside the desktop apps.
+lto = "thin"
+strip = true

@@ -20,11 +20,13 @@ Real-time issue tracker.
 exponential/
 ├── apps/
 │   ├── web/        # TanStack Start app (the issue tracker)
-│   ├── companion/  # Long-lived agent daemon (@exp/companion): runs a coding agent (Claude Agent SDK / Codex) on assigned issues in a git worktree, opens GitHub PRs
 │   ├── push-relay/ # Standalone push notification relay (Hono/Bun, separately deployed)
 │   ├── marketing/  # Marketing site (Vite + React, deployed via Coolify)
 │   ├── ios/        # Native SwiftUI iOS app (Tuist + GRDB)
-│   └── android/    # Native Kotlin / Jetpack Compose app
+│   ├── android/    # Native Kotlin / Jetpack Compose app
+│   └── linux/      # Native Zig + GTK4 desktop app (own sync engine; embeds libghostty + the Rust agent-core to run coding agents — replaces the old companion daemon)
+├── crates/
+│   └── agent-core/ # Rust cdylib (C ABI): the shared agent loop (dispatcher/pipeline/electric/mcp/git/github/pr-poll), driven by the desktop apps
 ├── packages/
 │   ├── db-schema/          # Drizzle schema + shared zod/domain types
 │   ├── domain-contract/    # contract.json — canonical enum values; emits per-language constants
@@ -37,7 +39,7 @@ exponential/
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
-Workspace package names: `@exp/web`, `@exp/companion`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/tsconfig`.
+Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/tsconfig`. (The Linux desktop app `apps/linux` is a Zig project and the Rust `crates/agent-core` is a Cargo crate — neither is a bun workspace.)
 
 **Mobile parity:** iOS and Android sync the same ten Electric shapes the web client uses (workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, **comments**, **attachments**). All three clients honor `isPublic` / `publicWritePolicy` field gating via a small `WorkspacePermissions` helper that mirrors `apps/web/src/hooks/use-workspace-permissions.ts`. When changing enum values in `packages/db-schema/src/domain.ts`, also update `packages/domain-contract/contract.json` and run `bun run --filter @exp/domain-contract generate` to refresh the Swift / Kotlin constants.
 
@@ -298,9 +300,13 @@ Sync logic is in `src/lib/google-calendar.ts` and is invoked via `fireAndForgetS
 - Otherwise → no event
 - `issues.googleCalendarEventId` tracks the synced event ID
 
-### Agent Companion
+### Desktop Agent
 
-The `apps/companion` daemon (`@exp/companion`) runs a coding agent (Claude Agent SDK or Codex SDK) against issues assigned to an agent member. An operator adds an agent member in workspace settings (persisted in `workspace_agents`, linked to an `apikeys` row and a `users` row, gated by `setupTokenHash`), copies the generated install command, and runs the daemon on a Linux host. It watches assigned issues over Electric, runs the agent in a git worktree, and opens a GitHub PR via the host's local `gh` auth. Every event (plan ready, questions, PR opened, errors) is also written as an issue comment, so the existing FCM push pipeline notifies the owner. Plan approval flows through the `agentPlanState` / `agentPlanRevision` / `agentPlanApprovedAt` issue fields; server logic lives in `lib/trpc/agent-plan.ts` and `lib/trpc/companion/`.
+The desktop apps register the machine as an "agent member" and run a coding agent (`claude` / `codex` CLI) against issues assigned to it. This replaces the old `apps/companion` daemon (removed): the agent loop is now the Rust `crates/agent-core` (cdylib, C ABI — dispatcher/pipeline/electric/mcp/git/github/pr-poll), driven by the native desktop app (Linux: `apps/linux`, Zig + GTK4), and the agent's CLI session runs in an embedded **libghostty** terminal so the user can watch and steer it.
+
+The full roadmap (locked architecture, the shared agent-core C ABI + run-request protocol, libghostty notes, and the sequenced macOS plan) is in `docs/native-desktop-roadmap.md`.
+
+An owner adds an agent member in workspace settings (persisted in `workspace_agents`, linked to an `apikeys` row and a `users` row, gated by `setupTokenHash`) and registers a machine via the app (`companion.create` → `claimSetup`; the server tRPC routes kept their `companion.*` names). The agent watches assigned issues over Electric (`expk_` key), runs in a git worktree, and opens a GitHub PR. Every event (plan ready, questions, PR opened, errors) is also written as an issue comment, so the FCM push pipeline notifies the owner. Plan approval flows through the `agentPlanState` / `agentPlanRevision` / `agentPlanApprovedAt` issue fields; server logic lives in `lib/trpc/agent-plan.ts` and `lib/trpc/companion/`. v1 runs the agent only while the desktop app is open (no headless/systemd mode).
 
 ## Style Conventions
 

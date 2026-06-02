@@ -15,3 +15,11 @@ count.txt
 Caddyfile
 test-results
 recordings
+
+# Rust (crates/agent-core workspace)
+/target
+**/*.rs.bk
+
+# Zig (apps/linux)
+.zig-cache
+zig-out

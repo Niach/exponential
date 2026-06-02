@@ -1,0 +1,11 @@
+# Zig build outputs
+.zig-cache/
+zig-out/
+
+# libghostty build (see scripts/build-libghostty.sh) — large, reproducible
+vendor/ghostty/
+vendor/ghostty-install/
+vendor/.toolchain/
+
+# stray zig build-exe output
+/test
