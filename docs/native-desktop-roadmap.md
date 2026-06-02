@@ -232,11 +232,26 @@ workspace/member/invite settings. Reuse the tRPC `*Api` services from `ExpCore`.
 > against a live server (create/edit/comment/label/settings reflect via Electric
 > sync) — same runtime caveat as A2.
 
-### A4 — macOS markdown editor → **macOS v1 feature-complete**
+### A4 — macOS markdown editor → **macOS v1 feature-complete** 🔶 built; runtime gate pending
 `MacMarkdownEditor` (`NSTextView` `NSViewRepresentable`) on the decoupled
 `IssueEditorModel`, mirroring `EditorTextView`'s list-continuation / checkbox
 toggle / image paste. `MacMarkdownStyle/Toolbar/ImageLoader` (`NSFont/NSColor/
 NSImage`). Honor the GFM contract (see root `CLAUDE.md`).
+
+> **Done (build + launch):** the editor core (`IssueEditorModel` + cmark
+> `MarkdownConversion`/`MarkdownAttributes`/`ImageUtils`/`RangeUtils`) is now
+> shared via ExpUI, cross-platform (`PlatformFont`/`PlatformColor` + AppKit
+> symbolic-trait helpers). `MacMarkdownEditor` is a block-based AppKit editor:
+> self-sizing per-block `MacEditorTextView` (checkbox-click toggle,
+> backspace-at-start merge, image paste), an `NSTextViewDelegate` coordinator
+> (live attributed rendering, list continuation/exit, selection→model), a
+> SwiftUI toolbar (heading/bold/italic/strike/bullet/ordered/checklist/code/
+> quote/link/image) driving the focused view, `NSImage` block views +
+> `MacAttachmentImageLoader`. The issue detail + create sheet use it with the iOS
+> commit/upload flow (debounced autosave + flush on close). All targets build
+> green; app launches clean. **Still to verify (interactive run):** typing,
+> formatting, list/checkbox behavior, and image paste/upload against a live
+> account — same runtime caveat as A2/A3.
 
 ### A5 — macOS desktop-agent (mirror Linux M5–M7)
 - **Link agent-core:** add a clang module map over `agent_core.h` + a Swift
@@ -291,7 +306,7 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | Milestone | Linux | macOS |
 |---|---|---|
 | M0 shared base (agent-core scaffold + contract emitters) | ✅ | ✅ (shared) |
-| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1 ✅ ExpCore · A2 🔶 shell+login+sync · A3 🔶 CRUD+comments+labels+filter+settings+attachments (build+launch green; runtime unverified) · A4 ☐ markdown editor |
+| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1–A4 built (ExpCore · shell+login+sync · CRUD/comments/labels/filter/settings/attachments · NSTextView WYSIWYG editor) — build+launch green; runtime gate (login + mutations against a live server) unverified |
 | M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ☐ A5 |
 | M6 agent loop (Rust core) | ✅ (shared) | ✅ (shared) |
 | M7 libghostty embedded terminal | ✅ | ☐ A5 (easier — upstream Metal apprt) |
@@ -300,12 +315,10 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
 | Headless/background mode | ☐ | ☐ |
 
-**Next action:** verify the A2/A3 runtime gate (run `Exponential-macOS-Staging`, log in
-to `next.exponential.at`, confirm sync + that create/edit/comment/label/settings
-round-trip), then start **A4** — the macOS markdown editor: `MacMarkdownEditor`
-(`NSTextView` `NSViewRepresentable`) on the decoupled `IssueEditorModel`, replacing the
-plain `TextEditor` in the issue detail / create sheet. Mirror `EditorTextView`'s
-list-continuation / checkbox toggle / image paste; add `MacMarkdownStyle/Toolbar/
-ImageLoader` (`NSFont`/`NSColor`/`NSImage`). Honor the GFM contract (root `CLAUDE.md`).
-This requires the `IssueEditorModel`/`MarkdownConversion`/`MarkdownAttributes`
-toolkit-neutral abstraction deferred from A1 (currently `import UIKit`).
+**Next action:** macOS v1 (A1–A4) is built; run `Exponential-macOS-Staging` against
+`next.exponential.at` to exercise the runtime gate end-to-end (login → 10-shape sync →
+create/edit/comment/label/settings → type/format/paste-image in the editor). Then start
+**A5** — the macOS desktop-agent (mirror Linux M5–M7): link the Rust `agent-core` via a
+clang module map + a Swift `AgentService` over the C ABI, build the cdylib for macOS,
+add register/heartbeat/GitHub device-flow, and embed a `GhosttyKit` terminal (Metal)
+that runs the CLI per `run_request`. See §6 A5 + §4 (the agent-core C ABI).
