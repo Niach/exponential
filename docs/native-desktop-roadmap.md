@@ -214,10 +214,23 @@ Extend `apps/ios/Project.swift`. Read first: `apps/ios/Project.swift`,
 > `Exponential-macOS-Staging` scheme (its bundle id → `next.exponential.at`), sign
 > in, confirm projects/issues populate. This is the only unverified part of A2.
 
-### A3 — macOS CRUD
+### A3 — macOS CRUD 🔶 built; runtime gate pending
 Create/edit/delete issues; comments (`regular`/`question`/`plan`); labels;
 attachments view + image upload (`/api/issues/{id}/images`); filtering/search;
 workspace/member/invite settings. Reuse the tRPC `*Api` services from `ExpCore`.
+
+> **Done (build + launch):** all remaining `*Api` wired into `MacAppDependencies`.
+> Editable issue detail (title, status/priority/assignee menus, due-date picker,
+> label toggle, **plain-markdown** `TextEditor` description — rich editor is A4),
+> delete, and comments (list with regular/question/plan styling, add, delete
+> own/admin, plan approve / request-changes). Create-issue sheet. Issue-list
+> filter menu (status/priority/labels via `matchesFilters`) + search. Workspace
+> settings sheet (general/members/invites/projects/labels, owner/admin-gated).
+> Attachments section + `NSOpenPanel` image upload. All gated by
+> `WorkspacePermissions`. macOS prod/staging + iOS build green; app launches clean.
+> **Still to verify (interactive run):** that the mutations actually round-trip
+> against a live server (create/edit/comment/label/settings reflect via Electric
+> sync) — same runtime caveat as A2.
 
 ### A4 — macOS markdown editor → **macOS v1 feature-complete**
 `MacMarkdownEditor` (`NSTextView` `NSViewRepresentable`) on the decoupled
@@ -278,7 +291,7 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | Milestone | Linux | macOS |
 |---|---|---|
 | M0 shared base (agent-core scaffold + contract emitters) | ✅ | ✅ (shared) |
-| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1 ✅ ExpCore · A2 🔶 ExpUI+shell+login+read-only-sync (build+launch green; runtime sync unverified) · A3–A4 ☐ |
+| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1 ✅ ExpCore · A2 🔶 shell+login+sync · A3 🔶 CRUD+comments+labels+filter+settings+attachments (build+launch green; runtime unverified) · A4 ☐ markdown editor |
 | M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ☐ A5 |
 | M6 agent loop (Rust core) | ✅ (shared) | ✅ (shared) |
 | M7 libghostty embedded terminal | ✅ | ☐ A5 (easier — upstream Metal apprt) |
@@ -287,10 +300,12 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
 | Headless/background mode | ☐ | ☐ |
 
-**Next action:** verify the A2 runtime gate (run `Exponential-macOS-Staging`, log in to
-`next.exponential.at`, confirm 10-shape sync), then start **A3** — macOS CRUD: wire the
-remaining `*Api` services into `MacAppDependencies`, add create/edit/delete for issues,
-comments, labels, attachments view + image upload, and filtering/search +
-workspace/member/invite settings. Reuse the tRPC services from `ExpCore`; build the
-macOS-native pickers/sheets (avoid the iOS-only `.navigationBarTitleDisplayMode` /
-`presentationDetents` — use the `CrossPlatform.swift` shims).
+**Next action:** verify the A2/A3 runtime gate (run `Exponential-macOS-Staging`, log in
+to `next.exponential.at`, confirm sync + that create/edit/comment/label/settings
+round-trip), then start **A4** — the macOS markdown editor: `MacMarkdownEditor`
+(`NSTextView` `NSViewRepresentable`) on the decoupled `IssueEditorModel`, replacing the
+plain `TextEditor` in the issue detail / create sheet. Mirror `EditorTextView`'s
+list-continuation / checkbox toggle / image paste; add `MacMarkdownStyle/Toolbar/
+ImageLoader` (`NSFont`/`NSColor`/`NSImage`). Honor the GFM contract (root `CLAUDE.md`).
+This requires the `IssueEditorModel`/`MarkdownConversion`/`MarkdownAttributes`
+toolkit-neutral abstraction deferred from A1 (currently `import UIKit`).
