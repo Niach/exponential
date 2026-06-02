@@ -5,7 +5,13 @@ import PackageDescription
 import struct ProjectDescription.PackageSettings
 
 let packageSettings = PackageSettings(
-    productTypes: [:]
+    // GRDB is linked by both ExpCore (the shared framework) and the app targets,
+    // which use GRDB APIs directly. A static product would be linked twice (two
+    // module copies → incompatible types across the boundary), so vend it as a
+    // dynamic framework: one shared copy linked by both.
+    productTypes: [
+        "GRDB": .framework,
+    ]
 )
 #endif
 

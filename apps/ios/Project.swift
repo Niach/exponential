@@ -15,20 +15,27 @@ let sharedDependencies: [TargetDependency] = [
     .external(name: "cmark-gfm-extensions"),
 ]
 
+// ExpCore: platform-neutral data/sync/domain layer shared with macOS later.
+// Foundation/GRDB/Security/CryptoKit/os only — NO cmark/MarkdownUI/Firebase/SwiftUI.
+let expCoreSources: SourceFilesList = ["ExpCore/Sources/**"]
+let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
+
 // Foundation-only files reused by the Share Extension. Compiled into the
 // extension's own module (no `public` needed, no shared framework). Verified to
 // import only Foundation/Security/CryptoKit — no GRDB/Firebase/SwiftUI drag-in.
+// These now live in ExpCore/Sources but the extension still compiles its own
+// curated copy (it does NOT link ExpCore, so it stays GRDB-free).
 let shareExtensionSources: SourceFilesList = [
-    "Exponential/AppConstants.swift",
-    "Exponential/Shared/**",
-    "Exponential/Data/Auth/KeychainStore.swift",
-    "Exponential/Data/Auth/AccountStore.swift",
-    "Exponential/Data/Auth/ServerAccount.swift",
-    "Exponential/Data/Auth/AuthRepository.swift",
-    "Exponential/Data/API/HTTPClient.swift",
-    "Exponential/Data/API/TrpcClient.swift",
-    "Exponential/Data/API/IssuesApi.swift",
-    "Exponential/Data/API/IssueImagesApi.swift",
+    "ExpCore/Sources/AppConstants.swift",
+    "ExpCore/Sources/Shared/**",
+    "ExpCore/Sources/Auth/KeychainStore.swift",
+    "ExpCore/Sources/Auth/AccountStore.swift",
+    "ExpCore/Sources/Auth/ServerAccount.swift",
+    "ExpCore/Sources/Auth/AuthRepository.swift",
+    "ExpCore/Sources/API/HTTPClient.swift",
+    "ExpCore/Sources/API/TrpcClient.swift",
+    "ExpCore/Sources/API/IssuesApi.swift",
+    "ExpCore/Sources/API/IssueImagesApi.swift",
     "ShareExtension/**",
 ]
 
@@ -74,6 +81,16 @@ let project = Project(
     ),
     targets: [
         .target(
+            name: "ExpCore",
+            destinations: [.iPhone, .iPad, .mac],
+            product: .framework,
+            bundleId: "com.straehhuber.exponential.core",
+            deploymentTargets: .multiplatform(iOS: "17.4", macOS: "14.0"),
+            sources: expCoreSources,
+            dependencies: expCoreDependencies,
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
             name: "Exponential",
             destinations: [.iPhone, .iPad],
             product: .app,
@@ -85,7 +102,7 @@ let project = Project(
             sources: sharedSources,
             resources: sharedResources,
             entitlements: "Exponential.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ShareExtension")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ShareExtension")],
             settings: .settings(base: baseSettings)
         ),
         .target(
@@ -100,7 +117,7 @@ let project = Project(
             sources: sharedSources,
             resources: sharedResources,
             entitlements: "ExponentialStaging.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ShareExtension-Staging")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ShareExtension-Staging")],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
@@ -137,6 +154,10 @@ let project = Project(
         ),
     ],
     schemes: [
+        .scheme(
+            name: "ExpCore",
+            buildAction: .buildAction(targets: ["ExpCore"])
+        ),
         .scheme(
             name: "Exponential",
             buildAction: .buildAction(targets: ["Exponential"]),
