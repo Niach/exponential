@@ -5,7 +5,7 @@ private struct AccountIdKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    var accountId: String {
+    public var accountId: String {
         get { self[AccountIdKey.self] }
         set { self[AccountIdKey.self] = newValue }
     }

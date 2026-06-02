@@ -1,11 +1,10 @@
 import ExpCore
 import SwiftUI
 
-// SwiftUI color mapping for the status/priority enums, kept in the app module so
-// `ExpCore` stays SwiftUI-free. `StatusColor`/`PriorityColor` live in GlassTheme.
-// (Relocates to `ExpUI` in A2 when the first macOS view needs these colors.)
+// SwiftUI color mapping for the status/priority enums, kept in ExpUI so ExpCore
+// stays SwiftUI-free. Shared by the iOS and macOS apps.
 extension IssueStatus {
-    var color: Color {
+    public var color: Color {
         switch self {
         case .backlog: StatusColor.backlog
         case .todo: StatusColor.todo
@@ -17,7 +16,7 @@ extension IssueStatus {
 }
 
 extension IssuePriority {
-    var color: Color {
+    public var color: Color {
         switch self {
         case .none: PriorityColor.none
         case .urgent: PriorityColor.urgent

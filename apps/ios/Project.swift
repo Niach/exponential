@@ -20,6 +20,12 @@ let sharedDependencies: [TargetDependency] = [
 let expCoreSources: SourceFilesList = ["ExpCore/Sources/**"]
 let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
 
+// ExpUI: cross-platform SwiftUI layer (theme, glass modifiers, status/priority
+// colors, WorkspaceAvatar, CrossPlatform shims) shared by the iOS and macOS apps.
+// SwiftUI only; depends on ExpCore for the domain enums/entities it renders.
+let expUiSources: SourceFilesList = ["ExpUI/Sources/**"]
+let expUiDependencies: [TargetDependency] = [.target(name: "ExpCore")]
+
 // Foundation-only files reused by the Share Extension. Compiled into the
 // extension's own module (no `public` needed, no shared framework). Verified to
 // import only Foundation/Security/CryptoKit — no GRDB/Firebase/SwiftUI drag-in.
@@ -91,6 +97,16 @@ let project = Project(
             settings: .settings(base: baseSettings)
         ),
         .target(
+            name: "ExpUI",
+            destinations: [.iPhone, .iPad, .mac],
+            product: .framework,
+            bundleId: "com.straehhuber.exponential.ui",
+            deploymentTargets: .multiplatform(iOS: "17.4", macOS: "14.0"),
+            sources: expUiSources,
+            dependencies: expUiDependencies,
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
             name: "Exponential",
             destinations: [.iPhone, .iPad],
             product: .app,
@@ -102,7 +118,7 @@ let project = Project(
             sources: sharedSources,
             resources: sharedResources,
             entitlements: "Exponential.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ShareExtension")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension")],
             settings: .settings(base: baseSettings)
         ),
         .target(
@@ -117,7 +133,7 @@ let project = Project(
             sources: sharedSources,
             resources: sharedResources,
             entitlements: "ExponentialStaging.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ShareExtension-Staging")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging")],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
@@ -157,6 +173,10 @@ let project = Project(
         .scheme(
             name: "ExpCore",
             buildAction: .buildAction(targets: ["ExpCore"])
+        ),
+        .scheme(
+            name: "ExpUI",
+            buildAction: .buildAction(targets: ["ExpUI"])
         ),
         .scheme(
             name: "Exponential",

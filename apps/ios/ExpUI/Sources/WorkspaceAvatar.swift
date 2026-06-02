@@ -1,11 +1,16 @@
 import ExpCore
 import SwiftUI
 
-struct WorkspaceAvatar: View {
+public struct WorkspaceAvatar: View {
     let workspace: WorkspaceEntity
     var size: CGFloat = 24
 
-    var body: some View {
+    public init(workspace: WorkspaceEntity, size: CGFloat = 24) {
+        self.workspace = workspace
+        self.size = size
+    }
+
+    public var body: some View {
         Group {
             if let urlString = workspace.iconUrl,
                !urlString.isEmpty,
