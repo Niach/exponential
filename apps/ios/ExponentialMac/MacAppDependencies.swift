@@ -19,6 +19,13 @@ final class MacAppDependencies: @unchecked Sendable {
 
     let authApi: AuthApi
     let issuesApi: IssuesApi
+    let labelsApi: LabelsApi
+    let commentsApi: CommentsApi
+    let workspacesApi: WorkspacesApi
+    let workspaceMembersApi: WorkspaceMembersApi
+    let workspaceInvitesApi: WorkspaceInvitesApi
+    let issueImagesApi: IssueImagesApi
+    let agentPlanApi: AgentPlanApi
 
     init() {
         let keychain = KeychainStore()
@@ -56,6 +63,13 @@ final class MacAppDependencies: @unchecked Sendable {
         self.syncManager = syncManager
         self.authApi = AuthApi(httpClient: httpClient, auth: auth)
         self.issuesApi = IssuesApi(trpc: trpc)
+        self.labelsApi = LabelsApi(trpc: trpc)
+        self.commentsApi = CommentsApi(trpc: trpc)
+        self.workspacesApi = WorkspacesApi(trpc: trpc)
+        self.workspaceMembersApi = WorkspaceMembersApi(trpc: trpc)
+        self.workspaceInvitesApi = WorkspaceInvitesApi(trpc: trpc)
+        self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
+        self.agentPlanApi = AgentPlanApi(trpc: trpc)
 
         // Start sync — it observes auth state and launches one shape pipeline set
         // per signed-in account, swapping pools on account switch.

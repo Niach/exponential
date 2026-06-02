@@ -38,8 +38,12 @@ struct MacShell: View {
             }
         } detail: {
             if let selectedIssue {
-                MacIssueDetailView(accountId: selectedIssue.accountId, issueId: selectedIssue.issueId)
-                    .id(selectedIssue)
+                MacIssueDetailView(
+                    accountId: selectedIssue.accountId,
+                    issueId: selectedIssue.issueId,
+                    onDelete: { self.selectedIssue = nil }
+                )
+                .id(selectedIssue)
             } else {
                 ContentUnavailableView("Select an issue", systemImage: "square.text.square")
             }
