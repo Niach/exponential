@@ -202,10 +202,11 @@ struct MacCreateIssueView: View {
             }
             onCreated()
             if createMore {
-                // Keep the sheet open and reset the per-issue fields (mirrors iOS).
+                // Keep the sheet open and reset only the title + description, leaving
+                // the chosen status/priority/assignee/labels/due/recurrence in place so
+                // a batch of similar issues is quick to file (mirrors iOS CreateIssueSheet).
                 title = ""
                 editor = IssueEditorModel()
-                selectedLabelIds = []
             } else {
                 dismiss()
             }

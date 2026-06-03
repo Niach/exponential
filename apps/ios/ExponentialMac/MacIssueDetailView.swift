@@ -116,14 +116,18 @@ final class MacIssueDetailModel {
 
     private func resolvePermissions(for issue: IssueEntity) {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-        let project = (try? pool.read { db in try ProjectEntity.fetchOne(db, key: issue.projectId) }) ?? nil
-        projectName = project?.name
-        let workspace: WorkspaceEntity? = project.flatMap { p in
-            (try? pool.read { db in try WorkspaceEntity.fetchOne(db, key: p.workspaceId) }) ?? nil
+        // Fetch project + workspace in a single read so they stay consistent if a
+        // concurrent sync deletes the project mid-resolution.
+        let resolved = try? pool.read { db -> (ProjectEntity?, WorkspaceEntity?) in
+            let project = try ProjectEntity.fetchOne(db, key: issue.projectId)
+            let workspace = try project.flatMap { try WorkspaceEntity.fetchOne(db, key: $0.workspaceId) }
+            return (project, workspace)
         }
+        projectName = resolved?.0?.name
+        let workspace = resolved?.1
         workspaceId = workspace?.id
         permissions = WorkspacePermissions.resolve(
-            workspace: workspace ?? nil,
+            workspace: workspace,
             currentUserId: deps.auth.userId,
             isAdmin: deps.auth.isAdmin,
             dbPool: pool

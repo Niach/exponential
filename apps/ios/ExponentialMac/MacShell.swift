@@ -84,7 +84,12 @@ struct MacShell: View {
             // server-side) so the sidebar is never empty after first sign-in.
             if !ensuredDefault, let id = activeAccount?.id {
                 ensuredDefault = true
-                Task { try? await deps.workspacesApi.ensureDefault(accountId: id) }
+                Task {
+                    try? await deps.workspacesApi.ensureDefault(accountId: id)
+                    // Re-establish the observation so a just-created default workspace
+                    // surfaces as soon as Electric syncs it, not only on the next tick.
+                    projectLoader?.refresh()
+                }
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
