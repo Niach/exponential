@@ -12,6 +12,11 @@ struct IssueRef: Hashable {
     let issueId: String
 }
 
+struct WorkspaceRef: Hashable {
+    let accountId: String
+    let workspaceId: String
+}
+
 /// The main three-column shell: project sidebar | issue list | issue detail.
 /// Read-only for A2; selection drives the list and detail columns.
 struct MacShell: View {
@@ -25,26 +30,41 @@ struct MacShell: View {
     @State private var showIntegrations = false
     @State private var showCreateWorkspace = false
     @State private var ensuredDefault = false
+    // The workspace the sidebar is currently scoped to (web shows ONE workspace's
+    // projects at a time, switched via the dropdown — not every workspace flat).
+    @State private var selectedWorkspace: WorkspaceRef?
 
     private var activeAccount: ServerAccount? {
         deps.auth.accounts.first { $0.id == deps.auth.activeAccountId }
     }
 
-    // The workspace of the selected project, else the first synced workspace —
-    // the "active workspace" the switcher checkmarks and new-project targets.
-    private var activeWorkspace: (accountId: String, workspace: WorkspaceEntity)? {
+    // The (account, workspace-block) the sidebar shows: the explicit switcher
+    // choice, else the workspace of the selected project, else the first synced
+    // workspace. The block carries that workspace's projects.
+    private var activeWorkspaceBlock: (accountId: String, block: WorkspaceBlock)? {
         let groups = projectLoader?.groups ?? []
+        if let sel = selectedWorkspace {
+            for group in groups where group.accountId == sel.accountId {
+                for block in group.workspaceBlocks where block.workspace.id == sel.workspaceId {
+                    return (group.accountId, block)
+                }
+            }
+        }
         if let sel = selectedProject {
             for group in groups where group.accountId == sel.accountId {
                 for block in group.workspaceBlocks where block.projects.contains(where: { $0.id == sel.projectId }) {
-                    return (group.accountId, block.workspace)
+                    return (group.accountId, block)
                 }
             }
         }
         if let group = groups.first, let block = group.workspaceBlocks.first {
-            return (group.accountId, block.workspace)
+            return (group.accountId, block)
         }
         return nil
+    }
+
+    private var activeWorkspace: (accountId: String, workspace: WorkspaceEntity)? {
+        activeWorkspaceBlock.map { ($0.accountId, $0.block.workspace) }
     }
 
     var body: some View {
@@ -99,6 +119,7 @@ struct MacShell: View {
         // pool — clear it so the list/detail never query the wrong account.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
             selectedProject = nil
+            selectedWorkspace = nil
             issuePath.removeAll()
         }
         .sheet(item: $settingsTarget) { target in
@@ -161,13 +182,16 @@ struct MacShell: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $selectedProject) {
-            ForEach(projectLoader?.groups ?? []) { group in
-                Section(group.hostname) {
-                    ForEach(group.workspaceBlocks) { block in
-                        workspaceHeader(block.workspace, accountId: group.accountId)
+            if let (accountId, block) = activeWorkspaceBlock {
+                Section("Projects") {
+                    if block.projects.isEmpty {
+                        Text("No projects yet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
                         ForEach(block.projects) { project in
                             projectRow(project)
-                                .tag(ProjectRef(accountId: group.accountId, projectId: project.id))
+                                .tag(ProjectRef(accountId: accountId, projectId: project.id))
                         }
                     }
                 }
@@ -220,9 +244,10 @@ struct MacShell: View {
         ForEach(projectLoader?.groups ?? []) { group in
             ForEach(group.workspaceBlocks) { block in
                 Button {
-                    if let first = block.projects.first {
-                        selectedProject = ProjectRef(accountId: group.accountId, projectId: first.id)
-                    }
+                    // Scope the sidebar to this workspace; clear the open project so
+                    // the content resets to that workspace's empty state.
+                    selectedWorkspace = WorkspaceRef(accountId: group.accountId, workspaceId: block.workspace.id)
+                    selectedProject = nil
                 } label: {
                     if activeWorkspace?.workspace.id == block.workspace.id {
                         Label(block.workspace.name, systemImage: "checkmark")
@@ -300,23 +325,6 @@ struct MacShell: View {
             await deps.syncManager.signOut(accountId: id)
             deps.db.closePool(forAccountId: id)
             deps.auth.removeAccount(id: id)
-        }
-    }
-
-    private func workspaceHeader(_ workspace: WorkspaceEntity, accountId: String) -> some View {
-        HStack(spacing: 6) {
-            WorkspaceAvatar(workspace: workspace, size: 16)
-            Text(workspace.name)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.top, 4)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button("Workspace Settings…") {
-                settingsTarget = WorkspaceSettingsTarget(accountId: accountId, workspaceId: workspace.id)
-            }
         }
     }
 
