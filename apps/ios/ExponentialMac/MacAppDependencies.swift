@@ -22,10 +22,13 @@ final class MacAppDependencies: @unchecked Sendable {
     let labelsApi: LabelsApi
     let commentsApi: CommentsApi
     let workspacesApi: WorkspacesApi
+    let projectsApi: ProjectsApi
     let workspaceMembersApi: WorkspaceMembersApi
     let workspaceInvitesApi: WorkspaceInvitesApi
     let issueImagesApi: IssueImagesApi
     let agentPlanApi: AgentPlanApi
+    let adminApi: AdminApi
+    let integrationsApi: IntegrationsApi
     let agentService: MacAgentService
 
     init() {
@@ -67,10 +70,13 @@ final class MacAppDependencies: @unchecked Sendable {
         self.labelsApi = LabelsApi(trpc: trpc)
         self.commentsApi = CommentsApi(trpc: trpc)
         self.workspacesApi = WorkspacesApi(trpc: trpc)
+        self.projectsApi = ProjectsApi(trpc: trpc)
         self.workspaceMembersApi = WorkspaceMembersApi(trpc: trpc)
         self.workspaceInvitesApi = WorkspaceInvitesApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
         self.agentPlanApi = AgentPlanApi(trpc: trpc)
+        self.adminApi = AdminApi(trpc: trpc)
+        self.integrationsApi = IntegrationsApi(trpc: trpc)
         // @State initializes this composition root on the main actor, so it's safe
         // to construct the MainActor-isolated agent service here (it starts
         // heartbeats for any already-registered workspaces).

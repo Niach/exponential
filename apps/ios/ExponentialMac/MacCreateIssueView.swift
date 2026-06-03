@@ -58,6 +58,7 @@ struct MacCreateIssueView: View {
                 Button("Cancel") { dismiss() }
                 Button("Create") { Task { await create() } }
                     .buttonStyle(.borderedProminent)
+                    .tint(Accent.indigo)
                     .disabled(loading || title.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

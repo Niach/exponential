@@ -20,6 +20,12 @@ struct MacShell: View {
     @State private var selectedProject: ProjectRef?
     @State private var issuePath: [IssueRef] = []
     @State private var settingsTarget: WorkspaceSettingsTarget?
+    @State private var showAdmin = false
+    @State private var showIntegrations = false
+
+    private var activeAccount: ServerAccount? {
+        deps.auth.accounts.first { $0.id == deps.auth.activeAccountId }
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -69,6 +75,20 @@ struct MacShell: View {
                 .environment(deps)
                 .preferredColorScheme(.dark)
         }
+        .sheet(isPresented: $showAdmin) {
+            if let account = activeAccount {
+                MacAdminView(accountId: account.id)
+                    .environment(deps)
+                    .preferredColorScheme(.dark)
+            }
+        }
+        .sheet(isPresented: $showIntegrations) {
+            if let account = activeAccount {
+                MacIntegrationsView(accountId: account.id)
+                    .environment(deps)
+                    .preferredColorScheme(.dark)
+            }
+        }
     }
 
     @ViewBuilder
@@ -87,6 +107,65 @@ struct MacShell: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) { sidebarFooter }
+    }
+
+    @ViewBuilder
+    private var sidebarFooter: some View {
+        if let account = activeAccount {
+            Menu {
+                if deps.auth.isAdmin {
+                    Button { showAdmin = true } label: { Label("Admin", systemImage: "shield") }
+                }
+                Button { showIntegrations = true } label: {
+                    Label("Integrations", systemImage: "puzzlepiece.extension")
+                }
+                Button { openFeedback() } label: { Label("Send feedback", systemImage: "envelope") }
+                Divider()
+                Button(role: .destructive) { signOut(account) } label: {
+                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text((account.userEmail ?? account.displayName).prefix(1).uppercased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(Accent.indigo.opacity(0.7))
+                        .clipShape(Circle())
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(account.displayName).font(.caption.weight(.medium)).lineLimit(1)
+                        if let email = account.userEmail, !email.isEmpty {
+                            Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .padding(8)
+        }
+    }
+
+    private func openFeedback() {
+        guard let base = deps.auth.instanceUrl,
+              let url = URL(string: "\(base)/w/feedback/projects/feedback") else { return }
+        Platform.open(url)
+    }
+
+    private func signOut(_ account: ServerAccount) {
+        let id = account.id
+        // Tear sync down first (it still references the token + DB pool), then
+        // remove the account so we never yank state out from under the sync task.
+        Task {
+            await deps.syncManager.signOut(accountId: id)
+            deps.db.closePool(forAccountId: id)
+            deps.auth.removeAccount(id: id)
+        }
     }
 
     private func workspaceHeader(_ workspace: WorkspaceEntity, accountId: String) -> some View {

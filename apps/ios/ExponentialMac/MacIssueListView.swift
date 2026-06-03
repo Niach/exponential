@@ -230,7 +230,7 @@ struct MacIssueListView: View {
                 Text((assignee.name ?? assignee.email).prefix(1).uppercased())
                     .font(.caption2.weight(.bold))
                     .frame(width: 18, height: 18)
-                    .background(Circle().fill(Color.blue.opacity(0.6)))
+                    .background(Circle().fill(Accent.indigo.opacity(0.6)))
             }
         }
         .padding(.vertical, 2)

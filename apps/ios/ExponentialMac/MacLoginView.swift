@@ -56,6 +56,7 @@ struct MacLoginView: View {
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
+            .tint(Accent.indigo)
 
             orSeparator
 
@@ -113,6 +114,7 @@ struct MacLoginView: View {
                     }
                     .controlSize(.large)
                     .buttonStyle(.borderedProminent)
+                    .tint(Accent.indigo)
                     .disabled(vm.loading || vm.email.isEmpty || vm.password.isEmpty)
                 }
             }

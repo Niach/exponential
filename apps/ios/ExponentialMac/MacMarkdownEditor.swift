@@ -687,6 +687,7 @@ struct MacMarkdownEditor: View {
                     Button("Cancel") { showLinkPrompt = false }
                     Button("Add") { controller.applyLink(linkText); showLinkPrompt = false }
                         .buttonStyle(.borderedProminent)
+                        .tint(Accent.indigo)
                 }
             }
             .padding(20)
