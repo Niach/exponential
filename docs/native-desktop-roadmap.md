@@ -289,11 +289,11 @@ NSImage`). Honor the GFM contract (see root `CLAUDE.md`).
 > PIPESTATUS wrapper → exit code+output on `GHOSTTY_ACTION_COMMAND_FINISHED` →
 > `submit_run_result`; headless `Process` fallback if the framework is absent). All
 > mirror macterm's `Macterm/Ghostty/` + `GhosttyTerminalNSView.swift`.
-> **Caveats:** (1) the prebuilt artifact comes from a third-party ghostty fork —
-> for a shipping build we should build + host our **own** `GhosttyKit.xcframework`
-> on CI (a macOS-15 runner, where zig 0.15.2 links) and point
-> `GHOSTTY_REPO`/the setup script at it. (2) Live-terminal **rendering + input were
-> not verified here** (headless, no display); confirm on a real Mac.
+> **Decision (2026-06-03):** we do NOT build our own ghostty — we consume the
+> prebuilt `GhosttyKit.xcframework` directly (the setup script's `GHOSTTY_REPO`
+> stays overridable if the source ever needs changing). **Caveat:** live-terminal
+> **rendering + input were not verified here** (headless, no display); confirm on a
+> real Mac.
 > **Runtime gate (needs an interactive run):** register from an owner account →
 > appears online in web `agents-section.tsx`; with `claude`/`codex` on PATH + a
 > GitHub token, assign an issue → plan→approve→code→PR. Verifies M5+M6.
@@ -355,7 +355,7 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | M7 libghostty embedded terminal | ✅ | ✅ prebuilt GhosttyKit.xcframework (build+launch green; rendering unverified — needs a display) |
 | M8 parity tests | ✅ (60 tests) | — (shared core already covered) |
 | M8 decommission `apps/companion` | ✅ deleted | — |
-| M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
+| M8 packaging/notarization | ☐ Flatpak | 🔶 dylib bundled+signed into Contents/Frameworks (@rpath), hardened-runtime entitlements, ghostty self-heal bootstrap — notarization (Developer ID submit) is the release-time remainder |
 | Headless/background mode | ☐ | ☐ |
 
 **Next action:** macOS A1–A5 are built (v1 tracker + desktop-agent identity + agent
@@ -363,10 +363,30 @@ loop via the Process runner). Run `Exponential-macOS-Staging` against
 `next.exponential.at` to exercise the runtime gates: A2–A4 (login/sync/CRUD/editor),
 A5 M5 (register → the Mac appears in web `agents-section.tsx`), and A5 M6 (with
 `claude`/`codex` on PATH + a GitHub token, assign an issue → plan→approve→code→PR
-runs headlessly). The remaining macOS work is **M8 packaging** (bundle + sign the `agent_core` dylib
-+ the GhosttyKit static lib is already linked-in; notarize; hardened runtime
-allowing child processes) and a **CI job that builds + hosts our own
-`GhosttyKit.xcframework`** (macOS-15 runner) so the terminal doesn't depend on a
-third-party fork's releases. Before shipping, verify on a real Mac: the embedded
-terminal renders + accepts input, and the run gate (assign issue → watch
-plan→approve→code→PR in the terminal) works.
+runs headlessly).
+
+**M8 packaging is wired (2026-06-03):** the `Exponential-macOS` build now (1) copies
+`libagent_core.dylib` into `Contents/Frameworks`, pins its id to `@rpath/libagent_core.dylib`,
+and re-signs it (ad-hoc when no identity, since `install_name_tool` invalidates the
+signature and Apple Silicon refuses unsigned dylibs); (2) adds `@executable_path/../Frameworks`
+to `LD_RUNPATH_SEARCH_PATHS` so the linked executable resolves the bundled copy
+(verified via `otool -L`/`-l`); (3) ships `ExponentialMac.entitlements`
+(`disable-library-validation` + `allow-jit` + `allow-unsigned-executable-memory`,
+no App Sandbox — it spawns agent CLIs + git) with `ENABLE_HARDENED_RUNTIME=YES`;
+(4) self-heals `vendor/` via a pre-build bootstrap (GhosttyKit is a static lib,
+linked-in; only the resources + xcframework are fetched). GhosttyKit comes from the
+prebuilt `thdxg/ghostty` xcframework — **we do not build our own ghostty**.
+
+The remaining macOS work is **runtime verification on a real Mac** (no display in CI):
+the embedded terminal renders + accepts input, the run gate (assign issue →
+plan→approve→code→PR in the terminal) works, and **notarization** (submit the
+Developer-ID-signed `.app` to Apple's notary — a release-time step needing a
+distribution cert).
+
+A review-and-fix pass over the rushed A1–A5 code landed the same day: ghostty
+surface use-after-free (strong view ref outliving the surface), agent-core
+double-shutdown guard + deinit safety net, heartbeat self-termination when the
+service is gone, stale-config guard in login, account-switch selection clear,
+sign-out ordering (tear down sync before removing the account), title/description
+flush on detail teardown, an explicit "Add due date" affordance, and a ⌘N
+New-Issue menu command.
