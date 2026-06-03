@@ -20,11 +20,31 @@ struct MacShell: View {
     @State private var selectedProject: ProjectRef?
     @State private var issuePath: [IssueRef] = []
     @State private var settingsTarget: WorkspaceSettingsTarget?
+    @State private var createProjectTarget: WorkspaceSettingsTarget?
     @State private var showAdmin = false
     @State private var showIntegrations = false
+    @State private var showCreateWorkspace = false
+    @State private var ensuredDefault = false
 
     private var activeAccount: ServerAccount? {
         deps.auth.accounts.first { $0.id == deps.auth.activeAccountId }
+    }
+
+    // The workspace of the selected project, else the first synced workspace —
+    // the "active workspace" the switcher checkmarks and new-project targets.
+    private var activeWorkspace: (accountId: String, workspace: WorkspaceEntity)? {
+        let groups = projectLoader?.groups ?? []
+        if let sel = selectedProject {
+            for group in groups where group.accountId == sel.accountId {
+                for block in group.workspaceBlocks where block.projects.contains(where: { $0.id == sel.projectId }) {
+                    return (group.accountId, block.workspace)
+                }
+            }
+        }
+        if let group = groups.first, let block = group.workspaceBlocks.first {
+            return (group.accountId, block.workspace)
+        }
+        return nil
     }
 
     var body: some View {
@@ -44,7 +64,7 @@ struct MacShell: View {
                         )
                         .id(selectedProject)
                     } else {
-                        ContentUnavailableView("Select a project", systemImage: "folder")
+                        emptyState
                     }
                 }
                 .navigationDestination(for: IssueRef.self) { ref in
@@ -59,6 +79,12 @@ struct MacShell: View {
         .onAppear {
             if projectLoader == nil {
                 projectLoader = MultiAccountProjectLoader(auth: deps.auth, db: deps.db)
+            }
+            // Make sure a fresh account lands in a usable workspace (idempotent
+            // server-side) so the sidebar is never empty after first sign-in.
+            if !ensuredDefault, let id = activeAccount?.id {
+                ensuredDefault = true
+                Task { try? await deps.workspacesApi.ensureDefault(accountId: id) }
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
@@ -89,6 +115,42 @@ struct MacShell: View {
                     .preferredColorScheme(.dark)
             }
         }
+        .sheet(item: $createProjectTarget) { target in
+            MacCreateProjectView(accountId: target.accountId, workspaceId: target.workspaceId) { newId in
+                selectedProject = ProjectRef(accountId: target.accountId, projectId: newId)
+            }
+            .environment(deps)
+            .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showCreateWorkspace) {
+            if let account = activeAccount {
+                MacCreateWorkspaceView(accountId: account.id)
+                    .environment(deps)
+                    .preferredColorScheme(.dark)
+            }
+        }
+    }
+
+    // MARK: - Empty state
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if (projectLoader?.groups ?? []).isEmpty {
+            ContentUnavailableView {
+                Label("No projects yet", systemImage: "folder.badge.plus")
+            } description: {
+                Text("Create a workspace and a project to get started.")
+            } actions: {
+                Button("New Workspace") { showCreateWorkspace = true }
+                if let aw = activeWorkspace {
+                    Button("New Project") {
+                        createProjectTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
+                    }
+                }
+            }
+        } else {
+            ContentUnavailableView("Select a project", systemImage: "folder")
+        }
     }
 
     @ViewBuilder
@@ -107,7 +169,69 @@ struct MacShell: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .top) { sidebarHeader }
         .safeAreaInset(edge: .bottom) { sidebarFooter }
+    }
+
+    @ViewBuilder
+    private var sidebarHeader: some View {
+        HStack(spacing: 6) {
+            workspaceSwitcher
+            Spacer(minLength: 4)
+            Button {
+                if let aw = activeWorkspace {
+                    createProjectTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
+                }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.borderless)
+            .disabled(activeWorkspace == nil)
+            .help("New project")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private var workspaceSwitcher: some View {
+        Menu {
+            ForEach(projectLoader?.groups ?? []) { group in
+                ForEach(group.workspaceBlocks) { block in
+                    Button {
+                        if let first = block.projects.first {
+                            selectedProject = ProjectRef(accountId: group.accountId, projectId: first.id)
+                        }
+                    } label: {
+                        if activeWorkspace?.workspace.id == block.workspace.id {
+                            Label(block.workspace.name, systemImage: "checkmark")
+                        } else {
+                            Text(block.workspace.name)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button { showCreateWorkspace = true } label: { Label("New workspace", systemImage: "plus") }
+            if let aw = activeWorkspace {
+                Button {
+                    settingsTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
+                } label: {
+                    Label("Workspace Settings…", systemImage: "gearshape")
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if let aw = activeWorkspace {
+                    WorkspaceAvatar(workspace: aw.workspace, size: 16)
+                    Text(aw.workspace.name).font(.subheadline.weight(.medium)).lineLimit(1)
+                } else {
+                    Text("Workspaces").font(.subheadline.weight(.medium))
+                }
+                Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     @ViewBuilder
