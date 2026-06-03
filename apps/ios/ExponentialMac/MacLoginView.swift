@@ -57,7 +57,7 @@ struct MacLoginView: View {
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
 
-            HStack { Divider().frame(maxWidth: 80); Text("or").foregroundStyle(.secondary); Divider().frame(maxWidth: 80) }
+            orSeparator
 
             TextField("https://your-instance.example.com", text: Binding(
                 get: { vm.customInstance },
@@ -97,7 +97,7 @@ struct MacLoginView: View {
 
                 if config.passwordEnabled {
                     if config.googleLoginEnabled || !config.oidcProviders.isEmpty {
-                        HStack { Divider().frame(maxWidth: 80); Text("or").foregroundStyle(.secondary); Divider().frame(maxWidth: 80) }
+                        orSeparator
                     }
                     TextField("Email", text: Binding(get: { vm.email }, set: { vm.email = $0 }))
                         .textFieldStyle(.roundedBorder)
@@ -129,5 +129,18 @@ struct MacLoginView: View {
             Text(label).frame(maxWidth: .infinity)
         }
         .controlSize(.large)
+    }
+
+    /// Horizontal "──── or ────" separator. Uses fixed-height rules rather than a
+    /// `Divider()` in an `HStack` — that renders a *vertical* rule with unbounded
+    /// height that stretches the whole form apart.
+    private var orSeparator: some View {
+        HStack(spacing: 10) {
+            Rectangle().fill(Color.secondary.opacity(0.25)).frame(height: 1)
+            Text("or").font(.caption).foregroundStyle(.secondary).fixedSize()
+            Rectangle().fill(Color.secondary.opacity(0.25)).frame(height: 1)
+        }
+        .frame(maxWidth: 280)
+        .padding(.vertical, 2)
     }
 }

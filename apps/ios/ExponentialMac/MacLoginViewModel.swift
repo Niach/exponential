@@ -118,9 +118,14 @@ final class MacLoginViewModel: NSObject, ASWebAuthenticationPresentationContextP
 
     private func launchWebAuth(url: URL) {
         logger.info("Starting OAuth: \(url.absoluteString, privacy: .public)")
-        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "exp") { [weak self] callbackURL, authError in
-            guard let self else { return }
-            Task { @MainActor in
+        // ASWebAuthenticationSession invokes its completion handler on a background
+        // XPC queue. The closure must be non-isolated (@Sendable) — otherwise Swift
+        // infers it @MainActor (it's written in a @MainActor class) and inserts an
+        // executor-isolation check at the closure's entry that traps when it runs
+        // off the main queue. Hop to the main actor explicitly for all UI state.
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "exp") { @Sendable callbackURL, authError in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 if let authError {
                     let ns = authError as NSError
                     if ns.domain == ASWebAuthenticationSessionErrorDomain,
