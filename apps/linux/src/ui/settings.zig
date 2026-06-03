@@ -178,7 +178,12 @@ fn rebuild(ctx: *Ctx) void {
     if (std.fmt.allocPrintSentinel(a, "Members ({d})", .{members.len}, 0)) |t| {
         gtk.gtk_box_append(ctx.content, widgets.sectionTitle(t));
     } else |_| {}
-    for (members) |m| gtk.gtk_box_append(ctx.content, memberRow(ctx, a, m));
+    // A workspace must always keep at least one owner.
+    var owner_count: usize = 0;
+    for (members) |m| {
+        if (std.mem.eql(u8, m.role, "owner")) owner_count += 1;
+    }
+    for (members) |m| gtk.gtk_box_append(ctx.content, memberRow(ctx, a, m, owner_count));
 
     // --- Invites ---
     gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Invites"));
@@ -786,7 +791,7 @@ fn onGhDone(data: gtk.gpointer) callconv(.c) c_int {
     return 0; // G_SOURCE_REMOVE
 }
 
-fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow) gtk.Object {
+fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow, owner_count: usize) gtk.Object {
     const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
     gtk.gtk_widget_set_margin_top(row, 2);
     if (m.name.len > 0) gtk.gtk_box_append(row, widgets.avatar(arena, m.name));
@@ -816,17 +821,26 @@ fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow) gtk.Obj
     gtk.gtk_widget_add_css_class(role_lbl, "dim-label");
     gtk.gtk_box_append(row, role_lbl);
 
-    // Agents are managed elsewhere; no actions for them.
-    if (!std.mem.eql(u8, m.role, "agent")) {
+    // Agents are managed elsewhere; no actions for them. The last owner of a
+    // workspace can't be demoted or leave (mirrors the server guard).
+    const is_last_owner = std.mem.eql(u8, m.role, "owner") and owner_count <= 1;
+    const can_make_owner = !std.mem.eql(u8, m.role, "owner");
+    const can_make_member = !std.mem.eql(u8, m.role, "member") and !is_last_owner;
+    const can_leave = is_self and !is_last_owner;
+    const can_remove = !is_self;
+    if (!std.mem.eql(u8, m.role, "agent") and (can_make_owner or can_make_member or can_leave or can_remove)) {
         const menu = gtk.gtk_menu_button_new();
         gtk.gtk_menu_button_set_child(menu, gtk.gtk_label_new("⋯"));
         const pop = gtk.gtk_popover_new();
         const list = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 2);
-        if (!std.mem.eql(u8, m.role, "owner"))
+        if (can_make_owner)
             addAction(ctx, list, .make_owner, m.id, "Make owner");
-        if (!std.mem.eql(u8, m.role, "member"))
+        if (can_make_member)
             addAction(ctx, list, .make_member, m.id, "Make member");
-        addAction(ctx, list, .remove_member, m.id, if (is_self) "Leave" else "Remove");
+        if (can_leave)
+            addAction(ctx, list, .remove_member, m.id, "Leave");
+        if (can_remove)
+            addAction(ctx, list, .remove_member, m.id, "Remove");
         gtk.gtk_popover_set_child(pop, list);
         gtk.gtk_menu_button_set_popover(menu, pop);
         gtk.gtk_box_append(row, menu);

@@ -16,6 +16,11 @@ struct WorkspaceMembersSection: View {
     @State private var copied = false
     @State private var generating = false
 
+    // A workspace must always keep at least one owner.
+    private var ownerCount: Int {
+        members.filter { $0.role == DomainContract.workspaceRoleOwner }.count
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -66,6 +71,8 @@ struct WorkspaceMembersSection: View {
                         .glassButton()
 
                     // Actions menu
+                    let isSelf = member.userId == currentUserId
+                    let isLastOwner = member.role == DomainContract.workspaceRoleOwner && ownerCount <= 1
                     Menu {
                         if member.role != DomainContract.workspaceRoleOwner {
                             Button {
@@ -80,11 +87,22 @@ struct WorkspaceMembersSection: View {
                             } label: {
                                 Label("Make member", systemImage: "shield")
                             }
+                            .disabled(isLastOwner)
                         }
-                        Button(role: .destructive) {
-                            Task { try? await membersApi.remove(accountId: accountId, memberId: member.id) }
-                        } label: {
-                            Label(member.userId == currentUserId ? "Leave" : "Remove", systemImage: "xmark")
+                        if isSelf {
+                            if !isLastOwner {
+                                Button(role: .destructive) {
+                                    Task { try? await membersApi.remove(accountId: accountId, memberId: member.id) }
+                                } label: {
+                                    Label("Leave", systemImage: "xmark")
+                                }
+                            }
+                        } else {
+                            Button(role: .destructive) {
+                                Task { try? await membersApi.remove(accountId: accountId, memberId: member.id) }
+                            } label: {
+                                Label("Remove", systemImage: "xmark")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis")

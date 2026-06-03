@@ -258,9 +258,13 @@ struct MacWorkspaceSettingsView: View {
     }
 
     private func membersSection(_ model: MacWorkspaceSettingsModel) -> some View {
-        Section("Members") {
+        let ownerCount = model.members.filter { $0.role == DomainContract.workspaceRoleOwner }.count
+        return Section("Members") {
             ForEach(model.members) { member in
                 let u = model.user(member.userId)
+                let isSelf = member.userId == deps.auth.userId
+                // A workspace must always keep an owner — guard the last one.
+                let isLastOwner = member.role == DomainContract.workspaceRoleOwner && ownerCount <= 1
                 HStack {
                     VStack(alignment: .leading) {
                         Text(u?.name ?? u?.email ?? member.userId)
@@ -274,8 +278,15 @@ struct MacWorkspaceSettingsView: View {
                             }
                             if member.role != DomainContract.workspaceRoleMember {
                                 Button("Make member") { model.setRole(member.id, DomainContract.workspaceRoleMember) }
+                                    .disabled(isLastOwner)
                             }
-                            Button("Remove", role: .destructive) { model.removeMember(member.id) }
+                            if isSelf {
+                                if !isLastOwner {
+                                    Button("Leave workspace", role: .destructive) { model.removeMember(member.id) }
+                                }
+                            } else {
+                                Button("Remove", role: .destructive) { model.removeMember(member.id) }
+                            }
                         } label: { Image(systemName: "ellipsis.circle") }
                         .menuStyle(.borderlessButton).fixedSize()
                     }
