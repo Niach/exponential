@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "SyncManager")
+private let logger = Logger(subsystem: "at.exponential", category: "SyncManager")
 
 // One TanStack Start instance, one shape protocol for every client.
 // Web uses @electric-sql/client; iOS and Android implement the same wire
@@ -222,8 +222,8 @@ private func applyBatch<T: PersistableRecord & Sendable>(
             case let .delete(key, value):
                 if let value {
                     try value.delete(gdb)
-                } else if let id = parseIdFromKey(key) {
-                    try gdb.execute(sql: "DELETE FROM \(table) WHERE id = ?", arguments: [id])
+                } else {
+                    try deleteByKey(key: key, table: table, db: gdb)
                 }
             case .upToDate:
                 break
@@ -234,7 +234,31 @@ private func applyBatch<T: PersistableRecord & Sendable>(
     }
 }
 
+// Delete a row by its Electric key when the message carries no value. Handles
+// composite primary keys (e.g. issue_labels has no surrogate `id`): the key
+// encodes each PK value as a `/`-separated, quoted segment after the table
+// segment, in PK-column order — `"public"."issue_labels"/"<issue_id>"/"<label_id>"`.
+private func deleteByKey(key: String, table: String, db: Database) throws {
+    let pkColumns = (try? db.primaryKey(table).columns) ?? []
+    let values = parseKeyComponents(key)
+    guard !pkColumns.isEmpty, values.count == pkColumns.count else { return }
+    let whereClause = pkColumns.map { "\"\($0)\" = ?" }.joined(separator: " AND ")
+    try db.execute(sql: "DELETE FROM \"\(table)\" WHERE \(whereClause)",
+                   arguments: StatementArguments(values))
+}
+
+// Value segments of an Electric key (everything after the table segment), unquoted.
+private func parseKeyComponents(_ key: String) -> [String] {
+    let parts = key.split(separator: "/").map(String.init)
+    guard parts.count > 1 else { return [] }
+    return parts.dropFirst().map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+}
+
 private func applyPartialUpdate(key: String, columnData: Data, table: String, db: Database) throws {
+    // Only single-`id` tables get partial updates here; composite-PK tables
+    // (e.g. issue_labels) are insert/delete-only — skip rather than run a
+    // `WHERE id` the table doesn't have.
+    guard ((try? db.primaryKey(table).columns) ?? ["id"]) == ["id"] else { return }
     guard let id = parseIdFromKey(key) else { return }
     guard let columns = try? JSONSerialization.jsonObject(with: columnData) as? [String: Any] else { return }
     let filtered = columns.filter { $0.key != "id" }
