@@ -643,35 +643,36 @@ struct MacMarkdownEditor: View {
     var body: some View {
         VStack(spacing: 6) {
             MacMarkdownToolbarView(controller: controller)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.blocks) { block in
-                        switch block {
-                        case .text(let id, let content):
-                            ZStack(alignment: .topLeading) {
-                                MacBlockTextEditor(
-                                    model: model, blockId: id, content: content,
-                                    revision: model.revision(for: id),
-                                    isFocused: model.focusedBlockId == id,
-                                    controller: controller
-                                )
-                                if isSolePlaceholder(id) {
-                                    Text(placeholder).foregroundStyle(.tertiary).padding(.top, 4).allowsHitTesting(false)
-                                }
-                            }
-                        case .image(let id, let url, let alt):
-                            MacBlockImageView(
-                                model: model, blockId: id, url: url, baseURL: baseURL,
-                                accountId: accountId, httpClient: httpClient, pendingImages: model.pendingImages,
-                                onDelete: { model.deleteImageBlock(id: id) },
-                                onTapBelow: { focusBlock(after: id) }
+            // No inner ScrollView: each block self-sizes, so the editor grows with
+            // its content and the surrounding page scroll handles overflow (one
+            // scroll for the whole issue, not a nested editor scroll).
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(model.blocks) { block in
+                    switch block {
+                    case .text(let id, let content):
+                        ZStack(alignment: .topLeading) {
+                            MacBlockTextEditor(
+                                model: model, blockId: id, content: content,
+                                revision: model.revision(for: id),
+                                isFocused: model.focusedBlockId == id,
+                                controller: controller
                             )
-                            .id(id)
+                            if isSolePlaceholder(id) {
+                                Text(placeholder).foregroundStyle(.tertiary).padding(.top, 4).allowsHitTesting(false)
+                            }
                         }
+                    case .image(let id, let url, let alt):
+                        MacBlockImageView(
+                            model: model, blockId: id, url: url, baseURL: baseURL,
+                            accountId: accountId, httpClient: httpClient, pendingImages: model.pendingImages,
+                            onDelete: { model.deleteImageBlock(id: id) },
+                            onTapBelow: { focusBlock(after: id) }
+                        )
+                        .id(id)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
             controller.onPickImage = { pickImage() }

@@ -107,7 +107,6 @@ struct MacIssueListView: View {
     @Environment(MacAppDependencies.self) private var deps
     let accountId: String
     let projectId: String
-    @Binding var selectedIssue: IssueRef?
 
     @State private var model: MacIssueListModel?
     @State private var search = ""
@@ -116,14 +115,15 @@ struct MacIssueListView: View {
     var body: some View {
         Group {
             if let model {
-                List(selection: $selectedIssue) {
+                List {
                     ForEach(IssueStatus.displayOrder, id: \.self) { status in
                         let items = model.issues(in: status, search: search)
                         if !items.isEmpty {
                             Section {
                                 ForEach(items) { issue in
-                                    row(issue, model: model)
-                                        .tag(IssueRef(accountId: accountId, issueId: issue.id))
+                                    NavigationLink(value: IssueRef(accountId: accountId, issueId: issue.id)) {
+                                        row(issue, model: model)
+                                    }
                                 }
                             } header: {
                                 Label(status.label, systemImage: status.sfSymbol).foregroundStyle(status.color)

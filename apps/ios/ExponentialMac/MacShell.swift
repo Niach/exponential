@@ -18,35 +18,36 @@ struct MacShell: View {
     @Environment(MacAppDependencies.self) private var deps
     @State private var projectLoader: MultiAccountProjectLoader?
     @State private var selectedProject: ProjectRef?
-    @State private var selectedIssue: IssueRef?
+    @State private var issuePath: [IssueRef] = []
     @State private var settingsTarget: WorkspaceSettingsTarget?
 
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-        } content: {
-            if let selectedProject {
-                MacIssueListView(
-                    accountId: selectedProject.accountId,
-                    projectId: selectedProject.projectId,
-                    selectedIssue: $selectedIssue
-                )
-                .id(selectedProject)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 340)
-            } else {
-                ContentUnavailableView("Select a project", systemImage: "folder")
-            }
+                .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
-            if let selectedIssue {
-                MacIssueDetailView(
-                    accountId: selectedIssue.accountId,
-                    issueId: selectedIssue.issueId,
-                    onDelete: { self.selectedIssue = nil }
-                )
-                .id(selectedIssue)
-            } else {
-                ContentUnavailableView("Select an issue", systemImage: "square.text.square")
+            // Two-pane layout mirroring the web app: a project sidebar + a content
+            // area that navigates from the issue list into a full issue detail
+            // (push), rather than an always-present third detail column.
+            NavigationStack(path: $issuePath) {
+                Group {
+                    if let selectedProject {
+                        MacIssueListView(
+                            accountId: selectedProject.accountId,
+                            projectId: selectedProject.projectId
+                        )
+                        .id(selectedProject)
+                    } else {
+                        ContentUnavailableView("Select a project", systemImage: "folder")
+                    }
+                }
+                .navigationDestination(for: IssueRef.self) { ref in
+                    MacIssueDetailView(
+                        accountId: ref.accountId,
+                        issueId: ref.issueId,
+                        onDelete: { issuePath.removeAll { $0 == ref } }
+                    )
+                }
             }
         }
         .onAppear {
@@ -55,12 +56,13 @@ struct MacShell: View {
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
-        .onChange(of: selectedProject) { _, _ in selectedIssue = nil }
+        // Switching projects returns to that project's list (pop any open detail).
+        .onChange(of: selectedProject) { _, _ in issuePath.removeAll() }
         // A selection from the previous account points at another account's DB
         // pool — clear it so the list/detail never query the wrong account.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
             selectedProject = nil
-            selectedIssue = nil
+            issuePath.removeAll()
         }
         .sheet(item: $settingsTarget) { target in
             MacWorkspaceSettingsView(target: target)

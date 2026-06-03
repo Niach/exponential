@@ -459,7 +459,9 @@ struct MacIssueDetailView: View {
                 accountId: model.accountId,
                 httpClient: model.httpClient
             )
-            .frame(minHeight: 160, maxHeight: 480)
+            // Grow with content (no fixed/max height) — the page ScrollView owns
+            // scrolling, so the editor never gets its own nested scroll bar.
+            .frame(minHeight: 120, alignment: .top)
             .disabled(!model.canEditContent)
         }
     }
