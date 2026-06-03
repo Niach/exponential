@@ -53,6 +53,26 @@ let macInfoPlist: [String: Plist.Value] = [
     "LSApplicationCategoryType": .string("public.app-category.productivity"),
 ]
 
+// agent-core (Rust cdylib) link: a pre-build script compiles the cdylib (mirrors
+// the Linux build.zig), and the macOS app links it + imports it via a clang
+// module map. For local dev the dylib loads from its absolute install name in
+// target/release (bundling/signing for distribution is an M8 concern).
+let agentCoreScript = TargetScript.pre(
+    script: """
+    export PATH="$HOME/.cargo/bin:$PATH"
+    cd "$SRCROOT/../.."
+    cargo build -p agent-core --release
+    install_name_tool -id "$PWD/target/release/libagent_core.dylib" target/release/libagent_core.dylib 2>/dev/null || true
+    """,
+    name: "Build agent-core (cargo)",
+    basedOnDependencyAnalysis: false
+)
+let agentCoreSettings: SettingsDictionary = [
+    "OTHER_SWIFT_FLAGS": ["$(inherited)", "-Xcc", "-fmodule-map-file=$(SRCROOT)/AgentCore/module.modulemap"],
+    "LIBRARY_SEARCH_PATHS": ["$(inherited)", "$(SRCROOT)/../../target/release"],
+    "OTHER_LDFLAGS": ["$(inherited)", "-lagent_core"],
+]
+
 // Foundation-only files reused by the Share Extension. Compiled into the
 // extension's own module (no `public` needed, no shared framework). Verified to
 // import only Foundation/Security/CryptoKit — no GRDB/Firebase/SwiftUI drag-in.
@@ -205,8 +225,9 @@ let project = Project(
                 "CFBundleDisplayName": "Exponential",
             ]) { _, new in new }),
             sources: macSources,
+            scripts: [agentCoreScript],
             dependencies: macDependencies,
-            settings: .settings(base: baseSettings)
+            settings: .settings(base: baseSettings.merging(agentCoreSettings) { _, new in new })
         ),
         .target(
             name: "Exponential-macOS-Staging",
@@ -218,10 +239,11 @@ let project = Project(
                 "CFBundleDisplayName": "Exp Mac Staging",
             ]) { _, new in new }),
             sources: macSources,
+            scripts: [agentCoreScript],
             dependencies: macDependencies,
-            settings: .settings(base: baseSettings.merging([
-                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
-            ]) { _, new in new })
+            settings: .settings(base: baseSettings
+                .merging(agentCoreSettings) { _, new in new }
+                .merging(["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING"]) { _, new in new })
         ),
     ],
     schemes: [

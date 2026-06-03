@@ -61,6 +61,13 @@ enum MacAgentStore {
         try? data.write(to: url)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
+
+    static func githubToken() -> String? {
+        let url = dir().appendingPathComponent("github.json")
+        guard let data = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return o["token"] as? String
+    }
 }
 
 @MainActor
@@ -76,12 +83,14 @@ final class MacAgentService {
     struct GithubPrompt: Equatable { let userCode: String; let uri: String }
 
     private var heartbeats: [String: Task<Void, Never>] = [:]
+    private var cores: [String: MacAgentCore] = [:]
 
     init(auth: AuthRepository) {
         self.auth = auth
         for id in MacAgentStore.all() {
             registered.insert(id.workspaceId)
             startHeartbeat(id)
+            startAgent(id)
         }
     }
 
@@ -136,6 +145,7 @@ final class MacAgentService {
             MacAgentStore.save(identity)
             registered.insert(wsId)
             startHeartbeat(identity)
+            startAgent(identity)
         } catch {
             lastError = error.localizedDescription
         }
@@ -147,9 +157,44 @@ final class MacAgentService {
         defer { busy = false }
         _ = try? await trpc(base: id.instanceUrl, path: "companion.uninstallSelf", input: nil, bearer: id.apiKey)
         stopHeartbeat(workspaceId)
+        cores[workspaceId]?.shutdown()
+        cores[workspaceId] = nil
         MacAgentStore.delete(workspaceId: workspaceId)
         registered.remove(workspaceId)
         online.remove(workspaceId)
+    }
+
+    // MARK: - Agent loop (Rust agent-core)
+
+    /// Create + start the agent-core for this workspace (watches assigned issues,
+    /// emits run_request → MacAgentCore runs the CLI). v1 runs only while the app
+    /// is open. No-op if already running or the dylib failed to create the core.
+    private func startAgent(_ id: MacAgentIdentity) {
+        guard cores[id.workspaceId] == nil else { return }
+        let dir = MacAgentStore.dir().path
+        for sub in ["repos", "worktrees"] {
+            try? FileManager.default.createDirectory(atPath: "\(dir)/\(sub)", withIntermediateDirectories: true)
+        }
+        let config: [String: Any] = [
+            "baseUrl": id.instanceUrl,
+            "apiKey": id.apiKey,
+            "botUserId": id.agentUserId,
+            "githubToken": MacAgentStore.githubToken() ?? "",
+            "reposRoot": "\(dir)/repos",
+            "worktreesRoot": "\(dir)/worktrees",
+            "branchPrefix": "agent",
+            "driver": "claude",
+            "dbPath": "\(dir)/agent-state-\(id.workspaceId).sqlite",
+            "maxConcurrent": 2,
+            "timeoutS": 30,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: config),
+              let json = String(data: data, encoding: .utf8),
+              let core = MacAgentCore(configJson: json) else {
+            lastError = "Failed to start the agent core"
+            return
+        }
+        cores[id.workspaceId] = core
     }
 
     // MARK: - Heartbeat (30s, under the agent's expk_ key)
