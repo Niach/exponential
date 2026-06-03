@@ -111,37 +111,54 @@ struct MacIssueListView: View {
     @State private var model: MacIssueListModel?
     @State private var search = ""
     @State private var showCreate = false
+    @State private var createStatus: IssueStatus = .backlog
 
     var body: some View {
         Group {
             if let model {
-                List {
-                    ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                        let items = model.issues(in: status, search: search)
-                        if !items.isEmpty {
-                            Section {
-                                ForEach(items) { issue in
-                                    NavigationLink(value: IssueRef(accountId: accountId, issueId: issue.id)) {
-                                        row(issue, model: model)
+                VStack(spacing: 0) {
+                    // All / Active / Backlog presets (ExpCore FilterTab), the
+                    // macOS-native substitute for the iOS pill scroll strip.
+                    Picker("Filter", selection: tabBinding(model)) {
+                        ForEach(FilterTab.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+
+                    List {
+                        ForEach(IssueStatus.displayOrder, id: \.self) { status in
+                            let items = model.issues(in: status, search: search)
+                            if !items.isEmpty {
+                                Section {
+                                    ForEach(items) { issue in
+                                        NavigationLink(value: IssueRef(accountId: accountId, issueId: issue.id)) {
+                                            row(issue, model: model)
+                                        }
                                     }
+                                } header: {
+                                    sectionHeader(status, model: model)
                                 }
-                            } header: {
-                                Label(status.label, systemImage: status.sfSymbol).foregroundStyle(status.color)
                             }
                         }
                     }
+                    .listStyle(.inset)
                 }
-                .listStyle(.inset)
                 .searchable(text: $search, prompt: "Search issues")
                 .navigationTitle(model.project?.name ?? "Issues")
                 .toolbar { toolbar(model) }
                 .sheet(isPresented: $showCreate) {
-                    MacCreateIssueView(accountId: accountId, projectId: projectId, users: model.users) {
-                        showCreate = false
-                    }
+                    MacCreateIssueView(
+                        accountId: accountId,
+                        projectId: projectId,
+                        users: model.users,
+                        labels: model.availableLabels,
+                        initialStatus: createStatus
+                    )
                 }
                 // Publish ⌘N for the app menu while this project is in scene focus.
-                .focusedSceneValue(\.createIssueAction, model.canCreate ? { showCreate = true } : nil)
+                .focusedSceneValue(\.createIssueAction, model.canCreate ? { createStatus = .backlog; showCreate = true } : nil)
             } else {
                 ProgressView()
             }
@@ -186,9 +203,29 @@ struct MacIssueListView: View {
             .help("Filter")
         }
         ToolbarItem {
-            Button { showCreate = true } label: { Image(systemName: "plus") }
+            Button { createStatus = .backlog; showCreate = true } label: { Image(systemName: "plus") }
                 .disabled(!model.canCreate)
                 .help("New issue")
+        }
+    }
+
+    private func tabBinding(_ model: MacIssueListModel) -> Binding<FilterTab> {
+        Binding(
+            get: { deriveTab(from: model.filters.statuses) },
+            set: { model.filters.statuses = $0.statuses }
+        )
+    }
+
+    private func sectionHeader(_ status: IssueStatus, model: MacIssueListModel) -> some View {
+        HStack {
+            Label(status.label, systemImage: status.sfSymbol).foregroundStyle(status.color)
+            Spacer()
+            if model.canCreate {
+                Button { createStatus = status; showCreate = true } label: { Image(systemName: "plus") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("New \(status.label) issue")
+            }
         }
     }
 
@@ -221,6 +258,9 @@ struct MacIssueListView: View {
             if let identifier = issue.identifier {
                 Text(identifier).font(.caption.monospaced()).foregroundStyle(.tertiary)
             }
+            if issue.recurrenceInterval != nil {
+                Image(systemName: "repeat").font(.caption2).foregroundStyle(.tertiary)
+            }
             Text(issue.title).lineLimit(1)
             Spacer()
             ForEach(model.labelChips(for: issue)) { label in
@@ -230,7 +270,7 @@ struct MacIssueListView: View {
                 Text((assignee.name ?? assignee.email).prefix(1).uppercased())
                     .font(.caption2.weight(.bold))
                     .frame(width: 18, height: 18)
-                    .background(Circle().fill(Color.blue.opacity(0.6)))
+                    .background(Circle().fill(Accent.indigo.opacity(0.6)))
             }
         }
         .padding(.vertical, 2)

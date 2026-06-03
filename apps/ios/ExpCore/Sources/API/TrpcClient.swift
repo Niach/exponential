@@ -56,6 +56,27 @@ public final class TrpcClient: Sendable {
         }
         _ = data
     }
+
+    /// GET an input-less tRPC `query` procedure and decode the same
+    /// `{result:{data}}` envelope `mutation` uses. tRPC routes reads as GET, so
+    /// POSTing to a `.query` returns 405 — use this for those. Mirrors the
+    /// Linux `trpc.query` helper in `apps/linux/src/core/api/trpc.zig`.
+    public func query<O: Decodable>(accountId: String, path: String) async throws -> O {
+        let base = try baseUrl(for: accountId)
+        guard let url = URL(string: "\(base)/api/trpc/\(path)") else {
+            throw TrpcError.invalidUrl
+        }
+
+        let (data, response) = try await httpClient.get(url, accountId: accountId)
+
+        guard (200...299).contains(response.statusCode) else {
+            let text = String(data: data, encoding: .utf8) ?? ""
+            throw TrpcError.httpError(response.statusCode, text)
+        }
+
+        let wrapper = try JSONDecoder().decode(TrpcResponseEnvelope<O>.self, from: data)
+        return wrapper.result.data
+    }
 }
 
 // MARK: - Response Envelope

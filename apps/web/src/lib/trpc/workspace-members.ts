@@ -7,7 +7,16 @@ import {
   assertWorkspaceMember,
   assertNotPublicWorkspace,
 } from "@/lib/workspace-membership"
+import { isUserAdmin } from "@/lib/admin"
 import { revokeWorkspaceAgent } from "@/lib/companion-agents"
+
+/** Member management is allowed for a workspace owner OR a global admin. */
+async function assertCanManageMembers(userId: string, workspaceId: string) {
+  if (await isUserAdmin(userId)) {
+    return
+  }
+  await assertWorkspaceMember(userId, workspaceId, [`owner`])
+}
 
 export const workspaceMembersRouter = router({
   updateRole: authedProcedure
@@ -31,15 +40,33 @@ export const workspaceMembersRouter = router({
       await assertNotPublicWorkspace(target.workspaceId, {
         message: `Membership on the public workspace cannot be modified`,
       })
-      await assertWorkspaceMember(ctx.session.user.id, target.workspaceId, [
-        `owner`,
-      ])
+      await assertCanManageMembers(ctx.session.user.id, target.workspaceId)
 
       if (target.role === `agent`) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
           message: `Agent members are managed from Agent Members`,
         })
+      }
+
+      // A workspace must always keep at least one owner — block demoting the
+      // last one (mirrors the guard in `remove`).
+      if (target.role === `owner` && input.role === `member`) {
+        const owners = await ctx.db
+          .select()
+          .from(workspaceMembers)
+          .where(
+            and(
+              eq(workspaceMembers.workspaceId, target.workspaceId),
+              eq(workspaceMembers.role, `owner`)
+            )
+          )
+        if (owners.length <= 1) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Cannot demote the last owner of a workspace`,
+          })
+        }
       }
 
       const [updated] = await ctx.db
@@ -73,9 +100,7 @@ export const workspaceMembersRouter = router({
       })
 
       if (target.role === `agent`) {
-        await assertWorkspaceMember(ctx.session.user.id, target.workspaceId, [
-          `owner`,
-        ])
+        await assertCanManageMembers(ctx.session.user.id, target.workspaceId)
 
         const [agent] = await ctx.db
           .select()
@@ -101,9 +126,7 @@ export const workspaceMembersRouter = router({
 
       const isSelfRemove = target.userId === ctx.session.user.id
       if (!isSelfRemove) {
-        await assertWorkspaceMember(ctx.session.user.id, target.workspaceId, [
-          `owner`,
-        ])
+        await assertCanManageMembers(ctx.session.user.id, target.workspaceId)
       }
 
       // Prevent removing the last owner

@@ -12,6 +12,11 @@ struct IssueRef: Hashable {
     let issueId: String
 }
 
+struct WorkspaceRef: Hashable {
+    let accountId: String
+    let workspaceId: String
+}
+
 /// The main three-column shell: project sidebar | issue list | issue detail.
 /// Read-only for A2; selection drives the list and detail columns.
 struct MacShell: View {
@@ -20,6 +25,47 @@ struct MacShell: View {
     @State private var selectedProject: ProjectRef?
     @State private var issuePath: [IssueRef] = []
     @State private var settingsTarget: WorkspaceSettingsTarget?
+    @State private var createProjectTarget: WorkspaceSettingsTarget?
+    @State private var showAdmin = false
+    @State private var showIntegrations = false
+    @State private var showCreateWorkspace = false
+    @State private var ensuredDefault = false
+    // The workspace the sidebar is currently scoped to (web shows ONE workspace's
+    // projects at a time, switched via the dropdown — not every workspace flat).
+    @State private var selectedWorkspace: WorkspaceRef?
+
+    private var activeAccount: ServerAccount? {
+        deps.auth.accounts.first { $0.id == deps.auth.activeAccountId }
+    }
+
+    // The (account, workspace-block) the sidebar shows: the explicit switcher
+    // choice, else the workspace of the selected project, else the first synced
+    // workspace. The block carries that workspace's projects.
+    private var activeWorkspaceBlock: (accountId: String, block: WorkspaceBlock)? {
+        let groups = projectLoader?.groups ?? []
+        if let sel = selectedWorkspace {
+            for group in groups where group.accountId == sel.accountId {
+                for block in group.workspaceBlocks where block.workspace.id == sel.workspaceId {
+                    return (group.accountId, block)
+                }
+            }
+        }
+        if let sel = selectedProject {
+            for group in groups where group.accountId == sel.accountId {
+                for block in group.workspaceBlocks where block.projects.contains(where: { $0.id == sel.projectId }) {
+                    return (group.accountId, block)
+                }
+            }
+        }
+        if let group = groups.first, let block = group.workspaceBlocks.first {
+            return (group.accountId, block)
+        }
+        return nil
+    }
+
+    private var activeWorkspace: (accountId: String, workspace: WorkspaceEntity)? {
+        activeWorkspaceBlock.map { ($0.accountId, $0.block.workspace) }
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -38,7 +84,7 @@ struct MacShell: View {
                         )
                         .id(selectedProject)
                     } else {
-                        ContentUnavailableView("Select a project", systemImage: "folder")
+                        emptyState
                     }
                 }
                 .navigationDestination(for: IssueRef.self) { ref in
@@ -54,6 +100,17 @@ struct MacShell: View {
             if projectLoader == nil {
                 projectLoader = MultiAccountProjectLoader(auth: deps.auth, db: deps.db)
             }
+            // Make sure a fresh account lands in a usable workspace (idempotent
+            // server-side) so the sidebar is never empty after first sign-in.
+            if !ensuredDefault, let id = activeAccount?.id {
+                ensuredDefault = true
+                Task {
+                    try? await deps.workspacesApi.ensureDefault(accountId: id)
+                    // Re-establish the observation so a just-created default workspace
+                    // surfaces as soon as Electric syncs it, not only on the next tick.
+                    projectLoader?.refresh()
+                }
+            }
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
         // Switching projects returns to that project's list (pop any open detail).
@@ -62,6 +119,7 @@ struct MacShell: View {
         // pool — clear it so the list/detail never query the wrong account.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
             selectedProject = nil
+            selectedWorkspace = nil
             issuePath.removeAll()
         }
         .sheet(item: $settingsTarget) { target in
@@ -69,40 +127,204 @@ struct MacShell: View {
                 .environment(deps)
                 .preferredColorScheme(.dark)
         }
+        .sheet(isPresented: $showAdmin) {
+            if let account = activeAccount {
+                MacAdminView(accountId: account.id)
+                    .environment(deps)
+                    .preferredColorScheme(.dark)
+            }
+        }
+        .sheet(isPresented: $showIntegrations) {
+            if let account = activeAccount {
+                MacIntegrationsView(accountId: account.id)
+                    .environment(deps)
+                    .preferredColorScheme(.dark)
+            }
+        }
+        .sheet(item: $createProjectTarget) { target in
+            MacCreateProjectView(accountId: target.accountId, workspaceId: target.workspaceId) { newId in
+                selectedProject = ProjectRef(accountId: target.accountId, projectId: newId)
+            }
+            .environment(deps)
+            .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showCreateWorkspace) {
+            if let account = activeAccount {
+                MacCreateWorkspaceView(accountId: account.id)
+                    .environment(deps)
+                    .preferredColorScheme(.dark)
+            }
+        }
+    }
+
+    // MARK: - Empty state
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if (projectLoader?.groups ?? []).isEmpty {
+            ContentUnavailableView {
+                Label("No projects yet", systemImage: "folder.badge.plus")
+            } description: {
+                Text("Create a workspace and a project to get started.")
+            } actions: {
+                Button("New Workspace") { showCreateWorkspace = true }
+                if let aw = activeWorkspace {
+                    Button("New Project") {
+                        createProjectTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
+                    }
+                }
+            }
+        } else {
+            ContentUnavailableView("Select a project", systemImage: "folder")
+        }
     }
 
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $selectedProject) {
-            ForEach(projectLoader?.groups ?? []) { group in
-                Section(group.hostname) {
-                    ForEach(group.workspaceBlocks) { block in
-                        workspaceHeader(block.workspace, accountId: group.accountId)
+            if let (accountId, block) = activeWorkspaceBlock {
+                Section("Projects") {
+                    if block.projects.isEmpty {
+                        Text("No projects yet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
                         ForEach(block.projects) { project in
                             projectRow(project)
-                                .tag(ProjectRef(accountId: group.accountId, projectId: project.id))
+                                .tag(ProjectRef(accountId: accountId, projectId: project.id))
                         }
                     }
                 }
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .top) { sidebarHeader }
+        .safeAreaInset(edge: .bottom) { sidebarFooter }
     }
 
-    private func workspaceHeader(_ workspace: WorkspaceEntity, accountId: String) -> some View {
+    // Workspace name is rendered as a PLAIN view (not inside a Menu label) — a
+    // borderlessButton menu collapses a rich label to its smallest content, which
+    // truncated the name to a single letter. The menu hangs off the chevron only.
+    @ViewBuilder
+    private var sidebarHeader: some View {
         HStack(spacing: 6) {
-            WorkspaceAvatar(workspace: workspace, size: 16)
-            Text(workspace.name)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.top, 4)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button("Workspace Settings…") {
-                settingsTarget = WorkspaceSettingsTarget(accountId: accountId, workspaceId: workspace.id)
+            if let aw = activeWorkspace {
+                WorkspaceAvatar(workspace: aw.workspace, size: 18)
             }
+            Text(activeWorkspace?.workspace.name ?? "Workspaces")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Menu {
+                workspaceMenuItems
+            } label: {
+                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            Spacer(minLength: 4)
+            Button {
+                if let aw = activeWorkspace {
+                    createProjectTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
+                }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.borderless)
+            .disabled(activeWorkspace == nil)
+            .help("New project")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var workspaceMenuItems: some View {
+        ForEach(projectLoader?.groups ?? []) { group in
+            ForEach(group.workspaceBlocks) { block in
+                Button {
+                    // Scope the sidebar to this workspace; clear the open project so
+                    // the content resets to that workspace's empty state.
+                    selectedWorkspace = WorkspaceRef(accountId: group.accountId, workspaceId: block.workspace.id)
+                    selectedProject = nil
+                } label: {
+                    if activeWorkspace?.workspace.id == block.workspace.id {
+                        Label(block.workspace.name, systemImage: "checkmark")
+                    } else {
+                        Text(block.workspace.name)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button { showCreateWorkspace = true } label: { Label("New workspace", systemImage: "plus") }
+        if let aw = activeWorkspace {
+            Button {
+                settingsTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
+            } label: {
+                Label("Workspace Settings…", systemImage: "gearshape")
+            }
+        }
+    }
+
+    // Identity name + email are PLAIN views (same reason as the header); the
+    // account menu hangs off the trailing ellipsis only.
+    @ViewBuilder
+    private var sidebarFooter: some View {
+        if let account = activeAccount {
+            HStack(spacing: 8) {
+                Text((account.userEmail ?? account.displayName).prefix(1).uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Accent.indigo.opacity(0.7))
+                    .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(account.displayName).font(.caption.weight(.medium)).lineLimit(1)
+                    if let email = account.userEmail, !email.isEmpty {
+                        Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 4)
+                Menu {
+                    if deps.auth.isAdmin {
+                        Button { showAdmin = true } label: { Label("Admin", systemImage: "shield") }
+                    }
+                    Button { showIntegrations = true } label: {
+                        Label("Integrations", systemImage: "puzzlepiece.extension")
+                    }
+                    Button { openFeedback() } label: { Label("Send feedback", systemImage: "envelope") }
+                    Divider()
+                    Button(role: .destructive) { signOut(account) } label: {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.body).foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func openFeedback() {
+        guard let base = deps.auth.instanceUrl,
+              let url = URL(string: "\(base)/w/feedback/projects/feedback") else { return }
+        Platform.open(url)
+    }
+
+    private func signOut(_ account: ServerAccount) {
+        let id = account.id
+        // Tear sync down first (it still references the token + DB pool), then
+        // remove the account so we never yank state out from under the sync task.
+        Task {
+            await deps.syncManager.signOut(accountId: id)
+            deps.db.closePool(forAccountId: id)
+            deps.auth.removeAccount(id: id)
         }
     }
 
@@ -120,16 +342,3 @@ struct MacShell: View {
     }
 }
 
-extension Color {
-    /// Best-effort `#rrggbb` parsing for project accent colors.
-    init?(hex: String?) {
-        guard var hex, !hex.isEmpty else { return nil }
-        if hex.hasPrefix("#") { hex.removeFirst() }
-        guard hex.count == 6, let value = Int(hex, radix: 16) else { return nil }
-        self = Color(
-            red: Double((value >> 16) & 0xFF) / 255,
-            green: Double((value >> 8) & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
-        )
-    }
-}

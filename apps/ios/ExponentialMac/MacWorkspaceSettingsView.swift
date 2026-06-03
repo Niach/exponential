@@ -88,6 +88,19 @@ final class MacWorkspaceSettingsModel {
         Task { do { try await op() } catch { self.error = error.localizedDescription } }
     }
 
+    func setName(_ name: String) {
+        run { [self] in
+            try await deps.workspacesApi.update(accountId: accountId, UpdateWorkspaceInput(id: workspaceId, name: name))
+        }
+    }
+
+    func deleteWorkspace(onSuccess: @escaping () -> Void) {
+        run { [self] in
+            try await deps.workspacesApi.delete(accountId: accountId, workspaceId: workspaceId)
+            onSuccess()
+        }
+    }
+
     func setPublic(_ isPublic: Bool) {
         run { [self] in
             try await deps.workspacesApi.update(accountId: accountId, UpdateWorkspaceInput(
@@ -136,6 +149,12 @@ final class MacWorkspaceSettingsModel {
         }
     }
 
+    func updateLabel(_ id: String, name: String? = nil, color: String? = nil) {
+        run { [self] in
+            try await deps.labelsApi.update(accountId: accountId, UpdateLabelInput(id: id, name: name, color: color))
+        }
+    }
+
     func deleteLabel(_ id: String) {
         run { [self] in try await deps.labelsApi.delete(accountId: accountId, id: id) }
     }
@@ -148,8 +167,12 @@ struct MacWorkspaceSettingsView: View {
 
     @State private var model: MacWorkspaceSettingsModel?
     @State private var newLabelName = ""
-    @State private var newLabelColor = "#3b82f6"
+    @State private var newLabelColor = DEFAULT_LABEL_COLOR
     @State private var agentName = MacAgentService.defaultAgentName
+    @State private var nameDraft: String?
+    @State private var editingLabelId: String?
+    @State private var editingName = ""
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -168,11 +191,24 @@ struct MacWorkspaceSettingsView: View {
                     projectsSection(model)
                     labelsSection(model)
                     agentSection()
+                    dangerSection(model)
                     if let error = model.error {
                         Text(error).foregroundStyle(.red).font(.callout)
                     }
                 }
                 .formStyle(.grouped)
+                .confirmationDialog(
+                    "Delete this workspace?",
+                    isPresented: $showDeleteConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete Workspace", role: .destructive) {
+                        model.deleteWorkspace { dismiss() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This permanently deletes the workspace and all its data.")
+                }
             } else {
                 ProgressView().frame(maxHeight: .infinity)
             }
@@ -192,6 +228,16 @@ struct MacWorkspaceSettingsView: View {
     private func generalSection(_ model: MacWorkspaceSettingsModel) -> some View {
         if let ws = model.workspace {
             Section("General") {
+                TextField("Name", text: Binding(
+                    get: { nameDraft ?? ws.name },
+                    set: { nameDraft = $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .disabled(!model.isOwnerOrAdmin)
+                .onSubmit {
+                    let trimmed = (nameDraft ?? "").trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty, trimmed != ws.name { model.setName(trimmed) }
+                }
                 Toggle("Public workspace", isOn: Binding(
                     get: { ws.isPublic },
                     set: { model.setPublic($0) }
@@ -212,9 +258,13 @@ struct MacWorkspaceSettingsView: View {
     }
 
     private func membersSection(_ model: MacWorkspaceSettingsModel) -> some View {
-        Section("Members") {
+        let ownerCount = model.members.filter { $0.role == DomainContract.workspaceRoleOwner }.count
+        return Section("Members") {
             ForEach(model.members) { member in
                 let u = model.user(member.userId)
+                let isSelf = member.userId == deps.auth.userId
+                // A workspace must always keep an owner — guard the last one.
+                let isLastOwner = member.role == DomainContract.workspaceRoleOwner && ownerCount <= 1
                 HStack {
                     VStack(alignment: .leading) {
                         Text(u?.name ?? u?.email ?? member.userId)
@@ -228,8 +278,15 @@ struct MacWorkspaceSettingsView: View {
                             }
                             if member.role != DomainContract.workspaceRoleMember {
                                 Button("Make member") { model.setRole(member.id, DomainContract.workspaceRoleMember) }
+                                    .disabled(isLastOwner)
                             }
-                            Button("Remove", role: .destructive) { model.removeMember(member.id) }
+                            if isSelf {
+                                if !isLastOwner {
+                                    Button("Leave workspace", role: .destructive) { model.removeMember(member.id) }
+                                }
+                            } else {
+                                Button("Remove", role: .destructive) { model.removeMember(member.id) }
+                            }
                         } label: { Image(systemName: "ellipsis.circle") }
                         .menuStyle(.borderlessButton).fixedSize()
                     }
@@ -313,27 +370,60 @@ struct MacWorkspaceSettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private func dangerSection(_ model: MacWorkspaceSettingsModel) -> some View {
+        if let ws = model.workspace, model.isOwnerOrAdmin, !ws.isPublic {
+            Section("Danger Zone") {
+                Button("Delete Workspace", role: .destructive) { showDeleteConfirm = true }
+            }
+        }
+    }
+
     private func labelsSection(_ model: MacWorkspaceSettingsModel) -> some View {
         Section("Labels") {
             ForEach(model.labels) { label in
-                HStack {
-                    Circle().fill(Color(hex: label.color) ?? .gray).frame(width: 10, height: 10)
-                    Text(label.name)
+                HStack(spacing: 10) {
+                    Menu {
+                        ColorSwatchGrid(selection: Binding(
+                            get: { label.color },
+                            set: { model.updateLabel(label.id, color: $0) }
+                        ))
+                        .padding(8)
+                        .frame(width: 200)
+                    } label: {
+                        Circle().fill(Color(hex: label.color) ?? .gray).frame(width: 14, height: 14)
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+
+                    if editingLabelId == label.id {
+                        TextField("Name", text: $editingName)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit {
+                                let n = editingName.trimmingCharacters(in: .whitespaces)
+                                if !n.isEmpty { model.updateLabel(label.id, name: n) }
+                                editingLabelId = nil
+                            }
+                    } else {
+                        Text(label.name)
+                            .onTapGesture { editingLabelId = label.id; editingName = label.name }
+                    }
                     Spacer()
                     Button(role: .destructive) { model.deleteLabel(label.id) } label: { Image(systemName: "trash") }
                         .buttonStyle(.borderless)
                 }
             }
-            HStack {
-                TextField("New label", text: $newLabelName).textFieldStyle(.roundedBorder)
-                TextField("#hex", text: $newLabelColor).textFieldStyle(.roundedBorder).frame(width: 90)
-                Button("Add") {
-                    let name = newLabelName.trimmingCharacters(in: .whitespaces)
-                    guard !name.isEmpty else { return }
-                    model.createLabel(name: name, color: newLabelColor)
-                    newLabelName = ""
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    TextField("New label", text: $newLabelName).textFieldStyle(.roundedBorder)
+                    Button("Add") {
+                        let name = newLabelName.trimmingCharacters(in: .whitespaces)
+                        guard !name.isEmpty else { return }
+                        model.createLabel(name: name, color: newLabelColor)
+                        newLabelName = ""
+                    }
+                    .disabled(newLabelName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .disabled(newLabelName.trimmingCharacters(in: .whitespaces).isEmpty)
+                ColorSwatchGrid(selection: $newLabelColor)
             }
         }
     }

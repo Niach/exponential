@@ -18,6 +18,7 @@ final class MacIssueDetailModel {
     var attachments: [AttachmentEntity] = []
     var permissions: WorkspacePermissions?
     var workspaceId: String?
+    var projectName: String?
     var error: String?
 
     // Title is a local buffer (seeded once so live sync doesn't clobber typing);
@@ -115,13 +116,18 @@ final class MacIssueDetailModel {
 
     private func resolvePermissions(for issue: IssueEntity) {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-        let workspace = try? pool.read { db -> WorkspaceEntity? in
-            guard let project = try ProjectEntity.fetchOne(db, key: issue.projectId) else { return nil }
-            return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
+        // Fetch project + workspace in a single read so they stay consistent if a
+        // concurrent sync deletes the project mid-resolution.
+        let resolved = try? pool.read { db -> (ProjectEntity?, WorkspaceEntity?) in
+            let project = try ProjectEntity.fetchOne(db, key: issue.projectId)
+            let workspace = try project.flatMap { try WorkspaceEntity.fetchOne(db, key: $0.workspaceId) }
+            return (project, workspace)
         }
+        projectName = resolved?.0?.name
+        let workspace = resolved?.1
         workspaceId = workspace?.id
         permissions = WorkspacePermissions.resolve(
-            workspace: workspace ?? nil,
+            workspace: workspace,
             currentUserId: deps.auth.userId,
             isAdmin: deps.auth.isAdmin,
             dbPool: pool
@@ -218,6 +224,28 @@ final class MacIssueDetailModel {
         await update(input)
     }
 
+    func setDueTime(_ time: String?) async {
+        guard let issue else { return }
+        var input = UpdateIssueInput(id: issue.id)
+        if let time { input.dueTime = time } else { input.explicitNulls.insert("dueTime") }
+        await update(input)
+    }
+
+    func setEndTime(_ time: String?) async {
+        guard let issue else { return }
+        var input = UpdateIssueInput(id: issue.id)
+        if let time { input.endTime = time } else { input.explicitNulls.insert("endTime") }
+        await update(input)
+    }
+
+    func setRecurrence(interval: Int?, unit: RecurrenceUnit?) async {
+        guard let issue else { return }
+        var input = UpdateIssueInput(id: issue.id, recurrenceInterval: interval, recurrenceUnit: unit?.rawValue)
+        if interval == nil { input.explicitNulls.insert("recurrenceInterval") }
+        if unit == nil { input.explicitNulls.insert("recurrenceUnit") }
+        await update(input)
+    }
+
     func toggleLabel(_ labelId: String) async {
         guard let issue else { return }
         do {
@@ -237,8 +265,7 @@ final class MacIssueDetailModel {
             self.error = "Can't create label — workspace not resolved yet."
             return
         }
-        let palette = ["#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6"]
-        let color = palette[labels.count % palette.count]
+        let color = LABEL_COLORS[labels.count % LABEL_COLORS.count]
         do {
             let newId = try await deps.labelsApi.create(
                 accountId: accountId,
@@ -256,6 +283,13 @@ final class MacIssueDetailModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do { try await deps.commentsApi.create(accountId: accountId, issueId: issue.id, text: trimmed) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    func updateComment(_ id: String, text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do { try await deps.commentsApi.update(accountId: accountId, id: id, text: trimmed) }
         catch { self.error = error.localizedDescription }
     }
 
@@ -304,7 +338,12 @@ struct MacIssueDetailView: View {
     @State private var showDuePicker = false
     @State private var showLabelPicker = false
     @State private var newLabelName = ""
+    @State private var editingCommentId: String?
+    @State private var editDraft = ""
     @FocusState private var titleFocused: Bool
+
+    // Below this content width the right rail collapses inline under the title.
+    private let railBreakpoint: CGFloat = 900
 
     var body: some View {
         Group {
@@ -323,32 +362,48 @@ struct MacIssueDetailView: View {
         }
         .onDisappear {
             // Flush both buffers — focus-loss may not fire when the detail view is
-            // swapped out wholesale (`.id(selectedIssue)`), so a pending title or
-            // description edit would otherwise be dropped.
+            // swapped out wholesale, so a pending title/description edit would
+            // otherwise be dropped.
             if let m = model { Task { await m.saveTitle(); await m.commitDescription(); m.stop() } }
         }
     }
 
+    // Two-pane on wide windows (web parity: main content + right property rail);
+    // single column with the rail inline under the title when narrow.
     @ViewBuilder
     private func content(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header(model, issue: issue)
-                Divider()
-                propertyRow(model, issue: issue)
-                labelsSection(model)
-                Divider()
-                descriptionSection(model)
-                Divider()
-                attachmentsSection(model)
-                Divider()
-                commentsSection(model)
-                if let error = model.error {
-                    Text(error).font(.callout).foregroundStyle(.red)
+        GeometryReader { geo in
+            let wide = geo.size.width >= railBreakpoint
+            if wide {
+                HStack(alignment: .top, spacing: 0) {
+                    ScrollView {
+                        mainColumn(model, issue: issue)
+                            .padding(24)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Divider()
+                    ScrollView {
+                        propertyRail(model, issue: issue).padding(20)
+                    }
+                    .frame(width: 320)
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        header(model, issue: issue)
+                        propertyRail(model, issue: issue)
+                        Divider()
+                        descriptionSection(model)
+                        Divider()
+                        attachmentsSection(model)
+                        Divider()
+                        commentsSection(model)
+                        errorText(model)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle(issue.identifier ?? "Issue")
         .toolbar {
@@ -365,6 +420,26 @@ struct MacIssueDetailView: View {
                 Task { if await model.deleteIssue() { onDelete() } }
             }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func mainColumn(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header(model, issue: issue)
+            Divider()
+            descriptionSection(model)
+            Divider()
+            attachmentsSection(model)
+            Divider()
+            commentsSection(model)
+            errorText(model)
+        }
+    }
+
+    @ViewBuilder
+    private func errorText(_ model: MacIssueDetailModel) -> some View {
+        if let error = model.error {
+            Text(error).font(.callout).foregroundStyle(.red)
         }
     }
 
@@ -386,126 +461,170 @@ struct MacIssueDetailView: View {
         }
     }
 
-    // MARK: - Properties (status / priority / assignee / due date)
+    // MARK: - Property rail (web order: Status / Priority / Assignee / Labels / Due / Project)
 
-    private func propertyRow(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
-        HStack(spacing: 14) {
-            Menu {
-                ForEach(IssueStatus.displayOrder, id: \.self) { s in
-                    Button { Task { await model.setStatus(s) } } label: { Label(s.label, systemImage: s.sfSymbol) }
+    @ViewBuilder
+    private func propertyRail(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            railRow("Status") { statusMenu(model, issue: issue) }
+            railRow("Priority") { priorityMenu(model, issue: issue) }
+            railRow("Assignee") { assigneeMenu(model) }
+            labelsRailRow(model)
+            railRow("Due date") { dueDateControl(model, issue: issue) }
+            if issue.dueDate != nil {
+                railRow("Start time") {
+                    MacTimeFieldButton(value: issue.dueTime) { v in Task { await model.setDueTime(v) } }
+                        .disabled(!model.canModerate)
                 }
-            } label: {
-                let s = IssueStatus.from(issue.status)
-                Label(s.label, systemImage: s.sfSymbol).foregroundStyle(s.color)
-            }
-            .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
-
-            Menu {
-                ForEach(IssuePriority.displayOrder, id: \.self) { p in
-                    Button { Task { await model.setPriority(p) } } label: { Label(p.label, systemImage: p.sfSymbol) }
+                railRow("End time") {
+                    MacTimeFieldButton(value: issue.endTime) { v in Task { await model.setEndTime(v) } }
+                        .disabled(!model.canModerate)
                 }
-            } label: {
-                let p = IssuePriority.from(issue.priority)
-                Label(p.label, systemImage: p.sfSymbol).foregroundStyle(p.color)
             }
-            .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
-
-            Menu {
-                Button("Unassigned") { Task { await model.setAssignee(nil) } }
-                Divider()
-                ForEach(model.users) { u in
-                    Button(u.name ?? u.email) { Task { await model.setAssignee(u.id) } }
-                }
-            } label: {
-                Label(model.assignee?.name ?? model.assignee?.email ?? "Unassigned", systemImage: "person.crop.circle")
-                    .foregroundStyle(.secondary)
+            railRow("Repeat") {
+                MacRecurrenceMenu(
+                    interval: issue.recurrenceInterval,
+                    unit: issue.recurrenceUnit,
+                    onSelect: { i, u in Task { await model.setRecurrence(interval: i, unit: u) } },
+                    enabled: model.canModerate
+                )
             }
-            .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
-
-            dueDateControl(model, issue: issue)
-            Spacer()
+            railRow("Project") {
+                Text(model.projectName ?? "—").font(.subheadline).foregroundStyle(.secondary)
+            }
         }
+        .padding(14)
+        .glassSection()
+        .opacity(model.canModerate ? 1 : 0.7)
+    }
+
+    @ViewBuilder
+    private func railRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).font(.subheadline).foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
+            Spacer(minLength: 8)
+            content()
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func statusMenu(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        Menu {
+            ForEach(IssueStatus.displayOrder, id: \.self) { s in
+                Button { Task { await model.setStatus(s) } } label: { Label(s.label, systemImage: s.sfSymbol) }
+            }
+        } label: {
+            let s = IssueStatus.from(issue.status)
+            Label(s.label, systemImage: s.sfSymbol).foregroundStyle(s.color)
+        }
+        .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
+    }
+
+    private func priorityMenu(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        Menu {
+            ForEach(IssuePriority.displayOrder, id: \.self) { p in
+                Button { Task { await model.setPriority(p) } } label: { Label(p.label, systemImage: p.sfSymbol) }
+            }
+        } label: {
+            let p = IssuePriority.from(issue.priority)
+            Label(p.label, systemImage: p.sfSymbol).foregroundStyle(p.color)
+        }
+        .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
+    }
+
+    private func assigneeMenu(_ model: MacIssueDetailModel) -> some View {
+        Menu {
+            Button("Unassigned") { Task { await model.setAssignee(nil) } }
+            Divider()
+            ForEach(model.users) { u in
+                Button(u.name ?? u.email) { Task { await model.setAssignee(u.id) } }
+            }
+        } label: {
+            Label(model.assignee?.name ?? model.assignee?.email ?? "Unassigned", systemImage: "person.crop.circle")
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
     }
 
     // Due date as a button that opens a graphical calendar popover (mirrors the
-    // web's react-day-picker popover + iOS). One tap = one mutation; avoids the
-    // inline stepper-field DatePicker whose computed binding fought the async
-    // Electric round-trip (each sub-component edit mutated, value snapped back).
+    // web's react-day-picker popover + iOS).
     @ViewBuilder
     private func dueDateControl(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
         let due = Self.parseDate(issue.dueDate)
-        Button { showDuePicker = true } label: {
-            Label(
-                due.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Add due date",
-                systemImage: due == nil ? "calendar.badge.plus" : "calendar"
-            )
-            .foregroundStyle(due == nil ? Color.secondary : Color.primary)
-        }
-        .buttonStyle(.borderless)
-        .fixedSize()
-        .disabled(!model.canModerate)
-        .popover(isPresented: $showDuePicker, arrowEdge: .bottom) {
-            DatePicker(
-                "Due date",
-                selection: Binding(
-                    get: { due ?? Date() },
-                    set: { newDate in
-                        showDuePicker = false
-                        Task { await model.setDueDate(newDate) }
-                    }
-                ),
-                displayedComponents: [.date]
-            )
-            .datePickerStyle(.graphical)
-            .labelsHidden()
-            .padding(12)
-        }
-
-        if due != nil {
-            Button { Task { await model.setDueDate(nil) } } label: {
-                Image(systemName: "xmark.circle.fill")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.tertiary)
-            .disabled(!model.canModerate)
-        }
-    }
-
-    // MARK: - Labels
-
-    @ViewBuilder
-    private func labelsSection(_ model: MacIssueDetailModel) -> some View {
-        HStack(spacing: 6) {
-            Button { showLabelPicker = true } label: {
-                Label("Label", systemImage: "tag").font(.caption)
+        HStack(spacing: 4) {
+            Button { showDuePicker = true } label: {
+                Label(
+                    due.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Add due date",
+                    systemImage: due == nil ? "calendar.badge.plus" : "calendar"
+                )
+                .foregroundStyle(due == nil ? Color.secondary : Color.primary)
             }
             .buttonStyle(.borderless)
             .fixedSize()
-            .foregroundStyle(.secondary)
-            .disabled(!model.canEditContent)
-            .popover(isPresented: $showLabelPicker, arrowEdge: .bottom) {
-                labelPicker(model)
+            .disabled(!model.canModerate)
+            .popover(isPresented: $showDuePicker, arrowEdge: .bottom) {
+                DatePicker(
+                    "Due date",
+                    selection: Binding(
+                        get: { due ?? Date() },
+                        set: { newDate in
+                            showDuePicker = false
+                            Task { await model.setDueDate(newDate) }
+                        }
+                    ),
+                    displayedComponents: [.date]
+                )
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .padding(12)
             }
-
-            ForEach(model.assignedLabels) { label in
-                Button { Task { await model.toggleLabel(label.id) } } label: {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color(hex: label.color) ?? .gray).frame(width: 8, height: 8)
-                        Text(label.name).font(.caption)
-                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 3)
+            if due != nil {
+                Button { Task { await model.setDueDate(nil) } } label: {
+                    Image(systemName: "xmark.circle.fill")
                 }
-                .buttonStyle(.plain)
-                .glassButton()
-                .disabled(!model.canEditContent)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.tertiary)
+                .disabled(!model.canModerate)
             }
-            Spacer(minLength: 0)
         }
     }
 
-    // Popover label picker (plain Buttons — reliable, unlike the icon Menu) with
-    // inline create, mirroring the web/iOS label picker.
+    // MARK: - Labels (rail row)
+
+    @ViewBuilder
+    private func labelsRailRow(_ model: MacIssueDetailModel) -> some View {
+        HStack(alignment: .top) {
+            Text("Labels").font(.subheadline).foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 6) {
+                Button { showLabelPicker = true } label: { Label("Add", systemImage: "tag").font(.caption) }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .disabled(!model.canEditContent)
+                    .popover(isPresented: $showLabelPicker, arrowEdge: .bottom) { labelPicker(model) }
+                if !model.assignedLabels.isEmpty {
+                    MacFlowLayout(spacing: 6) {
+                        ForEach(model.assignedLabels) { label in
+                            Button { Task { await model.toggleLabel(label.id) } } label: {
+                                HStack(spacing: 4) {
+                                    Circle().fill(Color(hex: label.color) ?? .gray).frame(width: 8, height: 8)
+                                    Text(label.name).font(.caption)
+                                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
+                                }
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                            }
+                            .buttonStyle(.plain)
+                            .glassButton()
+                            .disabled(!model.canEditContent)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
     @ViewBuilder
     private func labelPicker(_ model: MacIssueDetailModel) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -591,11 +710,12 @@ struct MacIssueDetailView: View {
         }
     }
 
-    // MARK: - Comments
+    // MARK: - Comments (timeline with relative time, edit/delete)
 
     private func commentsSection(_ model: MacIssueDetailModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Comments").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            Text(model.comments.isEmpty ? "Comments" : "Comments (\(model.comments.count))")
+                .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
             ForEach(model.comments) { comment in
                 commentRow(comment, model: model)
             }
@@ -618,20 +738,46 @@ struct MacIssueDetailView: View {
         let author = model.user(comment.authorId)
         let body = getCommentBodyText(comment.body)
         let kind = comment.commentKind
+        let canModify = comment.authorId == deps.auth.userId || deps.auth.isAdmin
+        let isEditing = editingCommentId == comment.id
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(author?.name ?? author?.email ?? "Unknown").font(.caption.weight(.semibold))
                 if kind == .question { Text("asks").font(.caption).foregroundStyle(.purple) }
-                if kind == .plan { Text("plan").font(.caption).foregroundStyle(.blue) }
+                if kind == .plan { Text("plan").font(.caption).foregroundStyle(Accent.indigo) }
+                Text(macRelativeDate(comment.createdAt)).font(.caption2).foregroundStyle(.tertiary)
+                if comment.editedAt != nil {
+                    Text("· edited").font(.caption2).foregroundStyle(.tertiary)
+                }
                 Spacer()
-                if comment.authorId == deps.auth.userId || deps.auth.isAdmin {
-                    Button { Task { await model.deleteComment(comment.id) } } label: {
-                        Image(systemName: "trash").font(.caption2)
+                if canModify && !isEditing {
+                    Menu {
+                        if kind == .regular {
+                            Button("Edit") { editDraft = body; editingCommentId = comment.id }
+                        }
+                        Button("Delete", role: .destructive) { Task { await model.deleteComment(comment.id) } }
+                    } label: {
+                        Image(systemName: "ellipsis").font(.caption2)
                     }
-                    .buttonStyle(.borderless).foregroundStyle(.tertiary)
+                    .menuStyle(.borderlessButton).fixedSize()
                 }
             }
-            Text(body).font(.callout).textSelection(.enabled)
+            if isEditing {
+                TextField("Edit comment", text: $editDraft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...6)
+                HStack {
+                    Button("Save") {
+                        let t = editDraft
+                        editingCommentId = nil
+                        Task { await model.updateComment(comment.id, text: t) }
+                    }
+                    .buttonStyle(.borderedProminent).tint(Accent.indigo).controlSize(.small)
+                    Button("Cancel") { editingCommentId = nil }.controlSize(.small)
+                }
+            } else {
+                Text(body).font(.callout).textSelection(.enabled)
+            }
             if kind == .plan, model.issue?.agentPlanState == "awaiting_approval",
                model.permissions?.canApprovePlan(creatorId: model.issue?.creatorId) == true {
                 HStack(spacing: 8) {
@@ -651,7 +797,7 @@ struct MacIssueDetailView: View {
         switch kind {
         case .regular: Color.white.opacity(0.04)
         case .question: Color.purple.opacity(0.10)
-        case .plan: Color.blue.opacity(0.10)
+        case .plan: Accent.indigo.opacity(0.10)
         }
     }
 

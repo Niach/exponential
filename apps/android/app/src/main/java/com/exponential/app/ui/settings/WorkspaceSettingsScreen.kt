@@ -223,10 +223,13 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                 Text("Invite")
             }
         }
+        // A workspace must always keep at least one owner.
+        val ownerCount = state.members.count { it.member.role == DomainContract.workspaceRoleOwner }
         Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
             state.members.forEachIndexed { i, row ->
                 if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                 val isYou = row.member.userId == state.currentUserId
+                val isLastOwner = row.member.role == DomainContract.workspaceRoleOwner && ownerCount <= 1
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -255,29 +258,48 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                             Icon(Icons.Filled.MoreVert, contentDescription = "Member actions")
                         }
                         DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
-                            // Role options, hiding the role already applied (parity with iOS).
-                            DomainContract.workspaceRoleValues.filter { it != row.member.role }.forEach { role ->
+                            // Only owner/member are assignable (agents are managed
+                            // separately). The last owner can't be demoted or leave.
+                            if (row.member.role != DomainContract.workspaceRoleOwner) {
                                 DropdownMenuItem(
-                                    text = { Text("Make $role") },
+                                    text = { Text("Make owner") },
                                     onClick = {
                                         rowMenu = false
-                                        viewModel.updateRole(row.member.id, role)
+                                        viewModel.updateRole(row.member.id, DomainContract.workspaceRoleOwner)
                                     },
                                 )
                             }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (isYou) "Leave workspace" else "Remove",
-                                        color = MaterialTheme.colorScheme.error,
+                            if (row.member.role != DomainContract.workspaceRoleMember) {
+                                DropdownMenuItem(
+                                    text = { Text("Make member") },
+                                    enabled = !isLastOwner,
+                                    onClick = {
+                                        rowMenu = false
+                                        viewModel.updateRole(row.member.id, DomainContract.workspaceRoleMember)
+                                    },
+                                )
+                            }
+                            if (isYou) {
+                                if (!isLastOwner) {
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("Leave workspace", color = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            rowMenu = false
+                                            viewModel.removeMember(row.member.id)
+                                        },
                                     )
-                                },
-                                onClick = {
-                                    rowMenu = false
-                                    viewModel.removeMember(row.member.id)
-                                },
-                            )
+                                }
+                            } else {
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        rowMenu = false
+                                        viewModel.removeMember(row.member.id)
+                                    },
+                                )
+                            }
                         }
                     }
                 }

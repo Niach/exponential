@@ -20,6 +20,16 @@ public struct WorkspaceResult: Decodable, Sendable {
     }
 }
 
+public struct CreateWorkspaceInput: Encodable, Sendable {
+    public let name: String
+    public var iconUrl: String?
+
+    public init(name: String, iconUrl: String? = nil) {
+        self.name = name
+        self.iconUrl = iconUrl
+    }
+}
+
 public struct UpdateWorkspaceInput: Encodable, Sendable {
     public let id: String
     public var name: String?
@@ -64,6 +74,11 @@ public final class WorkspacesApi: Sendable {
 
     public func ensureDefault(accountId: String) async throws -> WorkspaceResult {
         let result: EnsureDefaultResult = try await trpc.mutation(accountId: accountId, path: "workspaces.ensureDefault", input: EmptyInput())
+        return result.workspace
+    }
+
+    public func create(accountId: String, name: String, iconUrl: String? = nil) async throws -> WorkspaceResult {
+        let result: EnsureDefaultResult = try await trpc.mutation(accountId: accountId, path: "workspaces.create", input: CreateWorkspaceInput(name: name, iconUrl: iconUrl))
         return result.workspace
     }
 

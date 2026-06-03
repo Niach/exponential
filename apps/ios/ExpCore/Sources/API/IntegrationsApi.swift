@@ -20,7 +20,8 @@ public final class IntegrationsApi: Sendable {
     }
 
     public func googleStatus(accountId: String) async throws -> GoogleStatusResult {
-        try await trpc.mutation(accountId: accountId, path: "integrations.google.status", input: EmptyIntegrationInput())
+        // Server defines integrations.google.status as a `.query` (GET).
+        try await trpc.query(accountId: accountId, path: "integrations.google.status")
     }
 
     public func googleDisconnect(accountId: String) async throws {
