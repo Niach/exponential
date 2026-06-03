@@ -2,7 +2,10 @@ import ExpCore
 import ExpUI
 import Foundation
 import GRDB
+import os
 import SwiftUI
+
+private let detailLog = Logger(subsystem: "at.exponential.mac", category: "MacIssueDetail")
 
 @MainActor
 @Observable
@@ -14,6 +17,7 @@ final class MacIssueDetailModel {
     var comments: [CommentEntity] = []
     var attachments: [AttachmentEntity] = []
     var permissions: WorkspacePermissions?
+    var workspaceId: String?
     var error: String?
 
     // Title is a local buffer (seeded once so live sync doesn't clobber typing);
@@ -115,6 +119,7 @@ final class MacIssueDetailModel {
             guard let project = try ProjectEntity.fetchOne(db, key: issue.projectId) else { return nil }
             return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
         }
+        workspaceId = workspace?.id
         permissions = WorkspacePermissions.resolve(
             workspace: workspace ?? nil,
             currentUserId: deps.auth.userId,
@@ -221,7 +226,29 @@ final class MacIssueDetailModel {
             } else {
                 try await deps.labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
             }
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            detailLog.error("toggleLabel failed: \(error.localizedDescription, privacy: .public)")
+            self.error = error.localizedDescription
+        }
+    }
+
+    func createLabelAndAssign(name: String) async {
+        guard let issue, let workspaceId else {
+            self.error = "Can't create label — workspace not resolved yet."
+            return
+        }
+        let palette = ["#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6"]
+        let color = palette[labels.count % palette.count]
+        do {
+            let newId = try await deps.labelsApi.create(
+                accountId: accountId,
+                CreateLabelInput(name: name, color: color, workspaceId: workspaceId)
+            )
+            try await deps.labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: newId)
+        } catch {
+            detailLog.error("createLabel failed: \(error.localizedDescription, privacy: .public)")
+            self.error = error.localizedDescription
+        }
     }
 
     func addComment(_ text: String) async {
@@ -275,6 +302,8 @@ struct MacIssueDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var draftComment = ""
     @State private var showDuePicker = false
+    @State private var showLabelPicker = false
+    @State private var newLabelName = ""
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -446,31 +475,76 @@ struct MacIssueDetailView: View {
 
     @ViewBuilder
     private func labelsSection(_ model: MacIssueDetailModel) -> some View {
-        if !model.availableLabels.isEmpty {
-            HStack(spacing: 6) {
-                Menu {
-                    ForEach(model.availableLabels) { label in
-                        Button {
-                            Task { await model.toggleLabel(label.id) }
-                        } label: {
-                            Label(label.name, systemImage: model.assignedLabelIds.contains(label.id) ? "checkmark" : "")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "tag")
-                }
-                .menuStyle(.borderlessButton).fixedSize().disabled(!model.canEditContent)
+        HStack(spacing: 6) {
+            Button { showLabelPicker = true } label: {
+                Label("Label", systemImage: "tag").font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .fixedSize()
+            .foregroundStyle(.secondary)
+            .disabled(!model.canEditContent)
+            .popover(isPresented: $showLabelPicker, arrowEdge: .bottom) {
+                labelPicker(model)
+            }
 
-                ForEach(model.assignedLabels) { label in
+            ForEach(model.assignedLabels) { label in
+                Button { Task { await model.toggleLabel(label.id) } } label: {
                     HStack(spacing: 4) {
                         Circle().fill(Color(hex: label.color) ?? .gray).frame(width: 8, height: 8)
                         Text(label.name).font(.caption)
+                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .glassButton()
+                }
+                .buttonStyle(.plain)
+                .glassButton()
+                .disabled(!model.canEditContent)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // Popover label picker (plain Buttons — reliable, unlike the icon Menu) with
+    // inline create, mirroring the web/iOS label picker.
+    @ViewBuilder
+    private func labelPicker(_ model: MacIssueDetailModel) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if model.availableLabels.isEmpty {
+                Text("No labels yet — create one below.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(model.availableLabels) { label in
+                    Button { Task { await model.toggleLabel(label.id) } } label: {
+                        HStack(spacing: 8) {
+                            Circle().fill(Color(hex: label.color) ?? .gray).frame(width: 9, height: 9)
+                            Text(label.name)
+                            Spacer()
+                            if model.assignedLabelIds.contains(label.id) {
+                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            Divider().padding(.vertical, 2)
+            HStack(spacing: 6) {
+                TextField("New label", text: $newLabelName)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { submitNewLabel(model) }
+                Button("Create") { submitNewLabel(model) }
+                    .disabled(newLabelName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
         }
+        .padding(12)
+        .frame(width: 240)
+    }
+
+    private func submitNewLabel(_ model: MacIssueDetailModel) {
+        let name = newLabelName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        newLabelName = ""
+        Task { await model.createLabelAndAssign(name: name) }
     }
 
     // MARK: - Description (rich block-markdown editor)
