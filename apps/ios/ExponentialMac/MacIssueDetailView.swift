@@ -292,7 +292,10 @@ struct MacIssueDetailView: View {
             }
         }
         .onDisappear {
-            if let m = model { Task { await m.commitDescription(); m.stop() } }
+            // Flush both buffers — focus-loss may not fire when the detail view is
+            // swapped out wholesale (`.id(selectedIssue)`), so a pending title or
+            // description edit would otherwise be dropped.
+            if let m = model { Task { await m.saveTitle(); await m.commitDescription(); m.stop() } }
         }
     }
 
@@ -389,19 +392,26 @@ struct MacIssueDetailView: View {
             }
             .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
 
-            DatePicker(
-                "Due",
-                selection: Binding(
-                    get: { Self.parseDate(issue.dueDate) ?? Date() },
-                    set: { newDate in Task { await model.setDueDate(newDate) } }
-                ),
-                displayedComponents: [.date]
-            )
-            .labelsHidden()
-            .disabled(!model.canModerate)
-            if issue.dueDate != nil {
+            if let due = Self.parseDate(issue.dueDate) {
+                DatePicker(
+                    "Due",
+                    selection: Binding(
+                        get: { due },
+                        set: { newDate in Task { await model.setDueDate(newDate) } }
+                    ),
+                    displayedComponents: [.date]
+                )
+                .labelsHidden()
+                .disabled(!model.canModerate)
                 Button { Task { await model.setDueDate(nil) } } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless).foregroundStyle(.tertiary).disabled(!model.canModerate)
+            } else {
+                // No due date set — offer an explicit affordance instead of a
+                // picker that misleadingly displays today as if it were the value.
+                Button { Task { await model.setDueDate(Date()) } } label: {
+                    Label("Add due date", systemImage: "calendar.badge.plus")
+                }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).disabled(!model.canModerate)
             }
             Spacer()
         }

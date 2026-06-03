@@ -140,6 +140,8 @@ struct MacIssueListView: View {
                         showCreate = false
                     }
                 }
+                // Publish ⌘N for the app menu while this project is in scene focus.
+                .focusedSceneValue(\.createIssueAction, model.canCreate ? { showCreate = true } : nil)
             } else {
                 ProgressView()
             }

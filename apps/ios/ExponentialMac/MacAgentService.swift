@@ -154,8 +154,15 @@ final class MacAgentService {
     func unregister(workspaceId: String) async {
         guard let id = MacAgentStore.load(workspaceId: workspaceId) else { return }
         busy = true
+        lastError = nil
         defer { busy = false }
-        _ = try? await trpc(base: id.instanceUrl, path: "companion.uninstallSelf", input: nil, bearer: id.apiKey)
+        // Best-effort server uninstall; always remove locally (the user wants the
+        // agent gone on this Mac even if the token was already revoked server-side).
+        do {
+            _ = try await trpc(base: id.instanceUrl, path: "companion.uninstallSelf", input: nil, bearer: id.apiKey)
+        } catch {
+            lastError = "Removed locally; the server uninstall failed: \(error.localizedDescription)"
+        }
         stopHeartbeat(workspaceId)
         cores[workspaceId]?.shutdown()
         cores[workspaceId] = nil
@@ -202,13 +209,17 @@ final class MacAgentService {
     private func startHeartbeat(_ id: MacAgentIdentity) {
         heartbeats[id.workspaceId]?.cancel()
         let base = id.instanceUrl, key = id.apiKey, wid = id.workspaceId
-        heartbeats[wid] = Task { [weak self] in
+        heartbeats[wid] = Task { @MainActor [weak self] in
             while !Task.isCancelled {
+                // Self-terminate if the service is gone (it weakly captures self,
+                // so the loop would otherwise spin forever as a no-op) — this also
+                // means we don't need a deinit, which can't touch main-actor state.
+                guard let self else { return }
                 do {
-                    _ = try await self?.trpc(base: base, path: "companion.heartbeat", input: nil, bearer: key)
-                    self?.online.insert(wid)
+                    _ = try await self.trpc(base: base, path: "companion.heartbeat", input: nil, bearer: key)
+                    self.online.insert(wid)
                 } catch {
-                    self?.online.remove(wid)
+                    self.online.remove(wid)
                 }
                 try? await Task.sleep(for: .seconds(30))
             }

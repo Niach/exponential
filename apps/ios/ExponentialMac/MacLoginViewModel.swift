@@ -57,10 +57,16 @@ final class MacLoginViewModel: NSObject, ASWebAuthenticationPresentationContextP
         configLoading = true
         configError = nil
         do {
-            config = try await authApi.fetchAuthConfig(instanceUrl: instanceUrl)
+            let loaded = try await authApi.fetchAuthConfig(instanceUrl: instanceUrl)
+            // The user may have gone back and chosen a different instance while
+            // this request was in flight — drop a result for a stale instance.
+            guard auth.instanceUrl == instanceUrl else { return }
+            config = loaded
         } catch {
+            guard auth.instanceUrl == instanceUrl else { return }
             configError = error.localizedDescription
         }
+        guard auth.instanceUrl == instanceUrl else { return }
         configLoading = false
     }
 

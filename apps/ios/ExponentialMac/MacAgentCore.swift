@@ -12,6 +12,7 @@ final class MacAgentCore: @unchecked Sendable {
     private let core: OpaquePointer
     private let onLog: (@Sendable (String) -> Void)?
     private var ctxToken: Unmanaged<MacAgentCore>?
+    private var hasShutdown = false
 
     init?(configJson: String, onLog: (@Sendable (String) -> Void)? = nil) {
         guard let core = configJson.withCString({ agent_core_create($0) }) else { return nil }
@@ -69,12 +70,24 @@ final class MacAgentCore: @unchecked Sendable {
         }
     }
 
-    /// Stop + free the core and release the callback context. Call exactly once.
+    /// Stop + free the core and release the callback context. Idempotent.
     func shutdown() {
+        guard !hasShutdown else { return }
+        hasShutdown = true
         _ = agent_core_stop(core)
         agent_core_free(core)
         ctxToken?.release()
         ctxToken = nil
+    }
+
+    deinit {
+        // Safety net if shutdown() was never called (e.g. abandoned without
+        // unregister) — avoids leaking the core + the retained callback context.
+        if !hasShutdown {
+            _ = agent_core_stop(core)
+            agent_core_free(core)
+            ctxToken?.release()
+        }
     }
 }
 

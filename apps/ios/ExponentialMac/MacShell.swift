@@ -56,6 +56,12 @@ struct MacShell: View {
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
         .onChange(of: selectedProject) { _, _ in selectedIssue = nil }
+        // A selection from the previous account points at another account's DB
+        // pool — clear it so the list/detail never query the wrong account.
+        .onChange(of: deps.auth.activeAccountId) { _, _ in
+            selectedProject = nil
+            selectedIssue = nil
+        }
         .sheet(item: $settingsTarget) { target in
             MacWorkspaceSettingsView(target: target)
                 .environment(deps)

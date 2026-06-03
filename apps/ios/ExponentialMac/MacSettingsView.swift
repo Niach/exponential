@@ -40,7 +40,11 @@ struct MacSettingsView: View {
 
     private func signOut(_ account: ServerAccount) {
         let id = account.id
-        Task { await deps.syncManager.signOut(accountId: id) }
-        deps.auth.removeAccount(id: id)
+        // Tear sync down first (it still references the token + DB pool), then
+        // remove the account so we never yank state out from under the sync task.
+        Task {
+            await deps.syncManager.signOut(accountId: id)
+            deps.auth.removeAccount(id: id)
+        }
     }
 }

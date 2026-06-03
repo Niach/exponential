@@ -210,12 +210,17 @@ final class MacGhosttyTerminalView: NSView {
 final class AgentRunSession: NSObject, NSWindowDelegate {
     private let promptPath, scriptPath, outPath, codePath: String
     private let onDone: @Sendable (Int32, String) -> Void
-    weak var view: MacGhosttyTerminalView?
+    // STRONG: the ghostty surface holds an unretained pointer to this view as its
+    // userdata, so the view must outlive the surface. The session is retained by
+    // the runner until windowWillClose frees the surface, then released — so a
+    // callback can never deref a freed view.
+    let view: MacGhosttyTerminalView
     var onClosed: (() -> Void)?
     private var finished = false
 
-    init(promptPath: String, scriptPath: String, outPath: String, codePath: String,
+    init(view: MacGhosttyTerminalView, promptPath: String, scriptPath: String, outPath: String, codePath: String,
          onDone: @escaping @Sendable (Int32, String) -> Void) {
+        self.view = view
         self.promptPath = promptPath
         self.scriptPath = scriptPath
         self.outPath = outPath
@@ -238,7 +243,7 @@ final class AgentRunSession: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         finish(-1) // safety net if the user closes before the command finished
-        view?.destroySurface()
+        view.destroySurface() // frees the surface BEFORE the strong view ref drops
         onClosed?()
     }
 }
@@ -283,9 +288,8 @@ final class MacAgentTerminalRunner {
         let command = "/usr/bin/env bash \(Self.shquote(scriptPath))"
 
         let view = MacGhosttyTerminalView(command: command, cwd: cwd)
-        let session = AgentRunSession(promptPath: promptPath, scriptPath: scriptPath,
+        let session = AgentRunSession(view: view, promptPath: promptPath, scriptPath: scriptPath,
                                       outPath: outPath, codePath: codePath, onDone: onDone)
-        session.view = view
         session.onClosed = { [weak self] in
             self?.sessions[runId] = nil
             self?.windows[runId] = nil
