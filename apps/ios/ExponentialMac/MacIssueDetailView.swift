@@ -274,6 +274,7 @@ struct MacIssueDetailView: View {
     @State private var model: MacIssueDetailModel?
     @State private var showDeleteConfirm = false
     @State private var draftComment = ""
+    @State private var showDuePicker = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -392,28 +393,52 @@ struct MacIssueDetailView: View {
             }
             .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
 
-            if let due = Self.parseDate(issue.dueDate) {
-                DatePicker(
-                    "Due",
-                    selection: Binding(
-                        get: { due },
-                        set: { newDate in Task { await model.setDueDate(newDate) } }
-                    ),
-                    displayedComponents: [.date]
-                )
-                .labelsHidden()
-                .disabled(!model.canModerate)
-                Button { Task { await model.setDueDate(nil) } } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.borderless).foregroundStyle(.tertiary).disabled(!model.canModerate)
-            } else {
-                // No due date set — offer an explicit affordance instead of a
-                // picker that misleadingly displays today as if it were the value.
-                Button { Task { await model.setDueDate(Date()) } } label: {
-                    Label("Add due date", systemImage: "calendar.badge.plus")
-                }
-                .buttonStyle(.borderless).foregroundStyle(.secondary).disabled(!model.canModerate)
-            }
+            dueDateControl(model, issue: issue)
             Spacer()
+        }
+    }
+
+    // Due date as a button that opens a graphical calendar popover (mirrors the
+    // web's react-day-picker popover + iOS). One tap = one mutation; avoids the
+    // inline stepper-field DatePicker whose computed binding fought the async
+    // Electric round-trip (each sub-component edit mutated, value snapped back).
+    @ViewBuilder
+    private func dueDateControl(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        let due = Self.parseDate(issue.dueDate)
+        Button { showDuePicker = true } label: {
+            Label(
+                due.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Add due date",
+                systemImage: due == nil ? "calendar.badge.plus" : "calendar"
+            )
+            .foregroundStyle(due == nil ? Color.secondary : Color.primary)
+        }
+        .buttonStyle(.borderless)
+        .fixedSize()
+        .disabled(!model.canModerate)
+        .popover(isPresented: $showDuePicker, arrowEdge: .bottom) {
+            DatePicker(
+                "Due date",
+                selection: Binding(
+                    get: { due ?? Date() },
+                    set: { newDate in
+                        showDuePicker = false
+                        Task { await model.setDueDate(newDate) }
+                    }
+                ),
+                displayedComponents: [.date]
+            )
+            .datePickerStyle(.graphical)
+            .labelsHidden()
+            .padding(12)
+        }
+
+        if due != nil {
+            Button { Task { await model.setDueDate(nil) } } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.tertiary)
+            .disabled(!model.canModerate)
         }
     }
 
