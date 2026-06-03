@@ -131,11 +131,20 @@ public enum TextOpacity {
     public static let quaternary: Double = 0.3
 }
 
+// MARK: - Accent
+
+public enum Accent {
+    /// The web app's primary indigo (#6366f1) — used for primary buttons,
+    /// count badges, and selection accents. Replaces system blue.
+    public static let indigo = Color(red: 0.388, green: 0.400, blue: 0.945)
+}
+
 // MARK: - Status Colors
 
 public enum StatusColor {
     public static let backlog = Color.gray
-    public static let todo = Color.gray
+    /// Web's todo is `text-foreground` (near-white), not gray.
+    public static let todo = Zinc._50
     public static let inProgress = Color.yellow
     public static let done = Color.green
     public static let cancelled = Color.red

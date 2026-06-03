@@ -36,6 +36,6 @@ public struct WorkspaceAvatar: View {
             .font(.caption.weight(.bold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(Color.blue.opacity(0.6))
+            .background(Accent.indigo.opacity(0.6))
     }
 }

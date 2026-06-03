@@ -66,22 +66,6 @@ public struct AdminOwner: Decodable, Sendable {
     }
 }
 
-public struct AdminUsersResult: Decodable, Sendable {
-    public let users: [AdminUser]
-
-    public init(users: [AdminUser]) {
-        self.users = users
-    }
-}
-
-public struct AdminWorkspacesResult: Decodable, Sendable {
-    public let workspaces: [AdminWorkspace]
-
-    public init(workspaces: [AdminWorkspace]) {
-        self.workspaces = workspaces
-    }
-}
-
 public struct SetAdminInput: Encodable, Sendable {
     public let userId: String
     public let isAdmin: Bool
@@ -100,8 +84,6 @@ public struct DeleteUserInput: Encodable, Sendable {
     }
 }
 
-private struct EmptyAdminInput: Encodable {}
-
 public final class AdminApi: Sendable {
     private let trpc: TrpcClient
 
@@ -110,8 +92,8 @@ public final class AdminApi: Sendable {
     }
 
     public func listUsers(accountId: String) async throws -> [AdminUser] {
-        let result: AdminUsersResult = try await trpc.mutation(accountId: accountId, path: "admin.listUsers", input: EmptyAdminInput())
-        return result.users
+        // Server defines admin.listUsers as a `.query` (GET) returning a bare array.
+        try await trpc.query(accountId: accountId, path: "admin.listUsers")
     }
 
     public func setUserAdmin(accountId: String, userId: String, isAdmin: Bool) async throws {
@@ -123,8 +105,8 @@ public final class AdminApi: Sendable {
     }
 
     public func listWorkspaces(accountId: String) async throws -> [AdminWorkspace] {
-        let result: AdminWorkspacesResult = try await trpc.mutation(accountId: accountId, path: "admin.listWorkspaces", input: EmptyAdminInput())
-        return result.workspaces
+        // Server defines admin.listWorkspaces as a `.query` (GET) returning a bare array.
+        try await trpc.query(accountId: accountId, path: "admin.listWorkspaces")
     }
 
     public func deleteWorkspace(accountId: String, workspaceId: String) async throws {
