@@ -262,16 +262,22 @@ NSImage`). Honor the GFM contract (see root `CLAUDE.md`).
 > and `uninstallSelf`. Wired into `MacAppDependencies` (heartbeats start at launch)
 > + a "Desktop Agent" section in the workspace-settings sheet. Pure Swift+HTTP,
 > no Rust dep; registering makes the Mac appear in the web agents list.
-> **Blocked — M6 loop + M7 terminal:** these need (1) the Rust `agent-core`
-> **cdylib built for macOS** — there is **no Rust toolchain (cargo/rustc) on the
-> build machine**, so the cdylib can't be built/linked/verified here; and (2) a
-> **macOS libghostty** build for the embedded terminal. Once cargo is available:
-> `cargo build -p agent-core` (→ `target/{debug,release}/libagent_core.dylib`),
-> add a clang module map over `agent_core.h` + a Swift `AgentService` over the C
-> ABI (§4), bundle+sign the dylib, and implement the `run_request` handshake
-> (the bash-wrapper + `tee` + `PIPESTATUS` capture from
-> `apps/linux/src/core/agent/agent_manager.zig`). For the runner, a `Foundation.Process`
-> capture is a valid interim before the `GhosttyKit` Metal terminal (M7).
+> **Done — M6 loop (build + launch green):** Rust toolchain installed; a
+> Project.swift pre-build script runs `cargo build -p agent-core --release` and
+> the macOS app links the cdylib (clang module map over `agent_core.h`,
+> `-lagent_core`, `target/release` search path; the dylib loads from its absolute
+> install name for local dev — bundle/sign = M8). `MacAgentCore` wraps the C ABI
+> (create/start/stop/submit) and fulfils `run_request` via `MacAgentRunner`
+> (`Foundation.Process` runs `program argv… <combined-prompt>`, captures
+> stdout+stderr + exit code, calls `submit_run_result`) — mirrors
+> `agent_manager.zig`. A core runs per registered workspace alongside the
+> heartbeat (v1 = while app open).
+> **Deferred — M7 terminal:** the visible "watch & steer" embedded **libghostty
+> (Metal)** terminal still needs a macOS libghostty build; the headless
+> `Foundation.Process` runner stands in until then.
+> **Runtime gate (needs an interactive run):** register from an owner account →
+> appears online in web `agents-section.tsx`; with `claude`/`codex` on PATH + a
+> GitHub token, assign an issue → plan→approve→code→PR. Verifies M5+M6.
 - **Link agent-core:** add a clang module map over `agent_core.h` + a Swift
   `@Observable AgentService` wrapper around the C ABI (§4). Build the Rust cdylib
   for macOS (`cargo build` for the Mac arch; bundle the dylib, sign it).
@@ -325,23 +331,20 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 |---|---|---|
 | M0 shared base (agent-core scaffold + contract emitters) | ✅ | ✅ (shared) |
 | v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1–A4 built (ExpCore · shell+login+sync · CRUD/comments/labels/filter/settings/attachments · NSTextView WYSIWYG editor) — build+launch green; runtime gate (login + mutations against a live server) unverified |
-| M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | 🔶 A5 built (Swift; build+launch green, runtime unverified) |
-| M6 agent loop (Rust core) | ✅ (shared) | ☐ link blocked — no Rust toolchain on build machine |
-| M7 libghostty embedded terminal | ✅ | ☐ needs macOS libghostty build (upstream Metal apprt) |
+| M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ✅ A5 (build+launch green; runtime unverified) |
+| M6 agent loop (Rust core) | ✅ (shared) | ✅ linked + Process runner (build+launch green; runtime unverified) |
+| M7 libghostty embedded terminal | ✅ | ☐ needs macOS libghostty build (Process runner stands in) |
 | M8 parity tests | ✅ (60 tests) | — (shared core already covered) |
 | M8 decommission `apps/companion` | ✅ deleted | — |
 | M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
 | Headless/background mode | ☐ | ☐ |
 
-**Next action:** macOS v1 (A1–A4) + the A5 agent **identity** layer are built. Two
-prerequisites gate the rest of A5 and must be set up on the build machine first:
-1. **Install Rust** (`rustup`) so `cargo build -p agent-core` can produce
-   `libagent_core.dylib` for macOS — then link it (clang module map + Swift
-   `AgentService` over the C ABI §4), bundle+sign it, and implement the
-   `run_request` handshake (mirror `agent_manager.zig`; a `Foundation.Process`
-   capture is a fine interim runner = M6).
-2. **Build macOS libghostty** for the embedded terminal (M7, the "watch & steer"
-   UX). Until then the Process runner stands in.
-Meanwhile, run `Exponential-macOS-Staging` against `next.exponential.at` to
-exercise the runtime gates for A2–A4 (login/sync/CRUD/editor) and A5 identity
-(register → the Mac shows up in the web agents list).
+**Next action:** macOS A1–A5 are built (v1 tracker + desktop-agent identity + agent
+loop via the Process runner). Run `Exponential-macOS-Staging` against
+`next.exponential.at` to exercise the runtime gates: A2–A4 (login/sync/CRUD/editor),
+A5 M5 (register → the Mac appears in web `agents-section.tsx`), and A5 M6 (with
+`claude`/`codex` on PATH + a GitHub token, assign an issue → plan→approve→code→PR
+runs headlessly). The remaining macOS work is **M7** — the embedded **libghostty
+(Metal)** terminal for the visible "watch & steer" UX (needs a macOS libghostty
+build; the Process runner stands in meanwhile) — and **M8 packaging** (bundle +
+sign the `agent_core` dylib, notarize, hardened runtime allowing child processes).
