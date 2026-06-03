@@ -66,28 +66,68 @@ let macInfoPlist: [String: Plist.Value] = [
     "LSApplicationCategoryType": .string("public.app-category.productivity"),
 ]
 
+// Bootstrap (pre-build, self-healing): fetch the prebuilt GhosttyKit.xcframework
+// + ghostty resources into vendor/ if missing. The first `tuist generate` still
+// needs them present (Tuist validates the xcframework path at generate time —
+// run scripts/setup-ghostty-macos.sh once before generating); this script just
+// re-fetches if vendor/ was later cleaned, so builds don't fail mysteriously.
+let ghosttyBootstrapScript = TargetScript.pre(
+    script: """
+    if [ ! -d "$SRCROOT/vendor/GhosttyKit.xcframework" ] || [ ! -d "$SRCROOT/vendor/ghostty-resources" ]; then
+        "$SRCROOT/scripts/setup-ghostty-macos.sh"
+    fi
+    """,
+    name: "Bootstrap libghostty (vendor/)",
+    basedOnDependencyAnalysis: false
+)
+
 // agent-core (Rust cdylib) link: a pre-build script compiles the cdylib (mirrors
 // the Linux build.zig), and the macOS app links it + imports it via a clang
-// module map. For local dev the dylib loads from its absolute install name in
-// target/release (bundling/signing for distribution is an M8 concern).
+// module map. The install name is rewritten to @rpath so the linked executable
+// resolves the copy bundled into Contents/Frameworks (see agentCoreEmbedScript +
+// LD_RUNPATH below) rather than the build-machine's target/release path.
 let agentCoreScript = TargetScript.pre(
     script: """
     export PATH="$HOME/.cargo/bin:$PATH"
     cd "$SRCROOT/../.."
     cargo build -p agent-core --release
-    install_name_tool -id "$PWD/target/release/libagent_core.dylib" target/release/libagent_core.dylib 2>/dev/null || true
+    install_name_tool -id "@rpath/libagent_core.dylib" target/release/libagent_core.dylib 2>/dev/null || true
     """,
     name: "Build agent-core (cargo)",
     basedOnDependencyAnalysis: false
 )
+
+// Bundle the agent-core dylib into the .app (post-build, before final signing):
+// copy it into Contents/Frameworks, pin its id to @rpath, and (re-)sign it —
+// install_name_tool invalidates the signature, and Apple Silicon refuses to load
+// an unsigned dylib, so fall back to an ad-hoc signature when no identity is set.
+let agentCoreEmbedScript = TargetScript.post(
+    script: """
+    set -eu
+    SRC="$SRCROOT/../../target/release/libagent_core.dylib"
+    DEST_DIR="$BUILT_PRODUCTS_DIR/$FRAMEWORKS_FOLDER_PATH"
+    mkdir -p "$DEST_DIR"
+    cp -f "$SRC" "$DEST_DIR/libagent_core.dylib"
+    install_name_tool -id "@rpath/libagent_core.dylib" "$DEST_DIR/libagent_core.dylib"
+    SIGN_ID="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+    codesign --force --sign "$SIGN_ID" "$DEST_DIR/libagent_core.dylib"
+    """,
+    name: "Embed agent-core dylib",
+    basedOnDependencyAnalysis: false
+)
+
 // Link settings for the macOS app: agent-core (raw dylib + hand-written module
 // map) and the static libghostty xcframework (needs system frameworks + libc++).
+// Hardened Runtime is on for distribution/notarization; @rpath points at the
+// bundled Contents/Frameworks so the embedded agent-core dylib resolves there.
 let agentCoreSettings: SettingsDictionary = [
     "OTHER_SWIFT_FLAGS": [
         "$(inherited)", "-Xcc", "-fmodule-map-file=$(SRCROOT)/AgentCore/module.modulemap",
         "-Xcc", "-Wno-incomplete-umbrella",
     ],
     "LIBRARY_SEARCH_PATHS": ["$(inherited)", "$(SRCROOT)/../../target/release"],
+    "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/../Frameworks"],
+    "ENABLE_HARDENED_RUNTIME": "YES",
     "OTHER_LDFLAGS": [
         "$(inherited)", "-lagent_core", "-lc++",
         "-framework", "Metal", "-framework", "MetalKit", "-framework", "QuartzCore",
@@ -249,7 +289,8 @@ let project = Project(
             ]) { _, new in new }),
             sources: macSources,
             resources: macResources,
-            scripts: [agentCoreScript],
+            entitlements: "ExponentialMac.entitlements",
+            scripts: [ghosttyBootstrapScript, agentCoreScript, agentCoreEmbedScript],
             dependencies: macDependencies,
             settings: .settings(base: baseSettings.merging(agentCoreSettings) { _, new in new })
         ),
@@ -264,7 +305,8 @@ let project = Project(
             ]) { _, new in new }),
             sources: macSources,
             resources: macResources,
-            scripts: [agentCoreScript],
+            entitlements: "ExponentialMac.entitlements",
+            scripts: [ghosttyBootstrapScript, agentCoreScript, agentCoreEmbedScript],
             dependencies: macDependencies,
             settings: .settings(base: baseSettings
                 .merging(agentCoreSettings) { _, new in new }
