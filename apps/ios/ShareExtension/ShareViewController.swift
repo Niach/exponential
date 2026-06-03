@@ -20,7 +20,7 @@ final class ShareViewController: UIViewController {
             },
             onCancel: { [weak self] in
                 self?.extensionContext?.cancelRequest(
-                    withError: NSError(domain: "com.straehhuber.exponential.shareextension", code: 0)
+                    withError: NSError(domain: "at.exponential.shareextension", code: 0)
                 )
             }
         )

@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 /// A reusable bottom-sheet picker used by the issue editor surfaces in place

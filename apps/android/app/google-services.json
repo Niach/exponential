@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:874730442314:android:325bc5585f8c63cbbae0b3",
+        "mobilesdk_app_id": "1:874730442314:android:7fc852839f3a23d7bae0b3",
         "android_client_info": {
-          "package_name": "com.straehhuber.exponential"
+          "package_name": "at.exponential"
         }
       },
       "oauth_client": [

@@ -13,7 +13,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.straehhuber.exponential"
+        applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 35
         versionCode = 13
@@ -32,7 +32,7 @@ android {
         }
         debug {
             // Same applicationId as release so a single google-services.json
-            // client (registered for com.straehhuber.exponential) covers both.
+            // client (registered for at.exponential) covers both.
             isDebuggable = true
         }
     }

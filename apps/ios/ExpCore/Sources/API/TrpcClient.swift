@@ -1,0 +1,83 @@
+import Foundation
+
+public final class TrpcClient: Sendable {
+    private let httpClient: HTTPClient
+    private let auth: AuthRepository
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        return d
+    }()
+
+    public init(httpClient: HTTPClient, auth: AuthRepository) {
+        self.httpClient = httpClient
+        self.auth = auth
+    }
+
+    /// Look up the instanceUrl for the given account. Every tRPC call needs
+    /// this so the request routes to the right server.
+    private func baseUrl(for accountId: String) throws -> String {
+        guard let url = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl else {
+            throw TrpcError.noInstanceUrl
+        }
+        return url
+    }
+
+    public func mutation<I: Encodable, O: Decodable>(accountId: String, path: String, input: I) async throws -> O {
+        let base = try baseUrl(for: accountId)
+        guard let url = URL(string: "\(base)/api/trpc/\(path)") else {
+            throw TrpcError.invalidUrl
+        }
+
+        let body = try JSONEncoder().encode(input)
+        let (data, response) = try await httpClient.post(url, accountId: accountId, body: body)
+
+        guard (200...299).contains(response.statusCode) else {
+            let text = String(data: data, encoding: .utf8) ?? ""
+            throw TrpcError.httpError(response.statusCode, text)
+        }
+
+        let wrapper = try JSONDecoder().decode(TrpcResponseEnvelope<O>.self, from: data)
+        return wrapper.result.data
+    }
+
+    public func mutationVoid<I: Encodable>(accountId: String, path: String, input: I) async throws {
+        let base = try baseUrl(for: accountId)
+        guard let url = URL(string: "\(base)/api/trpc/\(path)") else {
+            throw TrpcError.invalidUrl
+        }
+
+        let body = try JSONEncoder().encode(input)
+        let (data, response) = try await httpClient.post(url, accountId: accountId, body: body)
+
+        guard (200...299).contains(response.statusCode) else {
+            let text = String(data: data, encoding: .utf8) ?? ""
+            throw TrpcError.httpError(response.statusCode, text)
+        }
+        _ = data
+    }
+}
+
+// MARK: - Response Envelope
+
+private struct TrpcResponseEnvelope<T: Decodable>: Decodable {
+    let result: TrpcResult<T>
+}
+
+private struct TrpcResult<T: Decodable>: Decodable {
+    let data: T
+}
+
+public enum TrpcError: Error, LocalizedError, Sendable {
+    case noInstanceUrl
+    case invalidUrl
+    case httpError(Int, String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .noInstanceUrl: "No instance URL configured"
+        case .invalidUrl: "Invalid URL"
+        case let .httpError(code, message): "tRPC HTTP \(code): \(message)"
+        }
+    }
+}

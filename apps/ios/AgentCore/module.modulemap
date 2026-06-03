@@ -1,0 +1,4 @@
+module AgentCore {
+    header "../../../crates/agent-core/include/agent_core.h"
+    export *
+}

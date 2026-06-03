@@ -1,10 +1,20 @@
 import ProjectDescription
 
 let sharedSources: SourceFilesList = ["Exponential/**"]
-let sharedResources: ResourceFileElements = [
+// GoogleService-Info.plist is per-target now (prod and staging are separate
+// Firebase apps: at.exponential vs at.exponential.staging). Each iOS app target
+// bundles exactly one, copied in as `GoogleService-Info.plist` (the name the
+// Firebase SDK loads). The staging copy lives outside Exponential/ so the two
+// files of the same bundle name don't collide.
+let prodResources: ResourceFileElements = [
     "Exponential/Assets.xcassets",
-    "Exponential/GoogleService-Info.plist",
     "Exponential/Resources/**",
+    "Exponential/GoogleService-Info.plist",
+]
+let stagingResources: ResourceFileElements = [
+    "Exponential/Assets.xcassets",
+    "Exponential/Resources/**",
+    "Firebase-Staging/GoogleService-Info.plist",
 ]
 let sharedDependencies: [TargetDependency] = [
     .external(name: "GRDB"),
@@ -15,20 +25,151 @@ let sharedDependencies: [TargetDependency] = [
     .external(name: "cmark-gfm-extensions"),
 ]
 
+// ExpCore: platform-neutral data/sync/domain layer shared with macOS later.
+// Foundation/GRDB/Security/CryptoKit/os only — NO cmark/MarkdownUI/Firebase/SwiftUI.
+let expCoreSources: SourceFilesList = ["ExpCore/Sources/**"]
+let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
+
+// ExpUI: cross-platform SwiftUI layer (theme, glass modifiers, status/priority
+// colors, WorkspaceAvatar, CrossPlatform shims) shared by the iOS and macOS apps.
+// SwiftUI only; depends on ExpCore for the domain enums/entities it renders.
+let expUiSources: SourceFilesList = ["ExpUI/Sources/**"]
+let expUiDependencies: [TargetDependency] = [
+    .target(name: "ExpCore"),
+    // The shared block-based markdown editor core (IssueEditorModel +
+    // MarkdownConversion) lives in ExpUI and parses GFM via cmark.
+    .external(name: "cmark-gfm"),
+    .external(name: "cmark-gfm-extensions"),
+]
+
+// macOS app (A2): native SwiftUI shell reusing ExpCore (data/sync) + ExpUI
+// (theme). No Firebase/push/share-extension. GRDB is a direct dep for the
+// ValueObservation queries in the read-only view models.
+let macSources: SourceFilesList = ["ExponentialMac/**"]
+let macDependencies: [TargetDependency] = [
+    .target(name: "ExpCore"),
+    .target(name: "ExpUI"),
+    .external(name: "GRDB"),
+    // Prebuilt libghostty (static) for the embedded terminal (M7). Fetched by
+    // scripts/setup-ghostty-macos.sh into vendor/ (gitignored). Imported as the
+    // `GhosttyKit` clang module; needs the system frameworks + libc++ below.
+    .xcframework(path: "vendor/GhosttyKit.xcframework"),
+]
+
+// Folder-reference resources for libghostty: themes/shell-integration under
+// Contents/Resources/ghostty (= GHOSTTY_RESOURCES_DIR) + the compiled terminfo
+// DB at the sibling Contents/Resources/terminfo (libghostty derives TERMINFO as
+// dirname(GHOSTTY_RESOURCES_DIR)/terminfo). Fetched by setup-ghostty-macos.sh.
+let macResources: ResourceFileElements = [
+    .folderReference(path: "vendor/ghostty-resources/ghostty"),
+    .folderReference(path: "vendor/ghostty-resources/terminfo"),
+]
+let macInfoPlist: [String: Plist.Value] = [
+    "CFBundleShortVersionString": "0.1.0",
+    "CFBundleVersion": "1",
+    "CFBundleURLTypes": .array([
+        .dictionary([
+            "CFBundleURLSchemes": .array([.string("exp")]),
+            "CFBundleURLName": .string("at.exponential.oauth"),
+        ]),
+    ]),
+    "LSApplicationCategoryType": .string("public.app-category.productivity"),
+]
+
+// Bootstrap (pre-build, self-healing): fetch the prebuilt GhosttyKit.xcframework
+// + ghostty resources into vendor/ if missing. The first `tuist generate` still
+// needs them present (Tuist validates the xcframework path at generate time —
+// run scripts/setup-ghostty-macos.sh once before generating); this script just
+// re-fetches if vendor/ was later cleaned, so builds don't fail mysteriously.
+let ghosttyBootstrapScript = TargetScript.pre(
+    script: """
+    if [ ! -d "$SRCROOT/vendor/GhosttyKit.xcframework" ] || [ ! -d "$SRCROOT/vendor/ghostty-resources" ]; then
+        "$SRCROOT/scripts/setup-ghostty-macos.sh"
+    fi
+    """,
+    name: "Bootstrap libghostty (vendor/)",
+    basedOnDependencyAnalysis: false
+)
+
+// agent-core (Rust cdylib) link: a pre-build script compiles the cdylib (mirrors
+// the Linux build.zig), and the macOS app links it + imports it via a clang
+// module map. The install name is rewritten to @rpath so the linked executable
+// resolves the copy bundled into Contents/Frameworks (see agentCoreEmbedScript +
+// LD_RUNPATH below) rather than the build-machine's target/release path.
+let agentCoreScript = TargetScript.pre(
+    script: """
+    export PATH="$HOME/.cargo/bin:$PATH"
+    cd "$SRCROOT/../.."
+    cargo build -p agent-core --release
+    install_name_tool -id "@rpath/libagent_core.dylib" target/release/libagent_core.dylib 2>/dev/null || true
+    """,
+    name: "Build agent-core (cargo)",
+    basedOnDependencyAnalysis: false
+)
+
+// Bundle the agent-core dylib into the .app (post-build, before final signing):
+// copy it into Contents/Frameworks, pin its id to @rpath, and (re-)sign it —
+// install_name_tool invalidates the signature, and Apple Silicon refuses to load
+// an unsigned dylib, so fall back to an ad-hoc signature when no identity is set.
+let agentCoreEmbedScript = TargetScript.post(
+    script: """
+    set -eu
+    SRC="$SRCROOT/../../target/release/libagent_core.dylib"
+    DEST_DIR="$BUILT_PRODUCTS_DIR/$FRAMEWORKS_FOLDER_PATH"
+    mkdir -p "$DEST_DIR"
+    cp -f "$SRC" "$DEST_DIR/libagent_core.dylib"
+    install_name_tool -id "@rpath/libagent_core.dylib" "$DEST_DIR/libagent_core.dylib"
+    SIGN_ID="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+    codesign --force --sign "$SIGN_ID" "$DEST_DIR/libagent_core.dylib"
+    """,
+    name: "Embed agent-core dylib",
+    basedOnDependencyAnalysis: false
+)
+
+// Link settings for the macOS app: agent-core (raw dylib + hand-written module
+// map) and the static libghostty xcframework (needs system frameworks + libc++).
+// Hardened Runtime is on for distribution/notarization; @rpath points at the
+// bundled Contents/Frameworks so the embedded agent-core dylib resolves there.
+let agentCoreSettings: SettingsDictionary = [
+    // Sign the macOS app with a STABLE Apple Development identity instead of
+    // ad-hoc "Sign to Run Locally". macOS Debug defaults to ad-hoc (its signature
+    // changes every build → the login keychain re-prompts every launch); forcing
+    // CODE_SIGN_IDENTITY to the Development cert gives a stable designated
+    // requirement so a one-time keychain "Always Allow" sticks across rebuilds.
+    // Automatic signing, team from baseSettings (V6W7BVCSM8), Apple ID in Xcode —
+    // build with -allowProvisioningUpdates.
+    "CODE_SIGN_IDENTITY": "Apple Development",
+    "OTHER_SWIFT_FLAGS": [
+        "$(inherited)", "-Xcc", "-fmodule-map-file=$(SRCROOT)/AgentCore/module.modulemap",
+        "-Xcc", "-Wno-incomplete-umbrella",
+    ],
+    "LIBRARY_SEARCH_PATHS": ["$(inherited)", "$(SRCROOT)/../../target/release"],
+    "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/../Frameworks"],
+    "ENABLE_HARDENED_RUNTIME": "YES",
+    "OTHER_LDFLAGS": [
+        "$(inherited)", "-lagent_core", "-lc++",
+        "-framework", "Metal", "-framework", "MetalKit", "-framework", "QuartzCore",
+        "-framework", "CoreText", "-framework", "CoreGraphics", "-framework", "IOKit",
+        "-framework", "Carbon", "-framework", "UserNotifications",
+    ],
+]
+
 // Foundation-only files reused by the Share Extension. Compiled into the
 // extension's own module (no `public` needed, no shared framework). Verified to
 // import only Foundation/Security/CryptoKit — no GRDB/Firebase/SwiftUI drag-in.
+// These now live in ExpCore/Sources but the extension still compiles its own
+// curated copy (it does NOT link ExpCore, so it stays GRDB-free).
 let shareExtensionSources: SourceFilesList = [
-    "Exponential/AppConstants.swift",
-    "Exponential/Shared/**",
-    "Exponential/Data/Auth/KeychainStore.swift",
-    "Exponential/Data/Auth/AccountStore.swift",
-    "Exponential/Data/Auth/ServerAccount.swift",
-    "Exponential/Data/Auth/AuthRepository.swift",
-    "Exponential/Data/API/HTTPClient.swift",
-    "Exponential/Data/API/TrpcClient.swift",
-    "Exponential/Data/API/IssuesApi.swift",
-    "Exponential/Data/API/IssueImagesApi.swift",
+    "ExpCore/Sources/AppConstants.swift",
+    "ExpCore/Sources/Shared/**",
+    "ExpCore/Sources/Auth/KeychainStore.swift",
+    "ExpCore/Sources/Auth/AccountStore.swift",
+    "ExpCore/Sources/Auth/ServerAccount.swift",
+    "ExpCore/Sources/Auth/AuthRepository.swift",
+    "ExpCore/Sources/API/HTTPClient.swift",
+    "ExpCore/Sources/API/TrpcClient.swift",
+    "ExpCore/Sources/API/IssuesApi.swift",
+    "ExpCore/Sources/API/IssueImagesApi.swift",
     "ShareExtension/**",
 ]
 
@@ -53,7 +194,7 @@ let sharedInfoPlist: [String: Plist.Value] = [
     "CFBundleURLTypes": .array([
         .dictionary([
             "CFBundleURLSchemes": .array([.string("exp")]),
-            "CFBundleURLName": .string("com.straehhuber.exponential.oauth"),
+            "CFBundleURLName": .string("at.exponential.oauth"),
         ]),
     ]),
     "UIBackgroundModes": .array([.string("remote-notification")]),
@@ -74,33 +215,53 @@ let project = Project(
     ),
     targets: [
         .target(
+            name: "ExpCore",
+            destinations: [.iPhone, .iPad, .mac],
+            product: .framework,
+            bundleId: "at.exponential.core",
+            deploymentTargets: .multiplatform(iOS: "17.4", macOS: "14.0"),
+            sources: expCoreSources,
+            dependencies: expCoreDependencies,
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
+            name: "ExpUI",
+            destinations: [.iPhone, .iPad, .mac],
+            product: .framework,
+            bundleId: "at.exponential.ui",
+            deploymentTargets: .multiplatform(iOS: "17.4", macOS: "14.0"),
+            sources: expUiSources,
+            dependencies: expUiDependencies,
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
             name: "Exponential",
             destinations: [.iPhone, .iPad],
             product: .app,
-            bundleId: "com.straehhuber.exponential",
+            bundleId: "at.exponential",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: sharedInfoPlist.merging([
                 "CFBundleDisplayName": "Exponential",
             ]) { _, new in new }),
             sources: sharedSources,
-            resources: sharedResources,
+            resources: prodResources,
             entitlements: "Exponential.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ShareExtension")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension")],
             settings: .settings(base: baseSettings)
         ),
         .target(
             name: "Exponential-Staging",
             destinations: [.iPhone, .iPad],
             product: .app,
-            bundleId: "com.straehhuber.exponential.staging",
+            bundleId: "at.exponential.staging",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: sharedInfoPlist.merging([
                 "CFBundleDisplayName": "Exp Staging",
             ]) { _, new in new }),
             sources: sharedSources,
-            resources: sharedResources,
+            resources: stagingResources,
             entitlements: "ExponentialStaging.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ShareExtension-Staging")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging")],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
@@ -109,7 +270,7 @@ let project = Project(
             name: "ShareExtension",
             destinations: [.iPhone, .iPad],
             product: .appExtension,
-            bundleId: "com.straehhuber.exponential.shareextension",
+            bundleId: "at.exponential.shareextension",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: shareExtensionInfoPlist.merging([
                 "CFBundleDisplayName": "Exponential",
@@ -123,7 +284,7 @@ let project = Project(
             name: "ShareExtension-Staging",
             destinations: [.iPhone, .iPad],
             product: .appExtension,
-            bundleId: "com.straehhuber.exponential.staging.shareextension",
+            bundleId: "at.exponential.staging.shareextension",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: shareExtensionInfoPlist.merging([
                 "CFBundleDisplayName": "Exp Staging",
@@ -135,8 +296,62 @@ let project = Project(
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
         ),
+        .target(
+            name: "Exponential-macOS",
+            destinations: [.mac],
+            product: .app,
+            bundleId: "at.exponential.mac",
+            deploymentTargets: .macOS("14.0"),
+            infoPlist: .extendingDefault(with: macInfoPlist.merging([
+                "CFBundleDisplayName": "Exponential",
+            ]) { _, new in new }),
+            sources: macSources,
+            resources: macResources,
+            entitlements: "ExponentialMac.entitlements",
+            scripts: [ghosttyBootstrapScript, agentCoreScript, agentCoreEmbedScript],
+            dependencies: macDependencies,
+            settings: .settings(base: baseSettings.merging(agentCoreSettings) { _, new in new })
+        ),
+        .target(
+            name: "Exponential-macOS-Staging",
+            destinations: [.mac],
+            product: .app,
+            bundleId: "at.exponential.mac.staging",
+            deploymentTargets: .macOS("14.0"),
+            infoPlist: .extendingDefault(with: macInfoPlist.merging([
+                "CFBundleDisplayName": "Exp Mac Staging",
+            ]) { _, new in new }),
+            sources: macSources,
+            resources: macResources,
+            entitlements: "ExponentialMac.entitlements",
+            scripts: [ghosttyBootstrapScript, agentCoreScript, agentCoreEmbedScript],
+            dependencies: macDependencies,
+            settings: .settings(base: baseSettings
+                .merging(agentCoreSettings) { _, new in new }
+                .merging(["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING"]) { _, new in new })
+        ),
     ],
     schemes: [
+        .scheme(
+            name: "ExpCore",
+            buildAction: .buildAction(targets: ["ExpCore"])
+        ),
+        .scheme(
+            name: "ExpUI",
+            buildAction: .buildAction(targets: ["ExpUI"])
+        ),
+        .scheme(
+            name: "Exponential-macOS",
+            buildAction: .buildAction(targets: ["Exponential-macOS"]),
+            runAction: .runAction(configuration: .debug),
+            archiveAction: .archiveAction(configuration: .release)
+        ),
+        .scheme(
+            name: "Exponential-macOS-Staging",
+            buildAction: .buildAction(targets: ["Exponential-macOS-Staging"]),
+            runAction: .runAction(configuration: .debug),
+            archiveAction: .archiveAction(configuration: .release)
+        ),
         .scheme(
             name: "Exponential",
             buildAction: .buildAction(targets: ["Exponential"]),

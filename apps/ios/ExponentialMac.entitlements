@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Developer tool: intentionally NOT App-Sandboxed — it spawns the coding
+	     agent CLIs (claude/codex) and git in arbitrary worktrees on disk. The
+	     Hardened Runtime is on (ENABLE_HARDENED_RUNTIME=YES); the exceptions
+	     below let it (a) load the agent-core dylib from Contents/Frameworks
+	     (which carries its own ad-hoc/Developer-ID signature, not the app team's)
+	     and (b) run the embedded libghostty terminal, whose GPU renderer uses
+	     Metal + JIT-style executable memory. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+</dict>
+</plist>

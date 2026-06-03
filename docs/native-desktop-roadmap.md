@@ -159,7 +159,21 @@ The terminal is the one genuinely platform-specific piece of the agent UI.
 Extend `apps/ios/Project.swift`. Read first: `apps/ios/Project.swift`,
 `apps/ios/Exponential/{Data,Domain,Shared,UI}`. iOS MUST stay green after each step.
 
-### A1 — Extract `ExpCore` (+ `ExpUI`); iOS stays green
+### A1 — Extract `ExpCore` (+ `ExpUI`); iOS stays green ✅ DONE
+
+> Done on branch `macos/a1-expcore`. `ExpCore` framework (`destinations: iOS + macOS`,
+> sole external dep **GRDB**, vended **dynamic** to avoid double static-linking) now
+> holds the moved Auth/API/DB/Electric/Domain/Shared + `AppConstants` layer with a
+> `public` API; the iOS app + both share extensions build green (Tuist + Xcode 26.5,
+> strict concurrency). Notes: `IssueStatus`/`IssuePriority` split (Foundation core in
+> `ExpCore`, `.color` SwiftUI extension in the app's `IssueColorExtensions.swift`);
+> `#if STAGING` in `AppConstants`/`SharedAppGroup` replaced by `Bundle.main` bundle-id
+> detection (correct from a once-compiled framework); the Share Extension still compiles
+> its own curated Foundation-only subset (no `ExpCore` link → stays GRDB-free);
+> `IssueEditorModel` dropped `import UIKit`. **`ExpUI` deferred to A2** (its only A1
+> artifact — the `.color` extensions — lives in the app until the first macOS view needs
+> it); the full toolkit-neutral `IssueEditorModel`/`MarkdownConversion` abstraction
+> stays an **A4** task.
 - New **`ExpCore`** framework target (`destinations: iOS + macOS`, dep `GRDB`).
   Move the already-Foundation/GRDB-only code (the `Project.swift`
   `shareExtensionSources` list proves these import only Foundation/Security/
@@ -176,7 +190,7 @@ Extend `apps/ios/Project.swift`. Read first: `apps/ios/Project.swift`,
   per-platform render layers) so one model serves both the iOS and macOS editors.
 - **Gate:** iOS builds + runs unchanged.
 
-### A2 — macOS skeleton + read-only live sync
+### A2 — macOS skeleton + read-only live sync 🔶 built; runtime gate pending
 - New app targets **`Exponential-macOS`** + **`-Staging`**. `NavigationSplitView`
   shell (account/workspace sidebar | project+issue list | issue detail) replacing
   the iOS `AppNavigator` `NavigationStack`; menu `.commands`; `Settings` scene.
@@ -185,18 +199,104 @@ Extend `apps/ios/Project.swift`. Read first: `apps/ios/Project.swift`,
   live sync of all 10 shapes.
 - **Gate:** log in against `next.exponential.at`; all 10 shapes live-sync.
 
-### A3 — macOS CRUD
+> **Done (build + launch):** `ExpUI` framework extracted (theme/colors/avatar/
+> CrossPlatform shims, shared iOS+macOS). `Exponential-macOS(-Staging)` targets
+> build green and **launch cleanly** (all four dynamic frameworks — ExpCore, ExpUI,
+> GRDB, GRDBSQLite — embed/sign/load; no crash). Implemented: `MacAppDependencies`
+> (composition root, no Firebase/push; pre-opens pools + starts `SyncManager`),
+> `MacLoginView`/`MacLoginViewModel` (instance picker + password + OAuth via
+> `ASWebAuthenticationSession`/`NSWindow` anchor), `MacShell` (3-column split view),
+> read-only `MacIssueListView`/`MacIssueDetailView` (GRDB `ValueObservation`),
+> `MacSettingsView`. `KeychainStore` now uses the default keychain on macOS (no
+> access group → no signed entitlement needed).
+> **Still to verify (runtime, needs an interactive run on the Mac):** the actual
+> log-in + 10-shape live-sync against `next.exponential.at`. Run the
+> `Exponential-macOS-Staging` scheme (its bundle id → `next.exponential.at`), sign
+> in, confirm projects/issues populate. This is the only unverified part of A2.
+
+### A3 — macOS CRUD 🔶 built; runtime gate pending
 Create/edit/delete issues; comments (`regular`/`question`/`plan`); labels;
 attachments view + image upload (`/api/issues/{id}/images`); filtering/search;
 workspace/member/invite settings. Reuse the tRPC `*Api` services from `ExpCore`.
 
-### A4 — macOS markdown editor → **macOS v1 feature-complete**
+> **Done (build + launch):** all remaining `*Api` wired into `MacAppDependencies`.
+> Editable issue detail (title, status/priority/assignee menus, due-date picker,
+> label toggle, **plain-markdown** `TextEditor` description — rich editor is A4),
+> delete, and comments (list with regular/question/plan styling, add, delete
+> own/admin, plan approve / request-changes). Create-issue sheet. Issue-list
+> filter menu (status/priority/labels via `matchesFilters`) + search. Workspace
+> settings sheet (general/members/invites/projects/labels, owner/admin-gated).
+> Attachments section + `NSOpenPanel` image upload. All gated by
+> `WorkspacePermissions`. macOS prod/staging + iOS build green; app launches clean.
+> **Still to verify (interactive run):** that the mutations actually round-trip
+> against a live server (create/edit/comment/label/settings reflect via Electric
+> sync) — same runtime caveat as A2.
+
+### A4 — macOS markdown editor → **macOS v1 feature-complete** 🔶 built; runtime gate pending
 `MacMarkdownEditor` (`NSTextView` `NSViewRepresentable`) on the decoupled
 `IssueEditorModel`, mirroring `EditorTextView`'s list-continuation / checkbox
 toggle / image paste. `MacMarkdownStyle/Toolbar/ImageLoader` (`NSFont/NSColor/
 NSImage`). Honor the GFM contract (see root `CLAUDE.md`).
 
-### A5 — macOS desktop-agent (mirror Linux M5–M7)
+> **Done (build + launch):** the editor core (`IssueEditorModel` + cmark
+> `MarkdownConversion`/`MarkdownAttributes`/`ImageUtils`/`RangeUtils`) is now
+> shared via ExpUI, cross-platform (`PlatformFont`/`PlatformColor` + AppKit
+> symbolic-trait helpers). `MacMarkdownEditor` is a block-based AppKit editor:
+> self-sizing per-block `MacEditorTextView` (checkbox-click toggle,
+> backspace-at-start merge, image paste), an `NSTextViewDelegate` coordinator
+> (live attributed rendering, list continuation/exit, selection→model), a
+> SwiftUI toolbar (heading/bold/italic/strike/bullet/ordered/checklist/code/
+> quote/link/image) driving the focused view, `NSImage` block views +
+> `MacAttachmentImageLoader`. The issue detail + create sheet use it with the iOS
+> commit/upload flow (debounced autosave + flush on close). All targets build
+> green; app launches clean. **Still to verify (interactive run):** typing,
+> formatting, list/checkbox behavior, and image paste/upload against a live
+> account — same runtime caveat as A2/A3.
+
+### A5 — macOS desktop-agent (mirror Linux M5–M7) 🔶 M5+M6+M7 built (build/launch green; runtime unverified)
+
+> **Done — M5 identity (build + launch green):** `MacAgentService`/`MacAgentStore`
+> register the Mac (`companion.create` owner session → `claimSetup` → store
+> `MacAgentIdentity` + `expk_` in Application Support), 30s heartbeat under
+> `expk_`, GitHub device-flow (token → `github.json` + `reportGithubIdentity`),
+> and `uninstallSelf`. Wired into `MacAppDependencies` (heartbeats start at launch)
+> + a "Desktop Agent" section in the workspace-settings sheet. Pure Swift+HTTP,
+> no Rust dep; registering makes the Mac appear in the web agents list.
+> **Done — M6 loop (build + launch green):** Rust toolchain installed; a
+> Project.swift pre-build script runs `cargo build -p agent-core --release` and
+> the macOS app links the cdylib (clang module map over `agent_core.h`,
+> `-lagent_core`, `target/release` search path; the dylib loads from its absolute
+> install name for local dev — bundle/sign = M8). `MacAgentCore` wraps the C ABI
+> (create/start/stop/submit) and fulfils `run_request` via `MacAgentRunner`
+> (`Foundation.Process` runs `program argv… <combined-prompt>`, captures
+> stdout+stderr + exit code, calls `submit_run_result`) — mirrors
+> `agent_manager.zig`. A core runs per registered workspace alongside the
+> heartbeat (v1 = while app open).
+> **Done — M7 terminal (build + launch green; via a PREBUILT xcframework):**
+> building libghostty from source is impossible on a macOS-26 host (zig 0.15.2,
+> which every current ghostty pins, can't link native macOS binaries on the
+> macOS-26 SDK — even `hello.zig` fails; zig 0.16 links but ghostty won't compile
+> with it). So — following github.com/thdxg/macterm — we **link a prebuilt
+> `GhosttyKit.xcframework`** instead of building. `apps/ios/scripts/setup-ghostty-macos.sh`
+> fetches it (+ ghostty/terminfo resources) into `vendor/` (gitignored) via
+> `gh release download`. `Project.swift` links the static xcframework (`import
+> GhosttyKit`) + the system frameworks (Metal/MetalKit/QuartzCore/CoreText/
+> CoreGraphics/IOKit/Carbon/UserNotifications + `-lc++`) and bundles the resources
+> as folder references (`GHOSTTY_RESOURCES_DIR`). `MacGhosttyApp` (app + 60Hz tick
+> + 6 callbacks), `MacGhosttyTerminalView` (NSView `platform.macos.nsview` surface,
+> Metal-managed by the apprt; resize/focus/key+mouse forwarding), and
+> `MacAgentTerminalRunner` (run_request → visible terminal window via the tee/
+> PIPESTATUS wrapper → exit code+output on `GHOSTTY_ACTION_COMMAND_FINISHED` →
+> `submit_run_result`; headless `Process` fallback if the framework is absent). All
+> mirror macterm's `Macterm/Ghostty/` + `GhosttyTerminalNSView.swift`.
+> **Decision (2026-06-03):** we do NOT build our own ghostty — we consume the
+> prebuilt `GhosttyKit.xcframework` directly (the setup script's `GHOSTTY_REPO`
+> stays overridable if the source ever needs changing). **Caveat:** live-terminal
+> **rendering + input were not verified here** (headless, no display); confirm on a
+> real Mac.
+> **Runtime gate (needs an interactive run):** register from an owner account →
+> appears online in web `agents-section.tsx`; with `claude`/`codex` on PATH + a
+> GitHub token, assign an issue → plan→approve→code→PR. Verifies M5+M6.
 - **Link agent-core:** add a clang module map over `agent_core.h` + a Swift
   `@Observable AgentService` wrapper around the C ABI (§4). Build the Rust cdylib
   for macOS (`cargo build` for the Mac arch; bundle the dylib, sign it).
@@ -249,13 +349,44 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | Milestone | Linux | macOS |
 |---|---|---|
 | M0 shared base (agent-core scaffold + contract emitters) | ✅ | ✅ (shared) |
-| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | ☐ A1–A4 |
-| M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ☐ A5 |
-| M6 agent loop (Rust core) | ✅ (shared) | ✅ (shared) |
-| M7 libghostty embedded terminal | ✅ | ☐ A5 (easier — upstream Metal apprt) |
+| v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1–A4 built (ExpCore · shell+login+sync · CRUD/comments/labels/filter/settings/attachments · NSTextView WYSIWYG editor) — build+launch green; runtime gate (login + mutations against a live server) unverified |
+| M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ✅ A5 (build+launch green; runtime unverified) |
+| M6 agent loop (Rust core) | ✅ (shared) | ✅ linked + terminal/Process runner (build+launch green; runtime unverified) |
+| M7 libghostty embedded terminal | ✅ | ✅ prebuilt GhosttyKit.xcframework (build+launch green; rendering unverified — needs a display) |
 | M8 parity tests | ✅ (60 tests) | — (shared core already covered) |
 | M8 decommission `apps/companion` | ✅ deleted | — |
-| M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
+| M8 packaging/notarization | ☐ Flatpak | 🔶 dylib bundled+signed into Contents/Frameworks (@rpath), hardened-runtime entitlements, ghostty self-heal bootstrap — notarization (Developer ID submit) is the release-time remainder |
 | Headless/background mode | ☐ | ☐ |
 
-**Next action:** start **A1** — extract `ExpCore` from `apps/ios`, keeping iOS green.
+**Next action:** macOS A1–A5 are built (v1 tracker + desktop-agent identity + agent
+loop via the Process runner). Run `Exponential-macOS-Staging` against
+`next.exponential.at` to exercise the runtime gates: A2–A4 (login/sync/CRUD/editor),
+A5 M5 (register → the Mac appears in web `agents-section.tsx`), and A5 M6 (with
+`claude`/`codex` on PATH + a GitHub token, assign an issue → plan→approve→code→PR
+runs headlessly).
+
+**M8 packaging is wired (2026-06-03):** the `Exponential-macOS` build now (1) copies
+`libagent_core.dylib` into `Contents/Frameworks`, pins its id to `@rpath/libagent_core.dylib`,
+and re-signs it (ad-hoc when no identity, since `install_name_tool` invalidates the
+signature and Apple Silicon refuses unsigned dylibs); (2) adds `@executable_path/../Frameworks`
+to `LD_RUNPATH_SEARCH_PATHS` so the linked executable resolves the bundled copy
+(verified via `otool -L`/`-l`); (3) ships `ExponentialMac.entitlements`
+(`disable-library-validation` + `allow-jit` + `allow-unsigned-executable-memory`,
+no App Sandbox — it spawns agent CLIs + git) with `ENABLE_HARDENED_RUNTIME=YES`;
+(4) self-heals `vendor/` via a pre-build bootstrap (GhosttyKit is a static lib,
+linked-in; only the resources + xcframework are fetched). GhosttyKit comes from the
+prebuilt `thdxg/ghostty` xcframework — **we do not build our own ghostty**.
+
+The remaining macOS work is **runtime verification on a real Mac** (no display in CI):
+the embedded terminal renders + accepts input, the run gate (assign issue →
+plan→approve→code→PR in the terminal) works, and **notarization** (submit the
+Developer-ID-signed `.app` to Apple's notary — a release-time step needing a
+distribution cert).
+
+A review-and-fix pass over the rushed A1–A5 code landed the same day: ghostty
+surface use-after-free (strong view ref outliving the surface), agent-core
+double-shutdown guard + deinit safety net, heartbeat self-termination when the
+service is gone, stale-config guard in login, account-switch selection clear,
+sign-out ordering (tear down sync before removing the account), title/description
+flush on detail teardown, an explicit "Add due date" affordance, and a ⌘N
+New-Issue menu command.

@@ -1,3 +1,5 @@
+import ExpUI
+import ExpCore
 import SwiftUI
 
 struct WorkspaceProjectsSection: View {

@@ -7,9 +7,38 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:874730442314:android:325bc5585f8c63cbbae0b3",
+        "mobilesdk_app_id": "1:874730442314:android:7fc852839f3a23d7bae0b3",
         "android_client_info": {
-          "package_name": "com.straehhuber.exponential.staging"
+          "package_name": "at.exponential"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "874730442314-79lks3o9ut54u4o4lsp77b1ffh3q28i4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJUpIkrBuIR9jhZ_lKaBdmMR02xukBcBA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "874730442314-79lks3o9ut54u4o4lsp77b1ffh3q28i4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:874730442314:android:0b713a4aa492b2fabae0b3",
+        "android_client_info": {
+          "package_name": "at.exponential.staging"
         }
       },
       "oauth_client": [
