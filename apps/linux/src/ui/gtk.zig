@@ -67,6 +67,11 @@ pub extern fn adw_header_bar_set_title_widget(self: Object, title_widget: Object
 pub extern fn adw_header_bar_pack_end(self: Object, child: Object) void;
 pub extern fn adw_header_bar_set_show_start_title_buttons(self: Object, setting: c_int) void;
 pub extern fn adw_header_bar_set_show_end_title_buttons(self: Object, setting: c_int) void;
+// AdwStyleManager — the web app is hard dark-only, so we force the dark scheme
+// rather than following the desktop's light/dark preference.
+pub extern fn adw_style_manager_get_default() Object;
+pub extern fn adw_style_manager_set_color_scheme(self: Object, color_scheme: c_int) void;
+pub const ADW_COLOR_SCHEME_FORCE_DARK: c_int = 4;
 // AdwNavigationView — list → detail subpage navigation with an auto back button
 // (the web-like "navigate to a subpage" model, replacing the 3rd detail pane).
 pub extern fn adw_navigation_view_new() Object;
@@ -104,8 +109,10 @@ pub extern fn gtk_label_new(str: ?[*:0]const u8) Object;
 pub extern fn gtk_label_set_markup(label: Object, str: [*:0]const u8) void;
 pub extern fn gtk_label_set_wrap(label: Object, wrap: c_int) void;
 pub extern fn gtk_label_set_selectable(label: Object, setting: c_int) void;
+pub extern fn gtk_button_new() Object;
 pub extern fn gtk_button_new_with_label(label: [*:0]const u8) Object;
 pub extern fn gtk_button_set_child(button: Object, child: Object) void;
+pub extern fn gtk_separator_new(orientation: c_int) Object;
 pub extern fn gtk_button_set_label(button: Object, label: [*:0]const u8) void;
 pub extern fn gtk_editable_get_text(editable: Object) [*:0]const u8;
 pub extern fn gtk_editable_set_text(editable: Object, text: [*:0]const u8) void;
@@ -187,6 +194,7 @@ pub extern fn gtk_file_dialog_open_finish(self: Object, result: Object, @"error"
 pub extern fn g_file_get_path(file: Object) ?[*:0]u8;
 pub extern fn gtk_widget_get_root(widget: Object) Object;
 pub extern fn gtk_widget_set_visible(widget: Object, visible: c_int) void;
+pub extern fn gtk_widget_get_visible(widget: Object) c_int;
 pub extern fn gtk_widget_set_sensitive(widget: Object, sensitive: c_int) void;
 pub extern fn gtk_widget_set_hexpand(widget: Object, expand: c_int) void;
 pub extern fn gtk_widget_set_vexpand(widget: Object, expand: c_int) void;

@@ -25,6 +25,8 @@ pub const MarkdownEditor = struct {
     view: gtk.Object,
     buffer: gtk.Object,
     image_button: gtk.Object = null,
+    link_entry: gtk.Object = null, // URL entry inside the link popover
+    link_popover: gtk.Object = null,
     // Issue context for image upload/fetch (borrowed; valid for the dialog).
     base_url: ?[]const u8 = null,
     token: ?[]const u8 = null,
@@ -36,6 +38,8 @@ pub const MarkdownEditor = struct {
         self.base_url = null;
         self.token = null;
         self.issue_id = null;
+        self.link_entry = null;
+        self.link_popover = null;
 
         const view = gtk.gtk_text_view_new();
         gtk.gtk_text_view_set_wrap_mode(view, gtk.WRAP_WORD_CHAR);
@@ -52,6 +56,8 @@ pub const MarkdownEditor = struct {
         _ = gtk.gtk_text_buffer_create_tag(buffer, "italic", "style", @as(c_int, 2), @as(?*anyopaque, null));
         _ = gtk.gtk_text_buffer_create_tag(buffer, "strike", "strikethrough", @as(c_int, 1), @as(?*anyopaque, null));
         _ = gtk.gtk_text_buffer_create_tag(buffer, "code", "family", "monospace", @as(?*anyopaque, null));
+        _ = gtk.gtk_text_buffer_create_tag(buffer, "codeblock", "family", "monospace", "background", "#202028", @as(?*anyopaque, null));
+        _ = gtk.gtk_text_buffer_create_tag(buffer, "link", "foreground", "#818cf8", "underline", @as(c_int, 1), @as(?*anyopaque, null));
         _ = gtk.gtk_text_buffer_create_tag(buffer, "marker", "foreground", "#888888", @as(?*anyopaque, null));
 
         _ = gtk.g_signal_connect_data(buffer, "changed", @ptrCast(&onChanged), self, null, 0);
@@ -68,7 +74,34 @@ pub const MarkdownEditor = struct {
         addButton(self, toolbar, "H3", &onH3);
         addButton(self, toolbar, "• List", &onBullet);
         addButton(self, toolbar, "1. List", &onNumber);
+        addButton(self, toolbar, "\u{2611} Task", &onTask); // ☑
         addButton(self, toolbar, "❝", &onQuote);
+        addButton(self, toolbar, "{ }", &onCodeBlock);
+        addButton(self, toolbar, "―", &onHr);
+
+        // Link: a menu button whose popover takes a URL and wraps the selection.
+        const link_btn = gtk.gtk_menu_button_new();
+        gtk.gtk_widget_add_css_class(link_btn, "flat");
+        gtk.gtk_menu_button_set_child(link_btn, gtk.gtk_label_new("\u{1F517}")); // 🔗
+        const link_pop = gtk.gtk_popover_new();
+        const link_box = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
+        gtk.gtk_widget_set_margin_top(link_box, 6);
+        gtk.gtk_widget_set_margin_bottom(link_box, 6);
+        gtk.gtk_widget_set_margin_start(link_box, 6);
+        gtk.gtk_widget_set_margin_end(link_box, 6);
+        const link_entry = gtk.gtk_entry_new();
+        gtk.gtk_entry_set_placeholder_text(link_entry, "https://…");
+        gtk.gtk_widget_set_hexpand(link_entry, 1);
+        gtk.gtk_box_append(link_box, link_entry);
+        self.link_entry = link_entry;
+        const link_apply = gtk.gtk_button_new_with_label("Link");
+        _ = gtk.g_signal_connect_data(link_apply, "clicked", @ptrCast(&onLinkApply), self, null, 0);
+        _ = gtk.g_signal_connect_data(link_entry, "activate", @ptrCast(&onLinkApply), self, null, 0);
+        gtk.gtk_box_append(link_box, link_apply);
+        gtk.gtk_popover_set_child(link_pop, link_box);
+        gtk.gtk_menu_button_set_popover(link_btn, link_pop);
+        self.link_popover = link_pop;
+        gtk.gtk_box_append(toolbar, link_btn);
 
         const image_button = gtk.gtk_button_new_with_label("🖼 Image");
         gtk.gtk_widget_add_css_class(image_button, "flat");
@@ -233,6 +266,60 @@ pub const MarkdownEditor = struct {
                 }
             }
 
+            // Fenced code block (``` … ```), checked before inline backticks.
+            if (at_line_start and i + 3 <= text.len and std.mem.eql(u8, text[i .. i + 3], "```")) {
+                const open_end = std.mem.indexOfScalarPos(u8, text, i, '\n') orelse text.len;
+                const after_open = if (open_end < text.len) open_end + 1 else text.len;
+                const close_start = findFenceClose(text, after_open);
+                const block_end = if (close_start) |cs|
+                    (std.mem.indexOfScalarPos(u8, text, cs, '\n') orelse text.len)
+                else
+                    text.len;
+                const block_chars = utf8Count(text[i..block_end]);
+                self.applyTag("codeblock", co, co + block_chars);
+                self.applyTag("marker", co, co + utf8Count(text[i..open_end])); // opening fence
+                if (close_start) |cs| {
+                    const pre = utf8Count(text[i..cs]);
+                    const fence = utf8Count(text[cs..block_end]);
+                    self.applyTag("marker", co + pre, co + pre + fence); // closing fence
+                }
+                co += block_chars;
+                i = block_end;
+                continue; // at_line_start stays true; next char is '\n' or EOF
+            }
+
+            // Horizontal rule: a line that is exactly --- or ***.
+            if (at_line_start) {
+                const le = std.mem.indexOfScalarPos(u8, text, i, '\n') orelse text.len;
+                const line = text[i..le];
+                if (line.len == 3 and (std.mem.eql(u8, line, "---") or std.mem.eql(u8, line, "***"))) {
+                    self.applyTag("marker", co, co + 3);
+                    co += 3;
+                    i = le;
+                    at_line_start = false;
+                    continue;
+                }
+            }
+
+            // Task-list checkbox: "- [ ] " / "- [x] " — dim the marker, strike done items.
+            if (at_line_start and i + 6 <= text.len and
+                (std.mem.eql(u8, text[i .. i + 6], "- [ ] ") or
+                    std.mem.eql(u8, text[i .. i + 6], "- [x] ") or
+                    std.mem.eql(u8, text[i .. i + 6], "- [X] ")))
+            {
+                const checked = text[i + 3] == 'x' or text[i + 3] == 'X';
+                self.applyTag("marker", co, co + 6);
+                if (checked) {
+                    const le = std.mem.indexOfScalarPos(u8, text, i, '\n') orelse text.len;
+                    const rest = utf8Count(text[i + 6 .. le]);
+                    self.applyTag("strike", co + 6, co + 6 + rest);
+                }
+                co += 6;
+                i += 6;
+                at_line_start = false;
+                continue;
+            }
+
             const c = text[i];
             if (c == '\n') {
                 at_line_start = true;
@@ -241,6 +328,25 @@ pub const MarkdownEditor = struct {
                 continue;
             }
             at_line_start = false;
+
+            // Link: [text](url) — style the text indigo+underline, dim the rest.
+            if (c == '[') {
+                if (findChar(text, i + 1, ']')) |cb| {
+                    if (cb + 1 < text.len and text[cb + 1] == '(') {
+                        if (findChar(text, cb + 2, ')')) |cp| {
+                            const text_chars = utf8Count(text[i + 1 .. cb]);
+                            const url_chars = utf8Count(text[cb + 2 .. cp]);
+                            const total = text_chars + url_chars + 4; // [ ] ( )
+                            self.applyTag("marker", co, co + 1); // [
+                            self.applyTag("link", co + 1, co + 1 + text_chars); // text
+                            self.applyTag("marker", co + 1 + text_chars, co + total); // ](url)
+                            co += total;
+                            i = cp + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
 
             if (c == '*' and i + 1 < text.len and text[i + 1] == '*') {
                 if (findMarker(text, i + 2, "**")) |close| {
@@ -314,6 +420,46 @@ pub const MarkdownEditor = struct {
         gtk.gtk_text_iter_set_line_offset(@ptrCast(&iter), 0);
         gtk.gtk_text_buffer_insert(self.buffer, @ptrCast(&iter), prefix.ptr, @intCast(prefix.len));
     }
+
+    /// Wrap the selection (or insert an empty block) in a ``` fenced code block.
+    fn wrapBlock(self: *MarkdownEditor) void {
+        var s: [128]u8 align(8) = undefined;
+        var e: [128]u8 align(8) = undefined;
+        if (gtk.gtk_text_buffer_get_selection_bounds(self.buffer, @ptrCast(&s), @ptrCast(&e)) != 0) {
+            const sel_c = gtk.gtk_text_buffer_get_text(self.buffer, @ptrCast(&s), @ptrCast(&e), 0) orelse return;
+            defer gtk.g_free(@ptrCast(sel_c));
+            const wrapped = std.fmt.allocPrint(self.gpa, "```\n{s}\n```\n", .{std.mem.span(sel_c)}) catch return;
+            defer self.gpa.free(wrapped);
+            gtk.gtk_text_buffer_delete(self.buffer, @ptrCast(&s), @ptrCast(&e));
+            gtk.gtk_text_buffer_insert(self.buffer, @ptrCast(&s), wrapped.ptr, @intCast(wrapped.len));
+        } else {
+            const tmpl = "```\n\n```\n";
+            gtk.gtk_text_buffer_insert_at_cursor(self.buffer, tmpl, @intCast(tmpl.len));
+        }
+    }
+
+    /// Wrap the selection as a markdown link `[text](url)` (or insert one).
+    fn applyLink(self: *MarkdownEditor, url: []const u8) void {
+        var s: [128]u8 align(8) = undefined;
+        var e: [128]u8 align(8) = undefined;
+        if (gtk.gtk_text_buffer_get_selection_bounds(self.buffer, @ptrCast(&s), @ptrCast(&e)) != 0) {
+            const sel_c = gtk.gtk_text_buffer_get_text(self.buffer, @ptrCast(&s), @ptrCast(&e), 0) orelse return;
+            defer gtk.g_free(@ptrCast(sel_c));
+            const wrapped = std.fmt.allocPrint(self.gpa, "[{s}]({s})", .{ std.mem.span(sel_c), url }) catch return;
+            defer self.gpa.free(wrapped);
+            gtk.gtk_text_buffer_delete(self.buffer, @ptrCast(&s), @ptrCast(&e));
+            gtk.gtk_text_buffer_insert(self.buffer, @ptrCast(&s), wrapped.ptr, @intCast(wrapped.len));
+        } else {
+            const ins = std.fmt.allocPrint(self.gpa, "[{s}]({s})", .{ url, url }) catch return;
+            defer self.gpa.free(ins);
+            gtk.gtk_text_buffer_insert_at_cursor(self.buffer, ins.ptr, @intCast(ins.len));
+        }
+    }
+
+    fn insertHr(self: *MarkdownEditor) void {
+        const hr = "\n---\n";
+        gtk.gtk_text_buffer_insert_at_cursor(self.buffer, hr, @intCast(hr.len));
+    }
 };
 
 /// Decode image bytes into a scaled-down inline GtkPicture (or null on failure).
@@ -381,6 +527,24 @@ fn onNumber(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {
 }
 fn onQuote(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {
     editorOf(d).prefixLine("> ");
+}
+fn onTask(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {
+    editorOf(d).prefixLine("- [ ] ");
+}
+fn onCodeBlock(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {
+    editorOf(d).wrapBlock();
+}
+fn onHr(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {
+    editorOf(d).insertHr();
+}
+fn onLinkApply(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {
+    const self = editorOf(d);
+    const entry = self.link_entry orelse return;
+    const url = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(entry)), " \t\r\n");
+    if (url.len == 0) return;
+    self.applyLink(url);
+    gtk.gtk_editable_set_text(entry, "");
+    if (self.link_popover) |p| gtk.gtk_popover_popdown(p);
 }
 
 fn onImage(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {
@@ -640,4 +804,16 @@ fn findChar(text: []const u8, from: usize, ch: u8) ?usize {
     const nl = std.mem.indexOfScalarPos(u8, text, from, '\n') orelse text.len;
     const idx = std.mem.indexOfScalarPos(u8, text, from, ch) orelse return null;
     return if (idx < nl) idx else null;
+}
+
+/// Byte index of the next line (at or after `from`, which must be a line start)
+/// that opens with a ``` fence, or null if there is no closing fence.
+fn findFenceClose(text: []const u8, from: usize) ?usize {
+    var pos = from;
+    while (pos < text.len) {
+        if (pos + 3 <= text.len and std.mem.eql(u8, text[pos .. pos + 3], "```")) return pos;
+        const nl = std.mem.indexOfScalarPos(u8, text, pos, '\n') orelse return null;
+        pos = nl + 1;
+    }
+    return null;
 }

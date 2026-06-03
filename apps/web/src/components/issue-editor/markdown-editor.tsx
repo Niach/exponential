@@ -24,6 +24,9 @@ import {
   Italic,
   Strikethrough,
   Link as LinkIcon,
+  Unlink,
+  Check,
+  Image as ImageIcon,
   Quote,
   RemoveFormatting,
   Code,
@@ -35,6 +38,7 @@ import {
   Heading3,
 } from "lucide-react"
 import { MarkdownImage } from "@/lib/markdown-image"
+import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 
 export interface MarkdownEditorImageUploadConfig {
@@ -87,6 +91,265 @@ function getEditorMarkdown(editor: Editor | null) {
 function getImageFiles(fileList: FileList | null | undefined) {
   return Array.from(fileList ?? []).filter((file) =>
     file.type.startsWith(`image/`)
+  )
+}
+
+// ── Shared toolbar pieces (used by both the selection bubble and the static
+//    toolbar above the editor) ──
+
+function ToolbarButton({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active?: boolean
+  onClick: () => void
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className={active ? `is-active` : ``}
+      title={title}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Inline link editor — replaces the old `window.prompt`. Rendered inside the
+ *  toolbar so focus stays within it (the bubble's blur-to-hide check passes). */
+function LinkControl({ editor }: { editor: Editor }) {
+  const [editing, setEditing] = useState(false)
+  const [url, setUrl] = useState(``)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const open = useCallback(() => {
+    const href = editor.getAttributes(`link`).href
+    setUrl(typeof href === `string` ? href : ``)
+    setEditing(true)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [editor])
+
+  const apply = useCallback(() => {
+    const href = url.trim()
+    if (href) {
+      editor.chain().focus().extendMarkRange(`link`).setLink({ href }).run()
+    } else {
+      editor.chain().focus().extendMarkRange(`link`).unsetLink().run()
+    }
+    setEditing(false)
+  }, [editor, url])
+
+  const remove = useCallback(() => {
+    editor.chain().focus().extendMarkRange(`link`).unsetLink().run()
+    setEditing(false)
+  }, [editor])
+
+  if (editing) {
+    return (
+      <span className="toolbar-link-edit">
+        <input
+          ref={inputRef}
+          className="toolbar-link-input"
+          value={url}
+          placeholder="https://…"
+          onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === `Enter`) {
+              e.preventDefault()
+              apply()
+            } else if (e.key === `Escape`) {
+              e.preventDefault()
+              setEditing(false)
+            }
+          }}
+          onBlur={() => {
+            // Commit on blur so clicking back into the editor keeps the link.
+            setTimeout(() => setEditing(false), 120)
+          }}
+        />
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={apply}
+          title="Apply link"
+        >
+          <Check className="size-3.5" />
+        </button>
+        {editor.isActive(`link`) ? (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={remove}
+            title="Remove link"
+          >
+            <Unlink className="size-3.5" />
+          </button>
+        ) : null}
+      </span>
+    )
+  }
+
+  return (
+    <ToolbarButton active={editor.isActive(`link`)} onClick={open} title="Link">
+      <LinkIcon className="size-3.5" />
+    </ToolbarButton>
+  )
+}
+
+/** The common formatting controls, shared by both toolbars. */
+function ToolbarActions({ editor }: { editor: Editor }) {
+  return (
+    <>
+      <ToolbarButton
+        active={editor.isActive(`heading`, { level: 1 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        title="Heading 1"
+      >
+        <Heading1 className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive(`heading`, { level: 2 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        title="Heading 2"
+      >
+        <Heading2 className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive(`heading`, { level: 3 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+        title="Heading 3"
+      >
+        <Heading3 className="size-3.5" />
+      </ToolbarButton>
+      <div className="bubble-separator" />
+      <ToolbarButton
+        active={editor.isActive(`bold`)}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+        title="Bold"
+      >
+        <Bold className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive(`italic`)}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+        title="Italic"
+      >
+        <Italic className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive(`strike`)}
+        onClick={() => editor.chain().focus().toggleStrike().run()}
+        title="Strikethrough"
+      >
+        <Strikethrough className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive(`code`)}
+        onClick={() => editor.chain().focus().toggleCode().run()}
+        title="Code"
+      >
+        <Code className="size-3.5" />
+      </ToolbarButton>
+      <div className="bubble-separator" />
+      <LinkControl editor={editor} />
+      <ToolbarButton
+        active={editor.isActive(`blockquote`)}
+        onClick={() => editor.chain().focus().toggleBlockquote().run()}
+        title="Quote"
+      >
+        <Quote className="size-3.5" />
+      </ToolbarButton>
+      <div className="bubble-separator" />
+      <ToolbarButton
+        active={editor.isActive(`bulletList`)}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+        title="Bullet list"
+      >
+        <List className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive(`orderedList`)}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        title="Numbered list"
+      >
+        <ListOrdered className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive(`taskList`)}
+        onClick={() => editor.chain().focus().toggleTaskList().run()}
+        title="Task list"
+      >
+        <ListChecks className="size-3.5" />
+      </ToolbarButton>
+      <div className="bubble-separator" />
+      <ToolbarButton
+        onClick={() =>
+          editor.chain().focus().unsetAllMarks().clearNodes().run()
+        }
+        title="Clear formatting"
+      >
+        <RemoveFormatting className="size-3.5" />
+      </ToolbarButton>
+    </>
+  )
+}
+
+/** Image button (static toolbar only) — opens a file picker routed through the
+ *  same upload path as paste/drop. */
+function ImageControl({
+  imageUpload,
+}: {
+  imageUpload?: MarkdownEditorImageUploadConfig
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  if (!imageUpload?.enabled) return null
+  return (
+    <>
+      <div className="bubble-separator" />
+      <input
+        ref={inputRef}
+        type="file"
+        accept={acceptedImageContentTypes.join(`,`)}
+        multiple
+        hidden
+        onChange={(event) => {
+          const files = getImageFiles(event.target.files)
+          if (files.length > 0) void imageUpload.onFiles(files)
+          event.target.value = ``
+        }}
+      />
+      <ToolbarButton
+        onClick={() => inputRef.current?.click()}
+        title="Insert image"
+      >
+        <ImageIcon className="size-3.5" />
+      </ToolbarButton>
+    </>
+  )
+}
+
+/** Always-visible toolbar above the editor (discoverability; houses the image
+ *  button). The selection bubble still appears for quick inline formatting. */
+function StaticToolbar({
+  editor,
+  imageUpload,
+}: {
+  editor: Editor | null
+  imageUpload?: MarkdownEditorImageUploadConfig
+}) {
+  if (!editor) return null
+  return (
+    <div className="static-toolbar">
+      <ToolbarActions editor={editor} />
+      <ImageControl imageUpload={imageUpload} />
+    </div>
   )
 }
 
@@ -144,41 +407,7 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
     }
   }, [editor, updatePosition])
 
-  const toggleLink = useCallback(() => {
-    if (!editor) return
-    if (editor.isActive(`link`)) {
-      editor.chain().focus().unsetLink().run()
-      return
-    }
-    const url = window.prompt(`URL`)
-    if (url) {
-      editor
-        .chain()
-        .focus()
-        .extendMarkRange(`link`)
-        .setLink({ href: url })
-        .run()
-    }
-  }, [editor])
-
   if (!editor || !visible) return null
-
-  const btn = (
-    active: boolean,
-    onClick: () => void,
-    icon: React.ReactNode,
-    title: string
-  ) => (
-    <button
-      type="button"
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={active ? `is-active` : ``}
-      title={title}
-    >
-      {icon}
-    </button>
-  )
 
   return (
     <div
@@ -186,88 +415,7 @@ function BubbleToolbar({ editor }: { editor: Editor | null }) {
       className="bubble-toolbar"
       style={{ top: position.top, left: position.left }}
     >
-      {btn(
-        editor.isActive(`heading`, { level: 1 }),
-        () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-        <Heading1 className="size-3.5" />,
-        `Heading 1`
-      )}
-      {btn(
-        editor.isActive(`heading`, { level: 2 }),
-        () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-        <Heading2 className="size-3.5" />,
-        `Heading 2`
-      )}
-      {btn(
-        editor.isActive(`heading`, { level: 3 }),
-        () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
-        <Heading3 className="size-3.5" />,
-        `Heading 3`
-      )}
-      <div className="bubble-separator" />
-      {btn(
-        editor.isActive(`bold`),
-        () => editor.chain().focus().toggleBold().run(),
-        <Bold className="size-3.5" />,
-        `Bold`
-      )}
-      {btn(
-        editor.isActive(`italic`),
-        () => editor.chain().focus().toggleItalic().run(),
-        <Italic className="size-3.5" />,
-        `Italic`
-      )}
-      {btn(
-        editor.isActive(`strike`),
-        () => editor.chain().focus().toggleStrike().run(),
-        <Strikethrough className="size-3.5" />,
-        `Strikethrough`
-      )}
-      {btn(
-        editor.isActive(`code`),
-        () => editor.chain().focus().toggleCode().run(),
-        <Code className="size-3.5" />,
-        `Code`
-      )}
-      <div className="bubble-separator" />
-      {btn(
-        editor.isActive(`link`),
-        toggleLink,
-        <LinkIcon className="size-3.5" />,
-        `Link`
-      )}
-      {btn(
-        editor.isActive(`blockquote`),
-        () => editor.chain().focus().toggleBlockquote().run(),
-        <Quote className="size-3.5" />,
-        `Quote`
-      )}
-      <div className="bubble-separator" />
-      {btn(
-        editor.isActive(`bulletList`),
-        () => editor.chain().focus().toggleBulletList().run(),
-        <List className="size-3.5" />,
-        `Bullet list`
-      )}
-      {btn(
-        editor.isActive(`orderedList`),
-        () => editor.chain().focus().toggleOrderedList().run(),
-        <ListOrdered className="size-3.5" />,
-        `Numbered list`
-      )}
-      {btn(
-        editor.isActive(`taskList`),
-        () => editor.chain().focus().toggleTaskList().run(),
-        <ListChecks className="size-3.5" />,
-        `Task list`
-      )}
-      <div className="bubble-separator" />
-      {btn(
-        false,
-        () => editor.chain().focus().unsetAllMarks().clearNodes().run(),
-        <RemoveFormatting className="size-3.5" />,
-        `Clear formatting`
-      )}
+      <ToolbarActions editor={editor} />
     </div>
   )
 }
@@ -393,6 +541,9 @@ export const MarkdownEditor = forwardRef<
 
     return (
       <div className="tiptap-wrapper">
+        {editable ? (
+          <StaticToolbar editor={editor} imageUpload={imageUpload} />
+        ) : null}
         {editable ? <BubbleToolbar editor={editor} /> : null}
         <EditorContent editor={editor} />
       </div>

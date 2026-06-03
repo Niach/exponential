@@ -6,11 +6,41 @@ const std = @import("std");
 const gtk = @import("gtk.zig");
 const format = @import("format.zig");
 
-/// Install application-wide CSS once (rounded label chips, dim group headers,
-/// comment cards). Safe to call multiple times but intended for startup.
+/// Install application-wide CSS once (the web-parity dark palette via Adwaita
+/// named-colour overrides, plus rounded label chips, dim group headers, comment
+/// cards). Safe to call multiple times but intended for startup.
 pub fn applyCss() void {
+    // The web app is dark-only — force the dark scheme regardless of the
+    // desktop's light/dark preference (Adwaita is initialised by now).
+    gtk.adw_style_manager_set_color_scheme(gtk.adw_style_manager_get_default(), gtk.ADW_COLOR_SCHEME_FORCE_DARK);
+
     const provider = gtk.gtk_css_provider_new();
     gtk.gtk_css_provider_load_from_string(provider,
+    // --- Web-parity palette: override Adwaita's named colours to the zinc
+    //     OKLCH tokens from apps/web/src/styles.css, with an indigo accent. ---
+        \\@define-color window_bg_color #18181b;
+        \\@define-color window_fg_color #fafafa;
+        \\@define-color view_bg_color #18181b;
+        \\@define-color view_fg_color #fafafa;
+        \\@define-color card_bg_color #262626;
+        \\@define-color card_fg_color #fafafa;
+        \\@define-color popover_bg_color #262626;
+        \\@define-color popover_fg_color #fafafa;
+        \\@define-color dialog_bg_color #262626;
+        \\@define-color dialog_fg_color #fafafa;
+        \\@define-color headerbar_bg_color #18181b;
+        \\@define-color headerbar_fg_color #fafafa;
+        \\@define-color sidebar_bg_color #262626;
+        \\@define-color sidebar_fg_color #fafafa;
+        \\@define-color secondary_sidebar_bg_color #1f1f23;
+        \\@define-color accent_bg_color #4f46e5;
+        \\@define-color accent_fg_color #ffffff;
+        \\@define-color accent_color #818cf8;
+        \\@define-color destructive_bg_color #ef4444;
+        \\@define-color destructive_fg_color #ffffff;
+        \\@define-color destructive_color #f87171;
+        \\* { font-family: 'Inter', 'Cantarell', 'Adwaita Sans', sans-serif; }
+        \\.navigation-sidebar { background-color: @sidebar_bg_color; }
         \\.exp-chip {
         \\  border: 1px solid alpha(currentColor, 0.18);
         \\  border-radius: 9999px;
@@ -39,6 +69,15 @@ pub fn applyCss() void {
         \\  padding: 8px 10px;
         \\}
         \\.exp-icon { font-size: 1.05em; }
+        \\.exp-swatch {
+        \\  min-width: 26px;
+        \\  min-height: 26px;
+        \\  padding: 0;
+        \\  border-radius: 9999px;
+        \\}
+        \\.exp-swatch-on {
+        \\  border: 2px solid @accent_color;
+        \\}
         \\.exp-title-entry {
         \\  font-size: 1.5em;
         \\  font-weight: bold;
@@ -99,6 +138,40 @@ pub fn chip(arena: std.mem.Allocator, name: []const u8, color: []const u8) gtk.O
     if (arena.dupeZ(u8, name)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
     gtk.gtk_box_append(box, lbl);
     return box;
+}
+
+/// A 2×10 grid of round colour swatches (the shared 20-colour palette). Each
+/// swatch stashes its colour as "exp-color" data and calls `handler(btn, data)`
+/// on click; the swatch matching `selected_color` is ringed and written to
+/// `selected_out`. Reused by create-project and the labels settings section.
+pub fn swatchGrid(data: gtk.gpointer, handler: gtk.GCallback, selected_color: []const u8, selected_out: *gtk.Object) gtk.Object {
+    const grid = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 4);
+    var roww: gtk.Object = null;
+    for (format.label_colors, 0..) |color, i| {
+        if (i % 10 == 0) {
+            roww = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 4);
+            gtk.gtk_box_append(grid, roww);
+        }
+        const sw = gtk.gtk_button_new();
+        gtk.gtk_widget_add_css_class(sw, "flat");
+        gtk.gtk_widget_add_css_class(sw, "exp-swatch");
+        const lbl = gtk.gtk_label_new(null);
+        var buf: [64]u8 = undefined;
+        if (std.fmt.bufPrintZ(&buf, "<span size='large' foreground='{s}'>\u{25CF}</span>", .{color})) |z| {
+            gtk.gtk_label_set_markup(lbl, z.ptr);
+        } else |_| {}
+        gtk.gtk_button_set_child(sw, lbl);
+        // The palette entries are comptime literals, so their pointers are valid
+        // for the program's lifetime — no destroy notify needed.
+        gtk.g_object_set_data_full(sw, "exp-color", @ptrCast(@constCast(color.ptr)), null);
+        if (std.mem.eql(u8, color, selected_color)) {
+            gtk.gtk_widget_add_css_class(sw, "exp-swatch-on");
+            selected_out.* = sw;
+        }
+        _ = gtk.g_signal_connect_data(sw, "clicked", handler, data, null, 0);
+        gtk.gtk_box_append(roww, sw);
+    }
+    return grid;
 }
 
 /// A circular initial avatar for a user (first codepoint, uppercased if ASCII),

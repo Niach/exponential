@@ -2,6 +2,7 @@ import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
+  selectAttachmentSchema,
   selectCommentSchema,
   selectIssueLabelSchema,
   selectIssueSchema,
@@ -141,6 +142,22 @@ export const commentCollection = createCollection(
       columnMapper,
     },
     schema: selectCommentSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// Synced so embedded images can reserve their intrinsic aspect-ratio (width/
+// height) before the bytes load — eliminating layout shift on reload. Mirrors
+// the attachments shape the mobile/native clients already sync.
+export const attachmentCollection = createCollection(
+  electricCollectionOptions({
+    id: `attachments`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/attachments`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectAttachmentSchema,
     getKey: (item) => item.id,
   })
 )

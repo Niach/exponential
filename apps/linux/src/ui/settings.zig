@@ -34,6 +34,7 @@ const Ctx = struct {
     link_entry: gtk.Object = null,
     token_entry: gtk.Object = null,
     agent_status: gtk.Object = null,
+    new_label_entry: gtk.Object = null,
     last_link: ?[:0]u8 = null,
 };
 
@@ -197,6 +198,12 @@ fn rebuild(ctx: *Ctx) void {
     const invites = ctx.db.listInvites(a, ctx.ws_id) catch &[_]Database.InviteRow{};
     for (invites) |inv| gtk.gtk_box_append(ctx.content, inviteRow(ctx, a, inv));
 
+    // --- Projects ---
+    projectsSection(ctx, a);
+
+    // --- Labels ---
+    labelsSection(ctx, a);
+
     // --- Desktop agent ---
     gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Desktop agent"));
     if (identity_store.existsFor(ctx.gpa, ctx.ws_id)) {
@@ -270,6 +277,342 @@ fn rebuild(ctx: *Ctx) void {
     gtk.gtk_label_set_wrap(status, 1);
     gtk.gtk_box_append(ctx.content, status);
     ctx.agent_status = status;
+
+    // --- Danger Zone (owner-only) ---
+    var is_owner = false;
+    for (members) |m| {
+        if (ctx.current_user_id) |uid| {
+            if (std.mem.eql(u8, uid, m.user_id) and std.mem.eql(u8, m.role, "owner")) is_owner = true;
+        }
+    }
+    if (is_owner) dangerZone(ctx, ws_name);
+}
+
+// --- Projects section -------------------------------------------------------
+
+fn projectsSection(ctx: *Ctx, a: std.mem.Allocator) void {
+    const projects = ctx.db.listProjects(a, ctx.ws_id) catch &[_]Database.ProjectRow{};
+    if (std.fmt.allocPrintSentinel(a, "Projects ({d})", .{projects.len}, 0)) |t| {
+        gtk.gtk_box_append(ctx.content, widgets.sectionTitle(t));
+    } else |_| {}
+    for (projects) |p| {
+        const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+        gtk.gtk_widget_set_margin_top(row, 2);
+        gtk.gtk_box_append(row, widgets.dot(p.color));
+        const lbl = gtk.gtk_label_new(null);
+        if (a.dupeZ(u8, p.name)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
+        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+        gtk.gtk_widget_set_hexpand(lbl, 1);
+        gtk.gtk_box_append(row, lbl);
+
+        const del = gtk.gtk_button_new_with_label("Delete");
+        gtk.gtk_widget_add_css_class(del, "flat");
+        gtk.gtk_widget_add_css_class(del, "destructive-action");
+        if (makeRowDel(ctx, .project, p.id, p.name)) |rd| {
+            gtk.g_object_set_data_full(del, "exp-rd", @ptrCast(rd), @ptrCast(&freeRowDel));
+            _ = gtk.g_signal_connect_data(del, "clicked", @ptrCast(&onOpenConfirm), rd, null, 0);
+        }
+        gtk.gtk_box_append(row, del);
+        gtk.gtk_box_append(ctx.content, row);
+    }
+}
+
+// --- Labels section ---------------------------------------------------------
+
+/// Per-label edit context (rename entry + colour), freed when its row is destroyed.
+const LabelRowCtx = struct {
+    ctx: *Ctx,
+    id: [:0]u8,
+    name_entry: gtk.Object = null,
+    selected_swatch: gtk.Object = null,
+};
+
+fn freeLabelRow(p: gtk.gpointer) callconv(.c) void {
+    const lrc: *LabelRowCtx = @ptrCast(@alignCast(p));
+    lrc.ctx.gpa.free(lrc.id);
+    lrc.ctx.gpa.destroy(lrc);
+}
+
+fn labelsSection(ctx: *Ctx, a: std.mem.Allocator) void {
+    const labels = ctx.db.listLabels(a, ctx.ws_id) catch &[_]Database.LabelRow{};
+    if (std.fmt.allocPrintSentinel(a, "Labels ({d})", .{labels.len}, 0)) |t| {
+        gtk.gtk_box_append(ctx.content, widgets.sectionTitle(t));
+    } else |_| {}
+    for (labels) |l| gtk.gtk_box_append(ctx.content, labelRow(ctx, a, l));
+
+    // New-label form.
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
+    gtk.gtk_widget_set_margin_top(row, 4);
+    const entry = gtk.gtk_entry_new();
+    gtk.gtk_entry_set_placeholder_text(entry, "New label name");
+    gtk.gtk_widget_set_hexpand(entry, 1);
+    gtk.gtk_box_append(row, entry);
+    ctx.new_label_entry = entry;
+    const add = gtk.gtk_button_new_with_label("Add label");
+    _ = gtk.g_signal_connect_data(add, "clicked", @ptrCast(&onCreateLabel), ctx, null, 0);
+    _ = gtk.g_signal_connect_data(entry, "activate", @ptrCast(&onCreateLabel), ctx, null, 0);
+    gtk.gtk_box_append(row, add);
+    gtk.gtk_box_append(ctx.content, row);
+}
+
+fn labelRow(ctx: *Ctx, a: std.mem.Allocator, l: Database.LabelRow) gtk.Object {
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_set_margin_top(row, 2);
+
+    const lrc = ctx.gpa.create(LabelRowCtx) catch return row;
+    lrc.ctx = ctx;
+    lrc.name_entry = null;
+    lrc.selected_swatch = null;
+    lrc.id = ctx.gpa.dupeZ(u8, l.id) catch {
+        ctx.gpa.destroy(lrc);
+        return row;
+    };
+    gtk.g_object_set_data_full(row, "exp-lrc", @ptrCast(lrc), @ptrCast(&freeLabelRow));
+
+    // Colour menu-button (current colour dot → swatch popover).
+    const color_btn = gtk.gtk_menu_button_new();
+    gtk.gtk_widget_add_css_class(color_btn, "flat");
+    gtk.gtk_menu_button_set_child(color_btn, widgets.dot(l.color));
+    const pop = gtk.gtk_popover_new();
+    const grid = widgets.swatchGrid(@ptrCast(lrc), @ptrCast(&onLabelColor), l.color, &lrc.selected_swatch);
+    gtk.gtk_popover_set_child(pop, grid);
+    gtk.gtk_menu_button_set_popover(color_btn, pop);
+    gtk.gtk_box_append(row, color_btn);
+
+    // Name entry (rename on Enter).
+    const entry = gtk.gtk_entry_new();
+    if (a.dupeZ(u8, l.name)) |z| gtk.gtk_editable_set_text(entry, z.ptr) else |_| {}
+    gtk.gtk_widget_set_hexpand(entry, 1);
+    lrc.name_entry = entry;
+    _ = gtk.g_signal_connect_data(entry, "activate", @ptrCast(&onLabelRename), lrc, null, 0);
+    gtk.gtk_box_append(row, entry);
+
+    // Delete (direct — labels are cheap to recreate; mirrors member "Remove").
+    const del = gtk.gtk_button_new_with_label("Delete");
+    gtk.gtk_widget_add_css_class(del, "flat");
+    if (makeAction(ctx, .delete_label, l.id)) |ac| {
+        gtk.g_object_set_data_full(del, "exp-ctx", @ptrCast(ac), @ptrCast(&freeAction));
+        _ = gtk.g_signal_connect_data(del, "clicked", @ptrCast(&onAction), ac, null, 0);
+    }
+    gtk.gtk_box_append(row, del);
+    return row;
+}
+
+fn onLabelRename(entry: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const lrc: *LabelRowCtx = @ptrCast(@alignCast(data));
+    const ctx = lrc.ctx;
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const name = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(entry)), " \t");
+    if (name.len == 0) return;
+    call(ctx, a, "labels.update", .{ .workspaceId = ctx.ws_id, .labelId = lrc.id, .name = name });
+    rebuild(ctx); // frees lrc — don't touch it after
+}
+
+fn onLabelColor(btn: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const lrc: *LabelRowCtx = @ptrCast(@alignCast(data));
+    const ctx = lrc.ctx;
+    const raw = gtk.g_object_get_data(btn, "exp-color") orelse return;
+    const color = std.mem.span(@as([*:0]const u8, @ptrCast(raw)));
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    call(ctx, a, "labels.update", .{ .workspaceId = ctx.ws_id, .labelId = lrc.id, .color = color });
+    rebuild(ctx); // frees lrc — don't touch it after
+}
+
+fn onCreateLabel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const entry = ctx.new_label_entry orelse return;
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const name = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(entry)), " \t");
+    if (name.len == 0) return;
+    call(ctx, a, "labels.create", .{ .workspaceId = ctx.ws_id, .name = name, .color = "#6366f1" });
+    rebuild(ctx);
+}
+
+// --- Danger Zone + delete confirmation --------------------------------------
+
+const DeleteKind = enum { project, workspace };
+
+/// Carried by a delete button; opens a confirmation dialog on click.
+const RowDel = struct { ctx: *Ctx, kind: DeleteKind, id: [:0]u8, name: [:0]u8 };
+
+fn makeRowDel(ctx: *Ctx, kind: DeleteKind, id: []const u8, name: []const u8) ?*RowDel {
+    const rd = ctx.gpa.create(RowDel) catch return null;
+    rd.ctx = ctx;
+    rd.kind = kind;
+    rd.id = ctx.gpa.dupeZ(u8, id) catch {
+        ctx.gpa.destroy(rd);
+        return null;
+    };
+    rd.name = ctx.gpa.dupeZ(u8, name) catch {
+        ctx.gpa.free(rd.id);
+        ctx.gpa.destroy(rd);
+        return null;
+    };
+    return rd;
+}
+
+fn freeRowDel(p: gtk.gpointer) callconv(.c) void {
+    const rd: *RowDel = @ptrCast(@alignCast(p));
+    rd.ctx.gpa.free(rd.id);
+    rd.ctx.gpa.free(rd.name);
+    rd.ctx.gpa.destroy(rd);
+}
+
+fn dangerZone(ctx: *Ctx, ws_name: []const u8) void {
+    gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Danger zone"));
+    const desc = gtk.gtk_label_new("Deleting a workspace permanently removes it and all its projects and issues.");
+    gtk.gtk_widget_add_css_class(desc, "dim-label");
+    gtk.gtk_widget_set_halign(desc, gtk.ALIGN_START);
+    gtk.gtk_label_set_wrap(desc, 1);
+    gtk.gtk_box_append(ctx.content, desc);
+
+    const del = gtk.gtk_button_new_with_label("Delete workspace");
+    gtk.gtk_widget_add_css_class(del, "destructive-action");
+    gtk.gtk_widget_set_halign(del, gtk.ALIGN_START);
+    if (makeRowDel(ctx, .workspace, ctx.ws_id, ws_name)) |rd| {
+        gtk.g_object_set_data_full(del, "exp-rd", @ptrCast(rd), @ptrCast(&freeRowDel));
+        _ = gtk.g_signal_connect_data(del, "clicked", @ptrCast(&onOpenConfirm), rd, null, 0);
+    }
+    gtk.gtk_box_append(ctx.content, del);
+}
+
+/// Confirmation dialog state (owns its duped id/expected-name, freed on close).
+const ConfirmCtx = struct {
+    ctx: *Ctx,
+    kind: DeleteKind,
+    id: [:0]u8,
+    expect: [:0]u8, // type-to-confirm text (workspace name); "" = no match required
+    dialog: gtk.Object = null,
+    entry: gtk.Object = null,
+    confirm_btn: gtk.Object = null,
+};
+
+fn freeConfirm(p: gtk.gpointer) callconv(.c) void {
+    const cc: *ConfirmCtx = @ptrCast(@alignCast(p));
+    cc.ctx.gpa.free(cc.id);
+    cc.ctx.gpa.free(cc.expect);
+    cc.ctx.gpa.destroy(cc);
+}
+
+fn onOpenConfirm(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const rd: *RowDel = @ptrCast(@alignCast(data));
+    const ctx = rd.ctx;
+    const require_match = rd.kind == .workspace;
+
+    const cc = ctx.gpa.create(ConfirmCtx) catch return;
+    cc.ctx = ctx;
+    cc.kind = rd.kind;
+    cc.entry = null;
+    cc.confirm_btn = null;
+    cc.id = ctx.gpa.dupeZ(u8, rd.id) catch {
+        ctx.gpa.destroy(cc);
+        return;
+    };
+    cc.expect = ctx.gpa.dupeZ(u8, rd.name) catch {
+        ctx.gpa.free(cc.id);
+        ctx.gpa.destroy(cc);
+        return;
+    };
+
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, if (rd.kind == .workspace) "Delete workspace" else "Delete project");
+    gtk.adw_dialog_set_content_width(dialog, 420);
+    cc.dialog = dialog;
+
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    const cancel = gtk.gtk_button_new_with_label("Cancel");
+    _ = gtk.g_signal_connect_data(cancel, "clicked", @ptrCast(&onConfirmCancel), cc, null, 0);
+    gtk.adw_header_bar_pack_start(header, cancel);
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+
+    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 10);
+    gtk.gtk_widget_set_margin_top(form, 16);
+    gtk.gtk_widget_set_margin_bottom(form, 16);
+    gtk.gtk_widget_set_margin_start(form, 16);
+    gtk.gtk_widget_set_margin_end(form, 16);
+
+    const msg = gtk.gtk_label_new(null);
+    var buf: [320]u8 = undefined;
+    const text = if (rd.kind == .workspace)
+        std.fmt.bufPrintZ(&buf, "Permanently delete “{s}” and everything in it? This cannot be undone.", .{rd.name}) catch "Delete this workspace?"
+    else
+        std.fmt.bufPrintZ(&buf, "Permanently delete “{s}” and all its issues?", .{rd.name}) catch "Delete this project?";
+    gtk.gtk_label_set_text(msg, text.ptr);
+    gtk.gtk_label_set_wrap(msg, 1);
+    gtk.gtk_widget_set_halign(msg, gtk.ALIGN_START);
+    gtk.gtk_box_append(form, msg);
+
+    if (require_match) {
+        const hint = gtk.gtk_label_new(null);
+        var hbuf: [200]u8 = undefined;
+        if (std.fmt.bufPrintZ(&hbuf, "Type the workspace name to confirm:", .{})) |z| gtk.gtk_label_set_text(hint, z.ptr) else |_| {}
+        gtk.gtk_widget_add_css_class(hint, "dim-label");
+        gtk.gtk_widget_set_halign(hint, gtk.ALIGN_START);
+        gtk.gtk_box_append(form, hint);
+        const entry = gtk.gtk_entry_new();
+        gtk.gtk_entry_set_placeholder_text(entry, rd.name.ptr);
+        cc.entry = entry;
+        _ = gtk.g_signal_connect_data(entry, "changed", @ptrCast(&onConfirmEntryChanged), cc, null, 0);
+        gtk.gtk_box_append(form, entry);
+    }
+
+    const confirm = gtk.gtk_button_new_with_label(if (rd.kind == .workspace) "Delete workspace" else "Delete project");
+    gtk.gtk_widget_add_css_class(confirm, "destructive-action");
+    gtk.gtk_widget_set_halign(confirm, gtk.ALIGN_END);
+    if (require_match) gtk.gtk_widget_set_sensitive(confirm, 0); // enabled once the name matches
+    cc.confirm_btn = confirm;
+    _ = gtk.g_signal_connect_data(confirm, "clicked", @ptrCast(&onConfirmDelete), cc, null, 0);
+    gtk.gtk_box_append(form, confirm);
+
+    gtk.adw_toolbar_view_set_content(tv, form);
+    gtk.adw_dialog_set_child(dialog, tv);
+    _ = gtk.g_signal_connect_data(dialog, "closed", @ptrCast(&onConfirmClosed), cc, null, 0);
+    gtk.adw_dialog_present(dialog, ctx.dialog);
+}
+
+fn onConfirmEntryChanged(entry: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const cc: *ConfirmCtx = @ptrCast(@alignCast(data));
+    const typed = std.mem.span(gtk.gtk_editable_get_text(entry));
+    if (cc.confirm_btn) |btn| {
+        gtk.gtk_widget_set_sensitive(btn, if (std.mem.eql(u8, typed, cc.expect)) 1 else 0);
+    }
+}
+
+fn onConfirmCancel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const cc: *ConfirmCtx = @ptrCast(@alignCast(data));
+    _ = gtk.adw_dialog_close(cc.dialog);
+}
+
+fn onConfirmClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    freeConfirm(data);
+}
+
+fn onConfirmDelete(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const cc: *ConfirmCtx = @ptrCast(@alignCast(data));
+    const ctx = cc.ctx;
+    const kind = cc.kind;
+    {
+        var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+        defer arena.deinit();
+        const a = arena.allocator();
+        switch (kind) {
+            .project => call(ctx, a, "projects.delete", .{ .projectId = cc.id }),
+            .workspace => call(ctx, a, "workspaces.delete", .{ .workspaceId = ctx.ws_id }),
+        }
+    }
+    _ = gtk.adw_dialog_close(cc.dialog); // frees cc via onConfirmClosed
+    if (kind == .workspace) {
+        _ = gtk.adw_dialog_close(ctx.dialog); // workspace gone — close settings
+    } else {
+        rebuild(ctx);
+    }
 }
 
 fn setAgentStatus(ctx: *Ctx, msg: []const u8) void {
@@ -513,7 +856,7 @@ fn inviteRow(ctx: *Ctx, arena: std.mem.Allocator, inv: Database.InviteRow) gtk.O
 
 // --- per-action context (member role/remove, invite revoke) ---
 
-const ActionKind = enum { make_owner, make_member, remove_member, revoke_invite };
+const ActionKind = enum { make_owner, make_member, remove_member, revoke_invite, delete_label };
 
 const ActionCtx = struct {
     ctx: *Ctx,
@@ -559,6 +902,7 @@ fn onAction(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
         .make_member => updateRole(ctx, a, ac.id, "member"),
         .remove_member => call(ctx, a, "workspaceMembers.remove", .{ .memberId = ac.id }),
         .revoke_invite => call(ctx, a, "workspaceInvites.revoke", .{ .id = ac.id }),
+        .delete_label => call(ctx, a, "labels.delete", .{ .workspaceId = ctx.ws_id, .labelId = ac.id }),
     }
     rebuild(ctx); // frees ac (button destroyed) — don't touch ac after
 }

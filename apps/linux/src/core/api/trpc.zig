@@ -58,6 +58,29 @@ pub fn call(
     return .{ .parsed = parsed, .status = resp.status };
 }
 
+/// Call a no-input query procedure via GET (tRPC routes queries to GET; the
+/// non-batched response envelope is the same `{result:{data}}`). Caller owns the
+/// returned Response (`deinit`).
+pub fn query(
+    allocator: std.mem.Allocator,
+    base_url: []const u8,
+    path: []const u8,
+    token: ?[]const u8,
+    timeout_s: c_long,
+) Error!Response {
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    defer scratch.deinit();
+    const trimmed = std.mem.trimEnd(u8, base_url, "/");
+    const url = try std.fmt.allocPrintSentinel(scratch.allocator(), "{s}/api/trpc/{s}", .{ trimmed, path }, 0);
+
+    var resp = try http.get(allocator, url, token, timeout_s, null);
+    defer resp.deinit();
+
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, resp.body, .{}) catch
+        return Error.ParseFailed;
+    return .{ .parsed = parsed, .status = resp.status };
+}
+
 // --- small JSON helpers shared by the auth/agent layers ---
 
 pub fn asObject(v: std.json.Value) ?std.json.ObjectMap {

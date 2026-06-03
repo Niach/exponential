@@ -6,6 +6,7 @@ import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -124,8 +125,8 @@ export function RegularCommentRow({
             </div>
           </div>
         ) : (
-          <div className="mt-0.5 text-sm whitespace-pre-wrap break-words text-foreground">
-            {bodyText}
+          <div className="mt-0.5 text-sm text-foreground">
+            <MarkdownEditor markdown={bodyText} editable={false} onChange={() => {}} />
           </div>
         )}
         {showRetry && (

@@ -16,6 +16,8 @@ const md = @import("markdown_editor.zig");
 const format = @import("format.zig");
 const widgets = @import("widgets.zig");
 const settings = @import("settings.zig");
+const admin = @import("admin.zig");
+const integrations = @import("integrations.zig");
 const trpc = @import("../core/api/trpc.zig");
 const mutate = @import("../core/api/mutate.zig");
 const http = @import("../core/api/http.zig");
@@ -54,6 +56,7 @@ const AppState = struct {
     instance: ?[]u8 = null, // duped; SyncManager borrows it
     token: ?[]u8 = null,
     issue_list: gtk.Object = null,
+    sidebar_pane: gtk.Object = null, // the sidebar toolbar (toggled with Ctrl+B)
     sidebar_list: gtk.Object = null,
     sidebar_account: gtk.Object = null,
     content_nav: gtk.Object = null, // AdwNavigationView (list → detail subpages)
@@ -69,6 +72,7 @@ const AppState = struct {
     active_workspace_id: ?[]u8 = null, // gpa-owned
     workspace_ids: [][]u8 = &.{}, // gpa-owned; parallel to the switcher dropdown
     switcher_area: gtk.Object = null, // sidebar slot holding the workspace switcher
+    switcher_popover: gtk.Object = null, // the switcher's dropdown popover (for popdown)
     repo_banner: gtk.Object = null, // GitHub repo banner above the list (hidden when none)
     heartbeat: ?*Heartbeat = null, // desktop-agent online ping for heartbeat_ws
     heartbeat_ws: ?[]u8 = null, // gpa-owned; which workspace the heartbeat serves
@@ -82,6 +86,7 @@ const AppState = struct {
     search_entry: gtk.Object = null,
     collapsed: [format.status_display_order.len]bool = @splat(false),
     // multi-select filters (additive on top of the tab's status preset)
+    filter_statuses: [format.statuses.len]bool = @splat(false),
     filter_priorities: [format.priorities.len]bool = @splat(false),
     filter_labels: std.ArrayListUnmanaged(FilterLabel) = .empty, // gpa-owned
     pills_box: gtk.Object = null,
@@ -108,8 +113,19 @@ fn anyPriorityFilter(state: *AppState) bool {
     return false;
 }
 
+fn anyStatusFilter(state: *AppState) bool {
+    for (state.filter_statuses) |on| if (on) return true;
+    return false;
+}
+
+/// Index of a status value into `format.statuses` (the filter array order).
+fn statusOptionIndex(value: []const u8) usize {
+    for (format.statuses, 0..) |o, i| if (std.mem.eql(u8, o.value, value)) return i;
+    return 0;
+}
+
 fn hasAnyFilter(state: *AppState) bool {
-    return anyPriorityFilter(state) or state.filter_labels.items.len > 0;
+    return anyStatusFilter(state) or anyPriorityFilter(state) or state.filter_labels.items.len > 0;
 }
 
 fn addFilterLabel(state: *AppState, id: []const u8, name: []const u8, color: []const u8) void {
@@ -149,6 +165,7 @@ fn removeFilterLabel(state: *AppState, id: []const u8) void {
 }
 
 fn clearFilters(state: *AppState) void {
+    state.filter_statuses = @splat(false);
     state.filter_priorities = @splat(false);
     for (state.filter_labels.items) |fl| {
         state.gpa.free(fl.id);
@@ -480,6 +497,13 @@ fn enterTracker(state: *AppState) void {
 
     buildTrackerUI(state);
 
+    // First launch for this account → a one-time welcome (deferred to idle so the
+    // main window is presented first).
+    if (!hasOnboarded(state.gpa, account_id)) {
+        markOnboarded(state.gpa, account_id);
+        _ = gtk.g_idle_add(@ptrCast(&showOnboardingIdle), state);
+    }
+
     if (state.db != null and !state.sync_started) {
         if (state.instance) |inst| {
             state.sync_engine = sync.SyncManager{
@@ -537,9 +561,11 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.collapsed = @splat(false);
     clearFilters(state);
     state.issue_list = null;
+    state.sidebar_pane = null;
     state.sidebar_list = null;
     state.sidebar_account = null;
     state.switcher_area = null;
+    state.switcher_popover = null;
     state.repo_banner = null;
     state.content_nav = null;
     state.list_page = null;
@@ -586,13 +612,11 @@ fn buildTrackerUI(state: *AppState) void {
     // --- Sidebar pane (own header bar with Sign out) ---
     const sidebar_toolbar = gtk.adw_toolbar_view_new();
     gtk.gtk_widget_set_size_request(sidebar_toolbar, 260, -1);
+    state.sidebar_pane = sidebar_toolbar;
     const sidebar_header = gtk.adw_header_bar_new();
     gtk.adw_header_bar_set_title_widget(sidebar_header, gtk.adw_window_title_new("Exponential", ""));
     gtk.adw_header_bar_set_show_end_title_buttons(sidebar_header, 0); // controls live on the content side
-    const signout = gtk.gtk_button_new_with_label("Sign out");
-    gtk.gtk_widget_add_css_class(signout, "flat");
-    _ = gtk.g_signal_connect_data(signout, "clicked", @ptrCast(&onSignOut), state, null, 0);
-    gtk.adw_header_bar_pack_end(sidebar_header, signout);
+    // Sign out moved into the footer user-identity menu (mirrors the web sidebar).
     gtk.adw_toolbar_view_add_top_bar(sidebar_toolbar, sidebar_header);
 
     const sidebar_box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
@@ -606,6 +630,24 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.gtk_box_append(sidebar_box, switcher_area);
     state.switcher_area = switcher_area;
 
+    // "Projects" group header with a trailing "+" (mirrors the web sidebar group).
+    const projects_header = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 0);
+    gtk.gtk_widget_set_margin_start(projects_header, 14);
+    gtk.gtk_widget_set_margin_end(projects_header, 6);
+    gtk.gtk_widget_set_margin_top(projects_header, 4);
+    const projects_label = gtk.gtk_label_new("Projects");
+    gtk.gtk_widget_add_css_class(projects_label, "dim-label");
+    gtk.gtk_widget_add_css_class(projects_label, "caption-heading");
+    gtk.gtk_widget_set_halign(projects_label, gtk.ALIGN_START);
+    gtk.gtk_widget_set_hexpand(projects_label, 1);
+    gtk.gtk_box_append(projects_header, projects_label);
+    const add_project = gtk.gtk_button_new_with_label("+");
+    gtk.gtk_widget_add_css_class(add_project, "flat");
+    gtk.gtk_widget_set_tooltip_text(add_project, "New project");
+    _ = gtk.g_signal_connect_data(add_project, "clicked", @ptrCast(&onNewProjectClicked), state, null, 0);
+    gtk.gtk_box_append(projects_header, add_project);
+    gtk.gtk_box_append(sidebar_box, projects_header);
+
     const sidebar = gtk.gtk_list_box_new();
     gtk.gtk_widget_add_css_class(sidebar, "navigation-sidebar");
     _ = gtk.g_signal_connect_data(sidebar, "row-selected", @ptrCast(&onProjectSelected), state, null, 0);
@@ -615,33 +657,78 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.gtk_box_append(sidebar_box, sidebar_scrolled);
     state.sidebar_list = sidebar;
 
-    const new_project = gtk.gtk_button_new_with_label("+ New project");
-    gtk.gtk_widget_add_css_class(new_project, "flat");
-    gtk.gtk_widget_set_halign(new_project, gtk.ALIGN_START);
-    gtk.gtk_widget_set_margin_start(new_project, 8);
-    gtk.gtk_widget_set_margin_top(new_project, 4);
-    gtk.gtk_widget_set_margin_bottom(new_project, 4);
-    _ = gtk.g_signal_connect_data(new_project, "clicked", @ptrCast(&onNewProjectClicked), state, null, 0);
-    gtk.gtk_box_append(sidebar_box, new_project);
+    // (Workspace settings now lives in the switcher popover, mirroring the web.)
 
-    const settings_btn = gtk.gtk_button_new_with_label("⚙ Workspace settings");
-    gtk.gtk_widget_add_css_class(settings_btn, "flat");
-    gtk.gtk_widget_set_halign(settings_btn, gtk.ALIGN_START);
-    gtk.gtk_widget_set_margin_start(settings_btn, 8);
-    gtk.gtk_widget_set_margin_bottom(settings_btn, 4);
-    _ = gtk.g_signal_connect_data(settings_btn, "clicked", @ptrCast(&onSettingsClicked), state, null, 0);
-    gtk.gtk_box_append(sidebar_box, settings_btn);
+    // Send feedback (opens the instance's /feedback page in the browser).
+    const feedback_btn = gtk.gtk_button_new_with_label("\u{1F4E3} Send feedback");
+    gtk.gtk_widget_add_css_class(feedback_btn, "flat");
+    gtk.gtk_widget_add_css_class(feedback_btn, "dim-label");
+    gtk.gtk_widget_set_halign(feedback_btn, gtk.ALIGN_START);
+    gtk.gtk_widget_set_margin_start(feedback_btn, 8);
+    _ = gtk.g_signal_connect_data(feedback_btn, "clicked", @ptrCast(&onFeedbackClicked), state, null, 0);
+    gtk.gtk_box_append(sidebar_box, feedback_btn);
 
+    // User-identity menu: avatar + email → Admin (if admin) / Integrations / Sign out.
+    var is_admin = false;
+    const user_box = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    {
+        var arena = std.heap.ArenaAllocator.init(state.gpa);
+        defer arena.deinit();
+        var name_buf: [128]u8 = undefined;
+        var display: []const u8 = "Account";
+        var store = AccountStore.open(state.gpa) catch null;
+        if (store) |*s| {
+            if (activeAccount(s)) |acc| {
+                display = std.fmt.bufPrint(&name_buf, "{s}", .{acc.user_name orelse acc.user_email orelse "Account"}) catch "Account";
+                is_admin = acc.is_admin;
+            }
+            s.deinit();
+        }
+        gtk.gtk_box_append(user_box, widgets.avatar(arena.allocator(), if (display.len > 0) display else "?"));
+    }
     const account = gtk.gtk_label_new("");
-    gtk.gtk_widget_add_css_class(account, "dim-label");
     gtk.gtk_widget_add_css_class(account, "caption");
     gtk.gtk_widget_set_halign(account, gtk.ALIGN_START);
-    gtk.gtk_widget_set_margin_start(account, 10);
-    gtk.gtk_widget_set_margin_bottom(account, 8);
-    gtk.gtk_widget_set_margin_top(account, 2);
+    gtk.gtk_widget_set_hexpand(account, 1);
     gtk.gtk_label_set_ellipsize(account, gtk.ELLIPSIZE_END);
-    gtk.gtk_box_append(sidebar_box, account);
+    gtk.gtk_box_append(user_box, account);
     state.sidebar_account = account;
+
+    const user_menu = gtk.gtk_menu_button_new();
+    gtk.gtk_widget_add_css_class(user_menu, "flat");
+    gtk.gtk_menu_button_set_child(user_menu, user_box);
+    gtk.gtk_widget_set_margin_start(user_menu, 8);
+    gtk.gtk_widget_set_margin_end(user_menu, 8);
+    gtk.gtk_widget_set_margin_bottom(user_menu, 8);
+    gtk.gtk_widget_set_margin_top(user_menu, 2);
+
+    const user_pop = gtk.gtk_popover_new();
+    const user_pop_box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 2);
+
+    if (is_admin) {
+        const admin_item = gtk.gtk_button_new_with_label("Admin");
+        gtk.gtk_widget_add_css_class(admin_item, "flat");
+        gtk.gtk_widget_set_halign(admin_item, gtk.ALIGN_FILL);
+        _ = gtk.g_signal_connect_data(admin_item, "clicked", @ptrCast(&onAdminClicked), state, null, 0);
+        gtk.gtk_box_append(user_pop_box, admin_item);
+    }
+
+    const integrations_item = gtk.gtk_button_new_with_label("Integrations");
+    gtk.gtk_widget_add_css_class(integrations_item, "flat");
+    gtk.gtk_widget_set_halign(integrations_item, gtk.ALIGN_FILL);
+    _ = gtk.g_signal_connect_data(integrations_item, "clicked", @ptrCast(&onIntegrationsClicked), state, null, 0);
+    gtk.gtk_box_append(user_pop_box, integrations_item);
+
+    const signout_item = gtk.gtk_button_new_with_label("Sign out");
+    gtk.gtk_widget_add_css_class(signout_item, "flat");
+    gtk.gtk_widget_set_halign(signout_item, gtk.ALIGN_FILL);
+    _ = gtk.g_signal_connect_data(signout_item, "clicked", @ptrCast(&onSignOut), state, null, 0);
+    gtk.gtk_box_append(user_pop_box, signout_item);
+    gtk.gtk_popover_set_child(user_pop, user_pop_box);
+    gtk.gtk_menu_button_set_popover(user_menu, user_pop);
+    gtk.gtk_box_append(sidebar_box, user_menu);
+
+    updateAccountLabel(state);
 
     gtk.adw_toolbar_view_set_content(sidebar_toolbar, sidebar_box);
     gtk.gtk_box_append(panes, sidebar_toolbar);
@@ -696,8 +783,26 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.gtk_box_append(panes, nav);
 
     gtk.adw_application_window_set_content(state.window, panes);
+
+    // Ctrl/⌘+B toggles the sidebar (mirrors the web sidebar shortcut).
+    const key = gtk.gtk_event_controller_key_new();
+    _ = gtk.g_signal_connect_data(key, "key-pressed", @ptrCast(&onWindowKey), state, null, 0);
+    gtk.gtk_widget_add_controller(state.window, key);
+
     styleTabs(state);
     doRefresh(state);
+}
+
+fn onWindowKey(_: gtk.Object, keyval: c_uint, _: c_uint, mods: c_uint, data: gtk.gpointer) callconv(.c) c_int {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const ctrl_or_super = (mods & (1 << 2)) != 0 or (mods & (1 << 26)) != 0; // Control / Super
+    if (ctrl_or_super and (keyval == 'b' or keyval == 'B')) {
+        if (state.sidebar_pane) |pane| {
+            gtk.gtk_widget_set_visible(pane, if (gtk.gtk_widget_get_visible(pane) != 0) 0 else 1);
+            return 1; // handled
+        }
+    }
+    return 0;
 }
 
 /// Filter tabs (All / Active / Backlog) + a search entry — mirrors the iOS
@@ -780,7 +885,8 @@ fn onSearchChanged(entry: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 const FilterToggleCtx = struct {
     state: *AppState,
     is_label: bool,
-    idx: usize, // priority index when !is_label
+    is_status: bool = false, // status index into format.statuses when set
+    idx: usize, // priority index (!is_label && !is_status) or status index
     id: ?[:0]u8, // label id/name/colour (gpa) when is_label
     name: ?[:0]u8,
     color: ?[:0]u8,
@@ -805,6 +911,19 @@ fn buildFilterPopup(button: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     gtk.gtk_widget_set_margin_bottom(col, 8);
     gtk.gtk_widget_set_margin_start(col, 8);
     gtk.gtk_widget_set_margin_end(col, 8);
+
+    gtk.gtk_box_append(col, widgets.sectionTitle("Status"));
+    for (format.statuses, 0..) |opt, i| {
+        var buf: [64]u8 = undefined;
+        const lbl = std.fmt.bufPrintZ(&buf, "{s}", .{opt.label}) catch continue;
+        const chk = gtk.gtk_check_button_new_with_label(lbl.ptr);
+        if (state.filter_statuses[i]) gtk.gtk_check_button_set_active(chk, 1);
+        const ctx = state.gpa.create(FilterToggleCtx) catch continue;
+        ctx.* = .{ .state = state, .is_label = false, .is_status = true, .idx = i, .id = null, .name = null, .color = null };
+        gtk.g_object_set_data_full(chk, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeFilterToggle));
+        _ = gtk.g_signal_connect_data(chk, "toggled", @ptrCast(&onFilterToggled), ctx, null, 0);
+        gtk.gtk_box_append(col, chk);
+    }
 
     gtk.gtk_box_append(col, widgets.sectionTitle("Priority"));
     for (format.priorities, 0..) |opt, i| {
@@ -860,7 +979,9 @@ fn onFilterToggled(check: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *FilterToggleCtx = @ptrCast(@alignCast(data));
     const state = ctx.state;
     const active = gtk.gtk_check_button_get_active(check) != 0;
-    if (ctx.is_label) {
+    if (ctx.is_status) {
+        if (ctx.idx < state.filter_statuses.len) state.filter_statuses[ctx.idx] = active;
+    } else if (ctx.is_label) {
         if (active)
             addFilterLabel(state, ctx.id orelse return, ctx.name orelse "", ctx.color orelse "")
         else
@@ -873,7 +994,7 @@ fn onFilterToggled(check: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 
 const PillCtx = struct {
     state: *AppState,
-    kind: enum { priority, label, clear },
+    kind: enum { status, priority, label, clear },
     idx: usize,
     id: ?[:0]u8,
 };
@@ -906,6 +1027,11 @@ fn refreshPills(state: *AppState) void {
     defer arena.deinit();
     const a = arena.allocator();
 
+    for (state.filter_statuses, 0..) |on, i| {
+        if (!on) continue;
+        const text = std.fmt.allocPrint(a, "Status: {s}  ✕", .{format.statuses[i].label}) catch continue;
+        addPill(state, box, a, .status, i, null, text, null);
+    }
     for (state.filter_priorities, 0..) |on, i| {
         if (!on) continue;
         const text = std.fmt.allocPrint(a, "Priority: {s}  ✕", .{format.priorities[i].label}) catch continue;
@@ -953,6 +1079,9 @@ fn onPillClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *PillCtx = @ptrCast(@alignCast(data));
     const state = ctx.state;
     switch (ctx.kind) {
+        .status => if (ctx.idx < state.filter_statuses.len) {
+            state.filter_statuses[ctx.idx] = false;
+        },
         .priority => if (ctx.idx < state.filter_priorities.len) {
             state.filter_priorities[ctx.idx] = false;
         },
@@ -960,6 +1089,11 @@ fn onPillClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
         .clear => clearFilters(state),
     }
     refreshIssues(state); // rebuilds the pills (frees this ctx) — don't touch ctx after
+}
+
+fn matchesStatusFilter(state: *AppState, value: []const u8) bool {
+    if (!anyStatusFilter(state)) return true;
+    return state.filter_statuses[statusOptionIndex(value)];
 }
 
 fn matchesPriorityFilter(state: *AppState, value: []const u8) bool {
@@ -1127,7 +1261,7 @@ fn updateAccountLabel(state: *AppState) void {
     var store = AccountStore.open(state.gpa) catch return;
     defer store.deinit();
     const acc = activeAccount(&store) orelse return;
-    const who = acc.user_name orelse acc.user_email orelse "Signed in";
+    const who = acc.user_email orelse acc.user_name orelse "Signed in";
     if (std.fmt.allocPrintSentinel(state.gpa, "{s}", .{who}, 0)) |z| {
         defer state.gpa.free(z);
         gtk.gtk_label_set_text(lbl, z.ptr);
@@ -1142,89 +1276,173 @@ fn refreshSidebar(state: *AppState) void {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Workspace switcher: a dropdown when there's more than one, else a label.
+    // Workspace switcher: a full-width menu button (initial square + name +
+    // chevron) opening a popover listing workspaces (✓ on active), plus
+    // "New workspace" and "Workspace settings" — mirrors the web sidebar header.
     if (state.switcher_area) |area| {
         clearBox(area);
-        freeWorkspaceIds(state);
+        state.switcher_popover = null;
         const workspaces = db.listWorkspaces(a) catch &[_]Database.WorkspaceRow{};
-        if (workspaces.len > 1) {
-            if (a.alloc(?[*:0]const u8, workspaces.len + 1)) |names| {
-                state.workspace_ids = state.gpa.alloc([]u8, workspaces.len) catch &.{};
-                var selected: c_uint = 0;
-                for (workspaces, 0..) |w, i| {
-                    names[i] = w.name.ptr;
-                    if (i < state.workspace_ids.len) state.workspace_ids[i] = state.gpa.dupe(u8, w.id) catch "";
-                    if (state.active_workspace_id) |aw| {
-                        if (std.mem.eql(u8, aw, w.id)) selected = @intCast(i);
-                    }
+        if (workspaces.len > 0) {
+            var active_name: []const u8 = workspaces[0].name;
+            for (workspaces) |w| {
+                if (state.active_workspace_id) |aw| {
+                    if (std.mem.eql(u8, aw, w.id)) active_name = w.name;
                 }
-                names[workspaces.len] = null;
-                const dd = gtk.gtk_drop_down_new_from_strings(@ptrCast(names.ptr));
-                gtk.gtk_drop_down_set_selected(dd, selected);
-                // connect after set so priming doesn't fire
-                _ = gtk.g_signal_connect_data(dd, "notify::selected", @ptrCast(&onWorkspaceChanged), state, null, 0);
-                gtk.gtk_box_append(area, dd);
+            }
+
+            const btn = gtk.gtk_menu_button_new();
+            gtk.gtk_widget_add_css_class(btn, "flat");
+            const child = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+            gtk.gtk_box_append(child, widgets.avatar(a, active_name));
+            const name_lbl = gtk.gtk_label_new(null);
+            var nbuf: [200]u8 = undefined;
+            if (std.fmt.bufPrintZ(&nbuf, "<b>{s}</b>", .{active_name[0..@min(active_name.len, 160)]})) |z| {
+                gtk.gtk_label_set_markup(name_lbl, z.ptr);
             } else |_| {}
-        } else if (workspaces.len == 1) {
-            const lbl = gtk.gtk_label_new(null);
-            var buf: [128]u8 = undefined;
-            if (std.fmt.bufPrintZ(&buf, "<b>{s}</b>", .{workspaces[0].name})) |z| gtk.gtk_label_set_markup(lbl, z.ptr) else |_| {}
-            gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-            gtk.gtk_box_append(area, lbl);
+            gtk.gtk_widget_set_halign(name_lbl, gtk.ALIGN_START);
+            gtk.gtk_widget_set_hexpand(name_lbl, 1);
+            gtk.gtk_label_set_ellipsize(name_lbl, gtk.ELLIPSIZE_END);
+            gtk.gtk_box_append(child, name_lbl);
+            gtk.gtk_menu_button_set_child(btn, child);
+            gtk.gtk_menu_button_set_always_show_arrow(btn, 1);
+
+            const pop = gtk.gtk_popover_new();
+            state.switcher_popover = pop;
+            const pbox = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 2);
+            gtk.gtk_widget_set_size_request(pbox, 220, -1);
+
+            for (workspaces) |w| {
+                const wctx = state.gpa.create(WsSwitchCtx) catch continue;
+                wctx.state = state;
+                wctx.ws_id = state.gpa.dupeZ(u8, w.id) catch {
+                    state.gpa.destroy(wctx);
+                    continue;
+                };
+                const rb = gtk.gtk_button_new();
+                gtk.gtk_widget_add_css_class(rb, "flat");
+                const rbox = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+                gtk.gtk_box_append(rbox, widgets.avatar(a, w.name));
+                const wl = gtk.gtk_label_new(null);
+                if (a.dupeZ(u8, w.name)) |z| gtk.gtk_label_set_text(wl, z.ptr) else |_| {}
+                gtk.gtk_widget_set_halign(wl, gtk.ALIGN_START);
+                gtk.gtk_widget_set_hexpand(wl, 1);
+                gtk.gtk_box_append(rbox, wl);
+                const is_active = if (state.active_workspace_id) |aw| std.mem.eql(u8, aw, w.id) else false;
+                if (is_active) gtk.gtk_box_append(rbox, gtk.gtk_label_new("✓"));
+                gtk.gtk_button_set_child(rb, rbox);
+                // The ctx is owned by the row widget; freed when it's destroyed.
+                gtk.g_object_set_data_full(rb, "exp-ws-ctx", @ptrCast(wctx), @ptrCast(&freeWsSwitch));
+                _ = gtk.g_signal_connect_data(rb, "clicked", @ptrCast(&onSwitchWorkspace), wctx, null, 0);
+                gtk.gtk_box_append(pbox, rb);
+            }
+
+            gtk.gtk_box_append(pbox, gtk.gtk_separator_new(gtk.ORIENTATION_HORIZONTAL));
+
+            const new_ws = gtk.gtk_button_new_with_label("\u{FF0B} New workspace");
+            gtk.gtk_widget_add_css_class(new_ws, "flat");
+            _ = gtk.g_signal_connect_data(new_ws, "clicked", @ptrCast(&onNewWorkspaceClicked), state, null, 0);
+            gtk.gtk_box_append(pbox, new_ws);
+
+            const ws_settings = gtk.gtk_button_new_with_label("\u{2699} Workspace settings");
+            gtk.gtk_widget_add_css_class(ws_settings, "flat");
+            _ = gtk.g_signal_connect_data(ws_settings, "clicked", @ptrCast(&onSwitcherSettings), state, null, 0);
+            gtk.gtk_box_append(pbox, ws_settings);
+
+            gtk.gtk_popover_set_child(pop, pbox);
+            gtk.gtk_menu_button_set_popover(btn, pop);
+            gtk.gtk_box_append(area, btn);
         }
     }
 
     gtk.gtk_list_box_remove_all(sidebar);
-    gtk.gtk_list_box_append(sidebar, sidebarRow(null, "All issues", "", state));
+    gtk.gtk_list_box_append(sidebar, sidebarRow(null, "All issues", "", "", state));
 
     const projects = db.listProjects(a, state.active_workspace_id) catch return;
-    for (projects) |p| gtk.gtk_list_box_append(sidebar, sidebarRow(p.id, p.name, p.github_repo, state));
+    for (projects) |p| gtk.gtk_list_box_append(sidebar, sidebarRow(p.id, p.name, p.github_repo, p.color, state));
 }
 
-fn onWorkspaceChanged(dd: gtk.Object, _: gtk.gpointer, data: gtk.gpointer) callconv(.c) void {
-    const state: *AppState = @ptrCast(@alignCast(data));
-    const idx = gtk.gtk_drop_down_get_selected(dd);
-    if (idx >= state.workspace_ids.len) return;
-    // Dupe first; on OOM keep the current workspace rather than silently
-    // falling back to "all"/first (which would act on the wrong workspace).
-    const new_ws = state.gpa.dupe(u8, state.workspace_ids[idx]) catch return;
+/// Per-workspace-row context for the switcher popover (owns a duped id; freed
+/// when the row button is destroyed via the connect destroy-notify).
+const WsSwitchCtx = struct { state: *AppState, ws_id: [:0]u8 };
+
+fn freeWsSwitch(p: gtk.gpointer) callconv(.c) void {
+    const c: *WsSwitchCtx = @ptrCast(@alignCast(p));
+    c.state.gpa.free(c.ws_id);
+    c.state.gpa.destroy(c);
+}
+
+fn onSwitchWorkspace(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const c: *WsSwitchCtx = @ptrCast(@alignCast(data));
+    switchWorkspace(c.state, c.ws_id);
+}
+
+/// Switch the active workspace and reset the project scope to "all issues".
+/// `ws_id` is duped before any refresh (which destroys the calling row + its ctx).
+fn switchWorkspace(state: *AppState, ws_id: []const u8) void {
+    if (state.active_workspace_id) |aw| {
+        if (std.mem.eql(u8, aw, ws_id)) {
+            if (state.switcher_popover) |pop| gtk.gtk_popover_popdown(pop);
+            return;
+        }
+    }
+    // Dupe first; on OOM keep the current workspace rather than acting on the wrong one.
+    const new_ws = state.gpa.dupe(u8, ws_id) catch return;
     if (state.active_workspace_id) |p| state.gpa.free(p);
     state.active_workspace_id = new_ws;
-    // Reset project scope to "all issues" within the new workspace.
     if (state.selected_project_id) |p| state.gpa.free(p);
     state.selected_project_id = null;
     if (state.selected_project_name) |p| state.gpa.free(p);
     state.selected_project_name = null;
     if (state.selected_project_repo) |p| state.gpa.free(p);
     state.selected_project_repo = null;
+    if (state.switcher_popover) |pop| gtk.gtk_popover_popdown(pop);
     updateRepoBanner(state);
-    refreshSidebar(state);
+    refreshSidebar(state); // rebuilds the switcher → frees the calling row's ctx
     refreshIssues(state);
 }
 
+fn onSwitcherSettings(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    if (state.switcher_popover) |pop| gtk.gtk_popover_popdown(pop);
+    onSettingsClicked(null, data);
+}
+
+fn onNewWorkspaceClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    if (state.switcher_popover) |pop| gtk.gtk_popover_popdown(pop);
+    openWorkspaceDialog(state);
+}
+
 /// A sidebar row carrying its project id + name + repo (GLib-owned, freed on
-/// destroy); `id == null` means the "All issues" entry.
-fn sidebarRow(id: ?[:0]const u8, name: [:0]const u8, repo: []const u8, state: *AppState) gtk.Object {
+/// destroy); `id == null` means the "All issues" entry. Project rows lead with a
+/// small colour dot (matching the web sidebar); the "All issues" row has none.
+fn sidebarRow(id: ?[:0]const u8, name: [:0]const u8, repo: []const u8, color: []const u8, state: *AppState) gtk.Object {
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_set_margin_top(row, 6);
+    gtk.gtk_widget_set_margin_bottom(row, 6);
+    gtk.gtk_widget_set_margin_start(row, 8);
+    gtk.gtk_widget_set_margin_end(row, 8);
+    if (id != null and color.len > 0) gtk.gtk_box_append(row, widgets.dot(color));
+
     const lbl = gtk.gtk_label_new(name.ptr);
     gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-    gtk.gtk_widget_set_margin_top(lbl, 6);
-    gtk.gtk_widget_set_margin_bottom(lbl, 6);
-    gtk.gtk_widget_set_margin_start(lbl, 8);
-    gtk.gtk_widget_set_margin_end(lbl, 8);
+    gtk.gtk_box_append(row, lbl);
+
     if (id) |pid| {
         if (state.gpa.dupeZ(u8, pid)) |tmp| {
             defer state.gpa.free(tmp);
-            gtk.g_object_set_data_full(lbl, "exp-project-id", @ptrCast(gtk.g_strdup(tmp.ptr)), @ptrCast(&gtk.g_free));
+            gtk.g_object_set_data_full(row, "exp-project-id", @ptrCast(gtk.g_strdup(tmp.ptr)), @ptrCast(&gtk.g_free));
         } else |_| {}
     }
-    gtk.g_object_set_data_full(lbl, "exp-project-name", @ptrCast(gtk.g_strdup(name.ptr)), @ptrCast(&gtk.g_free));
+    gtk.g_object_set_data_full(row, "exp-project-name", @ptrCast(gtk.g_strdup(name.ptr)), @ptrCast(&gtk.g_free));
     if (repo.len > 0) {
         if (state.gpa.dupeZ(u8, repo)) |tmp| {
             defer state.gpa.free(tmp);
-            gtk.g_object_set_data_full(lbl, "exp-project-repo", @ptrCast(gtk.g_strdup(tmp.ptr)), @ptrCast(&gtk.g_free));
+            gtk.g_object_set_data_full(row, "exp-project-repo", @ptrCast(gtk.g_strdup(tmp.ptr)), @ptrCast(&gtk.g_free));
         } else |_| {}
     }
-    return lbl;
+    return row;
 }
 
 fn onProjectSelected(_: gtk.Object, row: gtk.Object, data: gtk.gpointer) callconv(.c) void {
@@ -1281,6 +1499,17 @@ fn onRepoBannerClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     if (repo.len == 0) return;
     var buf: [320]u8 = undefined;
     const url = std.fmt.bufPrintZ(&buf, "https://github.com/{s}", .{repo}) catch return;
+    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
+}
+
+/// Open the instance's /feedback page in the browser (the web route forwards to
+/// an external feedback URL when one is configured, else shows the in-app form).
+fn onFeedbackClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const inst = state.instance orelse return;
+    const base = std.mem.trimEnd(u8, inst, "/");
+    var buf: [512]u8 = undefined;
+    const url = std.fmt.bufPrintZ(&buf, "{s}/feedback", .{base}) catch return;
     _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
 }
 
@@ -2157,14 +2386,26 @@ fn freeComment(p: gtk.gpointer) callconv(.c) void {
 }
 
 fn commentComposer(state: *AppState, issue_id: []const u8, comments_box: gtk.Object) gtk.Object {
+    // Multi-line composer (GtkTextView in a card) + Send button, mirroring the
+    // web textarea. Return inserts a newline; Ctrl/⌘+Return submits.
     const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
     gtk.gtk_widget_set_margin_top(row, 6);
-    const entry = gtk.gtk_entry_new();
-    gtk.gtk_entry_set_placeholder_text(entry, "Write a comment…");
-    gtk.gtk_widget_set_hexpand(entry, 1);
-    gtk.gtk_box_append(row, entry);
+
+    const view = gtk.gtk_text_view_new();
+    gtk.gtk_text_view_set_wrap_mode(view, gtk.WRAP_WORD_CHAR);
+    gtk.gtk_text_view_set_top_margin(view, 6);
+    gtk.gtk_text_view_set_left_margin(view, 8);
+    const scrolled = gtk.gtk_scrolled_window_new();
+    gtk.gtk_widget_add_css_class(scrolled, "card");
+    gtk.gtk_scrolled_window_set_child(scrolled, view);
+    gtk.gtk_scrolled_window_set_max_content_height(scrolled, 160);
+    gtk.gtk_widget_set_size_request(scrolled, -1, 64);
+    gtk.gtk_widget_set_hexpand(scrolled, 1);
+    gtk.gtk_box_append(row, scrolled);
+
     const btn = gtk.gtk_button_new_with_label("Comment");
     gtk.gtk_widget_add_css_class(btn, "suggested-action");
+    gtk.gtk_widget_set_valign(btn, gtk.ALIGN_END);
     gtk.gtk_box_append(row, btn);
 
     const ctx = state.gpa.create(CommentCtx) catch return row;
@@ -2174,19 +2415,39 @@ fn commentComposer(state: *AppState, issue_id: []const u8, comments_box: gtk.Obj
             state.gpa.destroy(ctx);
             return row;
         },
-        .entry = entry,
+        .entry = view,
         .comments_box = comments_box,
     };
     gtk.g_object_set_data_full(btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeComment));
     _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onCommentSubmit), ctx, null, 0);
-    _ = gtk.g_signal_connect_data(entry, "activate", @ptrCast(&onCommentSubmit), ctx, null, 0);
+
+    const key = gtk.gtk_event_controller_key_new();
+    _ = gtk.g_signal_connect_data(key, "key-pressed", @ptrCast(&onCommentKey), ctx, null, 0);
+    gtk.gtk_widget_add_controller(view, key);
     return row;
+}
+
+/// Ctrl/⌘+Return submits the comment; plain Return inserts a newline.
+fn onCommentKey(_: gtk.Object, keyval: c_uint, _: c_uint, mods: c_uint, data: gtk.gpointer) callconv(.c) c_int {
+    const is_enter = keyval == 0xFF0D or keyval == 0xFF8D; // GDK_KEY_Return / KP_Enter
+    const ctrl_or_super = (mods & (1 << 2)) != 0 or (mods & (1 << 26)) != 0; // Control / Super
+    if (is_enter and ctrl_or_super) {
+        onCommentSubmit(null, data);
+        return 1; // handled
+    }
+    return 0;
 }
 
 fn onCommentSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *CommentCtx = @ptrCast(@alignCast(data));
     const state = ctx.state;
-    const text = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(ctx.entry)), " \t\r\n");
+    const buffer = gtk.gtk_text_view_get_buffer(ctx.entry);
+    var start: [128]u8 align(8) = undefined;
+    var end: [128]u8 align(8) = undefined;
+    gtk.gtk_text_buffer_get_bounds(buffer, @ptrCast(&start), @ptrCast(&end));
+    const raw = gtk.gtk_text_buffer_get_text(buffer, @ptrCast(&start), @ptrCast(&end), 0) orelse return;
+    defer gtk.g_free(@ptrCast(raw));
+    const text = std.mem.trim(u8, std.mem.span(raw), " \t\r\n");
     if (text.len == 0) return;
 
     var arena = std.heap.ArenaAllocator.init(state.gpa);
@@ -2204,7 +2465,7 @@ fn onCommentSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     mutate.fire(state.gpa, state.instance.?, state.token, "comments.create", json);
     const showing_same = if (state.detail_issue_id) |d| std.mem.eql(u8, d, ctx.issue_id) else false;
     if (showing_same) gtk.gtk_box_append(ctx.comments_box, commentBubble(a, "You", "regular", text, false, false));
-    gtk.gtk_editable_set_text(ctx.entry, "");
+    gtk.gtk_text_buffer_set_text(buffer, "", 0);
 }
 
 /// Update a single scalar field of an issue (status/priority/dueDate/assigneeId)
@@ -2832,9 +3093,12 @@ const ProjectCtx = struct {
     dialog: gtk.Object,
     name_entry: gtk.Object,
     prefix_entry: gtk.Object,
-    color_entry: gtk.Object,
     error_label: gtk.Object,
     submit_btn: gtk.Object = null,
+    color: [7]u8 = "#6366f1".*, // selected swatch
+    selected_swatch: gtk.Object = null, // swatch button currently ringed
+    auto_prefix_buf: [16]u8 = undefined, // last auto-derived prefix
+    auto_prefix_len: usize = 0,
 };
 
 fn onNewProjectClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
@@ -2860,10 +3124,34 @@ fn onSettingsClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     settings.open(state.gpa, instance, state.token, db, state.window, uid_buf, state.active_workspace_id);
 }
 
+fn onAdminClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const instance = state.instance orelse return;
+    var uid_buf: ?[]u8 = null;
+    defer if (uid_buf) |b| state.gpa.free(b);
+    if (AccountStore.open(state.gpa)) |store_val| {
+        var store = store_val;
+        defer store.deinit();
+        if (activeAccount(&store)) |acc| {
+            if (acc.user_id) |u| uid_buf = state.gpa.dupe(u8, u) catch null;
+        }
+    } else |_| {}
+    admin.open(state.gpa, instance, state.token, state.window, uid_buf);
+}
+
+fn onIntegrationsClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const instance = state.instance orelse return;
+    integrations.open(state.gpa, instance, state.token, state.window);
+}
+
 fn openProjectDialog(state: *AppState) void {
     if (state.instance == null or state.db == null) return;
     const ctx = state.gpa.create(ProjectCtx) catch return;
     ctx.state = state;
+    ctx.color = "#6366f1".*;
+    ctx.selected_swatch = null;
+    ctx.auto_prefix_len = 0;
 
     const dialog = gtk.adw_dialog_new();
     gtk.adw_dialog_set_title(dialog, "New project");
@@ -2897,12 +3185,11 @@ fn openProjectDialog(state: *AppState) void {
     gtk.gtk_entry_set_placeholder_text(prefix, "Prefix (e.g. EXP)");
     gtk.gtk_box_append(form, prefix);
     ctx.prefix_entry = prefix;
+    // Auto-derive the prefix from the name (until the user customises it).
+    _ = gtk.g_signal_connect_data(name, "changed", @ptrCast(&onProjectNameChanged), ctx, null, 0);
 
-    const color = gtk.gtk_entry_new();
-    gtk.gtk_entry_set_placeholder_text(color, "#6366f1");
-    gtk.gtk_editable_set_text(color, "#6366f1");
-    gtk.gtk_box_append(form, color);
-    ctx.color_entry = color;
+    // Colour swatch grid (matches the web ColorSwatchGrid; default indigo).
+    gtk.gtk_box_append(form, widgets.swatchGrid(@ptrCast(ctx), @ptrCast(&onProjectSwatch), ctx.color[0..], &ctx.selected_swatch));
 
     const err = gtk.gtk_label_new("");
     gtk.gtk_widget_add_css_class(err, "error");
@@ -2925,6 +3212,39 @@ fn onProjectClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     ctx.state.gpa.destroy(ctx);
 }
 
+fn onProjectSwatch(btn: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *ProjectCtx = @ptrCast(@alignCast(data));
+    const raw = gtk.g_object_get_data(btn, "exp-color") orelse return;
+    const color = std.mem.span(@as([*:0]const u8, @ptrCast(raw)));
+    if (color.len >= 7) @memcpy(ctx.color[0..7], color[0..7]);
+    if (ctx.selected_swatch) |prev| gtk.gtk_widget_remove_css_class(prev, "exp-swatch-on");
+    gtk.gtk_widget_add_css_class(btn, "exp-swatch-on");
+    ctx.selected_swatch = btn;
+}
+
+/// Auto-derive the project prefix (uppercased alphanumerics, ≤6) from the name,
+/// until the user types a custom prefix of their own.
+fn onProjectNameChanged(entry: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *ProjectCtx = @ptrCast(@alignCast(data));
+    const cur = std.mem.span(gtk.gtk_editable_get_text(ctx.prefix_entry));
+    const last_auto = ctx.auto_prefix_buf[0..ctx.auto_prefix_len];
+    if (cur.len != 0 and !std.mem.eql(u8, cur, last_auto)) return; // user customised it
+    const name = std.mem.span(gtk.gtk_editable_get_text(entry));
+    var buf: [16]u8 = undefined;
+    var n: usize = 0;
+    for (name) |ch| {
+        if (n >= 6) break;
+        if (std.ascii.isAlphanumeric(ch)) {
+            buf[n] = std.ascii.toUpper(ch);
+            n += 1;
+        }
+    }
+    buf[n] = 0;
+    @memcpy(ctx.auto_prefix_buf[0..n], buf[0..n]);
+    ctx.auto_prefix_len = n;
+    gtk.gtk_editable_set_text(ctx.prefix_entry, @ptrCast(&buf));
+}
+
 fn onProjectSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *ProjectCtx = @ptrCast(@alignCast(data));
     const state = ctx.state;
@@ -2936,7 +3256,6 @@ fn onProjectSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 
     const name = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(ctx.name_entry)), " \t");
     const prefix = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(ctx.prefix_entry)), " \t");
-    const color = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(ctx.color_entry)), " \t");
     if (name.len == 0 or prefix.len == 0) {
         gtk.gtk_label_set_text(ctx.error_label, "Name and prefix are required.");
         return;
@@ -2950,7 +3269,7 @@ fn onProjectSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
         .workspaceId = ws,
         .name = name,
         .prefix = prefix,
-        .color = if (color.len == 7) color else "#6366f1",
+        .color = @as([]const u8, ctx.color[0..]),
     }, .{}) catch return;
 
     gtk.adw_dialog_set_can_close(ctx.dialog, 0);
@@ -2975,6 +3294,224 @@ fn onProjectSubmitDone(cb_ctx: ?*anyopaque, ok: bool, err: ?[*:0]const u8) void 
         gtk.gtk_button_set_label(ctx.submit_btn, "Create");
     }
     gtk.gtk_label_set_text(ctx.error_label, err orelse "Couldn't create the project.");
+}
+
+// --- Create workspace dialog (from the switcher's "New workspace") ----------
+
+const WorkspaceCtx = struct {
+    state: *AppState,
+    dialog: gtk.Object,
+    name_entry: gtk.Object,
+    error_label: gtk.Object,
+    submit_btn: gtk.Object = null,
+};
+
+fn openWorkspaceDialog(state: *AppState) void {
+    if (state.instance == null) return;
+    const ctx = state.gpa.create(WorkspaceCtx) catch return;
+    ctx.state = state;
+
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, "New workspace");
+    gtk.adw_dialog_set_content_width(dialog, 420);
+    ctx.dialog = dialog;
+
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    const cancel = gtk.gtk_button_new_with_label("Cancel");
+    _ = gtk.g_signal_connect_data(cancel, "clicked", @ptrCast(&onWorkspaceCancel), ctx, null, 0);
+    gtk.adw_header_bar_pack_start(header, cancel);
+    const create = gtk.gtk_button_new_with_label("Create");
+    gtk.gtk_widget_add_css_class(create, "suggested-action");
+    _ = gtk.g_signal_connect_data(create, "clicked", @ptrCast(&onWorkspaceSubmit), ctx, null, 0);
+    gtk.adw_header_bar_pack_end(header, create);
+    ctx.submit_btn = create;
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+
+    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 10);
+    gtk.gtk_widget_set_margin_top(form, 16);
+    gtk.gtk_widget_set_margin_bottom(form, 16);
+    gtk.gtk_widget_set_margin_start(form, 16);
+    gtk.gtk_widget_set_margin_end(form, 16);
+
+    const name = gtk.gtk_entry_new();
+    gtk.gtk_entry_set_placeholder_text(name, "Workspace name");
+    _ = gtk.g_signal_connect_data(name, "activate", @ptrCast(&onWorkspaceSubmit), ctx, null, 0);
+    gtk.gtk_box_append(form, name);
+    ctx.name_entry = name;
+
+    const err = gtk.gtk_label_new("");
+    gtk.gtk_widget_add_css_class(err, "error");
+    gtk.gtk_box_append(form, err);
+    ctx.error_label = err;
+
+    gtk.adw_toolbar_view_set_content(tv, form);
+    gtk.adw_dialog_set_child(dialog, tv);
+    _ = gtk.g_signal_connect_data(dialog, "closed", @ptrCast(&onWorkspaceClosed), ctx, null, 0);
+    gtk.adw_dialog_present(dialog, state.window);
+}
+
+fn onWorkspaceCancel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *WorkspaceCtx = @ptrCast(@alignCast(data));
+    _ = gtk.adw_dialog_close(ctx.dialog);
+}
+
+fn onWorkspaceClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *WorkspaceCtx = @ptrCast(@alignCast(data));
+    ctx.state.gpa.destroy(ctx);
+}
+
+fn onWorkspaceSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *WorkspaceCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+
+    var arena = std.heap.ArenaAllocator.init(state.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const name = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(ctx.name_entry)), " \t");
+    if (name.len == 0) {
+        gtk.gtk_label_set_text(ctx.error_label, "Name is required.");
+        return;
+    }
+    const json = std.json.Stringify.valueAlloc(a, .{ .name = name }, .{}) catch return;
+
+    gtk.adw_dialog_set_can_close(ctx.dialog, 0);
+    if (ctx.submit_btn != null) {
+        gtk.gtk_widget_set_sensitive(ctx.submit_btn, 0);
+        gtk.gtk_button_set_label(ctx.submit_btn, "Saving…");
+    }
+    gtk.gtk_label_set_text(ctx.error_label, "");
+    submitAsync(state, "workspaces.create", json, &onWorkspaceSubmitDone, ctx);
+}
+
+fn onWorkspaceSubmitDone(cb_ctx: ?*anyopaque, ok: bool, err: ?[*:0]const u8) void {
+    const ctx: *WorkspaceCtx = @ptrCast(@alignCast(cb_ctx orelse return));
+    if (ok) {
+        gtk.adw_dialog_set_can_close(ctx.dialog, 1);
+        _ = gtk.adw_dialog_close(ctx.dialog); // sync delivers the workspace → switcher refreshes
+        return;
+    }
+    gtk.adw_dialog_set_can_close(ctx.dialog, 1);
+    if (ctx.submit_btn != null) {
+        gtk.gtk_widget_set_sensitive(ctx.submit_btn, 1);
+        gtk.gtk_button_set_label(ctx.submit_btn, "Create");
+    }
+    gtk.gtk_label_set_text(ctx.error_label, err orelse "Couldn't create the workspace.");
+}
+
+// --- First-run onboarding (a once-per-account welcome, gated by a local marker
+//     file; the users shape doesn't sync onboardingCompletedAt). Reuses the
+//     existing create-workspace / create-project dialogs. ---
+
+fn onboardingMarkerPath(gpa: std.mem.Allocator, account_id: []const u8) ?[]u8 {
+    const dir = storage.configDir(gpa) catch return null;
+    defer gpa.free(dir);
+    return std.fmt.allocPrint(gpa, "{s}/onboarded-{s}", .{ dir, account_id }) catch null;
+}
+
+fn hasOnboarded(gpa: std.mem.Allocator, account_id: []const u8) bool {
+    const path = onboardingMarkerPath(gpa, account_id) orelse return true; // fail-safe: don't nag
+    defer gpa.free(path);
+    return storage.fileExists(path);
+}
+
+fn markOnboarded(gpa: std.mem.Allocator, account_id: []const u8) void {
+    const dir = storage.configDir(gpa) catch return;
+    defer gpa.free(dir);
+    storage.ensureDir(dir) catch return;
+    const path = onboardingMarkerPath(gpa, account_id) orelse return;
+    defer gpa.free(path);
+    storage.writeSecret(path, "") catch {};
+}
+
+const OnboardCtx = struct { state: *AppState, dialog: gtk.Object };
+
+/// Present the welcome on the next idle tick, so the main window is shown first.
+fn showOnboardingIdle(data: gtk.gpointer) callconv(.c) c_int {
+    showOnboarding(@ptrCast(@alignCast(data)));
+    return 0; // G_SOURCE_REMOVE
+}
+
+fn showOnboarding(state: *AppState) void {
+    const ctx = state.gpa.create(OnboardCtx) catch return;
+    ctx.state = state;
+
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, "Welcome");
+    gtk.adw_dialog_set_content_width(dialog, 460);
+    ctx.dialog = dialog;
+
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+
+    const box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 12);
+    gtk.gtk_widget_set_margin_top(box, 24);
+    gtk.gtk_widget_set_margin_bottom(box, 24);
+    gtk.gtk_widget_set_margin_start(box, 24);
+    gtk.gtk_widget_set_margin_end(box, 24);
+    gtk.gtk_widget_set_halign(box, gtk.ALIGN_CENTER);
+
+    const icon = gtk.gtk_label_new(null);
+    gtk.gtk_label_set_markup(icon, "<span size='xx-large' foreground='#818cf8'>\u{1F4CB}</span>");
+    gtk.gtk_box_append(box, icon);
+
+    const title = gtk.gtk_label_new(null);
+    gtk.gtk_label_set_markup(title, "<span size='x-large' weight='bold'>Welcome to Exponential</span>");
+    gtk.gtk_box_append(box, title);
+
+    const desc = gtk.gtk_label_new("Create a workspace and your first project to get started. Already set up on the web? Just skip.");
+    gtk.gtk_widget_add_css_class(desc, "dim-label");
+    gtk.gtk_label_set_wrap(desc, 1);
+    gtk.gtk_widget_set_halign(desc, gtk.ALIGN_CENTER);
+    gtk.gtk_widget_set_size_request(desc, 360, -1);
+    gtk.gtk_box_append(box, desc);
+
+    const actions = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_set_halign(actions, gtk.ALIGN_CENTER);
+    gtk.gtk_widget_set_margin_top(actions, 8);
+    const ws_btn = gtk.gtk_button_new_with_label("New workspace");
+    gtk.gtk_widget_add_css_class(ws_btn, "suggested-action");
+    _ = gtk.g_signal_connect_data(ws_btn, "clicked", @ptrCast(&onOnboardWorkspace), ctx, null, 0);
+    gtk.gtk_box_append(actions, ws_btn);
+    const proj_btn = gtk.gtk_button_new_with_label("New project");
+    _ = gtk.g_signal_connect_data(proj_btn, "clicked", @ptrCast(&onOnboardProject), ctx, null, 0);
+    gtk.gtk_box_append(actions, proj_btn);
+    const skip = gtk.gtk_button_new_with_label("Skip");
+    gtk.gtk_widget_add_css_class(skip, "flat");
+    _ = gtk.g_signal_connect_data(skip, "clicked", @ptrCast(&onOnboardSkip), ctx, null, 0);
+    gtk.gtk_box_append(actions, skip);
+    gtk.gtk_box_append(box, actions);
+
+    gtk.adw_toolbar_view_set_content(tv, box);
+    gtk.adw_dialog_set_child(dialog, tv);
+    _ = gtk.g_signal_connect_data(dialog, "closed", @ptrCast(&onOnboardClosed), ctx, null, 0);
+    gtk.adw_dialog_present(dialog, state.window);
+}
+
+fn onOnboardClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *OnboardCtx = @ptrCast(@alignCast(data));
+    ctx.state.gpa.destroy(ctx);
+}
+
+fn onOnboardWorkspace(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *OnboardCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    _ = gtk.adw_dialog_close(ctx.dialog); // frees ctx via onOnboardClosed
+    openWorkspaceDialog(state);
+}
+
+fn onOnboardProject(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *OnboardCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    _ = gtk.adw_dialog_close(ctx.dialog);
+    openProjectDialog(state);
+}
+
+fn onOnboardSkip(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *OnboardCtx = @ptrCast(@alignCast(data));
+    _ = gtk.adw_dialog_close(ctx.dialog);
 }
 
 /// Called on a sync thread; coalesce bursts into a single main-loop refresh.
@@ -3018,6 +3555,8 @@ fn refreshIssues(state: *AppState) void {
 
     var shown: usize = 0;
     for (format.status_display_order) |status_value| {
+        // Explicit status filter (from the popover) hides whole groups.
+        if (!matchesStatusFilter(state, status_value)) continue;
         // Collect this status's matching issues first, so an empty group is hidden.
         var group: std.ArrayListUnmanaged(Database.IssueRow) = .empty;
         for (issues) |iss| {
@@ -3041,6 +3580,8 @@ fn refreshIssues(state: *AppState) void {
         }
     }
 
+    if (shown == 0) gtk.gtk_list_box_append(state.issue_list, emptyState(state));
+
     const title = state.selected_project_name orelse "All Issues";
     if (state.list_page) |lp| {
         if (std.fmt.allocPrintSentinel(a, "{s}  ·  {d}", .{ title, shown }, 0)) |hdr| {
@@ -3049,6 +3590,28 @@ fn refreshIssues(state: *AppState) void {
     }
 
     refreshPills(state);
+}
+
+/// Centered empty state shown when no issues match (distinguishes "filtered out"
+/// from a genuinely empty tracker, guiding new users toward creating one).
+fn emptyState(state: *AppState) gtk.Object {
+    const has_filters = hasAnyFilter(state) or state.search_text != null;
+    const box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 6);
+    gtk.gtk_widget_set_margin_top(box, 56);
+    gtk.gtk_widget_set_halign(box, gtk.ALIGN_CENTER);
+    const icon = gtk.gtk_label_new(null);
+    gtk.gtk_label_set_markup(icon, "<span size='xx-large' foreground='#71717a'>\u{1F4CB}</span>");
+    gtk.gtk_box_append(box, icon);
+    const title = gtk.gtk_label_new(if (has_filters) "No matching issues" else "No issues yet");
+    gtk.gtk_widget_add_css_class(title, "title-4");
+    gtk.gtk_box_append(box, title);
+    const hint = gtk.gtk_label_new(if (has_filters)
+        "Try clearing filters or your search."
+    else
+        "Create your first issue with “New issue”.");
+    gtk.gtk_widget_add_css_class(hint, "dim-label");
+    gtk.gtk_box_append(box, hint);
+    return box;
 }
 
 fn matchesSearch(state: *AppState, title: []const u8) bool {
@@ -3119,6 +3682,14 @@ fn issueRow(state: *AppState, arena: std.mem.Allocator, iss: Database.IssueRow, 
 
     gtk.gtk_box_append(row, widgets.statusIcon(iss.status));
 
+    // Repeat glyph before the title for recurring issues (mirrors the web list).
+    if (iss.recurrence_interval > 0) {
+        const rec = gtk.gtk_label_new(null);
+        gtk.gtk_label_set_markup(rec, "<span foreground='#818cf8'>\u{1F501}</span>");
+        gtk.gtk_widget_set_tooltip_text(rec, "Recurring");
+        gtk.gtk_box_append(row, rec);
+    }
+
     const title = gtk.gtk_label_new(iss.title.ptr);
     gtk.gtk_widget_set_halign(title, gtk.ALIGN_START);
     gtk.gtk_widget_set_hexpand(title, 1);
@@ -3126,13 +3697,22 @@ fn issueRow(state: *AppState, arena: std.mem.Allocator, iss: Database.IssueRow, 
     gtk.gtk_label_set_xalign(title, 0.0);
     gtk.gtk_box_append(row, title);
 
+    // Label pills (dot + name), up to 3, with a "+N" overflow — matches the web row.
     if (chips.len > 0) {
-        const dots = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 2);
+        const pills = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 4);
         for (chips, 0..) |c, i| {
             if (i >= 3) break;
-            gtk.gtk_box_append(dots, widgets.dot(c.color));
+            gtk.gtk_box_append(pills, widgets.chip(arena, c.name, c.color));
         }
-        gtk.gtk_box_append(row, dots);
+        if (chips.len > 3) {
+            const more = gtk.gtk_label_new(null);
+            if (std.fmt.allocPrintSentinel(arena, "+{d}", .{chips.len - 3}, 0)) |z| {
+                gtk.gtk_label_set_text(more, z.ptr);
+            } else |_| {}
+            gtk.gtk_widget_add_css_class(more, "dim-label");
+            gtk.gtk_box_append(pills, more);
+        }
+        gtk.gtk_box_append(row, pills);
     }
 
     if (iss.due_date.len > 0) {

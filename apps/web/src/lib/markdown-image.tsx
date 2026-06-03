@@ -4,8 +4,17 @@ import {
   ReactNodeViewRenderer,
   type ReactNodeViewProps,
 } from "@tiptap/react"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { X } from "lucide-react"
+import { attachmentCollection } from "@/lib/collections"
 import { cn } from "@/lib/utils"
+
+/** Pull the attachment id out of a `/api/attachments/{id}` (relative or
+ *  absolute) image src so we can look up its probed pixel dimensions. */
+function attachmentIdFromSrc(src: string): string | null {
+  const match = src.match(/\/api\/attachments\/([^/?#]+)/)
+  return match ? match[1] : null
+}
 
 function MarkdownImageNodeView({
   deleteNode,
@@ -18,6 +27,23 @@ function MarkdownImageNodeView({
   const title =
     typeof node.attrs.title === `string` ? node.attrs.title : undefined
   const imageLabel = alt || `attachment`
+
+  // Reserve the intrinsic aspect-ratio before the bytes load (no layout shift
+  // on reload). Dimensions come from the synced attachments collection, keyed
+  // by the id in the src — the markdown stays `![alt](url)` with no dimensions.
+  const attachmentId = attachmentIdFromSrc(src)
+  const { data: attachments } = useLiveQuery(
+    (query) =>
+      attachmentId
+        ? query
+            .from({ a: attachmentCollection })
+            .where(({ a }) => eq(a.id, attachmentId))
+        : undefined,
+    [attachmentId]
+  )
+  const dims = attachments?.[0]
+  const width = typeof dims?.width === `number` ? dims.width : undefined
+  const height = typeof dims?.height === `number` ? dims.height : undefined
 
   return (
     <NodeViewWrapper
@@ -48,6 +74,8 @@ function MarkdownImageNodeView({
         src={src}
         alt={alt}
         title={title}
+        width={width}
+        height={height}
         className="editor-image"
         draggable="false"
       />
