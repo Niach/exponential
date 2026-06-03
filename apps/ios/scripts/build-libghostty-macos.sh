@@ -6,6 +6,11 @@
 # the app links the result as a plain C-ABI dylib regardless of its own zig).
 #
 # Output: apps/ios/vendor/ghostty-install/{lib/libghostty.dylib,include/ghostty.h,share/terminfo}
+#
+# HOST REQUIREMENT: must run on a macOS whose SDK zig 0.15.2 can link (macOS <=15).
+# On macOS 26, zig 0.15.2 fails to link even its own build runner against
+# libSystem (undefined _fork/_sigaction/...); `-Dtarget` only retargets the
+# OUTPUT, not the host-native build runner. See docs/native-desktop-roadmap.md A5/M7.
 set -euo pipefail
 
 GHOSTTY_FORK_URL="https://github.com/douglas/ghostty.git"
@@ -55,11 +60,16 @@ if [ "$(git -C "$GHOSTTY_DIR" rev-parse HEAD)" != "$GHOSTTY_COMMIT" ]; then
 fi
 
 # --- 3. build libghostty (embedded runtime, Metal) --------------------------
+# `-Dtarget` forces zig 0.15.2 to use its BUNDLED macOS libc instead of the host
+# SDK's libSystem.tbd, which zig 0.15.2 can't parse on the macOS 26 SDK (native
+# `-lSystem` resolution fails with undefined libSystem symbols). Frameworks
+# (Metal/CoreText/Foundation) still link from the SDK.
 say "Building libghostty (-Dapp-runtime=none, ReleaseFast); fetches deps + takes a few minutes"
 ( cd "$GHOSTTY_DIR" && "$ZIG" build \
     -Dapp-runtime=none \
     -Doptimize=ReleaseFast \
     -Demit-terminfo=true \
+    -Dtarget="${ZIG_ARCH}-macos" \
     --prefix "$INSTALL_DIR" )
 
 LIB_DIR="$INSTALL_DIR/lib"
