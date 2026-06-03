@@ -14,10 +14,10 @@ build/
 # macOS
 .DS_Store
 
-# Firebase secrets (user-provided) — prod + staging iOS apps are separate
-# Firebase projects, each with its own GoogleService-Info.plist.
-Exponential/GoogleService-Info.plist
-Firebase-Staging/GoogleService-Info.plist
+# Firebase iOS client config (GoogleService-Info.plist) is committed: it's not a
+# secret — it ships inside every app binary and its api_key/app_id are project
+# identifiers restricted by bundle-id + Firebase rules (matches Android's tracked
+# google-services.json). The Firebase ADMIN service account stays in env only.
 
 # libghostty build (cloned ghostty source + local zig toolchain + build output);
 # produced by scripts/build-libghostty-macos.sh, never committed.
