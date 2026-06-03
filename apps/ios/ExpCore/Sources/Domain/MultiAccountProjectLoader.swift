@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "MultiAccountProjectLoader")
+private let logger = Logger(subsystem: "at.exponential", category: "MultiAccountProjectLoader")
 
 /// One workspace's block inside the cross-server Home tree.
 public struct WorkspaceBlock: Identifiable, Sendable {

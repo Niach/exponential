@@ -3,7 +3,7 @@ import ExpCore
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "PushTokenManager")
+private let logger = Logger(subsystem: "at.exponential", category: "PushTokenManager")
 
 final class PushTokenManager: @unchecked Sendable {
     private let pushTokensApi: PushTokensApi

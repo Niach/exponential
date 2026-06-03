@@ -22,14 +22,14 @@ public enum SharedAppGroup {
 
     public static var suiteName: String {
         isStaging
-            ? "group.com.straehhuber.exponential.staging"
-            : "group.com.straehhuber.exponential"
+            ? "group.at.exponential.staging"
+            : "group.at.exponential"
     }
 
     public static var keychainAccessGroup: String {
         isStaging
-            ? "\(teamPrefix).com.straehhuber.exponential.staging.shared"
-            : "\(teamPrefix).com.straehhuber.exponential.shared"
+            ? "\(teamPrefix).at.exponential.staging.shared"
+            : "\(teamPrefix).at.exponential.shared"
     }
 
     /// Shared defaults backed by the app-group container. Nil only if the

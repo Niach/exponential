@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "MultiAccountWorkspaceLoader")
+private let logger = Logger(subsystem: "at.exponential", category: "MultiAccountWorkspaceLoader")
 
 public struct ServerWorkspaceGroup: Identifiable, Sendable {
     public let accountId: String

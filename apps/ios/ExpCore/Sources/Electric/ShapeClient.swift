@@ -4,7 +4,7 @@ import os
 
 private let initialOffset = "-1"
 private let liveTimeoutSeconds: TimeInterval = 60
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "ShapeClient")
+private let logger = Logger(subsystem: "at.exponential", category: "ShapeClient")
 
 public final class ShapeClient<T: Codable & Sendable>: Sendable {
     private let shapeName: String

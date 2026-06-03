@@ -1,10 +1,20 @@
 import ProjectDescription
 
 let sharedSources: SourceFilesList = ["Exponential/**"]
-let sharedResources: ResourceFileElements = [
+// GoogleService-Info.plist is per-target now (prod and staging are separate
+// Firebase apps: at.exponential vs at.exponential.staging). Each iOS app target
+// bundles exactly one, copied in as `GoogleService-Info.plist` (the name the
+// Firebase SDK loads). The staging copy lives outside Exponential/ so the two
+// files of the same bundle name don't collide.
+let prodResources: ResourceFileElements = [
     "Exponential/Assets.xcassets",
-    "Exponential/GoogleService-Info.plist",
     "Exponential/Resources/**",
+    "Exponential/GoogleService-Info.plist",
+]
+let stagingResources: ResourceFileElements = [
+    "Exponential/Assets.xcassets",
+    "Exponential/Resources/**",
+    "Firebase-Staging/GoogleService-Info.plist",
 ]
 let sharedDependencies: [TargetDependency] = [
     .external(name: "GRDB"),
@@ -60,7 +70,7 @@ let macInfoPlist: [String: Plist.Value] = [
     "CFBundleURLTypes": .array([
         .dictionary([
             "CFBundleURLSchemes": .array([.string("exp")]),
-            "CFBundleURLName": .string("com.straehhuber.exponential.oauth"),
+            "CFBundleURLName": .string("at.exponential.oauth"),
         ]),
     ]),
     "LSApplicationCategoryType": .string("public.app-category.productivity"),
@@ -121,6 +131,14 @@ let agentCoreEmbedScript = TargetScript.post(
 // Hardened Runtime is on for distribution/notarization; @rpath points at the
 // bundled Contents/Frameworks so the embedded agent-core dylib resolves there.
 let agentCoreSettings: SettingsDictionary = [
+    // Sign the macOS app with a STABLE Apple Development identity instead of
+    // ad-hoc "Sign to Run Locally". macOS Debug defaults to ad-hoc (its signature
+    // changes every build → the login keychain re-prompts every launch); forcing
+    // CODE_SIGN_IDENTITY to the Development cert gives a stable designated
+    // requirement so a one-time keychain "Always Allow" sticks across rebuilds.
+    // Automatic signing, team from baseSettings (V6W7BVCSM8), Apple ID in Xcode —
+    // build with -allowProvisioningUpdates.
+    "CODE_SIGN_IDENTITY": "Apple Development",
     "OTHER_SWIFT_FLAGS": [
         "$(inherited)", "-Xcc", "-fmodule-map-file=$(SRCROOT)/AgentCore/module.modulemap",
         "-Xcc", "-Wno-incomplete-umbrella",
@@ -176,7 +194,7 @@ let sharedInfoPlist: [String: Plist.Value] = [
     "CFBundleURLTypes": .array([
         .dictionary([
             "CFBundleURLSchemes": .array([.string("exp")]),
-            "CFBundleURLName": .string("com.straehhuber.exponential.oauth"),
+            "CFBundleURLName": .string("at.exponential.oauth"),
         ]),
     ]),
     "UIBackgroundModes": .array([.string("remote-notification")]),
@@ -200,7 +218,7 @@ let project = Project(
             name: "ExpCore",
             destinations: [.iPhone, .iPad, .mac],
             product: .framework,
-            bundleId: "com.straehhuber.exponential.core",
+            bundleId: "at.exponential.core",
             deploymentTargets: .multiplatform(iOS: "17.4", macOS: "14.0"),
             sources: expCoreSources,
             dependencies: expCoreDependencies,
@@ -210,7 +228,7 @@ let project = Project(
             name: "ExpUI",
             destinations: [.iPhone, .iPad, .mac],
             product: .framework,
-            bundleId: "com.straehhuber.exponential.ui",
+            bundleId: "at.exponential.ui",
             deploymentTargets: .multiplatform(iOS: "17.4", macOS: "14.0"),
             sources: expUiSources,
             dependencies: expUiDependencies,
@@ -220,13 +238,13 @@ let project = Project(
             name: "Exponential",
             destinations: [.iPhone, .iPad],
             product: .app,
-            bundleId: "com.straehhuber.exponential",
+            bundleId: "at.exponential",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: sharedInfoPlist.merging([
                 "CFBundleDisplayName": "Exponential",
             ]) { _, new in new }),
             sources: sharedSources,
-            resources: sharedResources,
+            resources: prodResources,
             entitlements: "Exponential.entitlements",
             dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension")],
             settings: .settings(base: baseSettings)
@@ -235,13 +253,13 @@ let project = Project(
             name: "Exponential-Staging",
             destinations: [.iPhone, .iPad],
             product: .app,
-            bundleId: "com.straehhuber.exponential.staging",
+            bundleId: "at.exponential.staging",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: sharedInfoPlist.merging([
                 "CFBundleDisplayName": "Exp Staging",
             ]) { _, new in new }),
             sources: sharedSources,
-            resources: sharedResources,
+            resources: stagingResources,
             entitlements: "ExponentialStaging.entitlements",
             dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging")],
             settings: .settings(base: baseSettings.merging([
@@ -252,7 +270,7 @@ let project = Project(
             name: "ShareExtension",
             destinations: [.iPhone, .iPad],
             product: .appExtension,
-            bundleId: "com.straehhuber.exponential.shareextension",
+            bundleId: "at.exponential.shareextension",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: shareExtensionInfoPlist.merging([
                 "CFBundleDisplayName": "Exponential",
@@ -266,7 +284,7 @@ let project = Project(
             name: "ShareExtension-Staging",
             destinations: [.iPhone, .iPad],
             product: .appExtension,
-            bundleId: "com.straehhuber.exponential.staging.shareextension",
+            bundleId: "at.exponential.staging.shareextension",
             deploymentTargets: .iOS("17.4"),
             infoPlist: .extendingDefault(with: shareExtensionInfoPlist.merging([
                 "CFBundleDisplayName": "Exp Staging",
@@ -282,7 +300,7 @@ let project = Project(
             name: "Exponential-macOS",
             destinations: [.mac],
             product: .app,
-            bundleId: "com.straehhuber.exponential.mac",
+            bundleId: "at.exponential.mac",
             deploymentTargets: .macOS("14.0"),
             infoPlist: .extendingDefault(with: macInfoPlist.merging([
                 "CFBundleDisplayName": "Exponential",
@@ -298,7 +316,7 @@ let project = Project(
             name: "Exponential-macOS-Staging",
             destinations: [.mac],
             product: .app,
-            bundleId: "com.straehhuber.exponential.mac.staging",
+            bundleId: "at.exponential.mac.staging",
             deploymentTargets: .macOS("14.0"),
             infoPlist: .extendingDefault(with: macInfoPlist.merging([
                 "CFBundleDisplayName": "Exp Mac Staging",

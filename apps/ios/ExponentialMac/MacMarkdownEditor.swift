@@ -4,7 +4,7 @@ import ExpUI
 import os
 import SwiftUI
 
-private let log = Logger(subsystem: "com.straehhuber.exponential.mac", category: "MacMarkdownEditor")
+private let log = Logger(subsystem: "at.exponential.mac", category: "MacMarkdownEditor")
 
 // MARK: - Toolbar controller (acts on the focused text view)
 

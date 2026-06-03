@@ -2,7 +2,7 @@ import ExpCore
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential.mac", category: "MacAppDependencies")
+private let logger = Logger(subsystem: "at.exponential.mac", category: "MacAppDependencies")
 
 /// macOS composition root. Mirrors the iOS `AppDependencies` minus the iOS-only
 /// pieces (Firebase, FCM push, `NotificationDelegate`). Read-only live sync for

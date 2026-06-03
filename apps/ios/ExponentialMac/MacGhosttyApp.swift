@@ -3,7 +3,7 @@ import Foundation
 import GhosttyKit
 import os
 
-private let log = Logger(subsystem: "com.straehhuber.exponential.mac", category: "Ghostty")
+private let log = Logger(subsystem: "at.exponential.mac", category: "Ghostty")
 
 /// Process-global libghostty app: init, config, the 60Hz tick, runtime callbacks.
 /// Mirrors github.com/thdxg/macterm's GhosttyApp (the macOS reference for the

@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "DatabaseManager")
+private let logger = Logger(subsystem: "at.exponential", category: "DatabaseManager")
 
 /// Multi-account database manager. Holds one open `DatabasePool` per signed-in
 /// account (keyed by accountId). There is no global "active" pool — callers

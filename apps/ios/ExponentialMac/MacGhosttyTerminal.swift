@@ -3,7 +3,7 @@ import Foundation
 import GhosttyKit
 import os
 
-private let log = Logger(subsystem: "com.straehhuber.exponential.mac", category: "GhosttyTerminal")
+private let log = Logger(subsystem: "at.exponential.mac", category: "GhosttyTerminal")
 
 /// An embedded libghostty terminal surface in an NSView (Metal, managed by the
 /// ghostty macOS apprt). Runs one `command` and reports completion. Mirrors the

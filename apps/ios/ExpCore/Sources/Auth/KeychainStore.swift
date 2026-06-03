@@ -11,7 +11,7 @@ import Security
 /// clear the legacy copy. `AccountStore.init` calls `persist()` on first launch,
 /// so accounts move into the shared group immediately after the update.
 public final class KeychainStore: Sendable {
-    private let service = "com.straehhuber.exponential"
+    private let service = "at.exponential"
     // macOS has no Share Extension to share the keychain with, so it uses the
     // default keychain (no access group). This avoids requiring a signed
     // keychain-access-group entitlement just to read/write credentials locally.

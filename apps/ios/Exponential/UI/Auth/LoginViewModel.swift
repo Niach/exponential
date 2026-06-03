@@ -5,7 +5,7 @@ import Foundation
 import UIKit
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "LoginViewModel")
+private let logger = Logger(subsystem: "at.exponential", category: "LoginViewModel")
 
 @MainActor @Observable
 final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProviding {

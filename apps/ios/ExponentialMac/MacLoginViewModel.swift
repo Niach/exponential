@@ -4,7 +4,7 @@ import ExpCore
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential.mac", category: "MacLogin")
+private let logger = Logger(subsystem: "at.exponential.mac", category: "MacLogin")
 
 @MainActor
 @Observable

@@ -2,7 +2,7 @@ import ExpCore
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.straehhuber.exponential", category: "AppDependencies")
+private let logger = Logger(subsystem: "at.exponential", category: "AppDependencies")
 
 @Observable
 final class AppDependencies: @unchecked Sendable {
