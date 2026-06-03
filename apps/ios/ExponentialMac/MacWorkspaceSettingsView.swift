@@ -149,6 +149,7 @@ struct MacWorkspaceSettingsView: View {
     @State private var model: MacWorkspaceSettingsModel?
     @State private var newLabelName = ""
     @State private var newLabelColor = "#3b82f6"
+    @State private var agentName = MacAgentService.defaultAgentName
 
     var body: some View {
         VStack(spacing: 0) {
@@ -166,6 +167,7 @@ struct MacWorkspaceSettingsView: View {
                     invitesSection(model)
                     projectsSection(model)
                     labelsSection(model)
+                    agentSection()
                     if let error = model.error {
                         Text(error).foregroundStyle(.red).font(.callout)
                     }
@@ -265,6 +267,48 @@ struct MacWorkspaceSettingsView: View {
                         .buttonStyle(.borderless)
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func agentSection() -> some View {
+        let agent = deps.agentService
+        let wid = target.workspaceId
+        Section("Desktop Agent") {
+            if agent.isRegistered(wid) {
+                let id = agent.identity(wid)
+                HStack(spacing: 8) {
+                    Circle().fill(agent.isOnline(wid) ? Color.green : Color.secondary).frame(width: 8, height: 8)
+                    Text(id?.agentName ?? "This Mac")
+                    Spacer()
+                    Text(agent.isOnline(wid) ? "Online" : "Connecting…").font(.caption).foregroundStyle(.secondary)
+                }
+                if let login = id?.githubLogin, !login.isEmpty {
+                    Label("GitHub: \(login)", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+                } else if let p = agent.githubPrompt {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enter code **\(p.userCode)** at \(p.uri)").font(.caption)
+                        ProgressView().controlSize(.small)
+                    }
+                } else {
+                    Button("Connect GitHub") { Task { await agent.connectGitHub(workspaceId: wid) } }.disabled(agent.busy)
+                }
+                Button("Unregister this Mac", role: .destructive) {
+                    Task { await agent.unregister(workspaceId: wid) }
+                }
+                .disabled(agent.busy)
+            } else {
+                TextField("Agent name", text: $agentName).textFieldStyle(.roundedBorder)
+                Button("Register this Mac as an agent") {
+                    Task { await agent.register(accountId: target.accountId, workspaceId: wid, name: agentName) }
+                }
+                .disabled(agent.busy || agentName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Text("Registers this Mac so it can run coding agents on assigned issues (while the app is open).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let err = agent.lastError {
+                Text(err).font(.caption).foregroundStyle(.red)
             }
         }
     }
