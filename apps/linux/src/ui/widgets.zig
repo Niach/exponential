@@ -18,6 +18,9 @@ pub fn applyCss() void {
     gtk.gtk_css_provider_load_from_string(provider,
     // --- Web-parity palette: override Adwaita's named colours to the zinc
     //     OKLCH tokens from apps/web/src/styles.css, with an indigo accent. ---
+    // Elevation ladder (low→high): content #18181b < sidebar #1e1e22 <
+    // cards/popovers/dialogs #262626. Lists are transparent so each region reads
+    // as one uniform surface instead of a patchwork of mismatched bands.
         \\@define-color window_bg_color #18181b;
         \\@define-color window_fg_color #fafafa;
         \\@define-color view_bg_color #18181b;
@@ -30,17 +33,32 @@ pub fn applyCss() void {
         \\@define-color dialog_fg_color #fafafa;
         \\@define-color headerbar_bg_color #18181b;
         \\@define-color headerbar_fg_color #fafafa;
-        \\@define-color sidebar_bg_color #262626;
+        \\@define-color sidebar_bg_color #1e1e22;
         \\@define-color sidebar_fg_color #fafafa;
-        \\@define-color secondary_sidebar_bg_color #1f1f23;
+        \\@define-color secondary_sidebar_bg_color #1e1e22;
         \\@define-color accent_bg_color #4f46e5;
         \\@define-color accent_fg_color #ffffff;
         \\@define-color accent_color #818cf8;
         \\@define-color destructive_bg_color #ef4444;
         \\@define-color destructive_fg_color #ffffff;
         \\@define-color destructive_color #f87171;
+        \\@define-color exp_border rgba(255,255,255,0.07);
         \\* { font-family: 'Inter', 'Cantarell', 'Adwaita Sans', sans-serif; }
-        \\.navigation-sidebar { background-color: @sidebar_bg_color; }
+        // Lists never paint their own background — they inherit the region surface.
+        \\.navigation-sidebar { background-color: transparent; }
+        \\list, list > row { background-color: transparent; }
+        // Sidebar pane: one cohesive surface with a single hairline divider. Its
+        // header bar drops its own fill/shadow so the band seams disappear.
+        \\.exp-sidebar { background-color: @sidebar_bg_color; border-right: 1px solid @exp_border; }
+        \\.exp-sidebar-header { background: none; box-shadow: none; }
+        // Active project: a clear accent-tinted pill (scoped to the sidebar so the
+        // issue list's transient row selection stays untinted).
+        \\.exp-sidebar row:selected {
+        \\  background-color: alpha(@accent_color, 0.18);
+        \\  color: @window_fg_color;
+        \\  border-radius: 6px;
+        \\}
+        \\.exp-sidebar row:selected:hover { background-color: alpha(@accent_color, 0.24); }
         \\.exp-chip {
         \\  border: 1px solid alpha(currentColor, 0.18);
         \\  border-radius: 9999px;
@@ -48,8 +66,7 @@ pub fn applyCss() void {
         \\  font-size: 0.85em;
         \\}
         \\.exp-group-header {
-        \\  background-color: alpha(currentColor, 0.04);
-        \\  border-radius: 6px;
+        \\  background-color: alpha(currentColor, 0.03);
         \\}
         \\.exp-comment {
         \\  background-color: alpha(currentColor, 0.04);

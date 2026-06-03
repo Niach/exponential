@@ -92,6 +92,7 @@ const AppState = struct {
     pills_box: gtk.Object = null,
 
     refresh_pending: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    suppress_project_select: bool = false, // set while re-selecting the active row on rebuild
 };
 
 /// A label currently used as a filter — name/colour kept so pills can render it
@@ -612,8 +613,10 @@ fn buildTrackerUI(state: *AppState) void {
     // --- Sidebar pane (own header bar with Sign out) ---
     const sidebar_toolbar = gtk.adw_toolbar_view_new();
     gtk.gtk_widget_set_size_request(sidebar_toolbar, 260, -1);
+    gtk.gtk_widget_add_css_class(sidebar_toolbar, "exp-sidebar"); // one cohesive surface + divider
     state.sidebar_pane = sidebar_toolbar;
     const sidebar_header = gtk.adw_header_bar_new();
+    gtk.gtk_widget_add_css_class(sidebar_header, "exp-sidebar-header"); // blend into the sidebar surface
     gtk.adw_header_bar_set_title_widget(sidebar_header, gtk.adw_window_title_new("Exponential", ""));
     gtk.adw_header_bar_set_show_end_title_buttons(sidebar_header, 0); // controls live on the content side
     // Sign out moved into the footer user-identity menu (mirrors the web sidebar).
@@ -1360,6 +1363,24 @@ fn refreshSidebar(state: *AppState) void {
 
     const projects = db.listProjects(a, state.active_workspace_id) catch return;
     for (projects) |p| gtk.gtk_list_box_append(sidebar, sidebarRow(p.id, p.name, p.github_repo, p.color, state));
+
+    // Re-assert the active row's selection (lost by remove_all) so the current
+    // project stays highlighted. index 0 = "All issues" (null selection).
+    var sel_index: c_int = 0;
+    if (state.selected_project_id) |sel| {
+        for (projects, 0..) |p, i| {
+            if (std.mem.eql(u8, p.id, sel)) {
+                sel_index = @intCast(i + 1);
+                break;
+            }
+        }
+    }
+    const sel_row = gtk.gtk_list_box_get_row_at_index(sidebar, sel_index);
+    if (sel_row != null) {
+        state.suppress_project_select = true;
+        gtk.gtk_list_box_select_row(sidebar, sel_row);
+        state.suppress_project_select = false;
+    }
 }
 
 /// Per-workspace-row context for the switcher popover (owns a duped id; freed
@@ -1447,6 +1468,7 @@ fn sidebarRow(id: ?[:0]const u8, name: [:0]const u8, repo: []const u8, color: []
 
 fn onProjectSelected(_: gtk.Object, row: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const state: *AppState = @ptrCast(@alignCast(data));
+    if (state.suppress_project_select) return; // re-selecting the active row on rebuild
     if (row == null) return;
     const child = gtk.gtk_list_box_row_get_child(row);
     const raw = gtk.g_object_get_data(child, "exp-project-id");

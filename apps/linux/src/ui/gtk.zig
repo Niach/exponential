@@ -206,6 +206,8 @@ pub extern fn gtk_list_box_new() Object;
 pub extern fn gtk_list_box_append(box: Object, child: Object) void;
 pub extern fn gtk_list_box_remove_all(box: Object) void;
 pub extern fn gtk_list_box_row_get_child(row: Object) Object;
+pub extern fn gtk_list_box_get_row_at_index(box: Object, index: c_int) Object;
+pub extern fn gtk_list_box_select_row(box: Object, row: Object) void;
 
 // GSourceFunc timer / idle — drive UI refreshes on the main loop. g_idle_add is
 // thread-safe, so sync threads use it to schedule a refresh.

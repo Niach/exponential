@@ -327,6 +327,7 @@ fn projectsSection(ctx: *Ctx, a: std.mem.Allocator) void {
 /// Per-label edit context (rename entry + colour), freed when its row is destroyed.
 const LabelRowCtx = struct {
     ctx: *Ctx,
+    gpa: std.mem.Allocator, // long-lived; freeLabelRow can run after ctx is freed
     id: [:0]u8,
     name_entry: gtk.Object = null,
     selected_swatch: gtk.Object = null,
@@ -334,8 +335,8 @@ const LabelRowCtx = struct {
 
 fn freeLabelRow(p: gtk.gpointer) callconv(.c) void {
     const lrc: *LabelRowCtx = @ptrCast(@alignCast(p));
-    lrc.ctx.gpa.free(lrc.id);
-    lrc.ctx.gpa.destroy(lrc);
+    lrc.gpa.free(lrc.id);
+    lrc.gpa.destroy(lrc);
 }
 
 fn labelsSection(ctx: *Ctx, a: std.mem.Allocator) void {
@@ -366,6 +367,7 @@ fn labelRow(ctx: *Ctx, a: std.mem.Allocator, l: Database.LabelRow) gtk.Object {
 
     const lrc = ctx.gpa.create(LabelRowCtx) catch return row;
     lrc.ctx = ctx;
+    lrc.gpa = ctx.gpa;
     lrc.name_entry = null;
     lrc.selected_swatch = null;
     lrc.id = ctx.gpa.dupeZ(u8, l.id) catch {
@@ -444,11 +446,12 @@ fn onCreateLabel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 const DeleteKind = enum { project, workspace };
 
 /// Carried by a delete button; opens a confirmation dialog on click.
-const RowDel = struct { ctx: *Ctx, kind: DeleteKind, id: [:0]u8, name: [:0]u8 };
+const RowDel = struct { ctx: *Ctx, gpa: std.mem.Allocator, kind: DeleteKind, id: [:0]u8, name: [:0]u8 };
 
 fn makeRowDel(ctx: *Ctx, kind: DeleteKind, id: []const u8, name: []const u8) ?*RowDel {
     const rd = ctx.gpa.create(RowDel) catch return null;
     rd.ctx = ctx;
+    rd.gpa = ctx.gpa;
     rd.kind = kind;
     rd.id = ctx.gpa.dupeZ(u8, id) catch {
         ctx.gpa.destroy(rd);
@@ -464,9 +467,9 @@ fn makeRowDel(ctx: *Ctx, kind: DeleteKind, id: []const u8, name: []const u8) ?*R
 
 fn freeRowDel(p: gtk.gpointer) callconv(.c) void {
     const rd: *RowDel = @ptrCast(@alignCast(p));
-    rd.ctx.gpa.free(rd.id);
-    rd.ctx.gpa.free(rd.name);
-    rd.ctx.gpa.destroy(rd);
+    rd.gpa.free(rd.id);
+    rd.gpa.free(rd.name);
+    rd.gpa.destroy(rd);
 }
 
 fn dangerZone(ctx: *Ctx, ws_name: []const u8) void {
@@ -490,6 +493,7 @@ fn dangerZone(ctx: *Ctx, ws_name: []const u8) void {
 /// Confirmation dialog state (owns its duped id/expected-name, freed on close).
 const ConfirmCtx = struct {
     ctx: *Ctx,
+    gpa: std.mem.Allocator, // long-lived; freeConfirm can run after ctx is freed
     kind: DeleteKind,
     id: [:0]u8,
     expect: [:0]u8, // type-to-confirm text (workspace name); "" = no match required
@@ -500,9 +504,9 @@ const ConfirmCtx = struct {
 
 fn freeConfirm(p: gtk.gpointer) callconv(.c) void {
     const cc: *ConfirmCtx = @ptrCast(@alignCast(p));
-    cc.ctx.gpa.free(cc.id);
-    cc.ctx.gpa.free(cc.expect);
-    cc.ctx.gpa.destroy(cc);
+    cc.gpa.free(cc.id);
+    cc.gpa.free(cc.expect);
+    cc.gpa.destroy(cc);
 }
 
 fn onOpenConfirm(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
@@ -512,6 +516,7 @@ fn onOpenConfirm(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 
     const cc = ctx.gpa.create(ConfirmCtx) catch return;
     cc.ctx = ctx;
+    cc.gpa = ctx.gpa;
     cc.kind = rd.kind;
     cc.entry = null;
     cc.confirm_btn = null;
@@ -874,6 +879,7 @@ const ActionKind = enum { make_owner, make_member, remove_member, revoke_invite,
 
 const ActionCtx = struct {
     ctx: *Ctx,
+    gpa: std.mem.Allocator, // long-lived; freeAction can run after ctx is freed
     id: [:0]u8,
     kind: ActionKind,
 };
@@ -881,6 +887,7 @@ const ActionCtx = struct {
 fn makeAction(ctx: *Ctx, kind: ActionKind, id: []const u8) ?*ActionCtx {
     const ac = ctx.gpa.create(ActionCtx) catch return null;
     ac.ctx = ctx;
+    ac.gpa = ctx.gpa;
     ac.kind = kind;
     ac.id = ctx.gpa.dupeZ(u8, id) catch {
         ctx.gpa.destroy(ac);
@@ -891,8 +898,8 @@ fn makeAction(ctx: *Ctx, kind: ActionKind, id: []const u8) ?*ActionCtx {
 
 fn freeAction(p: gtk.gpointer) callconv(.c) void {
     const ac: *ActionCtx = @ptrCast(@alignCast(p));
-    ac.ctx.gpa.free(ac.id);
-    ac.ctx.gpa.destroy(ac);
+    ac.gpa.free(ac.id);
+    ac.gpa.destroy(ac);
 }
 
 fn addAction(ctx: *Ctx, list: gtk.Object, kind: ActionKind, id: []const u8, label: [*:0]const u8) void {
