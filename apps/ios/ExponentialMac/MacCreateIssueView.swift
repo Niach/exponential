@@ -103,8 +103,10 @@ struct MacCreateIssueView: View {
             }
 
             Text("Description").font(.caption).foregroundStyle(.secondary)
+            // Top-align so the toolbar sits directly under the label (the default
+            // .center left an empty band above it), and grow from a compact height.
             MacMarkdownEditor(model: editor, baseURL: baseURL, accountId: accountId, httpClient: deps.httpClient)
-                .frame(minHeight: 160, maxHeight: 360)
+                .frame(minHeight: 120, maxHeight: 320, alignment: .top)
 
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
 

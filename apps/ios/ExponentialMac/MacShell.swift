@@ -178,10 +178,27 @@ struct MacShell: View {
         .safeAreaInset(edge: .bottom) { sidebarFooter }
     }
 
+    // Workspace name is rendered as a PLAIN view (not inside a Menu label) — a
+    // borderlessButton menu collapses a rich label to its smallest content, which
+    // truncated the name to a single letter. The menu hangs off the chevron only.
     @ViewBuilder
     private var sidebarHeader: some View {
         HStack(spacing: 6) {
-            workspaceSwitcher
+            if let aw = activeWorkspace {
+                WorkspaceAvatar(workspace: aw.workspace, size: 18)
+            }
+            Text(activeWorkspace?.workspace.name ?? "Workspaces")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Menu {
+                workspaceMenuItems
+            } label: {
+                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
             Spacer(minLength: 4)
             Button {
                 if let aw = activeWorkspace {
@@ -198,85 +215,74 @@ struct MacShell: View {
         .padding(.vertical, 6)
     }
 
-    private var workspaceSwitcher: some View {
-        Menu {
-            ForEach(projectLoader?.groups ?? []) { group in
-                ForEach(group.workspaceBlocks) { block in
-                    Button {
-                        if let first = block.projects.first {
-                            selectedProject = ProjectRef(accountId: group.accountId, projectId: first.id)
-                        }
-                    } label: {
-                        if activeWorkspace?.workspace.id == block.workspace.id {
-                            Label(block.workspace.name, systemImage: "checkmark")
-                        } else {
-                            Text(block.workspace.name)
-                        }
+    @ViewBuilder
+    private var workspaceMenuItems: some View {
+        ForEach(projectLoader?.groups ?? []) { group in
+            ForEach(group.workspaceBlocks) { block in
+                Button {
+                    if let first = block.projects.first {
+                        selectedProject = ProjectRef(accountId: group.accountId, projectId: first.id)
+                    }
+                } label: {
+                    if activeWorkspace?.workspace.id == block.workspace.id {
+                        Label(block.workspace.name, systemImage: "checkmark")
+                    } else {
+                        Text(block.workspace.name)
                     }
                 }
             }
-            Divider()
-            Button { showCreateWorkspace = true } label: { Label("New workspace", systemImage: "plus") }
-            if let aw = activeWorkspace {
-                Button {
-                    settingsTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
-                } label: {
-                    Label("Workspace Settings…", systemImage: "gearshape")
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                if let aw = activeWorkspace {
-                    WorkspaceAvatar(workspace: aw.workspace, size: 16)
-                    Text(aw.workspace.name).font(.subheadline.weight(.medium)).lineLimit(1)
-                } else {
-                    Text("Workspaces").font(.subheadline.weight(.medium))
-                }
-                Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.tertiary)
+        }
+        Divider()
+        Button { showCreateWorkspace = true } label: { Label("New workspace", systemImage: "plus") }
+        if let aw = activeWorkspace {
+            Button {
+                settingsTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
+            } label: {
+                Label("Workspace Settings…", systemImage: "gearshape")
             }
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
     }
 
+    // Identity name + email are PLAIN views (same reason as the header); the
+    // account menu hangs off the trailing ellipsis only.
     @ViewBuilder
     private var sidebarFooter: some View {
         if let account = activeAccount {
-            Menu {
-                if deps.auth.isAdmin {
-                    Button { showAdmin = true } label: { Label("Admin", systemImage: "shield") }
-                }
-                Button { showIntegrations = true } label: {
-                    Label("Integrations", systemImage: "puzzlepiece.extension")
-                }
-                Button { openFeedback() } label: { Label("Send feedback", systemImage: "envelope") }
-                Divider()
-                Button(role: .destructive) { signOut(account) } label: {
-                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Text((account.userEmail ?? account.displayName).prefix(1).uppercased())
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
-                        .background(Accent.indigo.opacity(0.7))
-                        .clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(account.displayName).font(.caption.weight(.medium)).lineLimit(1)
-                        if let email = account.userEmail, !email.isEmpty {
-                            Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        }
+            HStack(spacing: 8) {
+                Text((account.userEmail ?? account.displayName).prefix(1).uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Accent.indigo.opacity(0.7))
+                    .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(account.displayName).font(.caption.weight(.medium)).lineLimit(1)
+                    if let email = account.userEmail, !email.isEmpty {
+                        Text(email).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.tertiary)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .contentShape(Rectangle())
+                Spacer(minLength: 4)
+                Menu {
+                    if deps.auth.isAdmin {
+                        Button { showAdmin = true } label: { Label("Admin", systemImage: "shield") }
+                    }
+                    Button { showIntegrations = true } label: {
+                        Label("Integrations", systemImage: "puzzlepiece.extension")
+                    }
+                    Button { openFeedback() } label: { Label("Send feedback", systemImage: "envelope") }
+                    Divider()
+                    Button(role: .destructive) { signOut(account) } label: {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.body).foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .padding(8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
         }
     }
 
