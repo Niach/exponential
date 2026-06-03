@@ -16,3 +16,7 @@ build/
 
 # Firebase secrets (user-provided)
 Exponential/GoogleService-Info.plist
+
+# libghostty build (cloned ghostty source + local zig toolchain + build output);
+# produced by scripts/build-libghostty-macos.sh, never committed.
+vendor/

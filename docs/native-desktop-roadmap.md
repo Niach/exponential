@@ -272,9 +272,21 @@ NSImage`). Honor the GFM contract (see root `CLAUDE.md`).
 > stdout+stderr + exit code, calls `submit_run_result`) — mirrors
 > `agent_manager.zig`. A core runs per registered workspace alongside the
 > heartbeat (v1 = while app open).
-> **Deferred — M7 terminal:** the visible "watch & steer" embedded **libghostty
-> (Metal)** terminal still needs a macOS libghostty build; the headless
-> `Foundation.Process` runner stands in until then.
+> **Deferred — M7 terminal (build blocked on a toolchain mismatch):** a macOS
+> build recipe exists at `apps/ios/scripts/build-libghostty-macos.sh` (download
+> local zig + clone the pinned ghostty `c5028f9` + `zig build -Dapp-runtime=none`
+> → `libghostty.dylib` + `ghostty.h`; Metal-native, no GLAD/patchelf). **It can't
+> complete on this machine:** ghostty 1.3.1 pins **zig 0.15.2**, which **cannot
+> link macOS binaries against the macOS 26 SDK** (even `hello.zig` fails with
+> undefined `libSystem` symbols). zig **0.16** links fine here, so the fix is to
+> build a **newer ghostty that compiles with zig 0.16** (diverges from the
+> Linux-pinned `c5028f9` ABI — a version call for the team), or build on an older
+> macOS SDK. Until libghostty is produced, the headless `Foundation.Process`
+> runner stands in (the agent works; you just don't see the CLI live). Once the
+> `.dylib` + `ghostty.h` exist, `GhosttyKit` mirrors `apps/linux/src/ui/terminal.zig`
+> (process-global app ticked on `wakeup`; one surface per `NSView` via
+> `platform.macos={nsview}`; `ACTION_RENDER`→redraw; `NSEvent` input forwarding;
+> `process_exited` polling) — Metal is the apprt's native target.
 > **Runtime gate (needs an interactive run):** register from an owner account →
 > appears online in web `agents-section.tsx`; with `claude`/`codex` on PATH + a
 > GitHub token, assign an issue → plan→approve→code→PR. Verifies M5+M6.
