@@ -12,6 +12,9 @@ final class MacAgentCore: @unchecked Sendable {
     private let core: OpaquePointer
     private let onLog: (@Sendable (String) -> Void)?
     private var ctxToken: Unmanaged<MacAgentCore>?
+    // Serializes `core` use (submitRunResult) against shutdown's free, so a run
+    // that completes after unregister can't call into a freed core pointer.
+    private let lock = NSLock()
     private var hasShutdown = false
 
     init?(configJson: String, onLog: (@Sendable (String) -> Void)? = nil) {
@@ -32,6 +35,12 @@ final class MacAgentCore: @unchecked Sendable {
     }
 
     private func submitRunResult(runId: String, exitCode: Int32, finalText: String) {
+        // Hold the lock across the C call so shutdown (which waits on the same
+        // lock before freeing) can't free `core` mid-call; bail if already shut
+        // down — the terminal run may finish after the agent was unregistered.
+        lock.lock()
+        defer { lock.unlock() }
+        guard !hasShutdown else { return }
         runId.withCString { rid in
             finalText.withCString { ft in
                 _ = agent_core_submit_run_result(core, rid, exitCode, ft)
@@ -72,8 +81,19 @@ final class MacAgentCore: @unchecked Sendable {
 
     /// Stop + free the core and release the callback context. Idempotent.
     func shutdown() {
-        guard !hasShutdown else { return }
+        lock.lock()
+        if hasShutdown { lock.unlock(); return }
         hasShutdown = true
+        lock.unlock()
+        // 1. Detach the event callback FIRST. emit() (agent-core ffi.rs) holds the
+        //    callback-slot mutex across the C call and set_event_callback takes the
+        //    same mutex, so this blocks any in-flight emit and guarantees no worker
+        //    thread fires the callback after we free below — the core does NOT join
+        //    its worker threads on stop, so they can outlive it.
+        agent_core_set_event_callback(core, nil, nil)
+        // 2. With hasShutdown set under the lock, any concurrent submitRunResult
+        //    either already finished (it held the lock; we don't free until it
+        //    releases) or will see hasShutdown and no-op. Safe to stop + free now.
         _ = agent_core_stop(core)
         agent_core_free(core)
         ctxToken?.release()
@@ -81,9 +101,11 @@ final class MacAgentCore: @unchecked Sendable {
     }
 
     deinit {
-        // Safety net if shutdown() was never called (e.g. abandoned without
-        // unregister) — avoids leaking the core + the retained callback context.
+        // Effectively unreachable: the ctx token retains self, so deinit only runs
+        // after shutdown() released it (hasShutdown == true). Kept as defense —
+        // detach the callback before freeing here too, mirroring shutdown().
         if !hasShutdown {
+            agent_core_set_event_callback(core, nil, nil)
             _ = agent_core_stop(core)
             agent_core_free(core)
             ctxToken?.release()

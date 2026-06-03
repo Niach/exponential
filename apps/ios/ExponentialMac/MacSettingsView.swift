@@ -44,6 +44,12 @@ struct MacSettingsView: View {
         // remove the account so we never yank state out from under the sync task.
         Task {
             await deps.syncManager.signOut(accountId: id)
+            // Mac sign-out is a full account removal (unlike iOS, where the shared
+            // SyncManager.signOut intentionally keeps the cache for offline
+            // resume). Close the pool so we don't leak its file handles + reader
+            // threads and don't reuse a stale cached pool if the same instance is
+            // re-added (account ids are derived deterministically from the URL).
+            deps.db.closePool(forAccountId: id)
             deps.auth.removeAccount(id: id)
         }
     }
