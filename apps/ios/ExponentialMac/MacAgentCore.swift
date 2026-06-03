@@ -38,8 +38,9 @@ final class MacAgentCore: @unchecked Sendable {
         }
     }
 
-    /// Called on the core's event thread. Run requests block, so they run on a
-    /// background queue; the parked pipeline thread waits for the result.
+    /// Called on the core's event thread. A run_request is fulfilled in a visible
+    /// ghostty terminal on the main thread; the parked pipeline thread waits for
+    /// `submit_run_result`.
     private func dispatch(_ json: String) {
         guard let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -49,9 +50,22 @@ final class MacAgentCore: @unchecked Sendable {
             return
         }
         let runId = (obj["runId"] as? String) ?? ""
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
-            let (code, text) = MacAgentRunner.run(obj)
-            submitRunResult(runId: runId, exitCode: code, finalText: text)
+        guard let program = obj["program"] as? String, !program.isEmpty else {
+            submitRunResult(runId: runId, exitCode: -1, finalText: "")
+            return
+        }
+        let argv = (obj["argv"] as? [String]) ?? []
+        let env = (obj["env"] as? [String: String]) ?? [:]
+        let cwd = obj["cwd"] as? String
+        let system = (obj["systemPrompt"] as? String) ?? ""
+        let user = (obj["userPrompt"] as? String) ?? ""
+        let prompt = "\(system)\n\n<user_issue>\n\(user)\n</user_issue>"
+        DispatchQueue.main.async { [self] in
+            MacAgentTerminalRunner.shared.run(
+                runId: runId, program: program, argv: argv, env: env, cwd: cwd, prompt: prompt
+            ) { [self] code, text in
+                submitRunResult(runId: runId, exitCode: code, finalText: text)
+            }
         }
     }
 
@@ -64,19 +78,10 @@ final class MacAgentCore: @unchecked Sendable {
     }
 }
 
-/// Runs one coding-agent CLI invocation and captures its output + exit code.
+/// Headless fallback: runs one coding-agent CLI invocation and captures its
+/// output + exit code (used when the ghostty terminal is unavailable).
 enum MacAgentRunner {
-    static func run(_ obj: [String: Any]) -> (Int32, String) {
-        guard let program = obj["program"] as? String else { return (-1, "") }
-        let argv = obj["argv"] as? [String] ?? []
-        let env = obj["env"] as? [String: String] ?? [:]
-        let cwd = obj["cwd"] as? String
-        let system = (obj["systemPrompt"] as? String) ?? ""
-        let user = (obj["userPrompt"] as? String) ?? ""
-        // Same combined-prompt shape the Linux host uses; passed as the final
-        // positional argument to the CLI.
-        let prompt = "\(system)\n\n<user_issue>\n\(user)\n</user_issue>"
-
+    static func run(program: String, argv: [String], env: [String: String], cwd: String?, prompt: String) -> (Int32, String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [program] + argv + [prompt]

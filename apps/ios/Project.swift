@@ -40,6 +40,19 @@ let macDependencies: [TargetDependency] = [
     .target(name: "ExpCore"),
     .target(name: "ExpUI"),
     .external(name: "GRDB"),
+    // Prebuilt libghostty (static) for the embedded terminal (M7). Fetched by
+    // scripts/setup-ghostty-macos.sh into vendor/ (gitignored). Imported as the
+    // `GhosttyKit` clang module; needs the system frameworks + libc++ below.
+    .xcframework(path: "vendor/GhosttyKit.xcframework"),
+]
+
+// Folder-reference resources for libghostty: themes/shell-integration under
+// Contents/Resources/ghostty (= GHOSTTY_RESOURCES_DIR) + the compiled terminfo
+// DB at the sibling Contents/Resources/terminfo (libghostty derives TERMINFO as
+// dirname(GHOSTTY_RESOURCES_DIR)/terminfo). Fetched by setup-ghostty-macos.sh.
+let macResources: ResourceFileElements = [
+    .folderReference(path: "vendor/ghostty-resources/ghostty"),
+    .folderReference(path: "vendor/ghostty-resources/terminfo"),
 ]
 let macInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": "0.1.0",
@@ -67,10 +80,20 @@ let agentCoreScript = TargetScript.pre(
     name: "Build agent-core (cargo)",
     basedOnDependencyAnalysis: false
 )
+// Link settings for the macOS app: agent-core (raw dylib + hand-written module
+// map) and the static libghostty xcframework (needs system frameworks + libc++).
 let agentCoreSettings: SettingsDictionary = [
-    "OTHER_SWIFT_FLAGS": ["$(inherited)", "-Xcc", "-fmodule-map-file=$(SRCROOT)/AgentCore/module.modulemap"],
+    "OTHER_SWIFT_FLAGS": [
+        "$(inherited)", "-Xcc", "-fmodule-map-file=$(SRCROOT)/AgentCore/module.modulemap",
+        "-Xcc", "-Wno-incomplete-umbrella",
+    ],
     "LIBRARY_SEARCH_PATHS": ["$(inherited)", "$(SRCROOT)/../../target/release"],
-    "OTHER_LDFLAGS": ["$(inherited)", "-lagent_core"],
+    "OTHER_LDFLAGS": [
+        "$(inherited)", "-lagent_core", "-lc++",
+        "-framework", "Metal", "-framework", "MetalKit", "-framework", "QuartzCore",
+        "-framework", "CoreText", "-framework", "CoreGraphics", "-framework", "IOKit",
+        "-framework", "Carbon", "-framework", "UserNotifications",
+    ],
 ]
 
 // Foundation-only files reused by the Share Extension. Compiled into the
@@ -225,6 +248,7 @@ let project = Project(
                 "CFBundleDisplayName": "Exponential",
             ]) { _, new in new }),
             sources: macSources,
+            resources: macResources,
             scripts: [agentCoreScript],
             dependencies: macDependencies,
             settings: .settings(base: baseSettings.merging(agentCoreSettings) { _, new in new })
@@ -239,6 +263,7 @@ let project = Project(
                 "CFBundleDisplayName": "Exp Mac Staging",
             ]) { _, new in new }),
             sources: macSources,
+            resources: macResources,
             scripts: [agentCoreScript],
             dependencies: macDependencies,
             settings: .settings(base: baseSettings
