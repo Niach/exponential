@@ -253,7 +253,7 @@ NSImage`). Honor the GFM contract (see root `CLAUDE.md`).
 > formatting, list/checkbox behavior, and image paste/upload against a live
 > account — same runtime caveat as A2/A3.
 
-### A5 — macOS desktop-agent (mirror Linux M5–M7) 🔶 identity done; loop+terminal blocked
+### A5 — macOS desktop-agent (mirror Linux M5–M7) 🔶 M5+M6+M7 built (build/launch green; runtime unverified)
 
 > **Done — M5 identity (build + launch green):** `MacAgentService`/`MacAgentStore`
 > register the Mac (`companion.create` owner session → `claimSetup` → store
@@ -272,44 +272,28 @@ NSImage`). Honor the GFM contract (see root `CLAUDE.md`).
 > stdout+stderr + exit code, calls `submit_run_result`) — mirrors
 > `agent_manager.zig`. A core runs per registered workspace alongside the
 > heartbeat (v1 = while app open).
-> **Deferred — M7 terminal (HARD-BLOCKED building libghostty on macOS 26):** the
-> build recipe is `apps/ios/scripts/build-libghostty-macos.sh`. It cannot complete
-> on a macOS-26 host. Investigated and ruled out (2026-06-03):
-> - ghostty 1.3.1 (`c5028f9`, even `main` = 1.3.2-dev) pins **zig 0.15.2** and uses
->   pre-0.16 std APIs + a hard `requireZig` — it will **not** compile with zig 0.16.
-> - zig **0.15.2 cannot link native macOS binaries on macOS 26** — even a 1-line
->   program fails with undefined `libSystem` symbols (`_fork`, `_sigaction`, …),
->   with **both** the macOS 26 and the locally-present macOS 15 SDK. zig 0.16 links
->   fine, but see above.
-> - `-Dtarget=aarch64-macos` makes a *standalone* `zig build-exe` use bundled libc
->   (links OK), but `zig build`'s **build runner** is always host-native, so the
->   build still fails before it ever builds libghostty. `-Dtarget`/`SDKROOT` can't
->   redirect the runner.
-> **Unblock:** build libghostty on a host whose SDK zig 0.15.2 supports (macOS ≤15,
-> or CI/`zig build -Dtarget=...-macos` on Linux→macOS cross — or wait for ghostty
-> to adopt a macOS-26-capable zig), then commit/drop
-> `apps/ios/vendor/ghostty-install/{lib/libghostty.dylib,include/ghostty.h}`
-> (`vendor/` is gitignored, so this needs an xcframework or a tracked-path copy).
-> The headless `Foundation.Process` runner (M6) stands in meanwhile — the agent
-> works end-to-end; you just don't see the CLI live.
->
-> **GhosttyKit design (drop-in once libghostty exists; mirrors
-> `apps/linux/src/ui/terminal.zig`, ABI in `apps/linux/src/ui/ghostty_ffi.zig`):**
-> link the dylib like agent-core (clang module map over `ghostty.h` + `-lghostty`).
-> Process-global app: `ghostty_init` → `ghostty_config_new`+load+finalize →
-> `ghostty_app_new(&runtime, config)` with the 6 callbacks; `wakeup_cb` →
-> `DispatchQueue.main.async { ghostty_app_tick(app) }` (coalesced). One surface per
-> `NSView` (Metal `MTKView`/layer-backed): `surface_config_s{ platform_tag=
-> PLATFORM_MACOS(1), platform.macos.nsview=<view>, command, working_directory,
-> env_vars, wait_after_command=true, context=WINDOW, io_mode=EXEC }`. `action_cb`:
-> `ACTION_RENDER(27)` → `view.needsDisplay=true`; `ACTION_SHOW_CHILD_EXITED(54)`/
-> `ACTION_COMMAND_FINISHED(57)` → notify. Draw via `ghostty_surface_draw` in the
-> view's draw; `setContentScale`/`setSize` on resize. Forward `NSEvent`:
-> `ghostty_surface_key(input_key_s)`, `_mouse_button`/`_mouse_pos`/`_mouse_scroll`,
-> `_set_focus`. Poll `ghostty_surface_process_exited` → read the agent run-wrapper
-> `tee`/`PIPESTATUS` capture files → `agent_core_submit_run_result` (replace the
-> Process runner's direct capture with this terminal path). Verify rendering on a
-> real display.
+> **Done — M7 terminal (build + launch green; via a PREBUILT xcframework):**
+> building libghostty from source is impossible on a macOS-26 host (zig 0.15.2,
+> which every current ghostty pins, can't link native macOS binaries on the
+> macOS-26 SDK — even `hello.zig` fails; zig 0.16 links but ghostty won't compile
+> with it). So — following github.com/thdxg/macterm — we **link a prebuilt
+> `GhosttyKit.xcframework`** instead of building. `apps/ios/scripts/setup-ghostty-macos.sh`
+> fetches it (+ ghostty/terminfo resources) into `vendor/` (gitignored) via
+> `gh release download`. `Project.swift` links the static xcframework (`import
+> GhosttyKit`) + the system frameworks (Metal/MetalKit/QuartzCore/CoreText/
+> CoreGraphics/IOKit/Carbon/UserNotifications + `-lc++`) and bundles the resources
+> as folder references (`GHOSTTY_RESOURCES_DIR`). `MacGhosttyApp` (app + 60Hz tick
+> + 6 callbacks), `MacGhosttyTerminalView` (NSView `platform.macos.nsview` surface,
+> Metal-managed by the apprt; resize/focus/key+mouse forwarding), and
+> `MacAgentTerminalRunner` (run_request → visible terminal window via the tee/
+> PIPESTATUS wrapper → exit code+output on `GHOSTTY_ACTION_COMMAND_FINISHED` →
+> `submit_run_result`; headless `Process` fallback if the framework is absent). All
+> mirror macterm's `Macterm/Ghostty/` + `GhosttyTerminalNSView.swift`.
+> **Caveats:** (1) the prebuilt artifact comes from a third-party ghostty fork —
+> for a shipping build we should build + host our **own** `GhosttyKit.xcframework`
+> on CI (a macOS-15 runner, where zig 0.15.2 links) and point
+> `GHOSTTY_REPO`/the setup script at it. (2) Live-terminal **rendering + input were
+> not verified here** (headless, no display); confirm on a real Mac.
 > **Runtime gate (needs an interactive run):** register from an owner account →
 > appears online in web `agents-section.tsx`; with `claude`/`codex` on PATH + a
 > GitHub token, assign an issue → plan→approve→code→PR. Verifies M5+M6.
@@ -367,8 +351,8 @@ cd apps/ios && tuist generate                    # regenerate the Xcode project
 | M0 shared base (agent-core scaffold + contract emitters) | ✅ | ✅ (shared) |
 | v1 tracker (login, sync, CRUD, editor, settings) | ✅ B1–B4 | 🔶 A1–A4 built (ExpCore · shell+login+sync · CRUD/comments/labels/filter/settings/attachments · NSTextView WYSIWYG editor) — build+launch green; runtime gate (login + mutations against a live server) unverified |
 | M5 desktop-agent identity (register/heartbeat/GitHub) | ✅ | ✅ A5 (build+launch green; runtime unverified) |
-| M6 agent loop (Rust core) | ✅ (shared) | ✅ linked + Process runner (build+launch green; runtime unverified) |
-| M7 libghostty embedded terminal | ✅ | ☐ needs macOS libghostty build (Process runner stands in) |
+| M6 agent loop (Rust core) | ✅ (shared) | ✅ linked + terminal/Process runner (build+launch green; runtime unverified) |
+| M7 libghostty embedded terminal | ✅ | ✅ prebuilt GhosttyKit.xcframework (build+launch green; rendering unverified — needs a display) |
 | M8 parity tests | ✅ (60 tests) | — (shared core already covered) |
 | M8 decommission `apps/companion` | ✅ deleted | — |
 | M8 packaging/notarization | ☐ Flatpak | ☐ notarize+harden |
@@ -379,7 +363,10 @@ loop via the Process runner). Run `Exponential-macOS-Staging` against
 `next.exponential.at` to exercise the runtime gates: A2–A4 (login/sync/CRUD/editor),
 A5 M5 (register → the Mac appears in web `agents-section.tsx`), and A5 M6 (with
 `claude`/`codex` on PATH + a GitHub token, assign an issue → plan→approve→code→PR
-runs headlessly). The remaining macOS work is **M7** — the embedded **libghostty
-(Metal)** terminal for the visible "watch & steer" UX (needs a macOS libghostty
-build; the Process runner stands in meanwhile) — and **M8 packaging** (bundle +
-sign the `agent_core` dylib, notarize, hardened runtime allowing child processes).
+runs headlessly). The remaining macOS work is **M8 packaging** (bundle + sign the `agent_core` dylib
++ the GhosttyKit static lib is already linked-in; notarize; hardened runtime
+allowing child processes) and a **CI job that builds + hosts our own
+`GhosttyKit.xcframework`** (macOS-15 runner) so the terminal doesn't depend on a
+third-party fork's releases. Before shipping, verify on a real Mac: the embedded
+terminal renders + accepts input, and the run gate (assign issue → watch
+plan→approve→code→PR in the terminal) works.
