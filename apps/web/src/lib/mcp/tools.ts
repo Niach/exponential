@@ -785,6 +785,35 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
+    `exponential_agent_open_pr`,
+    {
+      title: `Open the pull request for an issue`,
+      description: `Open a GitHub PR for the branch the agent just pushed. The SERVER creates the PR using the agent owner's connected GitHub token (the agent no longer holds a GitHub API credential), then records pr_url/pr_number/pr_state + emits pr_opened. Pass the pushed head branch and the base branch (the repo's default). Caller must be an agent member of the issue's workspace.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+        branch: z.string().max(255),
+        base: z.string().max(255),
+        title: z.string().max(255).optional(),
+        body: z.string().max(4000).optional(),
+      },
+    },
+    async ({ issueId, branch, base, title, body }) => {
+      try {
+        const result = await caller(user, request).agentPlan.openPr({
+          issueId,
+          branch,
+          base,
+          title,
+          body,
+        })
+        return ok(result.issue)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
     `exponential_agent_report_pr`,
     {
       title: `Report the pull request for an issue`,

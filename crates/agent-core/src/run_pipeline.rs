@@ -13,7 +13,7 @@
 use crate::agent_run::{self, RunRequest};
 use crate::dispatcher::PipelineFn;
 use crate::pipeline::{
-    self, build_code_user_prompt, build_interactive_plan_user_prompt, build_plan_user_prompt,
+    build_code_user_prompt, build_interactive_plan_user_prompt, build_plan_user_prompt,
     decide_stage, format_thread_for_prompt, latest_approved_plan_text, latest_plan_text,
     parse_driver_output, DriverOutputKind, IssueDetail, Stage, CODE_SYSTEM_PROMPT,
     INTERACTIVE_PLAN_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, PLAN_REVISION_CAP,
@@ -335,21 +335,12 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
     ctx.set_status(&issue.id, "pushed", None);
     git::push_branch(&claim.repo_path, &handle.owner, &handle.repo, &claim.branch, &cfg.github_token)?;
 
-    let (url, number) = github::create_pull_request(
-        &cfg.github_token,
-        &handle.owner,
-        &handle.repo,
-        &claim.branch,
-        &handle.default_branch,
-        &format!("[{}] {}", issue.identifier, issue.title),
-        &pipeline::pr_body(&issue.identifier),
-        cfg.timeout_s,
-    )?;
+    // The SERVER opens the PR with the owner's connected GitHub token + records
+    // pr_* + pr_opened (the agent no longer creates the PR via the API itself).
+    let url = mcp::open_pr(&cfg.base_url, &cfg.api_key, &issue.id, &claim.branch, &handle.default_branch, cfg.timeout_s)?;
 
     ctx.patch(&issue.id, &IssuePatch { pr_url: Some(url.clone()), ..Default::default() });
     ctx.set_status(&issue.id, "in_review", None);
-    // Write the PR to the server (synced pr_* columns + pr_opened event).
-    let _ = mcp::report_pr(&cfg.base_url, &cfg.api_key, &issue.id, &url, number, "open", Some(&claim.branch), cfg.timeout_s);
     ctx.comment(&issue.id, &format!("PR opened: {url}"), None);
     Ok(())
 }

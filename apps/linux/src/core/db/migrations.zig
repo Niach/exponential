@@ -20,6 +20,12 @@ pub fn run(conn: *sqlite.Conn) !void {
     for (new_issue_columns) |col| {
         if (!issueHasColumn(conn, col.name)) try conn.exec(col.ddl);
     }
+    // users.is_agent (added server-side in the agent redesign). Without it, the
+    // users shape — which now carries is_agent — fails to UPSERT and the local
+    // users table stays empty (members render as raw ids).
+    if (!tableHasColumn(conn, "users", "is_agent")) {
+        try conn.exec("ALTER TABLE users ADD COLUMN is_agent INTEGER");
+    }
 }
 
 const IssueColumn = struct { name: []const u8, ddl: [:0]const u8 };
@@ -38,7 +44,13 @@ const new_issue_columns = [_]IssueColumn{
 };
 
 fn issueHasColumn(conn: *sqlite.Conn, name: []const u8) bool {
-    var stmt = conn.prepare("PRAGMA table_info(issues)") catch return true;
+    return tableHasColumn(conn, "issues", name);
+}
+
+fn tableHasColumn(conn: *sqlite.Conn, table: []const u8, name: []const u8) bool {
+    var buf: [128]u8 = undefined;
+    const sql = std.fmt.bufPrintZ(&buf, "PRAGMA table_info({s})", .{table}) catch return true;
+    var stmt = conn.prepare(sql) catch return true;
     defer stmt.finalize();
     // PRAGMA table_info columns: 0=cid, 1=name, 2=type, ...
     while (stmt.step() catch false) {
@@ -177,6 +189,7 @@ const schema_sql =
     \\  name TEXT,
     \\  email TEXT NOT NULL,
     \\  image TEXT,
+    \\  is_agent INTEGER,
     \\  created_at TEXT NOT NULL,
     \\  updated_at TEXT NOT NULL
     \\);

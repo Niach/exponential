@@ -226,28 +226,19 @@ fn rebuild(ctx: *Ctx) void {
         _ = gtk.g_signal_connect_data(unreg, "clicked", @ptrCast(&onUnregister), ctx, null, 0);
         gtk.gtk_box_append(ctx.content, unreg);
 
-        // GitHub connection (lets the agent push code + open PRs).
-        if (github_auth.connected(ctx.gpa)) {
-            const login = github_auth.loadLogin(ctx.gpa);
-            defer if (login) |l| ctx.gpa.free(l);
-            const gl = gtk.gtk_label_new(null);
-            var gbuf: [256]u8 = undefined;
-            if (std.fmt.bufPrintZ(&gbuf, "<span foreground='#22c55e'>✓ GitHub: {s}</span>", .{login orelse "connected"})) |z|
-                gtk.gtk_label_set_markup(gl, z.ptr)
-            else |_| {}
-            gtk.gtk_widget_set_halign(gl, gtk.ALIGN_START);
-            gtk.gtk_box_append(ctx.content, gl);
-            const dc = gtk.gtk_button_new_with_label("Disconnect GitHub");
-            gtk.gtk_widget_add_css_class(dc, "flat");
-            gtk.gtk_widget_set_halign(dc, gtk.ALIGN_START);
-            _ = gtk.g_signal_connect_data(dc, "clicked", @ptrCast(&onDisconnectGithub), ctx, null, 0);
-            gtk.gtk_box_append(ctx.content, dc);
-        } else {
-            const cg = gtk.gtk_button_new_with_label("Connect GitHub");
-            gtk.gtk_widget_set_halign(cg, gtk.ALIGN_START);
-            _ = gtk.g_signal_connect_data(cg, "clicked", @ptrCast(&onConnectGithub), ctx, null, 0);
-            gtk.gtk_box_append(ctx.content, cg);
-        }
+        // GitHub is connected once in the web app (Account → Integrations); the
+        // agent uses the owner's token for clone/push, and the server opens PRs
+        // + serves diffs. No per-machine device flow.
+        const gh_lbl = gtk.gtk_label_new("Connect GitHub in the web app (Account → Integrations) so the agent can push code and open pull requests.");
+        gtk.gtk_widget_add_css_class(gh_lbl, "dim-label");
+        gtk.gtk_widget_set_halign(gh_lbl, gtk.ALIGN_START);
+        gtk.gtk_label_set_wrap(gh_lbl, 1);
+        gtk.gtk_box_append(ctx.content, gh_lbl);
+        const open_gh = gtk.gtk_button_new_with_label("Open Integrations in browser");
+        gtk.gtk_widget_add_css_class(open_gh, "flat");
+        gtk.gtk_widget_set_halign(open_gh, gtk.ALIGN_START);
+        _ = gtk.g_signal_connect_data(open_gh, "clicked", @ptrCast(&onOpenGithubIntegrations), ctx, null, 0);
+        gtk.gtk_box_append(ctx.content, open_gh);
     } else {
         const desc = gtk.gtk_label_new("Register this machine so it can run assigned issues as an agent.");
         gtk.gtk_widget_add_css_class(desc, "dim-label");
@@ -653,32 +644,14 @@ fn onDisconnectGithub(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     rebuild(ctx);
 }
 
-/// Start the GitHub device flow: request a code (quick), show it + open the
-/// browser, then poll on a worker thread (the user may take minutes).
-fn onConnectGithub(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+/// GitHub is connected in the web app now — open Account → Integrations in the
+/// browser. (The old per-machine device flow lives below, unused; clean up.)
+fn onOpenGithubIntegrations(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *Ctx = @ptrCast(@alignCast(data));
-    const client_id = identity_store.readField(ctx.gpa, ctx.ws_id, "githubClientId") orelse {
-        setAgentStatus(ctx, "No GitHub client id — re-register the agent.");
-        return;
-    };
-    defer ctx.gpa.free(client_id);
-
-    var dc = github_auth.requestDeviceCode(ctx.gpa, client_id) catch {
-        setAgentStatus(ctx, "Couldn't start the GitHub device flow.");
-        return;
-    };
-    defer dc.deinit(ctx.gpa);
-
-    var buf: [320]u8 = undefined;
-    if (std.fmt.bufPrintZ(&buf, "Open {s} and enter code: {s}", .{ dc.verification_uri, dc.user_code })) |z| {
-        setAgentStatus(ctx, std.mem.span(@as([*:0]const u8, z.ptr)));
-    } else |_| {}
-    if (ctx.gpa.dupeZ(u8, dc.verification_uri)) |url| {
-        defer ctx.gpa.free(url);
-        _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
-    } else |_| {}
-
-    startGhPoll(ctx, client_id, &dc);
+    var buf: [512]u8 = undefined;
+    const base = std.mem.trimEnd(u8, ctx.instance, "/");
+    const url = std.fmt.bufPrintZ(&buf, "{s}/account/integrations", .{base}) catch return;
+    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
 }
 
 const GhJob = struct {

@@ -80,12 +80,18 @@ pub const Database = struct {
             else => return,
         };
         const pks = pkColumns(table);
+        const known = self.tableColumnSet(arena, table);
 
         var cols: std.ArrayList([]const u8) = .empty;
         var vals: std.ArrayList(std.json.Value) = .empty;
         var it = obj.iterator();
         while (it.next()) |entry| {
-            try cols.append(arena, try camelToSnake(arena, entry.key_ptr.*));
+            const name = try camelToSnake(arena, entry.key_ptr.*);
+            // Skip columns the local table doesn't have. The server may carry
+            // columns this client doesn't model (e.g. auth fields on `users`);
+            // including them makes the INSERT fail to prepare and drops the row.
+            if (!known.contains(name)) continue;
+            try cols.append(arena, name);
             try vals.append(arena, entry.value_ptr.*);
         }
         if (cols.items.len == 0) return;
@@ -127,12 +133,29 @@ pub const Database = struct {
         _ = try stmt.step();
     }
 
+    /// The set of column names that exist in `table`, so sync never tries to
+    /// write a column the server carries but this client doesn't model (which
+    /// would make the statement fail to prepare and drop the entire row).
+    fn tableColumnSet(self: *Database, arena: std.mem.Allocator, table: []const u8) std.StringHashMap(void) {
+        var set = std.StringHashMap(void).init(arena);
+        var buf: [160]u8 = undefined;
+        const sql = std.fmt.bufPrintZ(&buf, "PRAGMA table_info(\"{s}\")", .{table}) catch return set;
+        var stmt = self.conn.prepare(sql) catch return set;
+        defer stmt.finalize();
+        while (stmt.step() catch false) {
+            const name = arena.dupe(u8, stmt.columnText(1)) catch continue;
+            set.put(name, {}) catch {};
+        }
+        return set;
+    }
+
     fn updateRow(self: *Database, arena: std.mem.Allocator, table: []const u8, m: shape.Message) !void {
         const obj = switch (m.value orelse return) {
             .object => |o| o,
             else => return,
         };
         const pks = pkColumns(table);
+        const known = self.tableColumnSet(arena, table);
 
         // SET only the provided non-PK columns. Updates target rows that already
         // exist (Electric sends "insert" when a row enters the shape), so a plain
@@ -143,6 +166,7 @@ pub const Database = struct {
         while (it.next()) |entry| {
             const name = try camelToSnake(arena, entry.key_ptr.*);
             if (isPk(pks, name)) continue;
+            if (!known.contains(name)) continue; // skip unmodeled server columns
             try set_cols.append(arena, name);
             try set_vals.append(arena, entry.value_ptr.*);
         }

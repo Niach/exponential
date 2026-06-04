@@ -119,3 +119,26 @@ pub fn signInWithPassword(
         return Error.ParseFailed;
     return .{ .parsed = parsed, .status = resp.status };
 }
+
+/// GET {instance}/api/auth/get-session with the Bearer token → `{session, user}`.
+/// OAuth/OIDC logins only hand back a token (no user object like the password
+/// sign-in response), so we fetch the session to fill in the identity. Reuses
+/// SignInResult's `user.*` accessors (userId/email/name/isAdmin).
+pub fn fetchSession(
+    allocator: std.mem.Allocator,
+    instance_url: []const u8,
+    token: []const u8,
+    timeout_s: c_long,
+) Error!SignInResult {
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    defer scratch.deinit();
+    const trimmed = std.mem.trimEnd(u8, instance_url, "/");
+    const url = try std.fmt.allocPrintSentinel(scratch.allocator(), "{s}/api/auth/get-session", .{trimmed}, 0);
+
+    var resp = try http.get(allocator, url, token, timeout_s, null);
+    defer resp.deinit();
+
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, resp.body, .{}) catch
+        return Error.ParseFailed;
+    return .{ .parsed = parsed, .status = resp.status };
+}

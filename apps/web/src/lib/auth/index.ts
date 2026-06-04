@@ -66,6 +66,14 @@ const googleCalendarEnabled =
   googleClientConfigured && process.env.GOOGLE_CALENDAR_ENABLED === `true`
 const googleSocialEnabled = googleLoginEnabled || googleCalendarEnabled
 
+// GitHub is a linkable social provider so the owner can connect their account
+// once in the web app; the desktop agent + the server then use that token for
+// clone/push and PR/diff. `repo` scope is requested at link time (see the
+// "Connect GitHub" button). No per-machine device flow.
+const githubClientConfigured = Boolean(
+  process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+)
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: `pg`,
@@ -117,16 +125,26 @@ export const auth = betterAuth({
       "/get-session": { window: 60, max: 600 },
     },
   },
-  socialProviders: googleSocialEnabled
-    ? {
-        google: {
-          clientId: process.env.GOOGLE_CLIENT_ID!,
-          clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-          accessType: `offline`,
-          prompt: `select_account`,
-        },
-      }
-    : undefined,
+  socialProviders: {
+    ...(googleSocialEnabled
+      ? {
+          google: {
+            clientId: process.env.GOOGLE_CLIENT_ID!,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+            accessType: `offline`,
+            prompt: `select_account`,
+          },
+        }
+      : {}),
+    ...(githubClientConfigured
+      ? {
+          github: {
+            clientId: process.env.GITHUB_CLIENT_ID!,
+            clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+          },
+        }
+      : {}),
+  },
   // Without this, Better Auth refuses to attach a Google account to a
   // user that signed in via genericOAuth — the OAuth flow completes on
   // Google's side but the accounts row never lands.
@@ -136,6 +154,7 @@ export const auth = betterAuth({
       trustedProviders: [
         ...oidcProviders.map((p) => p.id),
         ...(googleSocialEnabled ? [`google`] : []),
+        ...(githubClientConfigured ? [`github`] : []),
       ],
       // Logged-in user's email (from an OIDC provider) likely differs from
       // their Google account email — without this, Better Auth refuses to link.

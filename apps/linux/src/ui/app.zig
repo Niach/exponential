@@ -229,6 +229,8 @@ fn buildWindow(state: *AppState) void {
     const window = gtk.adw_application_window_new(state.app);
     gtk.gtk_window_set_title(window, "Exponential");
     gtk.gtk_window_set_default_size(window, 1180, 780);
+    // Floor the window so the sidebar + content never collapse into each other.
+    gtk.gtk_widget_set_size_request(window, 880, 600);
     state.window = window;
     if (hasAccount(state.gpa)) enterTracker(state) else showInstanceEntry(state);
 }
@@ -470,13 +472,58 @@ fn completeLogin(state: *AppState, token: []const u8) void {
     defer store.deinit();
     const id = ServerAccount.makeId(state.gpa, instance) catch return;
     defer state.gpa.free(id);
-    store.upsert(.{ .id = id, .instance_url = instance, .token = token }) catch {};
+
+    // OAuth/OIDC hands back only a token (no user object), so fetch the session
+    // to fill in email/name/admin for the sidebar + member resolution.
+    if (auth_api.fetchSession(state.gpa, instance, token, 20)) |result| {
+        var sess = result;
+        defer sess.deinit();
+        store.upsert(.{
+            .id = id,
+            .instance_url = instance,
+            .token = token,
+            .user_id = sess.userId(),
+            .user_email = sess.email(),
+            .user_name = sess.name(),
+            .is_admin = sess.isAdmin(),
+        }) catch {};
+    } else |_| {
+        store.upsert(.{ .id = id, .instance_url = instance, .token = token }) catch {};
+    }
     store.save() catch {};
 
     enterTracker(state);
 }
 
 // --- Tracker view ---
+
+/// One-shot: fetch the session for a token-only account + persist its identity.
+/// Dupes the id/instance/token into a scratch arena first so the store upsert
+/// can't read freed slices if it reallocates.
+fn backfillIdentity(state: *AppState, store: *AccountStore, active: ServerAccount) void {
+    const token = active.token orelse return;
+    var arena = std.heap.ArenaAllocator.init(state.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const id = a.dupe(u8, active.id) catch return;
+    const inst = a.dupe(u8, active.instance_url) catch return;
+    const tok = a.dupe(u8, token) catch return;
+    if (auth_api.fetchSession(state.gpa, inst, tok, 20)) |result| {
+        var sess = result;
+        defer sess.deinit();
+        if (sess.email() == null and sess.userId() == null) return;
+        store.upsert(.{
+            .id = id,
+            .instance_url = inst,
+            .token = tok,
+            .user_id = sess.userId(),
+            .user_email = sess.email(),
+            .user_name = sess.name(),
+            .is_admin = sess.isAdmin(),
+        }) catch {};
+        store.save() catch {};
+    } else |_| {}
+}
 
 fn enterTracker(state: *AppState) void {
     var store = AccountStore.open(state.gpa) catch {
@@ -488,6 +535,12 @@ fn enterTracker(state: *AppState) void {
         showLogin(state);
         return;
     };
+
+    // Accounts saved before we fetched the session (OAuth logins persisted only a
+    // token) have no identity — backfill it so the sidebar shows the email.
+    if (active.user_email == null and active.token != null) {
+        backfillIdentity(state, &store, active);
+    }
 
     if (state.instance == null) state.instance = state.gpa.dupe(u8, active.instance_url) catch null;
     if (state.token == null) {
@@ -619,6 +672,10 @@ fn buildTrackerUI(state: *AppState) void {
     // --- Sidebar pane (own header bar with Sign out) ---
     const sidebar_toolbar = gtk.adw_toolbar_view_new();
     gtk.gtk_widget_set_size_request(sidebar_toolbar, 260, -1);
+    // Fixed width: without this an inner hexpanding child (the "Projects" header)
+    // propagates up and the sidebar grows with the window. Pin it so only the
+    // content pane absorbs extra width.
+    gtk.gtk_widget_set_hexpand(sidebar_toolbar, 0);
     gtk.gtk_widget_add_css_class(sidebar_toolbar, "exp-sidebar"); // one cohesive surface + divider
     state.sidebar_pane = sidebar_toolbar;
     const sidebar_header = gtk.adw_header_bar_new();
@@ -1180,6 +1237,18 @@ fn reconcileHeartbeat(state: *AppState) void {
 /// Start/stop the Rust agent-core loop to match whether the active workspace has
 /// a stored agent identity. Built from the identity (api key + agent user id),
 /// the GitHub token, and per-machine repo/worktree/db paths. Called each refresh.
+/// Fetch the owner's connected GitHub token from the server (integrations.github
+/// .token, linkSocial) for the agent's clone/push. Null when not connected.
+fn fetchGithubToken(a: std.mem.Allocator, instance: []const u8, session: ?[]const u8) ?[]u8 {
+    var resp = trpc.query(a, instance, "integrations.github.token", session, 15) catch return null;
+    defer resp.deinit();
+    const obj = trpc.asObject(resp.data() orelse return null) orelse return null;
+    if (trpc.objString(obj, "token")) |t| {
+        if (t.len > 0) return a.dupe(u8, t) catch null;
+    }
+    return null;
+}
+
 fn reconcileAgent(state: *AppState) void {
     const want: ?[]const u8 = if (state.active_workspace_id) |ws|
         (if (identity_store.existsFor(state.gpa, ws)) ws else null)
@@ -1207,7 +1276,11 @@ fn reconcileAgent(state: *AppState) void {
 
     const api_key = identity_store.readField(a, ws, "apiKey") orelse return;
     const agent_uid = identity_store.readField(a, ws, "agentUserId") orelse return;
-    const github = github_auth.loadToken(a) orelse "";
+    // GitHub credential for clone/push: the owner's token, connected once in the
+    // web app (linkSocial) and fetched from the server. Falls back to a legacy
+    // device-flow token during the transition.
+    const github = fetchGithubToken(a, instance, state.token) orelse
+        (github_auth.loadToken(a) orelse "");
     const dir = storage.configDir(a) catch return;
     const repos_root = std.fmt.allocPrint(a, "{s}/repos", .{dir}) catch return;
     const worktrees_root = std.fmt.allocPrint(a, "{s}/worktrees", .{dir}) catch return;

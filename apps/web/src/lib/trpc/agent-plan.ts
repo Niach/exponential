@@ -2,7 +2,11 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { comments, issues } from "@/db/schema"
+import { comments, issues, projects } from "@/db/schema"
+import {
+  createPullRequest,
+  resolveWorkspaceAgentOwnerToken,
+} from "@/lib/integrations/github-pr"
 import {
   assertCanApprovePlan,
   assertCanMutateIssue,
@@ -266,6 +270,84 @@ export const agentPlanRouter = router({
   // The agent reports its PR onto the issue (one issue = one PR = one branch).
   // Writes the synced pr_* columns + emits pr_opened / pr_merged activity events
   // on transition. Replaces the old comment-body "PR opened:" convention.
+  // Server-side PR creation: the agent pushes the branch, then calls this. The
+  // server opens the PR with the owner's connected GitHub token (the agent no
+  // longer holds a GitHub credential for the API) and records pr_* + pr_opened.
+  openPr: authedProcedure
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        branch: z.string().max(255),
+        base: z.string().max(255),
+        title: z.string().max(255).optional(),
+        body: z.string().max(4000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const issueContext = await assertAgentForIssue(
+        ctx.session.user.id,
+        input.issueId
+      )
+
+      const [row] = await ctx.db
+        .select({
+          repo: projects.githubRepo,
+          identifier: issues.identifier,
+          title: issues.title,
+        })
+        .from(issues)
+        .innerJoin(projects, eq(projects.id, issues.projectId))
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+      if (!row?.repo) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `No GitHub repo linked for this project`,
+        })
+      }
+
+      const token = await resolveWorkspaceAgentOwnerToken(
+        issueContext.workspaceId
+      )
+      if (!token) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The agent owner hasn't connected GitHub. Connect it in the web app (Integrations).`,
+        })
+      }
+
+      const pr = await createPullRequest({
+        repo: row.repo,
+        head: input.branch,
+        base: input.base,
+        title: input.title ?? `[${row.identifier}] ${row.title}`,
+        body: input.body ?? `Resolves ${row.identifier}.`,
+        token,
+      })
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const [issue] = await tx
+          .update(issues)
+          .set({
+            prUrl: pr.url,
+            prNumber: pr.number,
+            prState: `open`,
+            branch: input.branch,
+          })
+          .where(eq(issues.id, input.issueId))
+          .returning()
+        await recordIssueEvent(tx, {
+          issueId: input.issueId,
+          workspaceId: issueContext.workspaceId,
+          actorUserId: ctx.session.user.id,
+          type: `pr_opened`,
+          payload: { prUrl: pr.url, prNumber: pr.number },
+        })
+        return { txId, issue }
+      })
+    }),
+
   reportPr: authedProcedure
     .input(
       z.object({

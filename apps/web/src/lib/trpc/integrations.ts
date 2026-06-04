@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { accounts, issues, projects } from "@/db/schema"
 import { fireAndForgetSync } from "@/lib/integrations/google-calendar"
+import { resolveOwnerGithubToken } from "@/lib/integrations/github-pr"
 import { getUserWorkspaceIds } from "@/lib/workspace-membership"
 
 const GOOGLE_PROVIDER_ID = `google`
@@ -127,6 +128,22 @@ export const integrationsRouter = router({
       }
 
       return { ok: true as const, scheduled: candidates.length }
+    }),
+  }),
+
+  github: router({
+    // Whether this user has connected GitHub (linkSocial). Drives the web
+    // "Connect GitHub" button + the desktop agent's readiness.
+    status: authedProcedure.query(async ({ ctx }) => {
+      const token = await resolveOwnerGithubToken(ctx.session.user.id)
+      return { connected: Boolean(token) }
+    }),
+    // The desktop host fetches the owner's access token to hand to agent-core
+    // for clone/push (the only operations that need a local git credential;
+    // PR creation + diff happen server-side). Null when not connected.
+    token: authedProcedure.query(async ({ ctx }) => {
+      const token = await resolveOwnerGithubToken(ctx.session.user.id)
+      return { token: token ?? null }
     }),
   }),
 })

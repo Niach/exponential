@@ -119,6 +119,21 @@ pub fn report_pr(
     call_tool(base_url, api_key, "exponential_agent_report_pr", args, timeout_s).map(|_| ())
 }
 
+/// Server-side PR creation: the agent pushed `branch`; the server opens the PR
+/// with the OWNER's connected GitHub token (the agent no longer holds a GitHub
+/// API credential), records pr_* + pr_opened, and returns the issue. We pull
+/// the PR url back out for the local comment/status.
+pub fn open_pr(base_url: &str, api_key: &str, issue_id: &str, branch: &str, base: &str, timeout_s: u64) -> Result<String, String> {
+    let args = json!({ "issueId": issue_id, "branch": branch, "base": base });
+    let payload = call_tool(base_url, api_key, "exponential_agent_open_pr", args, timeout_s)?;
+    payload
+        .as_ref()
+        .and_then(|v| v.get("prUrl").or_else(|| v.get("pr_url")))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "open_pr: server returned no pr url".to_string())
+}
+
 /// Report a terminal agent error → an agent_error activity event (Retry UI).
 pub fn report_error(base_url: &str, api_key: &str, issue_id: &str, message: &str, timeout_s: u64) -> Result<(), String> {
     call_tool(base_url, api_key, "exponential_agent_report_error", json!({ "issueId": issue_id, "message": message }), timeout_s).map(|_| ())

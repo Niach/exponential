@@ -6,6 +6,7 @@ export type AuthConfig = {
   oidcProviders: Array<{ id: string; name: string }>
   googleLoginEnabled: boolean
   googleCalendarEnabled: boolean
+  githubEnabled: boolean
 }
 
 export function buildAuthConfig(): AuthConfig {
@@ -19,6 +20,9 @@ export function buildAuthConfig(): AuthConfig {
       googleClientConfigured && process.env.GOOGLE_LOGIN_ENABLED === `true`,
     googleCalendarEnabled:
       googleClientConfigured && process.env.GOOGLE_CALENDAR_ENABLED === `true`,
+    githubEnabled: Boolean(
+      process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+    ),
   }
 }
 

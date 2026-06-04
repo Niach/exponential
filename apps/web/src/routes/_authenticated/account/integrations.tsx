@@ -4,7 +4,7 @@ import {
   Link,
   useRouter,
 } from "@tanstack/react-router"
-import { ArrowLeft, Calendar, ExternalLink } from "lucide-react"
+import { ArrowLeft, Calendar, ExternalLink, Github } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { getAuthConfig } from "@/lib/auth/config"
@@ -19,18 +19,19 @@ import {
 
 export const Route = createFileRoute(`/_authenticated/account/integrations`)({
   loader: async () => {
-    const [authConfig, status] = await Promise.all([
+    const [authConfig, status, githubStatus] = await Promise.all([
       getAuthConfig(),
       trpc.integrations.google.status.query(),
+      trpc.integrations.github.status.query(),
     ])
-    return { authConfig, status }
+    return { authConfig, status, githubStatus }
   },
   component: AccountIntegrations,
 })
 
 function AccountIntegrations() {
   const router = useRouter()
-  const { authConfig, status } = Route.useLoaderData()
+  const { authConfig, status, githubStatus } = Route.useLoaderData()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -89,6 +90,23 @@ function AccountIntegrations() {
         provider: `google`,
         callbackURL: `/account/integrations?backfill=1`,
         scopes: [`https://www.googleapis.com/auth/calendar.events`],
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setBusy(false)
+    }
+  }
+
+  const handleConnectGithub = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await authClient.linkSocial({
+        provider: `github`,
+        callbackURL: `/account/integrations`,
+        // `repo` lets the agent clone/push private repos + the server open PRs
+        // and read diffs on the owner's behalf.
+        scopes: [`repo`],
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -188,6 +206,49 @@ function AccountIntegrations() {
             <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
               {backfillStatus}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
+              <Github className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <CardTitle>GitHub</CardTitle>
+              <CardDescription>
+                Connect GitHub so the desktop agent can clone + push your repos
+                and the server can open pull requests and show diffs on your
+                behalf. Requested scope: <code>repo</code>.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!authConfig.githubEnabled ? (
+            <div className="text-sm text-muted-foreground">
+              GitHub is not configured on this server. Set
+              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+                GITHUB_CLIENT_ID
+              </code>
+              and
+              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+                GITHUB_CLIENT_SECRET
+              </code>
+              to enable it.
+            </div>
+          ) : githubStatus.connected ? (
+            <div className="flex items-center gap-2 text-sm">
+              <div className="h-2 w-2 rounded-full bg-green-500" />
+              <span>Connected</span>
+            </div>
+          ) : (
+            <Button onClick={handleConnectGithub} disabled={busy}>
+              <ExternalLink className="h-4 w-4" />
+              Connect GitHub
+            </Button>
           )}
         </CardContent>
       </Card>

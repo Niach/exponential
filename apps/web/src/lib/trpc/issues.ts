@@ -11,7 +11,7 @@ import {
 } from "@/lib/workspace-membership"
 import {
   fetchPullFiles,
-  resolveAgentRepoToken,
+  resolveRepoToken,
 } from "@/lib/integrations/github-pr"
 import {
   isModerationRestricted,
@@ -478,7 +478,11 @@ export const issuesRouter = router({
       }
 
       try {
-        const token = await resolveAgentRepoToken(workspaceId, row.githubRepo)
+        const token = await resolveRepoToken({
+          actorUserId: ctx.session.user.id,
+          workspaceId,
+          repo: row.githubRepo,
+        })
         const files = await fetchPullFiles(row.githubRepo, row.prNumber, token)
         return { repo: row.githubRepo, prNumber: row.prNumber, files }
       } catch (err) {
