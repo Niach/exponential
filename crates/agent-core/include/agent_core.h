@@ -56,6 +56,12 @@ int agent_core_submit_run_result(AgentCore *core, const char *run_id, int exit_c
                                  const char *final_text, const char *session_id);
 int agent_core_cancel_run(AgentCore *core, const char *run_id);
 
+/* Cancel the run currently in flight for an issue (the desktop "Cancel" button).
+ * The host passes the issue id; the core maps it to the in-flight run and drops
+ * it, unblocking the parked pipeline so the issue stops running. No-op if nothing
+ * is in flight for that issue. */
+int agent_core_cancel_issue(AgentCore *core, const char *issue_id);
+
 /* Host-triggered interactive sessions (desktop "AI" button / "Approve & continue
  * here"). Each returns immediately and runs on a worker thread; the host then
  * receives a `run_request` with interactive:true to launch in the terminal.

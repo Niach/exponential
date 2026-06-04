@@ -1677,6 +1677,19 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
             _ = gtk.g_signal_connect_data(ai_btn, "clicked", @ptrCast(&onAiClicked), ctx, null, 0);
         }
         gtk.adw_header_bar_pack_end(detail_header, ai_btn);
+
+        // "Cancel" — stop the run in flight for this issue. Shown only while the
+        // agent is actively working (not parked awaiting approval/answer).
+        if (isAgentBusy(issue.agent_plan_state)) {
+            const cancel_btn = gtk.gtk_button_new_with_label("Cancel");
+            gtk.gtk_widget_add_css_class(cancel_btn, "flat");
+            gtk.gtk_widget_set_tooltip_text(cancel_btn, "Cancel the agent run for this issue");
+            if (makeIssueActionCtx(state, id)) |ctx| {
+                gtk.g_object_set_data_full(cancel_btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeIssueActionCtx));
+                _ = gtk.g_signal_connect_data(cancel_btn, "clicked", @ptrCast(&onCancelClicked), ctx, null, 0);
+            }
+            gtk.adw_header_bar_pack_end(detail_header, cancel_btn);
+        }
     }
 
     // "Changes" — open the agent's PR (the diff) in the browser. Shown only when
@@ -2057,6 +2070,21 @@ fn freeIssueActionCtx(p: gtk.gpointer) callconv(.c) void {
 fn onAiClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
     if (ctx.state.agent_core) |m| agent_manager.requestInteractive(m, ctx.issue_id);
+}
+
+fn onCancelClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
+    if (ctx.state.agent_core) |m| agent_manager.cancelIssue(m, ctx.issue_id);
+}
+
+/// Whether the agent is actively working an issue (so a "Cancel" button makes
+/// sense) — i.e. not parked awaiting human input and not idle.
+fn isAgentBusy(agent_plan_state: []const u8) bool {
+    const busy = [_][]const u8{ "drafting", "planning", "approved", "coding" };
+    for (busy) |s| {
+        if (std.mem.eql(u8, agent_plan_state, s)) return true;
+    }
+    return false;
 }
 
 const OpenUrlCtx = struct { gpa: std.mem.Allocator, url: [:0]u8 };

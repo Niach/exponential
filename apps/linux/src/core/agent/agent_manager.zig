@@ -82,6 +82,14 @@ pub fn approveInteractive(mgr: *Manager, issue_id: []const u8) void {
     _ = ffi.agent_core_approve_interactive(mgr.core, z.ptr);
 }
 
+/// Desktop "Cancel" button: stop the run currently in flight for `issue_id`
+/// (the core maps the issue to its run and unblocks the parked pipeline).
+pub fn cancelIssue(mgr: *Manager, issue_id: []const u8) void {
+    const z = mgr.gpa.dupeZ(u8, issue_id) catch return;
+    defer mgr.gpa.free(z);
+    _ = ffi.agent_core_cancel_issue(mgr.core, z.ptr);
+}
+
 fn onEvent(ctx: ?*anyopaque, json_ptr: [*c]const u8, len: usize) callconv(.c) void {
     const mgr: *Manager = @ptrCast(@alignCast(ctx orelse return));
     if (json_ptr == null or len == 0) return;

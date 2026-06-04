@@ -41,9 +41,18 @@ pub struct RunResult {
 
 static REGISTRY: OnceLock<Mutex<HashMap<String, mpsc::Sender<RunResult>>>> = OnceLock::new();
 static COUNTER: AtomicU64 = AtomicU64::new(1);
+// issue_id → the run_id currently in flight for that issue. The dispatcher
+// serializes runs per issue (its `running` set), so each issue maps to at most
+// one run at a time. Lets the host cancel "the run for this issue" without
+// tracking run_ids itself (`cancel_issue` / `agent_core_cancel_issue`).
+static ISSUE_RUNS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 fn registry() -> &'static Mutex<HashMap<String, mpsc::Sender<RunResult>>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn issue_runs() -> &'static Mutex<HashMap<String, String>> {
+    ISSUE_RUNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub fn new_run_id() -> String {
@@ -57,6 +66,22 @@ pub fn request_run(req: RunRequest, emit: impl FnOnce(&RunRequest)) -> RunResult
     registry().lock().unwrap().insert(req.run_id.clone(), tx);
     emit(&req);
     rx.recv().unwrap_or(RunResult { exit_code: -1, final_text: String::new(), session_id: None })
+}
+
+/// Like `request_run`, but records the issue → run_id mapping for the duration
+/// of the run so `cancel_issue` can target it. The mapping is cleared when the
+/// run completes (or is cancelled) and the waiter unblocks.
+pub fn request_run_for_issue(issue_id: &str, req: RunRequest, emit: impl FnOnce(&RunRequest)) -> RunResult {
+    let run_id = req.run_id.clone();
+    issue_runs().lock().unwrap().insert(issue_id.to_string(), run_id.clone());
+    let result = request_run(req, emit);
+    // Only clear if it still points at this run (a newer run shouldn't be able to
+    // start for the same issue while this one blocks, but be defensive).
+    let mut map = issue_runs().lock().unwrap();
+    if map.get(issue_id).map(String::as_str) == Some(run_id.as_str()) {
+        map.remove(issue_id);
+    }
+    result
 }
 
 /// Deliver a host's run result to the waiting pipeline. Returns false if no run
@@ -74,10 +99,23 @@ pub fn cancel(run_id: &str) -> bool {
     registry().lock().unwrap().remove(run_id).is_some()
 }
 
+/// Cancel the run currently in flight for an issue (the desktop "Cancel" button).
+/// Looks up the issue's run_id and drops its channel; the parked pipeline thread
+/// then unblocks with a failure result and the issue stops running. Returns
+/// false if no run is in flight for that issue.
+pub fn cancel_issue(issue_id: &str) -> bool {
+    let run_id = issue_runs().lock().unwrap().get(issue_id).cloned();
+    match run_id {
+        Some(id) => cancel(&id),
+        None => false,
+    }
+}
+
 /// Drop all pending run channels — unblocks every parked `request_run` caller
 /// (used on shutdown so pipeline threads don't hang waiting for the host).
 pub fn cancel_all() {
     registry().lock().unwrap().clear();
+    issue_runs().lock().unwrap().clear();
 }
 
 /// Build a claude-CLI run request (`--print`, `--mcp-config`,
@@ -206,6 +244,42 @@ mod tests {
     #[test]
     fn submit_unknown_run_is_false() {
         assert!(!submit_result("run-does-not-exist", 0, "x".into(), None));
+    }
+
+    #[test]
+    fn cancel_issue_unblocks_the_runs_waiter() {
+        let issue_id = format!("issue-{}", new_run_id());
+        let req = RunRequest {
+            run_id: new_run_id(),
+            cwd: "/tmp".into(),
+            mode: "plan".into(),
+            program: "claude".into(),
+            argv: vec![],
+            env: vec![],
+            mcp_config_path: None,
+            system_prompt: String::new(),
+            user_prompt: String::new(),
+            interactive: false,
+            continue_session_id: None,
+        };
+        let issue = issue_id.clone();
+        let result = request_run_for_issue(&issue_id, req, |_r| {
+            // The "cancel button": cancel by issue id while the run is parked.
+            let issue = issue.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                assert!(cancel_issue(&issue));
+            });
+        });
+        // Cancelling drops the channel → the waiter gets the failure result.
+        assert_eq!(result.exit_code, -1);
+        // The mapping is cleared once the waiter unblocks.
+        assert!(!cancel_issue(&issue_id));
+    }
+
+    #[test]
+    fn cancel_issue_unknown_is_false() {
+        assert!(!cancel_issue("issue-does-not-exist"));
     }
 
     #[test]

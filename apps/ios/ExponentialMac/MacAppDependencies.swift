@@ -29,6 +29,9 @@ final class MacAppDependencies: @unchecked Sendable {
     let agentPlanApi: AgentPlanApi
     let adminApi: AdminApi
     let integrationsApi: IntegrationsApi
+    let notificationsApi: NotificationsApi
+    let subscriptionsApi: SubscriptionsApi
+    let terminalDock: MacTerminalDock
     let agentService: MacAgentService
 
     init() {
@@ -76,11 +79,20 @@ final class MacAppDependencies: @unchecked Sendable {
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
         self.agentPlanApi = AgentPlanApi(trpc: trpc)
         self.adminApi = AdminApi(trpc: trpc)
-        self.integrationsApi = IntegrationsApi(trpc: trpc)
+        let integrationsApi = IntegrationsApi(trpc: trpc)
+        self.integrationsApi = integrationsApi
+        self.notificationsApi = NotificationsApi(trpc: trpc)
+        self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
+        // The collapsible bottom terminal dock — shared by MacShell (renders it)
+        // and MacAgentService (mounts interactive runs into it).
+        let terminalDock = MainActor.assumeIsolated { MacTerminalDock() }
+        self.terminalDock = terminalDock
         // @State initializes this composition root on the main actor, so it's safe
         // to construct the MainActor-isolated agent service here (it starts
         // heartbeats for any already-registered workspaces).
-        self.agentService = MainActor.assumeIsolated { MacAgentService(auth: auth) }
+        self.agentService = MainActor.assumeIsolated {
+            MacAgentService(auth: auth, integrationsApi: integrationsApi, terminalDock: terminalDock)
+        }
 
         // Start sync — it observes auth state and launches one shape pipeline set
         // per signed-in account, swapping pools on account switch.

@@ -180,7 +180,7 @@ fn run_interactive(ctx: &Ctx, issue_id: &str, continuing: bool) -> Result<(), St
     let continue_session = if continuing { issue.claude_session_id.as_deref() } else { None };
     let req = agent_run::build_claude_interactive_run(&claim.worktree_path, &mcp_path, &system_prompt, &user_prompt, continue_session);
 
-    let result = agent_run::request_run(req, |r| (ctx.emit)(r));
+    let result = agent_run::request_run_for_issue(&issue.id, req, |r| (ctx.emit)(r));
     if let Some(sid) = result.session_id {
         ctx.patch(&issue.id, &IssuePatch { claude_session_id: Some(sid), ..Default::default() });
     }
@@ -264,7 +264,7 @@ fn produce_plan_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle:
     let cfg = &ctx.config;
     let _ = mcp::mark_agent_plan_started(&cfg.base_url, &cfg.api_key, &issue.id, cfg.timeout_s);
 
-    let result = agent_run::request_run(req, |r| (ctx.emit)(r));
+    let result = agent_run::request_run_for_issue(&issue.id, req, |r| (ctx.emit)(r));
     let parsed = parse_driver_output(&result.final_text);
 
     match parsed.kind {
@@ -321,7 +321,7 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
             let mcp_path = format!("{}/.mcp.json", claim.worktree_path);
             agent_run::build_claude_run(&claim.worktree_path, "code", &mcp_path, CODE_SYSTEM_PROMPT, &prompt)
         };
-        let result = agent_run::request_run(req, |r| (ctx.emit)(r));
+        let result = agent_run::request_run_for_issue(&issue.id, req, |r| (ctx.emit)(r));
         if result.exit_code == 0 {
             ok = true;
             break;

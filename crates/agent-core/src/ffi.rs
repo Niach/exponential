@@ -320,6 +320,21 @@ pub extern "C" fn agent_core_cancel_run(core: *mut AgentCore, run_id: *const c_c
     OK
 }
 
+/// Host-triggered: cancel the run currently in flight for an issue (the desktop
+/// "Cancel" button). The host knows the issue id, not the run_id; the core maps
+/// it and drops the run's channel, unblocking the parked pipeline thread so the
+/// issue stops running. No-op if nothing is in flight for that issue.
+#[no_mangle]
+pub extern "C" fn agent_core_cancel_issue(core: *mut AgentCore, issue_id: *const c_char) -> c_int {
+    if unsafe { core.as_ref() }.is_none() {
+        return ERR_INVALID_HANDLE;
+    }
+    if let Some(id) = unsafe { cstr_to_string(issue_id) } {
+        agent_run::cancel_issue(&id);
+    }
+    OK
+}
+
 /// Host-triggered: start an INTERACTIVE plan session for one issue (the desktop
 /// "AI" button). Runs on a worker thread (it blocks on the host's terminal run);
 /// the host receives a `run_request` with `interactive: true` and launches the

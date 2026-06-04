@@ -15,10 +15,12 @@ final class MacIssueDetailModel {
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
     var comments: [CommentEntity] = []
+    var issueEvents: [IssueEventEntity] = []
     var attachments: [AttachmentEntity] = []
     var permissions: WorkspacePermissions?
     var workspaceId: String?
     var projectName: String?
+    var isSubscribed = false
     var error: String?
 
     // Title is a local buffer (seeded once so live sync doesn't clobber typing);
@@ -56,6 +58,9 @@ final class MacIssueDetailModel {
     var canModerate: Bool { permissions?.isModerator ?? false }
     var canEditContent: Bool { permissions?.canMutateIssue(creatorId: issue?.creatorId) ?? false }
     func user(_ id: String?) -> UserEntity? { id.flatMap { uid in users.first { $0.id == uid } } }
+    // Assignee picker segmentation: human members vs agent sub-users (is_agent).
+    var peopleUsers: [UserEntity] { users.filter { !$0.isAgent } }
+    var agentUsers: [UserEntity] { users.filter { $0.isAgent } }
 
     // MARK: - Observation
 
@@ -73,6 +78,12 @@ final class MacIssueDetailModel {
         }
         let attachmentObs = ValueObservation.tracking { db in
             try AttachmentEntity.filter(Column("issue_id") == issueId).order(Column("created_at").asc).fetchAll(db)
+        }
+        let eventObs = ValueObservation.tracking { db in
+            try IssueEventEntity.filter(Column("issue_id") == issueId).order(Column("created_at").asc).fetchAll(db)
+        }
+        let subObs = ValueObservation.tracking { db in
+            try IssueSubscriberEntity.filter(Column("issue_id") == issueId).fetchAll(db)
         }
 
         tasks.append(Task { @MainActor [weak self] in
@@ -92,6 +103,17 @@ final class MacIssueDetailModel {
         })
         tasks.append(Task { @MainActor [weak self] in
             do { for try await rows in attachmentObs.values(in: pool) { self?.attachments = rows } } catch {}
+        })
+        tasks.append(Task { @MainActor [weak self] in
+            do { for try await rows in eventObs.values(in: pool) { self?.issueEvents = rows } } catch {}
+        })
+        tasks.append(Task { @MainActor [weak self] in
+            do {
+                for try await subs in subObs.values(in: pool) {
+                    let me = self?.deps.auth.userId
+                    self?.isSubscribed = me != nil && subs.contains { $0.userId == me && !$0.unsubscribed }
+                }
+            } catch {}
         })
     }
 
@@ -324,6 +346,28 @@ final class MacIssueDetailModel {
         guard let issue else { return }
         try? await deps.agentPlanApi.requestChanges(accountId: accountId, issueId: issue.id)
     }
+
+    /// Approve the plan with the human session, THEN resume the interactive session
+    /// to implement it. Order is load-bearing — the agent credential can't approve;
+    /// the host approves (human session), then only resumes the session.
+    func approveAndContinue(workspaceId: String) async {
+        guard let issue else { return }
+        await approvePlan()
+        deps.agentService.approveInteractive(workspaceId: workspaceId, issueId: issue.id)
+    }
+
+    func toggleSubscribe() async {
+        guard let issue else { return }
+        do {
+            if isSubscribed {
+                try await deps.subscriptionsApi.unsubscribe(accountId: accountId, issueId: issue.id)
+            } else {
+                try await deps.subscriptionsApi.subscribe(accountId: accountId, issueId: issue.id)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
 }
 
 struct MacIssueDetailView: View {
@@ -396,6 +440,7 @@ struct MacIssueDetailView: View {
                         descriptionSection(model)
                         Divider()
                         attachmentsSection(model)
+                        MacAgentPanel(model: model, issue: issue)
                         Divider()
                         commentsSection(model)
                         errorText(model)
@@ -407,6 +452,25 @@ struct MacIssueDetailView: View {
         }
         .navigationTitle(issue.identifier ?? "Issue")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { Task { await model.toggleSubscribe() } } label: {
+                    Image(systemName: model.isSubscribed ? "bell.fill" : "bell.slash")
+                }
+                .help(model.isSubscribed ? "Unsubscribe from this issue" : "Subscribe to this issue")
+            }
+            if deps.agentService.canRunInteractive(workspaceId: model.workspaceId ?? "") {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        if let wid = model.workspaceId {
+                            deps.agentService.requestInteractive(workspaceId: wid, issueId: issue.id)
+                        }
+                    } label: {
+                        Label("AI", systemImage: "sparkles")
+                    }
+                    .help("Start an interactive agent session for this issue")
+                    .disabled(model.workspaceId == nil)
+                }
+            }
             ToolbarItem(placement: .destructiveAction) {
                 Button(role: .destructive) { showDeleteConfirm = true } label: {
                     Image(systemName: "trash")
@@ -430,6 +494,7 @@ struct MacIssueDetailView: View {
             descriptionSection(model)
             Divider()
             attachmentsSection(model)
+            MacAgentPanel(model: model, issue: issue)
             Divider()
             commentsSection(model)
             errorText(model)
@@ -533,16 +598,32 @@ struct MacIssueDetailView: View {
     }
 
     private func assigneeMenu(_ model: MacIssueDetailModel) -> some View {
-        Menu {
+        let assignee = model.assignee
+        return Menu {
             Button("Unassigned") { Task { await model.setAssignee(nil) } }
-            Divider()
-            ForEach(model.users) { u in
-                Button(u.name ?? u.email) { Task { await model.setAssignee(u.id) } }
+            if !model.peopleUsers.isEmpty {
+                Section("People") {
+                    ForEach(model.peopleUsers) { u in
+                        Button(u.name ?? u.email) { Task { await model.setAssignee(u.id) } }
+                    }
+                }
+            }
+            if !model.agentUsers.isEmpty {
+                Section("Agents") {
+                    ForEach(model.agentUsers) { u in
+                        Button { Task { await model.setAssignee(u.id) } } label: {
+                            Label("\(u.name ?? u.email) · agent", systemImage: "cpu")
+                        }
+                    }
+                }
             }
         } label: {
-            Label(model.assignee?.name ?? model.assignee?.email ?? "Unassigned", systemImage: "person.crop.circle")
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            Label(
+                assignee?.name ?? assignee?.email ?? "Unassigned",
+                systemImage: assignee?.isAgent == true ? "cpu" : "person.crop.circle"
+            )
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
         }
         .menuStyle(.borderlessButton).fixedSize().disabled(!model.canModerate)
     }
@@ -714,10 +795,13 @@ struct MacIssueDetailView: View {
 
     private func commentsSection(_ model: MacIssueDetailModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(model.comments.isEmpty ? "Comments" : "Comments (\(model.comments.count))")
+            Text("Activity")
                 .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-            ForEach(model.comments) { comment in
-                commentRow(comment, model: model)
+            ForEach(timeline(model)) { item in
+                switch item {
+                case .comment(let comment): commentRow(comment, model: model)
+                case .event(let event): eventRow(event, model: model)
+                }
             }
             HStack(alignment: .bottom, spacing: 8) {
                 TextField("Add a comment…", text: $draftComment, axis: .vertical)
@@ -740,6 +824,9 @@ struct MacIssueDetailView: View {
         let kind = comment.commentKind
         let canModify = comment.authorId == deps.auth.userId || deps.auth.isAdmin
         let isEditing = editingCommentId == comment.id
+        // Only the latest plan comment hosts the approval affordance (a re-plan
+        // supersedes the old one) — web/iOS parity.
+        let isLatestPlan = model.comments.last(where: { $0.commentKind == .plan })?.id == comment.id
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(author?.name ?? author?.email ?? "Unknown").font(.caption.weight(.semibold))
@@ -778,11 +865,18 @@ struct MacIssueDetailView: View {
             } else {
                 Text(body).font(.callout).textSelection(.enabled)
             }
-            if kind == .plan, model.issue?.agentPlanState == "awaiting_approval",
+            if kind == .plan, isLatestPlan, model.issue?.agentPlanState == "awaiting_approval",
                model.permissions?.canApprovePlan(creatorId: model.issue?.creatorId) == true {
                 HStack(spacing: 8) {
                     Button("Approve") { Task { await model.approvePlan() } }
                     Button("Request changes") { Task { await model.requestChanges() } }
+                    if deps.agentService.canRunInteractive(workspaceId: model.workspaceId ?? "") {
+                        Button("Approve & continue here") {
+                            if let wid = model.workspaceId {
+                                Task { await model.approveAndContinue(workspaceId: wid) }
+                            }
+                        }
+                    }
                 }
                 .controlSize(.small)
             }
@@ -798,6 +892,58 @@ struct MacIssueDetailView: View {
         case .regular: Color.white.opacity(0.04)
         case .question: Color.purple.opacity(0.10)
         case .plan: Accent.indigo.opacity(0.10)
+        }
+    }
+
+    // MARK: - Activity timeline (comments + issue_events, merged by created_at)
+
+    private enum MacTimelineItem: Identifiable {
+        case comment(CommentEntity)
+        case event(IssueEventEntity)
+        var id: String {
+            switch self {
+            case .comment(let c): return "c-\(c.id)"
+            case .event(let e): return "e-\(e.id)"
+            }
+        }
+        var createdAt: String {
+            switch self {
+            case .comment(let c): return c.createdAt
+            case .event(let e): return e.createdAt
+            }
+        }
+    }
+
+    private func timeline(_ model: MacIssueDetailModel) -> [MacTimelineItem] {
+        (model.comments.map { MacTimelineItem.comment($0) }
+            + model.issueEvents.map { MacTimelineItem.event($0) })
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    @ViewBuilder
+    private func eventRow(_ event: IssueEventEntity, model: MacIssueDetailModel) -> some View {
+        let who = model.user(event.actorUserId).map { $0.name ?? $0.email } ?? "Someone"
+        HStack(spacing: 8) {
+            Circle().fill(Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
+            Text("\(who) \(eventVerb(event.type))")
+                .font(.caption).foregroundStyle(.secondary)
+            Text(macRelativeDate(event.createdAt)).font(.caption2).foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func eventVerb(_ type: String) -> String {
+        switch type {
+        case "status_changed": return "changed the status"
+        case "assignee_changed": return "changed the assignee"
+        case "label_added": return "added a label"
+        case "label_removed": return "removed a label"
+        case "pr_opened": return "opened a pull request"
+        case "pr_merged": return "merged the pull request"
+        case "plan_ready": return "shared a plan"
+        case "agent_error": return "hit an error"
+        default: return type.replacingOccurrences(of: "_", with: " ")
         }
     }
 

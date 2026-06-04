@@ -155,6 +155,29 @@ public struct IssueResultData: Decodable, Sendable {
     }
 }
 
+// MARK: - PR diff (issues.prFiles)
+
+public struct PrFilesInput: Encodable, Sendable {
+    public let issueId: String
+    public init(issueId: String) { self.issueId = issueId }
+}
+
+public struct PrFile: Decodable, Sendable, Identifiable {
+    public let filename: String
+    public let status: String
+    public let additions: Int
+    public let deletions: Int
+    public let patch: String?
+
+    public var id: String { filename }
+}
+
+public struct PrFilesResult: Decodable, Sendable {
+    public let repo: String?
+    public let prNumber: Int?
+    public let files: [PrFile]
+}
+
 // MARK: - API
 
 public final class IssuesApi: Sendable {
@@ -175,5 +198,12 @@ public final class IssuesApi: Sendable {
 
     public func delete(accountId: String, id: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "issues.delete", input: DeleteIssueInput(id: id))
+    }
+
+    /// The changed files for the issue's PR (one issue = one PR), for the diff
+    /// view. `issues.prFiles` is a `.query`, so this uses the GET-with-input
+    /// helper. Returns `repo == nil` / empty `files` when there's no PR yet.
+    public func prFiles(accountId: String, issueId: String) async throws -> PrFilesResult {
+        try await trpc.query(accountId: accountId, path: "issues.prFiles", input: PrFilesInput(issueId: issueId))
     }
 }

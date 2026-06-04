@@ -341,15 +341,11 @@ struct MacWorkspaceSettingsView: View {
                     Spacer()
                     Text(agent.isOnline(wid) ? "Online" : "Connecting…").font(.caption).foregroundStyle(.secondary)
                 }
-                if let login = id?.githubLogin, !login.isEmpty {
-                    Label("GitHub: \(login)", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
-                } else if let p = agent.githubPrompt {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Enter code **\(p.userCode)** at \(p.uri)").font(.caption)
-                        ProgressView().controlSize(.small)
-                    }
-                } else {
-                    Button("Connect GitHub") { Task { await agent.connectGitHub(workspaceId: wid) } }.disabled(agent.busy)
+                if let base = deps.auth.accounts.first(where: { $0.id == target.accountId })?.instanceUrl,
+                   let url = URL(string: "\(base)/account/integrations") {
+                    Button("Connect GitHub in browser") { Platform.open(url) }
+                    Text("Connect GitHub once in the web app; this Mac fetches the token to clone & push.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Button("Unregister this Mac", role: .destructive) {
                     Task { await agent.unregister(workspaceId: wid) }

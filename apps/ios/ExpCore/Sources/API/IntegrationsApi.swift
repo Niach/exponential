@@ -10,6 +10,14 @@ public struct GoogleStatusResult: Decodable, Sendable {
     }
 }
 
+public struct GithubTokenResult: Decodable, Sendable {
+    public let token: String?
+
+    public init(token: String?) {
+        self.token = token
+    }
+}
+
 private struct EmptyIntegrationInput: Encodable {}
 
 public final class IntegrationsApi: Sendable {
@@ -30,5 +38,15 @@ public final class IntegrationsApi: Sendable {
 
     public func googleBackfill(accountId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "integrations.google.backfill", input: EmptyIntegrationInput())
+    }
+
+    /// The owner's connected GitHub token (`integrations.github.token`, a
+    /// `.query`), for handing to agent-core for clone/push. Resolves server-side
+    /// via the calling account's session, so call it with the OWNER account's id
+    /// (its human session bearer) — not an agent credential. Nil when not
+    /// connected.
+    public func githubToken(accountId: String) async throws -> String? {
+        let result: GithubTokenResult = try await trpc.query(accountId: accountId, path: "integrations.github.token")
+        return result.token
     }
 }

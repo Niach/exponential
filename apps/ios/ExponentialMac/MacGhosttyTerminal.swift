@@ -253,8 +253,13 @@ final class MacAgentTerminalRunner {
     static let shared = MacAgentTerminalRunner()
     private var sessions: [String: AgentRunSession] = [:]
     private var windows: [String: NSWindow] = [:]
+    /// The shared bottom terminal dock (set once by `MacAgentService`). Interactive
+    /// runs mount here; headless runs use a per-run window.
+    weak var dock: MacTerminalDock?
 
-    /// `onDone(exitCode, capturedOutput)` is always called exactly once.
+    /// `onDone(exitCode, capturedOutput)` is always called exactly once. Interactive
+    /// runs mount in the dock and run WITHOUT capture (empty output); headless runs
+    /// open a window and capture stdout via the tee/PIPESTATUS wrapper.
     func run(
         runId: String,
         program: String,
@@ -262,6 +267,7 @@ final class MacAgentTerminalRunner {
         env: [String: String],
         cwd: String?,
         prompt: String,
+        interactive: Bool = false,
         onDone: @escaping @Sendable (Int32, String) -> Void
     ) {
         guard MacGhosttyApp.shared.app != nil else {
@@ -282,12 +288,23 @@ final class MacAgentTerminalRunner {
         let codePath = runsDir.appendingPathComponent("\(runId).code").path
         try? prompt.write(toFile: promptPath, atomically: true, encoding: .utf8)
 
-        let script = Self.buildScript(program: program, argv: argv, env: env,
-                                      promptPath: promptPath, outPath: outPath, codePath: codePath)
+        let script = interactive
+            ? Self.buildInteractiveScript(program: program, argv: argv, env: env, promptPath: promptPath)
+            : Self.buildScript(program: program, argv: argv, env: env,
+                               promptPath: promptPath, outPath: outPath, codePath: codePath)
         try? script.write(toFile: scriptPath, atomically: true, encoding: .utf8)
         let command = "/usr/bin/env bash \(Self.shquote(scriptPath))"
 
         let view = MacGhosttyTerminalView(command: command, cwd: cwd)
+
+        // Interactive: mount in the dock (it owns the run lifecycle + empty submit).
+        if interactive, let dock {
+            dock.mountRun(runId: runId, view: view, title: "Agent — \(program)") { code, text in
+                onDone(code, text)
+                for p in [promptPath, scriptPath] { try? FileManager.default.removeItem(atPath: p) }
+            }
+            return
+        }
         let session = AgentRunSession(view: view, promptPath: promptPath, scriptPath: scriptPath,
                                       outPath: outPath, codePath: codePath, onDone: onDone)
         session.onClosed = { [weak self] in
@@ -325,6 +342,20 @@ final class MacAgentTerminalRunner {
         for a in argv { s += " " + shquote(a) }
         s += " \"$(cat \(shquote(promptPath)))\" 2>&1 | tee \(shquote(outPath))\n"
         s += "echo \"${PIPESTATUS[0]}\" > \(shquote(codePath))\n"
+        return s
+    }
+
+    /// Interactive wrapper (mirrors Linux `buildInteractiveScript`): no tee /
+    /// PIPESTATUS capture — the user watches and steers the CLI directly, and the
+    /// plan/code is delivered out-of-band via MCP.
+    private static func buildInteractiveScript(
+        program: String, argv: [String], env: [String: String], promptPath: String
+    ) -> String {
+        var s = "#!/usr/bin/env bash\n"
+        for (k, v) in env { s += "export \(k)=\(shquote(v))\n" }
+        s += shquote(program)
+        for a in argv { s += " " + shquote(a) }
+        s += " \"$(cat \(shquote(promptPath)))\"\n"
         return s
     }
 

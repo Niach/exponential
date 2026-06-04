@@ -26,6 +26,7 @@ import { Route as WWorkspaceSlugRouteRouteImport } from './routes/w/$workspaceSl
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as WWorkspaceSlugIndexRouteImport } from './routes/w/$workspaceSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiShapesWorkspacesRouteImport } from './routes/api/shapes/workspaces'
 import { Route as ApiShapesWorkspaceMembersRouteImport } from './routes/api/shapes/workspace-members'
@@ -137,6 +138,11 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
+const ApiWebhooksGithubRoute = ApiWebhooksGithubRouteImport.update({
+  id: '/api/webhooks/github',
+  path: '/api/webhooks/github',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
   id: '/api/trpc/$',
@@ -309,6 +315,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
@@ -350,6 +357,7 @@ export interface FileRoutesByTo {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
@@ -395,6 +403,7 @@ export interface FileRoutesById {
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
@@ -440,6 +449,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/api/webhooks/github'
     | '/admin/'
     | '/w/$workspaceSlug/'
     | '/api/issues/$issueId/images'
@@ -481,6 +491,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/api/webhooks/github'
     | '/admin'
     | '/w/$workspaceSlug'
     | '/api/issues/$issueId/images'
@@ -525,6 +536,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workspace-members'
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
+    | '/api/webhooks/github'
     | '/_authenticated/admin/'
     | '/w/$workspaceSlug/'
     | '/api/issues/$issueId/images'
@@ -564,6 +576,7 @@ export interface RootRouteChildren {
   ApiShapesWorkspaceMembersRoute: typeof ApiShapesWorkspaceMembersRoute
   ApiShapesWorkspacesRoute: typeof ApiShapesWorkspacesRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
+  ApiWebhooksGithubRoute: typeof ApiWebhooksGithubRoute
   ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
 }
 
@@ -687,6 +700,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/'
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/api/webhooks/github': {
+      id: '/api/webhooks/github'
+      path: '/api/webhooks/github'
+      fullPath: '/api/webhooks/github'
+      preLoaderRoute: typeof ApiWebhooksGithubRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/trpc/$': {
       id: '/api/trpc/$'
@@ -955,6 +975,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesWorkspaceMembersRoute: ApiShapesWorkspaceMembersRoute,
   ApiShapesWorkspacesRoute: ApiShapesWorkspacesRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
+  ApiWebhooksGithubRoute: ApiWebhooksGithubRoute,
   ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
 }
 export const routeTree = rootRouteImport

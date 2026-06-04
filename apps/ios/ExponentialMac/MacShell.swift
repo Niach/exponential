@@ -29,6 +29,7 @@ struct MacShell: View {
     @State private var showAdmin = false
     @State private var showIntegrations = false
     @State private var showCreateWorkspace = false
+    @State private var showInbox = false
     @State private var ensuredDefault = false
     // The workspace the sidebar is currently scoped to (web shows ONE workspace's
     // projects at a time, switched via the dropdown — not every workspace flat).
@@ -68,6 +69,13 @@ struct MacShell: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            splitView
+            terminalDockView
+        }
+    }
+
+    private var splitView: some View {
         NavigationSplitView {
             sidebar
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
@@ -77,7 +85,16 @@ struct MacShell: View {
             // (push), rather than an always-present third detail column.
             NavigationStack(path: $issuePath) {
                 Group {
-                    if let selectedProject {
+                    if showInbox {
+                        MacInboxView(
+                            accountId: activeAccount?.id ?? "",
+                            onOpenIssue: { issueId in
+                                if let aid = activeAccount?.id {
+                                    issuePath.append(IssueRef(accountId: aid, issueId: issueId))
+                                }
+                            }
+                        )
+                    } else if let selectedProject {
                         MacIssueListView(
                             accountId: selectedProject.accountId,
                             projectId: selectedProject.projectId
@@ -114,12 +131,16 @@ struct MacShell: View {
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
         // Switching projects returns to that project's list (pop any open detail).
-        .onChange(of: selectedProject) { _, _ in issuePath.removeAll() }
+        .onChange(of: selectedProject) { _, new in
+            issuePath.removeAll()
+            if new != nil { showInbox = false }
+        }
         // A selection from the previous account points at another account's DB
         // pool — clear it so the list/detail never query the wrong account.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
             selectedProject = nil
             selectedWorkspace = nil
+            showInbox = false
             issuePath.removeAll()
         }
         .sheet(item: $settingsTarget) { target in
@@ -157,6 +178,47 @@ struct MacShell: View {
         }
     }
 
+    // MARK: - Terminal dock
+
+    @ViewBuilder
+    private var terminalDockView: some View {
+        let dock = deps.terminalDock
+        if dock.isMounted {
+            VStack(spacing: 0) {
+                Divider()
+                HStack(spacing: 8) {
+                    Button { dock.toggleExpanded() } label: {
+                        Image(systemName: dock.isExpanded ? "chevron.down" : "chevron.up")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(dock.isExpanded ? "Collapse" : "Expand")
+                    Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
+                    Text(dock.title.isEmpty ? "Terminal" : dock.title)
+                        .font(.caption.weight(.medium)).lineLimit(1)
+                    Spacer()
+                    Button { dock.close() } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless)
+                        .help("Close the terminal")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.bar)
+                .contentShape(Rectangle())
+                // Drag the header to resize the dock.
+                .gesture(
+                    DragGesture()
+                        .onChanged { v in
+                            dock.dockHeight = min(700, max(160, dock.dockHeight - v.translation.height))
+                        }
+                )
+                if dock.isExpanded {
+                    TerminalDockHost(dock: dock)
+                        .frame(height: dock.dockHeight)
+                }
+            }
+        }
+    }
+
     // MARK: - Empty state
 
     @ViewBuilder
@@ -182,6 +244,17 @@ struct MacShell: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $selectedProject) {
+            Section {
+                Button {
+                    showInbox = true
+                    selectedProject = nil
+                    issuePath.removeAll()
+                } label: {
+                    Label("Inbox", systemImage: "tray")
+                        .foregroundStyle(showInbox ? Color.accentColor : Color.primary)
+                }
+                .buttonStyle(.plain)
+            }
             if let (accountId, block) = activeWorkspaceBlock {
                 Section("Projects") {
                     if block.projects.isEmpty {

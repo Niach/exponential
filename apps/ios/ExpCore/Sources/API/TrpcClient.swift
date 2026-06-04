@@ -77,6 +77,37 @@ public final class TrpcClient: Sendable {
         let wrapper = try JSONDecoder().decode(TrpcResponseEnvelope<O>.self, from: data)
         return wrapper.result.data
     }
+
+    /// GET a tRPC `query` procedure that takes an input. The server uses NO
+    /// transformer (`initTRPC.context().create()`), so the input is the raw JSON
+    /// value percent-encoded into `?input=…` (NOT the batched `{"0":{json}}`
+    /// form). Mirrors the Linux `trpc.queryInput` helper.
+    public func query<I: Encodable, O: Decodable>(accountId: String, path: String, input: I) async throws -> O {
+        let base = try baseUrl(for: accountId)
+        let json = try JSONEncoder().encode(input)
+        guard let jsonString = String(data: json, encoding: .utf8) else {
+            throw TrpcError.invalidUrl
+        }
+        // Percent-encode everything except RFC-3986 unreserved chars so the JSON
+        // delimiters (`{ } " : , + & = ?`) survive intact (URLComponents would
+        // leave `+` literal, which servers decode as a space).
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        guard let encoded = jsonString.addingPercentEncoding(withAllowedCharacters: allowed),
+              let url = URL(string: "\(base)/api/trpc/\(path)?input=\(encoded)") else {
+            throw TrpcError.invalidUrl
+        }
+
+        let (data, response) = try await httpClient.get(url, accountId: accountId)
+
+        guard (200...299).contains(response.statusCode) else {
+            let text = String(data: data, encoding: .utf8) ?? ""
+            throw TrpcError.httpError(response.statusCode, text)
+        }
+
+        let wrapper = try JSONDecoder().decode(TrpcResponseEnvelope<O>.self, from: data)
+        return wrapper.result.data
+    }
 }
 
 // MARK: - Response Envelope

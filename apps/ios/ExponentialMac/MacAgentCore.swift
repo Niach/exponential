@@ -43,11 +43,37 @@ final class MacAgentCore: @unchecked Sendable {
         guard !hasShutdown else { return }
         runId.withCString { rid in
             finalText.withCString { ft in
-                // session_id NULL: headless macOS Process runner doesn't surface
-                // it (the interactive terminal path passes it in Phase A5/7).
+                // session_id NULL: neither the headless capture runner nor the
+                // interactive dock surfaces it (matches the Linux host, which also
+                // passes null — the plan/code is delivered out-of-band via MCP).
                 _ = agent_core_submit_run_result(core, rid, exitCode, ft, nil)
             }
         }
+    }
+
+    // MARK: - Host-triggered interactive sessions / cancel
+
+    /// Start an interactive plan session for an issue (desktop "AI" button). The
+    /// core emits a `run_request` with interactive:true that mounts in the dock.
+    func requestInteractive(issueId: String) {
+        lock.lock(); defer { lock.unlock() }
+        guard !hasShutdown else { return }
+        issueId.withCString { _ = agent_core_request_interactive(core, $0) }
+    }
+
+    /// Resume an interactive session after the plan was approved (the host already
+    /// approved with the human session). "Approve & continue here".
+    func approveInteractive(issueId: String) {
+        lock.lock(); defer { lock.unlock() }
+        guard !hasShutdown else { return }
+        issueId.withCString { _ = agent_core_approve_interactive(core, $0) }
+    }
+
+    /// Cancel the run currently in flight for an issue (desktop "Cancel" button).
+    func cancelIssue(issueId: String) {
+        lock.lock(); defer { lock.unlock() }
+        guard !hasShutdown else { return }
+        issueId.withCString { _ = agent_core_cancel_issue(core, $0) }
     }
 
     /// Called on the core's event thread. A run_request is fulfilled in a visible
@@ -72,9 +98,13 @@ final class MacAgentCore: @unchecked Sendable {
         let system = (obj["systemPrompt"] as? String) ?? ""
         let user = (obj["userPrompt"] as? String) ?? ""
         let prompt = "\(system)\n\n<user_issue>\n\(user)\n</user_issue>"
+        // Interactive runs mount in the collapsible dock and run WITHOUT output
+        // capture (the user watches/steers; the plan is delivered via MCP). Headless
+        // runs use the per-run window with the tee/PIPESTATUS capture wrapper.
+        let interactive = (obj["interactive"] as? Bool) ?? false
         DispatchQueue.main.async { [self] in
             MacAgentTerminalRunner.shared.run(
-                runId: runId, program: program, argv: argv, env: env, cwd: cwd, prompt: prompt
+                runId: runId, program: program, argv: argv, env: env, cwd: cwd, prompt: prompt, interactive: interactive
             ) { [self] code, text in
                 submitRunResult(runId: runId, exitCode: code, finalText: text)
             }

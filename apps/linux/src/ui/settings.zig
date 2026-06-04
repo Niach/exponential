@@ -15,7 +15,6 @@ const trpc = @import("../core/api/trpc.zig");
 const Database = @import("../core/db/database.zig").Database;
 const registration = @import("../core/agent/registration.zig");
 const identity_store = @import("../core/agent/identity_store.zig");
-const github_auth = @import("../core/agent/github_auth.zig");
 
 const policy_options = [_:null]?[*:0]const u8{ "members", "everyone" };
 
@@ -638,125 +637,15 @@ fn onUnregister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     rebuild(ctx);
 }
 
-fn onDisconnectGithub(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    github_auth.deleteToken(ctx.gpa);
-    rebuild(ctx);
-}
-
 /// GitHub is connected in the web app now — open Account → Integrations in the
-/// browser. (The old per-machine device flow lives below, unused; clean up.)
+/// browser. (The desktop agent fetches the owner's token from the server; there
+/// is no per-machine device flow anymore.)
 fn onOpenGithubIntegrations(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *Ctx = @ptrCast(@alignCast(data));
     var buf: [512]u8 = undefined;
     const base = std.mem.trimEnd(u8, ctx.instance, "/");
     const url = std.fmt.bufPrintZ(&buf, "{s}/account/integrations", .{base}) catch return;
     _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
-}
-
-const GhJob = struct {
-    gpa: std.mem.Allocator,
-    client_id: []u8,
-    device_code: []u8,
-    interval_s: u64,
-    expires_in_s: u64,
-    status_label: gtk.Object, // refed across the worker (orphan-safe if the dialog closes)
-    result_z: ?[:0]u8 = null,
-    // Agent credential so the worker can report the GitHub token to the server
-    // (for private-repo PR diffs). Null when not registered.
-    base_url: ?[]u8 = null,
-    api_key: ?[]u8 = null,
-};
-
-fn startGhPoll(ctx: *Ctx, client_id: []const u8, dc: *const github_auth.DeviceCode) void {
-    const gpa = ctx.gpa;
-    const job = gpa.create(GhJob) catch return;
-    job.gpa = gpa;
-    job.interval_s = dc.interval_s;
-    job.expires_in_s = dc.expires_in_s;
-    job.result_z = null;
-    job.client_id = gpa.dupe(u8, client_id) catch {
-        gpa.destroy(job);
-        return;
-    };
-    job.device_code = gpa.dupe(u8, dc.device_code) catch {
-        gpa.free(job.client_id);
-        gpa.destroy(job);
-        return;
-    };
-    job.status_label = ctx.agent_status;
-    if (job.status_label != null) _ = gtk.g_object_ref(job.status_label);
-    // Carry the agent credential into the worker so it can report the token.
-    job.base_url = identity_store.readField(gpa, ctx.ws_id, "instanceUrl");
-    job.api_key = identity_store.readField(gpa, ctx.ws_id, "apiKey");
-
-    const th = std.Thread.spawn(.{}, ghWorker, .{job}) catch {
-        ghWorker(job);
-        return;
-    };
-    th.detach();
-}
-
-fn ghWorker(job: *GhJob) void {
-    defer _ = gtk.g_idle_add(@ptrCast(&onGhDone), job);
-    var dc = github_auth.DeviceCode{
-        .device_code = job.device_code,
-        .user_code = "",
-        .verification_uri = "",
-        .interval_s = job.interval_s,
-        .expires_in_s = job.expires_in_s,
-    };
-    const outcome = github_auth.pollUntilDone(job.gpa, job.client_id, &dc);
-    switch (outcome) {
-        .success => |c| {
-            const sep: []const u8 = if (c.login.len > 0) " as " else "";
-            job.result_z = std.fmt.allocPrintSentinel(job.gpa, "<span foreground='#22c55e'>✓ GitHub connected{s}{s}</span>", .{ sep, c.login }, 0) catch null;
-            reportGithubToken(job, c.login, c.token);
-            if (c.token.len > 0) job.gpa.free(c.token);
-            if (c.login.len > 0) job.gpa.free(c.login);
-        },
-        .failure => |m| {
-            job.result_z = std.fmt.allocPrintSentinel(job.gpa, "{s}", .{m}, 0) catch null;
-            if (m.len > 0) job.gpa.free(m);
-        },
-    }
-}
-
-// Report the freshly-obtained GitHub token (+ login) to the server so the web
-// app can read PR diffs for private repos. Stored encrypted server-side, used
-// read-only. Best-effort: failures are silent (the diff just falls back to
-// unauthenticated). Runs on the poll worker thread.
-fn reportGithubToken(job: *GhJob, login: []const u8, token: []const u8) void {
-    const base_url = job.base_url orelse return;
-    const api_key = job.api_key orelse return;
-    if (token.len == 0) return;
-
-    const Repo = struct { fullName: []const u8, defaultBranch: []const u8, private: bool };
-    const empty_repos = [_]Repo{};
-    const input = std.json.Stringify.valueAlloc(
-        job.gpa,
-        .{ .login = login, .repos = empty_repos[0..], .token = token },
-        .{},
-    ) catch return;
-    defer job.gpa.free(input);
-
-    var resp = trpc.call(job.gpa, base_url, "companion.reportGithubIdentity", input, api_key, 30) catch return;
-    resp.deinit();
-}
-
-fn onGhDone(data: gtk.gpointer) callconv(.c) c_int {
-    const job: *GhJob = @ptrCast(@alignCast(data));
-    if (job.status_label != null) {
-        if (job.result_z) |r| gtk.gtk_label_set_markup(job.status_label, r.ptr);
-        gtk.g_object_unref(job.status_label);
-    }
-    if (job.result_z) |r| job.gpa.free(r);
-    if (job.base_url) |b| job.gpa.free(b);
-    if (job.api_key) |k| job.gpa.free(k);
-    job.gpa.free(job.client_id);
-    job.gpa.free(job.device_code);
-    job.gpa.destroy(job);
-    return 0; // G_SOURCE_REMOVE
 }
 
 fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow, owner_count: usize) gtk.Object {

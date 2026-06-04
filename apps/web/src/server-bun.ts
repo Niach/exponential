@@ -26,6 +26,7 @@ import { resolveWebsocketHooks } from "nitro/~internal/runtime/app"
 // @ts-expect-error — virtual feature-flag module emitted by Nitro per build.
 import { hasWebSocket } from "#nitro-internal-virtual/feature-flags"
 import { bootstrapCloud } from "@/lib/bootstrap-cloud"
+import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 
 // Fire-and-forget: seed the public workspace and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
@@ -34,6 +35,10 @@ import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 bootstrapCloud().catch(() => {
   // already logged
 })
+
+// Self-hosted only: start the outbound PR-merge poller (no-op on cloud, which
+// uses the GitHub webhook at /api/webhooks/github instead).
+bootstrapSelfHosted()
 
 const port =
   Number.parseInt(process.env.NITRO_PORT || process.env.PORT || ``) || 3000

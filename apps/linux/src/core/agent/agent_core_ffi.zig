@@ -18,6 +18,8 @@ pub extern fn agent_core_stop(core: AgentCore) c_int;
 pub extern fn agent_core_free(core: AgentCore) void;
 pub extern fn agent_core_submit_run_result(core: AgentCore, run_id: [*:0]const u8, exit_code: c_int, final_text: [*:0]const u8, session_id: ?[*:0]const u8) c_int;
 pub extern fn agent_core_cancel_run(core: AgentCore, run_id: [*:0]const u8) c_int;
+// Cancel the run in flight for an issue (desktop "Cancel" button).
+pub extern fn agent_core_cancel_issue(core: AgentCore, issue_id: [*:0]const u8) c_int;
 // Host-triggered interactive sessions (desktop "AI" button / approve-and-continue).
 pub extern fn agent_core_request_interactive(core: AgentCore, issue_id: [*:0]const u8) c_int;
 pub extern fn agent_core_approve_interactive(core: AgentCore, issue_id: [*:0]const u8) c_int;

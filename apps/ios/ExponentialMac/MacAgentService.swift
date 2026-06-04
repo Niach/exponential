@@ -55,47 +55,72 @@ enum MacAgentStore {
             }
         }
     }
-
-    /// Machine-global GitHub token (mirrors Linux github.json), consumed by the
-    /// Rust agent-core config once it's linked (A5 loop).
-    static func saveGithubToken(_ token: String, login: String) {
-        let json: [String: Any] = ["token": token, "login": login]
-        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-        let url = dir().appendingPathComponent("github.json")
-        try? data.write(to: url)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    }
-
-    static func githubToken() -> String? {
-        let url = dir().appendingPathComponent("github.json")
-        guard let data = try? Data(contentsOf: url),
-              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return o["token"] as? String
-    }
 }
 
 @MainActor
 @Observable
 final class MacAgentService {
     private let auth: AuthRepository
+    private let integrationsApi: IntegrationsApi
+    private let terminalDock: MacTerminalDock
     private(set) var registered: Set<String> = []
     private(set) var online: Set<String> = []
     var busy = false
     var lastError: String?
-    var githubPrompt: GithubPrompt?
-
-    struct GithubPrompt: Equatable { let userCode: String; let uri: String }
 
     private var heartbeats: [String: Task<Void, Never>] = [:]
     private var cores: [String: MacAgentCore] = [:]
+    // Workspaces whose core is mid-creation (the GitHub-token fetch is async), so
+    // a racing init/register can't create two cores for one workspace.
+    private var startingCores: Set<String> = []
 
-    init(auth: AuthRepository) {
+    init(auth: AuthRepository, integrationsApi: IntegrationsApi, terminalDock: MacTerminalDock) {
         self.auth = auth
+        self.integrationsApi = integrationsApi
+        self.terminalDock = terminalDock
+        // Interactive agent runs mount into the shared bottom dock; headless runs
+        // use the per-run window. The runner is a singleton, so point it here once.
+        MacAgentTerminalRunner.shared.dock = terminalDock
         for id in MacAgentStore.all() {
             registered.insert(id.workspaceId)
             startHeartbeat(id)
             startAgent(id)
         }
+    }
+
+    // MARK: - Interactive sessions (desktop "AI" / "Approve & continue here")
+
+    /// Can this workspace run an interactive agent session right now? (core
+    /// created + registered). Gates the AI / approve-continue / cancel buttons.
+    func canRunInteractive(workspaceId: String) -> Bool {
+        cores[workspaceId] != nil && registered.contains(workspaceId)
+    }
+
+    /// Start an interactive plan session for an issue (the "AI" button). The core
+    /// emits a `run_request` with interactive:true that mounts in the dock.
+    func requestInteractive(workspaceId: String, issueId: String) {
+        cores[workspaceId]?.requestInteractive(issueId: issueId)
+    }
+
+    /// Resume an interactive session after the plan was approved (the human
+    /// already approved via agentPlan.approvePlan). "Approve & continue here".
+    func approveInteractive(workspaceId: String, issueId: String) {
+        cores[workspaceId]?.approveInteractive(issueId: issueId)
+    }
+
+    /// Cancel the run in flight for an issue (the "Cancel" button).
+    func cancelIssue(workspaceId: String, issueId: String) {
+        cores[workspaceId]?.cancelIssue(issueId: issueId)
+    }
+
+    /// Fetch the owner's connected GitHub token for clone/push. Resolved under the
+    /// OWNER account's human session (the account signed in on this instance) —
+    /// NOT the agent credential, which the server can't resolve to a GitHub token.
+    private func fetchOwnerGithubToken(instanceUrl: String) async -> String? {
+        guard let owner = auth.accounts.first(where: { $0.instanceUrl == instanceUrl && $0.token != nil }) else {
+            return nil
+        }
+        return try? await integrationsApi.githubToken(accountId: owner.id)
     }
 
     static var defaultAgentName: String { "\(ProcessInfo.processInfo.hostName)" }
@@ -180,31 +205,40 @@ final class MacAgentService {
     /// emits run_request → MacAgentCore runs the CLI). v1 runs only while the app
     /// is open. No-op if already running or the dylib failed to create the core.
     private func startAgent(_ id: MacAgentIdentity) {
-        guard cores[id.workspaceId] == nil else { return }
-        let dir = MacAgentStore.dir().path
-        for sub in ["repos", "worktrees"] {
-            try? FileManager.default.createDirectory(atPath: "\(dir)/\(sub)", withIntermediateDirectories: true)
+        guard cores[id.workspaceId] == nil, startingCores.insert(id.workspaceId).inserted else { return }
+        Task { @MainActor in
+            defer { startingCores.remove(id.workspaceId) }
+            // GitHub credential for clone/push: the owner's token, connected once in
+            // the web app (linkSocial) and fetched from the server. Empty when not
+            // connected (matches Linux — the agent simply can't push until linked).
+            let githubToken = await fetchOwnerGithubToken(instanceUrl: id.instanceUrl)
+            // A concurrent start may have created the core during the await.
+            guard cores[id.workspaceId] == nil else { return }
+            let dir = MacAgentStore.dir().path
+            for sub in ["repos", "worktrees"] {
+                try? FileManager.default.createDirectory(atPath: "\(dir)/\(sub)", withIntermediateDirectories: true)
+            }
+            let config: [String: Any] = [
+                "baseUrl": id.instanceUrl,
+                "apiKey": id.apiKey,
+                "botUserId": id.agentUserId,
+                "githubToken": githubToken ?? "",
+                "reposRoot": "\(dir)/repos",
+                "worktreesRoot": "\(dir)/worktrees",
+                "branchPrefix": "agent",
+                "driver": "claude",
+                "dbPath": "\(dir)/agent-state-\(id.workspaceId).sqlite",
+                "maxConcurrent": 2,
+                "timeoutS": 30,
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: config),
+                  let json = String(data: data, encoding: .utf8),
+                  let core = MacAgentCore(configJson: json) else {
+                lastError = "Failed to start the agent core"
+                return
+            }
+            cores[id.workspaceId] = core
         }
-        let config: [String: Any] = [
-            "baseUrl": id.instanceUrl,
-            "apiKey": id.apiKey,
-            "botUserId": id.agentUserId,
-            "githubToken": MacAgentStore.githubToken() ?? "",
-            "reposRoot": "\(dir)/repos",
-            "worktreesRoot": "\(dir)/worktrees",
-            "branchPrefix": "agent",
-            "driver": "claude",
-            "dbPath": "\(dir)/agent-state-\(id.workspaceId).sqlite",
-            "maxConcurrent": 2,
-            "timeoutS": 30,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: config),
-              let json = String(data: data, encoding: .utf8),
-              let core = MacAgentCore(configJson: json) else {
-            lastError = "Failed to start the agent core"
-            return
-        }
-        cores[id.workspaceId] = core
     }
 
     // MARK: - Heartbeat (30s, under the agent's expk_ key)
@@ -234,95 +268,14 @@ final class MacAgentService {
         heartbeats[workspaceId] = nil
     }
 
-    // MARK: - GitHub device flow
-
-    func connectGitHub(workspaceId: String) async {
-        guard var id = MacAgentStore.load(workspaceId: workspaceId), let clientId = id.githubClientId else {
-            lastError = "This workspace has no GitHub client configured"; return
-        }
-        busy = true
-        lastError = nil
-        defer { busy = false; githubPrompt = nil }
-        do {
-            let dc = try await githubRequestDeviceCode(clientId: clientId)
-            githubPrompt = GithubPrompt(userCode: dc.userCode, uri: dc.verificationUri)
-            if let url = URL(string: dc.verificationUri) { NSWorkspace.shared.open(url) }
-            let token = try await githubPoll(clientId: clientId, deviceCode: dc.deviceCode,
-                                             interval: dc.interval, expiresIn: dc.expiresIn)
-            let login = (try? await githubFetchLogin(token: token)) ?? ""
-            MacAgentStore.saveGithubToken(token, login: login)
-            // Report the token (stored encrypted server-side) so the web app can
-            // read PR diffs for private repos. Used read-only.
-            _ = try? await trpc(base: id.instanceUrl, path: "companion.reportGithubIdentity",
-                                input: ["login": login, "repos": [], "token": token], bearer: id.apiKey)
-            id.githubLogin = login
-            MacAgentStore.save(id)
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    private struct DeviceCode { let deviceCode: String; let userCode: String; let verificationUri: String; let interval: Int; let expiresIn: Int }
-
-    private func githubRequestDeviceCode(clientId: String) async throws -> DeviceCode {
-        var req = URLRequest(url: URL(string: "https://github.com/login/device/code")!)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = "client_id=\(clientId)&scope=repo%20read:user".data(using: .utf8)
-        let (data, _) = try await URLSession.shared.data(for: req)
-        guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let device = o["device_code"] as? String else { throw AgentError.github("Bad device-code response") }
-        return DeviceCode(
-            deviceCode: device,
-            userCode: (o["user_code"] as? String) ?? "",
-            verificationUri: (o["verification_uri"] as? String) ?? "https://github.com/login/device",
-            interval: (o["interval"] as? Int) ?? 5,
-            expiresIn: (o["expires_in"] as? Int) ?? 900
-        )
-    }
-
-    private func githubPoll(clientId: String, deviceCode: String, interval: Int, expiresIn: Int) async throws -> String {
-        var wait = interval
-        let deadline = Date().addingTimeInterval(TimeInterval(expiresIn))
-        let body = "client_id=\(clientId)&device_code=\(deviceCode)&grant_type=urn:ietf:params:oauth:grant-type:device_code"
-        while Date() < deadline {
-            try? await Task.sleep(for: .seconds(Double(wait)))
-            var req = URLRequest(url: URL(string: "https://github.com/login/oauth/access_token")!)
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            req.httpBody = body.data(using: .utf8)
-            guard let (data, _) = try? await URLSession.shared.data(for: req),
-                  let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            if let token = o["access_token"] as? String { return token }
-            switch o["error"] as? String {
-            case "slow_down": wait += 5
-            case "expired_token": throw AgentError.github("Device code expired")
-            case "access_denied": throw AgentError.github("Authorization denied")
-            default: break
-            }
-        }
-        throw AgentError.github("Timed out waiting for GitHub authorization")
-    }
-
-    private func githubFetchLogin(token: String) async throws -> String {
-        var req = URLRequest(url: URL(string: "https://api.github.com/user")!)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, _) = try await URLSession.shared.data(for: req)
-        return ((try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["login"] as? String) ?? ""
-    }
-
     // MARK: - Raw tRPC (bare-input POST, custom bearer)
 
     private enum AgentError: LocalizedError {
-        case badUrl, http(Int, String), github(String)
+        case badUrl, http(Int, String)
         var errorDescription: String? {
             switch self {
             case .badUrl: "Invalid URL"
             case let .http(code, msg): "HTTP \(code): \(msg)"
-            case let .github(m): m
             }
         }
     }
