@@ -273,10 +273,10 @@ OIDC_CLIENT_ID                # OAuth2 client ID
 OIDC_CLIENT_SECRET            # OAuth2 client secret
 OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
 OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
-MCP_API_TOKEN                 # Static Bearer token for the MCP server
-MCP_USER_EMAIL                # MCP tool calls run as this user
 GOOGLE_CLIENT_ID              # Google OAuth client ID (required for login or Calendar)
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
+GITHUB_CLIENT_ID              # GitHub OAuth App client ID (Connect GitHub on /account/integrations)
+GITHUB_CLIENT_SECRET          # GitHub OAuth App client secret
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
 GOOGLE_CALENDAR_ENABLED       # Enable Google Calendar integration (default: false)
 SELF_HOSTED                   # 'true' for self-hosted (disables billing, unlocks plan limits)
