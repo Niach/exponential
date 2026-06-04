@@ -25,6 +25,8 @@ import {
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
+import { SubscribeToggle } from "@/components/subscribe-toggle"
+import { AgentPanel } from "@/components/agent-panel"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
 
 interface IssueDetailViewProps {
@@ -293,6 +295,11 @@ export function IssueDetailView({
       <span className="font-mono">{issue.identifier}</span>
       <ChevronRight className="size-3" />
       <span className="truncate">{title}</span>
+      {currentUserId && (
+        <div className="ml-auto shrink-0">
+          <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
+        </div>
+      )}
     </div>
   )
 
@@ -348,6 +355,13 @@ export function IssueDetailView({
     />
   ) : null
 
+  const assigneeUser = issue.assigneeId
+    ? users.find((u) => u.id === issue.assigneeId)
+    : undefined
+  const agentPanel = assigneeUser?.isAgent ? (
+    <AgentPanel issue={issue} project={project} agent={assigneeUser} />
+  ) : null
+
   if (isMobile) {
     return (
       <div className="flex flex-col h-full min-h-0">
@@ -357,6 +371,7 @@ export function IssueDetailView({
           {titleField}
           {editor}
           {attachmentRail}
+          {agentPanel}
           {timeline}
         </div>
       </div>
@@ -372,6 +387,7 @@ export function IssueDetailView({
             {titleField}
             {editor}
             {attachmentRail}
+            {agentPanel}
             {timeline}
           </div>
         </div>

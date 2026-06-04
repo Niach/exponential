@@ -32,9 +32,12 @@ import { Route as ApiShapesWorkspaceMembersRouteImport } from './routes/api/shap
 import { Route as ApiShapesWorkspaceInvitesRouteImport } from './routes/api/shapes/workspace-invites'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
 import { Route as ApiShapesProjectsRouteImport } from './routes/api/shapes/projects'
+import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
+import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
+import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiShapesAssignedIssuesRouteImport } from './routes/api/shapes/assigned-issues'
@@ -44,6 +47,7 @@ import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_auth
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAccountIntegrationsRouteImport } from './routes/_authenticated/account/integrations'
 import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
+import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$workspaceSlug/inbox/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as WWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/index'
 import { Route as WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
@@ -166,6 +170,11 @@ const ApiShapesProjectsRoute = ApiShapesProjectsRouteImport.update({
   path: '/api/shapes/projects',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
+  id: '/api/shapes/notifications',
+  path: '/api/shapes/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesLabelsRoute = ApiShapesLabelsRouteImport.update({
   id: '/api/shapes/labels',
   path: '/api/shapes/labels',
@@ -176,9 +185,20 @@ const ApiShapesIssuesRoute = ApiShapesIssuesRouteImport.update({
   path: '/api/shapes/issues',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesIssueSubscribersRoute =
+  ApiShapesIssueSubscribersRouteImport.update({
+    id: '/api/shapes/issue-subscribers',
+    path: '/api/shapes/issue-subscribers',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiShapesIssueLabelsRoute = ApiShapesIssueLabelsRouteImport.update({
   id: '/api/shapes/issue-labels',
   path: '/api/shapes/issue-labels',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesIssueEventsRoute = ApiShapesIssueEventsRouteImport.update({
+  id: '/api/shapes/issue-events',
+  path: '/api/shapes/issue-events',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
@@ -230,6 +250,12 @@ const WWorkspaceSlugSettingsIndexRoute =
     path: '/settings/',
     getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
+const WWorkspaceSlugInboxIndexRoute =
+  WWorkspaceSlugInboxIndexRouteImport.update({
+    id: '/inbox/',
+    path: '/inbox/',
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
+  } as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   id: '/api/issues/$issueId/images',
   path: '/api/issues/$issueId/images',
@@ -271,9 +297,12 @@ export interface FileRoutesByFullPath {
   '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/projects': typeof ApiShapesProjectsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
@@ -283,6 +312,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -308,9 +338,12 @@ export interface FileRoutesByTo {
   '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/projects': typeof ApiShapesProjectsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
@@ -320,6 +353,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/inbox': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -349,9 +383,12 @@ export interface FileRoutesById {
   '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
+  '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/projects': typeof ApiShapesProjectsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
@@ -361,6 +398,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -390,9 +428,12 @@ export interface FileRouteTypes {
     | '/api/shapes/assigned-issues'
     | '/api/shapes/attachments'
     | '/api/shapes/comments'
+    | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/notifications'
     | '/api/shapes/projects'
     | '/api/shapes/users'
     | '/api/shapes/workspace-invites'
@@ -402,6 +443,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/w/$workspaceSlug/'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
     | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
@@ -427,9 +469,12 @@ export interface FileRouteTypes {
     | '/api/shapes/assigned-issues'
     | '/api/shapes/attachments'
     | '/api/shapes/comments'
+    | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/notifications'
     | '/api/shapes/projects'
     | '/api/shapes/users'
     | '/api/shapes/workspace-invites'
@@ -439,6 +484,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/w/$workspaceSlug'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/inbox'
     | '/w/$workspaceSlug/settings'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
@@ -467,9 +513,12 @@ export interface FileRouteTypes {
     | '/api/shapes/assigned-issues'
     | '/api/shapes/attachments'
     | '/api/shapes/comments'
+    | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
+    | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/notifications'
     | '/api/shapes/projects'
     | '/api/shapes/users'
     | '/api/shapes/workspace-invites'
@@ -479,6 +528,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/'
     | '/w/$workspaceSlug/'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
     | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
@@ -502,9 +552,12 @@ export interface RootRouteChildren {
   ApiShapesAssignedIssuesRoute: typeof ApiShapesAssignedIssuesRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
+  ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
+  ApiShapesIssueSubscribersRoute: typeof ApiShapesIssueSubscribersRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
+  ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
   ApiShapesProjectsRoute: typeof ApiShapesProjectsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
   ApiShapesWorkspaceInvitesRoute: typeof ApiShapesWorkspaceInvitesRoute
@@ -677,6 +730,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesProjectsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/notifications': {
+      id: '/api/shapes/notifications'
+      path: '/api/shapes/notifications'
+      fullPath: '/api/shapes/notifications'
+      preLoaderRoute: typeof ApiShapesNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/labels': {
       id: '/api/shapes/labels'
       path: '/api/shapes/labels'
@@ -691,11 +751,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesIssuesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/issue-subscribers': {
+      id: '/api/shapes/issue-subscribers'
+      path: '/api/shapes/issue-subscribers'
+      fullPath: '/api/shapes/issue-subscribers'
+      preLoaderRoute: typeof ApiShapesIssueSubscribersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/issue-labels': {
       id: '/api/shapes/issue-labels'
       path: '/api/shapes/issue-labels'
       fullPath: '/api/shapes/issue-labels'
       preLoaderRoute: typeof ApiShapesIssueLabelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/issue-events': {
+      id: '/api/shapes/issue-events'
+      path: '/api/shapes/issue-events'
+      fullPath: '/api/shapes/issue-events'
+      preLoaderRoute: typeof ApiShapesIssueEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/comments': {
@@ -761,6 +835,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceSlugSettingsIndexRouteImport
       parentRoute: typeof WWorkspaceSlugRouteRoute
     }
+    '/w/$workspaceSlug/inbox/': {
+      id: '/w/$workspaceSlug/inbox/'
+      path: '/inbox'
+      fullPath: '/w/$workspaceSlug/inbox/'
+      preLoaderRoute: typeof WWorkspaceSlugInboxIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
+    }
     '/api/issues/$issueId/images': {
       id: '/api/issues/$issueId/images'
       path: '/api/issues/$issueId/images'
@@ -823,6 +904,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface WWorkspaceSlugRouteRouteChildren {
   WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
+  WWorkspaceSlugInboxIndexRoute: typeof WWorkspaceSlugInboxIndexRoute
   WWorkspaceSlugSettingsIndexRoute: typeof WWorkspaceSlugSettingsIndexRoute
   WWorkspaceSlugProjectsProjectSlugIndexRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute: typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -830,6 +912,7 @@ interface WWorkspaceSlugRouteRouteChildren {
 
 const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
   WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
+  WWorkspaceSlugInboxIndexRoute: WWorkspaceSlugInboxIndexRoute,
   WWorkspaceSlugSettingsIndexRoute: WWorkspaceSlugSettingsIndexRoute,
   WWorkspaceSlugProjectsProjectSlugIndexRoute:
     WWorkspaceSlugProjectsProjectSlugIndexRoute,
@@ -860,9 +943,12 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesAssignedIssuesRoute: ApiShapesAssignedIssuesRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
+  ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,
+  ApiShapesIssueSubscribersRoute: ApiShapesIssueSubscribersRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
+  ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
   ApiShapesProjectsRoute: ApiShapesProjectsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
   ApiShapesWorkspaceInvitesRoute: ApiShapesWorkspaceInvitesRoute,

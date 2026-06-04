@@ -1,9 +1,11 @@
 import { useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
+import { useLiveQuery } from "@tanstack/react-db"
 import {
   Check,
   ChevronsUpDown,
   FolderKanban,
+  Inbox,
   LogIn,
   LogOut,
   Plug,
@@ -12,6 +14,7 @@ import {
   Shield,
 } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
+import { notificationCollection } from "@/lib/collections"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
@@ -40,9 +43,21 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+
+// Rendered only when authed, so the per-user notifications shape (requireAuth)
+// isn't subscribed for anonymous public-workspace viewers.
+function InboxUnreadBadge() {
+  const { data: notifs } = useLiveQuery((query) =>
+    query.from({ n: notificationCollection })
+  )
+  const unread = (notifs ?? []).filter((n) => !n.readAt).length
+  if (unread === 0) return null
+  return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
+}
 
 interface WorkspaceSidebarProps {
   workspaceSlug: string
@@ -155,6 +170,24 @@ export function WorkspaceSidebar({
         <Separator />
 
         <SidebarContent>
+          {isAuthed && (
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
+                      <Link to="/w/$workspaceSlug/inbox" params={{ workspaceSlug }}>
+                        <Inbox className="h-4 w-4" />
+                        <span>Inbox</span>
+                      </Link>
+                    </SidebarMenuButton>
+                    <InboxUnreadBadge />
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
           <SidebarGroup>
             <SidebarGroupLabel>Projects</SidebarGroupLabel>
             {isAuthed && (

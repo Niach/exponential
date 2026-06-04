@@ -52,6 +52,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 fun HomeScreen(
     onOpenProject: (accountId: String, projectId: String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenInbox: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -67,6 +68,9 @@ fun HomeScreen(
                 // iOS Home shows only a gear; account sign-out lives per-server
                 // in Settings → server detail.
                 actions = {
+                    IconButton(onClick = onOpenInbox) {
+                        Icon(Icons.Filled.Inbox, contentDescription = "Inbox")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }

@@ -7,8 +7,11 @@ import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.IssueLabelEntity
+import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.WorkspaceEntity
@@ -29,7 +32,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.contentOrNull
 
-/// Multi-account sync orchestrator. Maintains one set of 10 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 13 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -91,7 +94,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (10 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (13 shapes) for $accountId")
             }
         }
     }
@@ -134,6 +137,9 @@ class SyncManager @Inject constructor(
         val workspaceInviteDao = db.workspaceInviteDao()
         val commentDao = db.commentDao()
         val attachmentDao = db.attachmentDao()
+        val notificationDao = db.notificationDao()
+        val issueSubscriberDao = db.issueSubscriberDao()
+        val issueEventDao = db.issueEventDao()
 
         return listOf(
             launchShape(
@@ -235,6 +241,36 @@ class SyncManager @Inject constructor(
                 onUpdate = { attachmentDao.upsert(it) },
                 onDelete = { attachmentDao.deleteById(it.id) },
                 onRefetch = { attachmentDao.clear() },
+            ),
+            launchShape(
+                shape = "notifications", path = "/api/shapes/notifications", tableName = "notifications",
+                serializer = NotificationEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("notifications"),
+                onInsert = { notificationDao.upsert(it) },
+                onUpdate = { notificationDao.upsert(it) },
+                onDelete = { notificationDao.deleteById(it.id) },
+                onRefetch = { notificationDao.clear() },
+            ),
+            launchShape(
+                shape = "issue_events", path = "/api/shapes/issue-events", tableName = "issue_events",
+                serializer = IssueEventEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("issue_events"),
+                onInsert = { issueEventDao.upsert(it) },
+                onUpdate = { issueEventDao.upsert(it) },
+                onDelete = { issueEventDao.deleteById(it.id) },
+                onRefetch = { issueEventDao.clear() },
+            ),
+            launchShape(
+                shape = "issue_subscribers", path = "/api/shapes/issue-subscribers", tableName = "issue_subscribers",
+                serializer = IssueSubscriberEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("issue_subscribers"),
+                onInsert = { issueSubscriberDao.upsert(it) },
+                onUpdate = { issueSubscriberDao.upsert(it) },
+                onDelete = { issueSubscriberDao.deleteById(it.id) },
+                onRefetch = { issueSubscriberDao.clear() },
             ),
         )
     }

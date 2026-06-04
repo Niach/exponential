@@ -168,6 +168,14 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let agentPlanApprovedAt: String?
     public let agentPlanApprovedBy: String?
     public let agentLastCommentSeenAt: String?
+    public let prUrl: String?
+    public let prNumber: Int?
+    public let prState: String?
+    public let branch: String?
+    public let prMergedAt: String?
+    public let agentSessionId: String?
+    public let agentRunMode: String?
+    public let agentInteractiveClaimedAt: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -198,6 +206,14 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         agentPlanApprovedAt: String?,
         agentPlanApprovedBy: String?,
         agentLastCommentSeenAt: String?,
+        prUrl: String?,
+        prNumber: Int?,
+        prState: String?,
+        branch: String?,
+        prMergedAt: String?,
+        agentSessionId: String?,
+        agentRunMode: String?,
+        agentInteractiveClaimedAt: String?,
         createdAt: String,
         updatedAt: String
     ) {
@@ -227,12 +243,20 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.agentPlanApprovedAt = agentPlanApprovedAt
         self.agentPlanApprovedBy = agentPlanApprovedBy
         self.agentLastCommentSeenAt = agentLastCommentSeenAt
+        self.prUrl = prUrl
+        self.prNumber = prNumber
+        self.prState = prState
+        self.branch = branch
+        self.prMergedAt = prMergedAt
+        self.agentSessionId = agentSessionId
+        self.agentRunMode = agentRunMode
+        self.agentInteractiveClaimedAt = agentInteractiveClaimedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, description, status, priority, number, identifier
+        case id, title, description, status, priority, number, identifier, branch
         case projectId = "project_id"
         case assigneeId = "assignee_id"
         case creatorId = "creator_id"
@@ -252,6 +276,13 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case agentPlanApprovedAt = "agent_plan_approved_at"
         case agentPlanApprovedBy = "agent_plan_approved_by"
         case agentLastCommentSeenAt = "agent_last_comment_seen_at"
+        case prUrl = "pr_url"
+        case prNumber = "pr_number"
+        case prState = "pr_state"
+        case prMergedAt = "pr_merged_at"
+        case agentSessionId = "agent_session_id"
+        case agentRunMode = "agent_run_mode"
+        case agentInteractiveClaimedAt = "agent_interactive_claimed_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -287,6 +318,14 @@ extension IssueEntity: Codable {
         agentPlanApprovedAt = try container.decodeIfPresent(String.self, forKey: .agentPlanApprovedAt)
         agentPlanApprovedBy = try container.decodeIfPresent(String.self, forKey: .agentPlanApprovedBy)
         agentLastCommentSeenAt = try container.decodeIfPresent(String.self, forKey: .agentLastCommentSeenAt)
+        prUrl = try container.decodeIfPresent(String.self, forKey: .prUrl)
+        prNumber = try container.decodeIfPresent(Int.self, forKey: .prNumber)
+        prState = try container.decodeIfPresent(String.self, forKey: .prState)
+        branch = try container.decodeIfPresent(String.self, forKey: .branch)
+        prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
+        agentSessionId = try container.decodeIfPresent(String.self, forKey: .agentSessionId)
+        agentRunMode = try container.decodeIfPresent(String.self, forKey: .agentRunMode)
+        agentInteractiveClaimedAt = try container.decodeIfPresent(String.self, forKey: .agentInteractiveClaimedAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
 
@@ -378,6 +417,7 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
     public let name: String?
     public let email: String
     public let image: String?
+    public let isAgent: Bool
     public let createdAt: String
     public let updatedAt: String
 
@@ -386,6 +426,7 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
         name: String?,
         email: String,
         image: String?,
+        isAgent: Bool = false,
         createdAt: String,
         updatedAt: String
     ) {
@@ -393,14 +434,35 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
         self.name = name
         self.email = email
         self.image = image
+        self.isAgent = isAgent
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, email, image
+        case isAgent = "is_agent"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+
+    // Electric may omit is_agent or deliver it as 0/1; decode permissively so an
+    // older row (or a non-agent payload without the field) doesn't fail.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        email = try c.decode(String.self, forKey: .email)
+        image = try c.decodeIfPresent(String.self, forKey: .image)
+        if let b = try? c.decode(Bool.self, forKey: .isAgent) {
+            isAgent = b
+        } else if let i = try? c.decode(Int.self, forKey: .isAgent) {
+            isAgent = i != 0
+        } else {
+            isAgent = false
+        }
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 
@@ -642,6 +704,200 @@ public struct AttachmentEntity: Codable, FetchableRecord, PersistableRecord, Ide
         case storageKey = "storage_key"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - Notification
+
+public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "notifications"
+
+    public let id: String
+    public let userId: String
+    public let issueId: String?
+    // notification_type: issue_assigned|issue_comment|issue_status_changed|issue_mention
+    public let type: String
+    public let title: String
+    public let body: String?
+    public let readAt: String?
+    public let pushedAt: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        userId: String,
+        issueId: String?,
+        type: String,
+        title: String,
+        body: String?,
+        readAt: String?,
+        pushedAt: String?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.userId = userId
+        self.issueId = issueId
+        self.type = type
+        self.title = title
+        self.body = body
+        self.readAt = readAt
+        self.pushedAt = pushedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, title, body
+        case userId = "user_id"
+        case issueId = "issue_id"
+        case readAt = "read_at"
+        case pushedAt = "pushed_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - IssueSubscriber
+
+public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "issue_subscribers"
+
+    public let id: String
+    public let issueId: String
+    public let userId: String
+    public let workspaceId: String
+    // source: creator|assignee|commenter|manual|mention
+    public let source: String
+    public let unsubscribed: Bool
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        issueId: String,
+        userId: String,
+        workspaceId: String,
+        source: String,
+        unsubscribed: Bool,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.issueId = issueId
+        self.userId = userId
+        self.workspaceId = workspaceId
+        self.source = source
+        self.unsubscribed = unsubscribed
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, unsubscribed
+        case issueId = "issue_id"
+        case userId = "user_id"
+        case workspaceId = "workspace_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom Codable: Electric may deliver `unsubscribed` as JSON boolean (true/false)
+// or as the integer 0/1 (SQLite-style). Decode permissively.
+extension IssueSubscriberEntity {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        issueId = try container.decode(String.self, forKey: .issueId)
+        userId = try container.decode(String.self, forKey: .userId)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        source = try container.decode(String.self, forKey: .source)
+        if let boolValue = try? container.decode(Bool.self, forKey: .unsubscribed) {
+            unsubscribed = boolValue
+        } else if let intValue = try? container.decode(Int.self, forKey: .unsubscribed) {
+            unsubscribed = intValue != 0
+        } else {
+            unsubscribed = false
+        }
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        updatedAt = try container.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// MARK: - IssueEvent
+
+public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "issue_events"
+
+    public let id: String
+    public let issueId: String
+    public let workspaceId: String
+    public let actorUserId: String?
+    // type: status_changed|assignee_changed|label_added|label_removed|
+    //       pr_opened|pr_merged|plan_ready|agent_error
+    public let type: String
+    // JSON payload — Electric delivers as object; stored as the stringified
+    // JSON, decoded lazily by the UI. Null when the event has no payload.
+    public let payload: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        issueId: String,
+        workspaceId: String,
+        actorUserId: String?,
+        type: String,
+        payload: String?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.issueId = issueId
+        self.workspaceId = workspaceId
+        self.actorUserId = actorUserId
+        self.type = type
+        self.payload = payload
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, payload
+        case issueId = "issue_id"
+        case workspaceId = "workspace_id"
+        case actorUserId = "actor_user_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension IssueEventEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        issueId = try container.decode(String.self, forKey: .issueId)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        actorUserId = try container.decodeIfPresent(String.self, forKey: .actorUserId)
+        type = try container.decode(String.self, forKey: .type)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        updatedAt = try container.decode(String.self, forKey: .updatedAt)
+
+        // Handle JSONB payload: object, string, or null
+        if container.contains(.payload) {
+            if let stringValue = try? container.decode(String.self, forKey: .payload) {
+                payload = stringValue
+            } else if let _ = try? container.decodeNil(forKey: .payload) {
+                payload = nil
+            } else {
+                let rawJSON = try container.decode(AnyCodableValue.self, forKey: .payload)
+                payload = rawJSON.jsonString
+            }
+        } else {
+            payload = nil
+        }
     }
 }
 

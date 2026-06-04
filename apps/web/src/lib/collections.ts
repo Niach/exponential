@@ -4,9 +4,12 @@ import { snakeCamelMapper } from "@electric-sql/client"
 import {
   selectAttachmentSchema,
   selectCommentSchema,
+  selectIssueEventSchema,
   selectIssueLabelSchema,
   selectIssueSchema,
+  selectIssueSubscriberSchema,
   selectLabelSchema,
+  selectNotificationSchema,
   selectProjectSchema,
   selectUserSchema,
   selectWorkspaceInviteSchema,
@@ -158,6 +161,48 @@ export const attachmentCollection = createCollection(
       columnMapper,
     },
     schema: selectAttachmentSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// Per-user inbox feed (notifications scoped to the signed-in user).
+export const notificationCollection = createCollection(
+  electricCollectionOptions({
+    id: `notifications`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/notifications`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectNotificationSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// Activity-log timeline events, workspace-scoped.
+export const issueEventCollection = createCollection(
+  electricCollectionOptions({
+    id: `issue_events`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/issue-events`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectIssueEventSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// Subscription rows, for the per-issue subscribe toggle's live state.
+export const issueSubscriberCollection = createCollection(
+  electricCollectionOptions({
+    id: `issue_subscribers`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/issue-subscribers`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectIssueSubscriberSchema,
     getKey: (item) => item.id,
   })
 )

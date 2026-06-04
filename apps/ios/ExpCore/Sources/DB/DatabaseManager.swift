@@ -260,6 +260,71 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // Additive (agent-system redesign): PR/agent-run columns on issues, plus
+        // three new synced shapes — notifications, issue_subscribers, issue_events.
+        // All new issue columns are nullable; the new tables mirror the Postgres
+        // schema (snake_case, indexes matching packages/db-schema).
+        migrator.registerMigration("v3_agent_system") { db in
+            try db.alter(table: "issues") { t in
+                t.add(column: "pr_url", .text)
+                t.add(column: "pr_number", .integer)
+                t.add(column: "pr_state", .text)
+                t.add(column: "branch", .text)
+                t.add(column: "pr_merged_at", .text)
+                t.add(column: "agent_session_id", .text)
+                t.add(column: "agent_run_mode", .text)
+                t.add(column: "agent_interactive_claimed_at", .text)
+            }
+
+            try db.create(table: "notifications", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("user_id", .text).notNull()
+                t.column("issue_id", .text)
+                t.column("type", .text).notNull()
+                t.column("title", .text).notNull()
+                t.column("body", .text)
+                t.column("read_at", .text)
+                t.column("pushed_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.create(
+                index: "idx_notifications_user_unread",
+                on: "notifications",
+                columns: ["user_id", "read_at"],
+                options: .ifNotExists
+            )
+
+            try db.create(table: "issue_subscribers", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("issue_id", .text).notNull()
+                t.column("user_id", .text).notNull().indexed()
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("source", .text).notNull()
+                t.column("unsubscribed", .boolean).notNull().defaults(to: false)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+
+            try db.create(table: "issue_events", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("issue_id", .text).notNull().indexed()
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("actor_user_id", .text)
+                t.column("type", .text).notNull()
+                t.column("payload", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
+        // Additive: users.is_agent (assign-to-agent picker segmentation).
+        migrator.registerMigration("v4_user_is_agent") { db in
+            try db.alter(table: "users") { t in
+                t.add(column: "is_agent", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 
@@ -267,6 +332,9 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
+            try db.execute(sql: "DELETE FROM notifications")
+            try db.execute(sql: "DELETE FROM issue_events")
+            try db.execute(sql: "DELETE FROM issue_subscribers")
             try db.execute(sql: "DELETE FROM attachments")
             try db.execute(sql: "DELETE FROM comments")
             try db.execute(sql: "DELETE FROM issue_labels")

@@ -114,6 +114,30 @@ pub fn worktree_claim(
     Ok(WorktreeClaim { worktree_path, branch, repo_path: repo_path.to_string(), default_branch: default_branch.to_string() })
 }
 
+/// Reuse an EXISTING worktree WITHOUT the `-B` force-reset, so an interactive
+/// approve-and-continue resumes against the plan session's working tree intact.
+/// Falls back to a fresh `worktree_claim` if the worktree is gone.
+pub fn worktree_reuse(
+    worktrees_root: &str,
+    branch_prefix: &str,
+    repo_path: &str,
+    default_branch: &str,
+    identifier: &str,
+    slug: &str,
+) -> Result<WorktreeClaim, String> {
+    let worktree_path = format!("{worktrees_root}/{identifier}");
+    if std::path::Path::new(&worktree_path).exists() {
+        let branch = format!("{branch_prefix}/{}-{}", identifier.to_lowercase(), slugify(slug));
+        return Ok(WorktreeClaim {
+            worktree_path,
+            branch,
+            repo_path: repo_path.to_string(),
+            default_branch: default_branch.to_string(),
+        });
+    }
+    worktree_claim(worktrees_root, branch_prefix, repo_path, default_branch, identifier, slug)
+}
+
 /// Remove a worktree + its branch — only when the branch carries the agent
 /// prefix (belt-and-suspenders). Best-effort.
 pub fn worktree_cleanup(branch_prefix: &str, claim: &WorktreeClaim) {

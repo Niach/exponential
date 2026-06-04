@@ -36,6 +36,17 @@ struct IssueDetailView: View {
                             }
                             planStateBadge(for: issue)
                             Spacer()
+                            Button {
+                                Task { await vm.toggleSubscribe() }
+                            } label: {
+                                Image(systemName: vm.isSubscribed ? "bell.fill" : "bell.slash")
+                                    .font(.title3)
+                                    .foregroundStyle(
+                                        vm.isSubscribed
+                                            ? Color.accentColor
+                                            : .white.opacity(TextOpacity.secondary)
+                                    )
+                            }
                             Menu {
                                 Button("Delete issue", role: .destructive) {
                                     showDeleteConfirm = true
@@ -306,6 +317,12 @@ struct IssueDetailView: View {
                     ) { option in
                         if option.userId == nil {
                             Label("Unassigned", systemImage: "person.crop.circle.badge.xmark")
+                        } else if option.isAgent {
+                            Label {
+                                Text("\(option.displayName) · agent")
+                            } icon: {
+                                Image(systemName: "cpu")
+                            }
                         } else {
                             Label {
                                 Text(option.displayName)
@@ -352,6 +369,7 @@ struct IssueDetailView: View {
                     issuesApi: deps.issuesApi,
                     issueImagesApi: deps.issueImagesApi,
                     labelsApi: deps.labelsApi,
+                    subscriptionsApi: deps.subscriptionsApi,
                     auth: deps.auth
                 )
                 viewModel = vm

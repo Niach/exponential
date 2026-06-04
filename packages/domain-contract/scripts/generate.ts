@@ -28,6 +28,12 @@ interface Contract {
   workspaceRole: Section
   publicWritePolicy: Section
   commentKind: Section
+  agentPlanState: Section
+  notificationType: Section
+  prState: Section
+  runMode: Section
+  subscriberSource: Section
+  issueEventType: Section
   recurrenceIntervals: number[]
 }
 
@@ -133,11 +139,23 @@ ${swiftStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${swiftStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
+${swiftStringArray("agentPlanStateValues", contract.agentPlanState.values)}
+${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
+${swiftStringArray("prStateValues", contract.prState.values)}
+${swiftStringArray("runModeValues", contract.runMode.values)}
+${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
+${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
     static let recurrenceIntervals: [Int] = [${contract.recurrenceIntervals.join(", ")}]
 
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${swiftNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
+${swiftNamedValues("agentPlanState", contract.agentPlanState.values)}
+${swiftNamedValues("notificationType", contract.notificationType.values)}
+${swiftNamedValues("prState", contract.prState.values)}
+${swiftNamedValues("runMode", contract.runMode.values)}
+${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
+${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 }
 `
 
@@ -152,11 +170,23 @@ ${kotlinStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${kotlinStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
+${kotlinStringArray("agentPlanStateValues", contract.agentPlanState.values)}
+${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
+${kotlinStringArray("prStateValues", contract.prState.values)}
+${kotlinStringArray("runModeValues", contract.runMode.values)}
+${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
+${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${kotlinIntArray("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${kotlinNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
+${kotlinNamedValues("agentPlanState", contract.agentPlanState.values)}
+${kotlinNamedValues("notificationType", contract.notificationType.values)}
+${kotlinNamedValues("prState", contract.prState.values)}
+${kotlinNamedValues("runMode", contract.runMode.values)}
+${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
+${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 }
 `
 
@@ -178,11 +208,23 @@ ${rustStrSlice("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
 ${rustStrSlice("publicWritePolicyValues", contract.publicWritePolicy.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
+${rustStrSlice("agentPlanStateValues", contract.agentPlanState.values)}
+${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
+${rustStrSlice("prStateValues", contract.prState.values)}
+${rustStrSlice("runModeValues", contract.runMode.values)}
+${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
+${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 pub const RECURRENCE_INTERVALS: &[i32] = &[${contract.recurrenceIntervals.join(", ")}];
 
 ${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${rustNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
+${rustNamedValues("agentPlanState", contract.agentPlanState.values)}
+${rustNamedValues("notificationType", contract.notificationType.values)}
+${rustNamedValues("prState", contract.prState.values)}
+${rustNamedValues("runMode", contract.runMode.values)}
+${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
+${rustNamedValues("issueEventType", contract.issueEventType.values)}
 `
 
 const zig = `${HEADER_ZIG}
@@ -194,16 +236,28 @@ ${zigStrArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${zigStrArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${zigStrArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
 ${zigStrArray("commentKindValues", contract.commentKind.values)}
+${zigStrArray("agentPlanStateValues", contract.agentPlanState.values)}
+${zigStrArray("notificationTypeValues", contract.notificationType.values)}
+${zigStrArray("prStateValues", contract.prState.values)}
+${zigStrArray("runModeValues", contract.runMode.values)}
+${zigStrArray("subscriberSourceValues", contract.subscriberSource.values)}
+${zigStrArray("issueEventTypeValues", contract.issueEventType.values)}
 pub const recurrence_intervals = [_]i32{ ${contract.recurrenceIntervals.join(", ")} };
 
 ${zigNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${zigNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
 ${zigNamedValues("commentKind", contract.commentKind.values)}
+${zigNamedValues("agentPlanState", contract.agentPlanState.values)}
+${zigNamedValues("notificationType", contract.notificationType.values)}
+${zigNamedValues("prState", contract.prState.values)}
+${zigNamedValues("runMode", contract.runMode.values)}
+${zigNamedValues("subscriberSource", contract.subscriberSource.values)}
+${zigNamedValues("issueEventType", contract.issueEventType.values)}
 `
 
 const swiftPath = join(
   repoRoot,
-  "apps/ios/Exponential/Domain/DomainContract.generated.swift"
+  "apps/ios/ExpCore/Sources/Domain/DomainContract.generated.swift"
 )
 const kotlinPath = join(
   repoRoot,

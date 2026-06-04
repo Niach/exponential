@@ -92,6 +92,12 @@ export const auth = betterAuth({
         defaultValue: false,
         input: false,
       },
+      // True for synthetic desktop-agent users. Never settable by a client.
+      isAgent: {
+        type: `boolean`,
+        defaultValue: false,
+        input: false,
+      },
       onboardingCompletedAt: {
         type: `date`,
         defaultValue: null,
@@ -241,6 +247,17 @@ export const auth = betterAuth({
       resource: process.env.BETTER_AUTH_URL
         ? `${process.env.BETTER_AUTH_URL.replace(/\/$/, ``)}/api/mcp`
         : undefined,
+      // The desktop agent holds a refreshable OAuth credential (minted by
+      // companion.register). The mcp plugin reads token lifetimes from
+      // `oidcConfig`: give it a generous refresh window so an agent offline for
+      // weeks can still refresh without re-registering; the short access-token
+      // life keeps rotation frequent (getMcpSession ignores access expiry, but
+      // the client refreshes proactively).
+      oidcConfig: {
+        loginPage: `/auth/login`,
+        accessTokenExpiresIn: 60 * 60 * 24,
+        refreshTokenExpiresIn: 60 * 60 * 24 * 90,
+      },
     }),
     ...(oidcProviders.length > 0
       ? [

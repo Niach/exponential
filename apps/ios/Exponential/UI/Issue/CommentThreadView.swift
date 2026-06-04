@@ -21,6 +21,7 @@ struct CommentThreadView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var comments: [CommentEntity] = []
+    @State private var events: [IssueEventEntity] = []
     @State private var users: [String: UserEntity] = [:]
     @State private var draft: String = ""
     @State private var submitting = false
@@ -28,6 +29,29 @@ struct CommentThreadView: View {
     @State private var pendingPlanAction = false
     @State private var pendingRetry = false
     @State private var observationTask: Task<Void, Never>?
+
+    // Linear-style activity timeline: comments + issue_events merged by time.
+    private enum TimelineItem: Identifiable {
+        case comment(CommentEntity)
+        case event(IssueEventEntity)
+        var id: String {
+            switch self {
+            case .comment(let c): return "c-\(c.id)"
+            case .event(let e): return "e-\(e.id)"
+            }
+        }
+        var createdAt: String {
+            switch self {
+            case .comment(let c): return c.createdAt
+            case .event(let e): return e.createdAt
+            }
+        }
+    }
+
+    private var timeline: [TimelineItem] {
+        (comments.map { TimelineItem.comment($0) } + events.map { TimelineItem.event($0) })
+            .sorted { $0.createdAt < $1.createdAt }
+    }
 
     private var latestPlanCommentId: String? {
         comments.last(where: { $0.commentKind == .plan })?.id
@@ -48,14 +72,17 @@ struct CommentThreadView: View {
                 Spacer()
             }
 
-            if comments.isEmpty {
+            if timeline.isEmpty {
                 Text("No comments yet. Be the first to add one.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
 
-            ForEach(comments, id: \.id) { comment in
-                rowFor(comment)
+            ForEach(timeline) { item in
+                switch item {
+                case .comment(let comment): rowFor(comment)
+                case .event(let event): eventRow(event)
+                }
             }
 
             // Plain-text composer for now. The rich-markdown composer lands
@@ -183,7 +210,48 @@ struct CommentThreadView: View {
                     self.users = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
                 }
             }
+
+            let eventObs = ValueObservation.tracking { db in
+                try IssueEventEntity
+                    .filter(Column("issue_id") == issue.id)
+                    .order(Column("created_at").asc)
+                    .fetchAll(db)
+            }
+            Task {
+                for try await rows in eventObs.values(in: pool) {
+                    self.events = rows
+                }
+            }
         }
+    }
+
+    // Compact Linear-style activity line (status/assignee/label/PR/plan/error).
+    @ViewBuilder
+    private func eventRow(_ event: IssueEventEntity) -> some View {
+        let who = event.actorUserId.flatMap { users[$0] }.map { $0.name ?? $0.email } ?? "Someone"
+        let verb: String = {
+            switch event.type {
+            case "status_changed": return "changed the status"
+            case "assignee_changed": return "changed the assignee"
+            case "label_added": return "added a label"
+            case "label_removed": return "removed a label"
+            case "pr_opened": return "opened a pull request"
+            case "pr_merged": return "merged the pull request"
+            case "plan_ready": return "shared a plan"
+            case "agent_error": return "hit an error"
+            default: return event.type.replacingOccurrences(of: "_", with: " ")
+            }
+        }()
+        HStack(spacing: 8) {
+            Circle()
+                .fill(.white.opacity(TextOpacity.tertiary))
+                .frame(width: 6, height: 6)
+            Text("\(who) \(verb)")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Spacer()
+        }
+        .padding(.vertical, 4)
     }
 }
 

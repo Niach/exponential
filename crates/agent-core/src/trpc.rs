@@ -124,9 +124,15 @@ pub fn report_github_identity(
     api_key: &str,
     login: &str,
     repos: &[GithubRepo],
+    github_token: &str,
     timeout_s: u64,
 ) -> Result<(), String> {
-    let input = json!({ "login": login, "repos": repos });
+    // Report the GitHub token (stored encrypted server-side) so the web app can
+    // read PR diffs for private repos it has no credential for. Used read-only.
+    let mut input = json!({ "login": login, "repos": repos });
+    if !github_token.is_empty() {
+        input["token"] = json!(github_token);
+    }
     call(base_url, "companion.reportGithubIdentity", Some(&input), Some(api_key), timeout_s).map(|_| ())
 }
 

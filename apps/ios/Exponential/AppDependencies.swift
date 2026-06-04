@@ -28,6 +28,8 @@ final class AppDependencies: @unchecked Sendable {
     let issueImagesApi: IssueImagesApi
     let commentsApi: CommentsApi
     let agentPlanApi: AgentPlanApi
+    let notificationsApi: NotificationsApi
+    let subscriptionsApi: SubscriptionsApi
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -89,6 +91,8 @@ final class AppDependencies: @unchecked Sendable {
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
         self.commentsApi = CommentsApi(trpc: trpc)
         self.agentPlanApi = AgentPlanApi(trpc: trpc)
+        self.notificationsApi = NotificationsApi(trpc: trpc)
+        self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
 
         // Push notifications
         let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)

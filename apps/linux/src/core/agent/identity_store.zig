@@ -1,5 +1,5 @@
 //! Persisted desktop-agent identity (the `expk_` key + agent/workspace metadata
-//! from `companion.claimSetup`), keyed by workspace id at
+//! from `companion.register`), keyed by workspace id at
 //! `{configDir}/agent-{workspaceId}.json` (0600). Shared by the CLI register
 //! command and the in-app registration flow.
 
@@ -23,7 +23,10 @@ pub fn save(gpa: std.mem.Allocator, id: *const AgentIdentity) ![]u8 {
 
     const view = .{
         .instanceUrl = id.instance_url,
-        .apiKey = id.api_key,
+        .apiKey = id.api_key, // the OAuth access token
+        .refreshToken = id.refresh_token,
+        .tokenEndpoint = id.token_endpoint,
+        .oauthClientId = id.oauth_client_id,
         .agentId = id.agent_id,
         .agentUserId = id.agent_user_id,
         .agentName = id.agent_name,

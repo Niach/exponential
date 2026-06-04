@@ -67,6 +67,7 @@ struct AssigneeOption: Identifiable, Hashable {
     let id: String
     let userId: String?
     let displayName: String
+    var isAgent: Bool = false
 
     static let unassigned = AssigneeOption(
         id: "__unassigned",
@@ -75,15 +76,21 @@ struct AssigneeOption: Identifiable, Hashable {
     )
 }
 
+// People first, then Agents — assigning to an agent creates a plan request.
 func assigneeOptions(users: [UserEntity]) -> [AssigneeOption] {
     var options: [AssigneeOption] = [.unassigned]
-    options.append(contentsOf: users.map { user in
-        AssigneeOption(
-            id: user.id,
-            userId: user.id,
-            displayName: user.name ?? user.email
+    let people = users.filter { !$0.isAgent }
+    let agents = users.filter { $0.isAgent }
+    for user in people + agents {
+        options.append(
+            AssigneeOption(
+                id: user.id,
+                userId: user.id,
+                displayName: user.name ?? user.email,
+                isAgent: user.isAgent
+            )
         )
-    })
+    }
     return options
 }
 

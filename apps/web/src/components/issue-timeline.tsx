@@ -1,12 +1,16 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Loader2, Send } from "lucide-react"
-import type { Comment, Issue, User } from "@/db/schema"
+import type { Comment, Issue, IssueEvent, Label, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
-import { commentCollection } from "@/lib/collections"
-import { getCommentBodyText } from "@/lib/domain"
+import {
+  commentCollection,
+  issueEventCollection,
+  labelCollection,
+} from "@/lib/collections"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import { MentionTextarea } from "@/components/mention-textarea"
+import { EventRow } from "@/components/comment-rows/event"
 import { PlanCommentRow } from "@/components/comment-rows/plan"
 import { QuestionCommentRow } from "@/components/comment-rows/question"
 import { RegularCommentRow } from "@/components/comment-rows/regular"
@@ -17,35 +21,6 @@ interface IssueTimelineProps {
   isAdmin?: boolean
   canApprovePlan: boolean
   users: User[]
-}
-
-// Regular comments the agent posts when something terminal happened. The
-// "implementing" spinner hides as soon as any of these land after approval.
-// Error-shaped ones (everything except PR-opened) also get a Retry button.
-const PR_OPENED_PATTERN = /^PR opened:/i
-
-const ERROR_BODY_PATTERNS = [
-  /^Tests failed after retry/i,
-  /^Agent encountered an error/i,
-  /^No GitHub repo linked/i,
-  /Companion is not authenticated to GitHub/i,
-] as const
-
-const TERMINAL_BODY_PATTERNS = [
-  PR_OPENED_PATTERN,
-  ...ERROR_BODY_PATTERNS,
-] as const
-
-function isErrorComment(comment: Comment): boolean {
-  if (comment.kind !== `regular`) return false
-  const body = getCommentBodyText(comment.body)
-  return ERROR_BODY_PATTERNS.some((rx) => rx.test(body))
-}
-
-function isTerminalComment(comment: Comment): boolean {
-  if (comment.kind !== `regular`) return false
-  const body = getCommentBodyText(comment.body)
-  return TERMINAL_BODY_PATTERNS.some((rx) => rx.test(body))
 }
 
 export function IssueTimeline({
@@ -64,9 +39,26 @@ export function IssueTimeline({
     [issue.id]
   )
 
+  const { data: events } = useLiveQuery(
+    (query) =>
+      query
+        .from({ e: issueEventCollection })
+        .where(({ e }) => eq(e.issueId, issue.id))
+        .orderBy(({ e }) => e.createdAt),
+    [issue.id]
+  )
+
+  const { data: labels } = useLiveQuery((query) =>
+    query.from({ labels: labelCollection })
+  )
+
   const userMap = useMemo(
     () => new Map(users.map((u) => [u.id, u])),
     [users]
+  )
+  const labelMap = useMemo(
+    () => new Map((labels ?? []).map((l) => [l.id, l as Label])),
+    [labels]
   )
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
@@ -78,6 +70,38 @@ export function IssueTimeline({
   const [retrying, setRetrying] = useState(false)
 
   const list = (comments ?? []) as Comment[]
+
+  // When an agent is on the issue (and it isn't finished), nudge that a comment
+  // becomes steering for the agent's next run (D10).
+  const assignee = issue.assigneeId ? userMap.get(issue.assigneeId) : undefined
+  const agentAssigned =
+    Boolean(assignee?.isAgent) &&
+    issue.status !== `done` &&
+    issue.status !== `cancelled`
+  const composerPlaceholder = agentAssigned
+    ? `Message the agent — it'll be incorporated on the next run…`
+    : `Leave a reply…`
+
+  // Unified, time-sorted activity: comments interleaved with issue_events.
+  type TimelineItem =
+    | { kind: `comment`; at: number; comment: Comment }
+    | { kind: `event`; at: number; event: IssueEvent }
+  const merged = useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = [
+      ...list.map((c) => ({
+        kind: `comment` as const,
+        at: new Date(c.createdAt).getTime(),
+        comment: c,
+      })),
+      ...((events ?? []) as IssueEvent[]).map((e) => ({
+        kind: `event` as const,
+        at: new Date(e.createdAt).getTime(),
+        event: e,
+      })),
+    ]
+    items.sort((a, b) => a.at - b.at)
+    return items
+  }, [list, events])
 
   // The latest kind='plan' comment hosts the approval buttons. Compute
   // index/revision so each plan row shows its own number.
@@ -105,26 +129,26 @@ export function IssueTimeline({
   // Hidden once the latest comment is a terminal/error comment (so the user
   // can act on it without the spinner stealing attention) or the issue is
   // done/cancelled.
+  // The newest activity item drives the agent's live state (no comment-body
+  // parsing — we read the synced pr_state column + issue_events).
+  const lastItem = merged[merged.length - 1]
+  const latestIsAgentError =
+    lastItem?.kind === `event` && lastItem.event.type === `agent_error`
+
+  // Spinner while the agent is actively working: planning (state='drafting') or
+  // coding (state='approved'), and no PR yet, no fresh error, not finished.
   const implementing = useMemo(() => {
     if (issue.status === `done` || issue.status === `cancelled`) return false
     const state = issue.agentPlanState
     if (state !== `approved` && state !== `drafting`) return false
-    const last = list[list.length - 1]
-    if (last && isTerminalComment(last)) return false
+    if (issue.prState) return false
+    if (latestIsAgentError) return false
     return true
-  }, [issue.agentPlanState, issue.status, list])
+  }, [issue.agentPlanState, issue.status, issue.prState, latestIsAgentError])
 
-  // Retry attaches to the most recent error comment, but only when nothing
-  // newer has happened on the issue. As soon as the daemon engages again
-  // (markStarted flips state to drafting, a new plan lands, any new comment
-  // posts), the previous error is "stale" and the button should disappear
-  // so the user doesn't double-retry into a re-plan they didn't want.
-  const latestErrorCommentId = useMemo(() => {
-    const last = list[list.length - 1]
-    if (!last) return null
-    if (!isTerminalComment(last)) return null
-    return isErrorComment(last) ? last.id : null
-  }, [list])
+  // Retry shows when the newest activity is an agent_error event (nothing newer
+  // has happened — once the agent re-engages, a newer event/comment supersedes).
+  const showRetry = latestIsAgentError && canApprovePlan
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -184,14 +208,25 @@ export function IssueTimeline({
   return (
     <div className="border-t border-border px-4 py-3">
       <div className="text-xs font-medium text-muted-foreground mb-2">
-        Activity {list.length > 0 ? `(${list.length})` : ``}
+        Activity {merged.length > 0 ? `(${merged.length})` : ``}
       </div>
-      {list.length === 0 && (
+      {merged.length === 0 && (
         <div className="text-xs text-muted-foreground py-1">
-          No comments yet. Be the first to add one.
+          No activity yet. Be the first to add a comment.
         </div>
       )}
-      {list.map((comment) => {
+      {merged.map((item) => {
+        if (item.kind === `event`) {
+          return (
+            <EventRow
+              key={`e-${item.event.id}`}
+              event={item.event}
+              userMap={userMap}
+              labelMap={labelMap}
+            />
+          )
+        }
+        const comment = item.comment
         const author = userMap.get(comment.authorId)
         if (comment.kind === `question`) {
           return (
@@ -222,8 +257,6 @@ export function IssueTimeline({
         }
         const canModify =
           comment.authorId === currentUserId || isAdmin
-        const showRetry =
-          comment.id === latestErrorCommentId && canApprovePlan
         return (
           <RegularCommentRow
             key={comment.id}
@@ -231,7 +264,7 @@ export function IssueTimeline({
             comment={comment}
             canModify={canModify}
             editing={editingCommentId === comment.id}
-            showRetry={showRetry}
+            showRetry={false}
             retrying={retrying}
             onCancelEdit={() => setEditingCommentId(null)}
             onDelete={() => void handleDelete(comment.id)}
@@ -251,12 +284,27 @@ export function IssueTimeline({
           </span>
         </div>
       )}
+      {showRetry && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+          <span className="text-muted-foreground">The agent hit an error.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            disabled={retrying}
+            onClick={() => void handleRetry()}
+          >
+            {retrying ? `Retrying…` : `Retry`}
+          </Button>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="mt-2 flex items-end gap-2">
-        <Textarea
-          placeholder="Leave a reply…"
+        <MentionTextarea
+          placeholder={composerPlaceholder}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          className="min-h-16 text-sm flex-1"
+          onValueChange={setDraft}
+          users={users}
+          className="min-h-16 text-sm"
           disabled={submitting}
           onKeyDown={(event) => {
             if (

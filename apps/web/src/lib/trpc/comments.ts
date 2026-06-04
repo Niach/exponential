@@ -15,6 +15,8 @@ import {
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
 import { fireAndForgetCommentNotify } from "@/lib/integrations/notifications"
+import { ensureSubscribed } from "@/lib/integrations/subscriptions"
+import { resolveMentions } from "@/lib/integrations/mentions"
 
 async function loadCommentForMutation(
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -102,13 +104,38 @@ export const commentsRouter = router({
           }
         }
 
-        return { txId, comment }
+        // Auto-subscribe the commenter (skipped for agents inside ensureSubscribed).
+        await ensureSubscribed(tx, {
+          issueId: input.issueId,
+          userId: ctx.session.user.id,
+          workspaceId: issueContext.workspaceId,
+          source: `commenter`,
+        })
+
+        // Resolve @email mentions to workspace members and auto-subscribe them
+        // (source='mention') so they keep following the thread.
+        const mentionedUserIds = await resolveMentions(
+          tx,
+          getCommentBodyText(input.body),
+          issueContext.workspaceId
+        )
+        for (const userId of mentionedUserIds) {
+          await ensureSubscribed(tx, {
+            issueId: input.issueId,
+            userId,
+            workspaceId: issueContext.workspaceId,
+            source: `mention`,
+          })
+        }
+
+        return { txId, comment, mentionedUserIds }
       })
 
       fireAndForgetCommentNotify({
         issueId: input.issueId,
         actorUserId: ctx.session.user.id,
         commentBodyText: getCommentBodyText(input.body),
+        mentionedUserIds: result.mentionedUserIds,
       })
 
       return result

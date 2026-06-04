@@ -53,6 +53,10 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE project_id = :projectId AND archived_at IS NULL ORDER BY sort_order, created_at")
     fun observeByProject(projectId: String): Flow<List<IssueEntity>>
 
+    // All issues (used by the inbox to resolve titles + the "needs review" list).
+    @Query("SELECT * FROM issues")
+    fun observeAll(): Flow<List<IssueEntity>>
+
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
@@ -177,6 +181,54 @@ interface WorkspaceInviteDao {
     suspend fun deleteById(id: String)
 
     @Query("DELETE FROM workspace_invites")
+    suspend fun clear()
+}
+
+@Dao
+interface NotificationDao {
+    @Query("SELECT * FROM notifications WHERE user_id = :userId ORDER BY created_at DESC")
+    fun observeByUser(userId: String): Flow<List<NotificationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: NotificationEntity)
+
+    @Query("DELETE FROM notifications WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM notifications")
+    suspend fun clear()
+}
+
+@Dao
+interface IssueSubscriberDao {
+    @Query("SELECT * FROM issue_subscribers WHERE issue_id = :issueId")
+    fun observeByIssue(issueId: String): Flow<List<IssueSubscriberEntity>>
+
+    @Query("SELECT * FROM issue_subscribers WHERE workspace_id = :workspaceId")
+    fun observeByWorkspace(workspaceId: String): Flow<List<IssueSubscriberEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: IssueSubscriberEntity)
+
+    @Query("DELETE FROM issue_subscribers WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM issue_subscribers")
+    suspend fun clear()
+}
+
+@Dao
+interface IssueEventDao {
+    @Query("SELECT * FROM issue_events WHERE issue_id = :issueId ORDER BY created_at ASC")
+    fun observeByIssue(issueId: String): Flow<List<IssueEventEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: IssueEventEntity)
+
+    @Query("DELETE FROM issue_events WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM issue_events")
     suspend fun clear()
 }
 

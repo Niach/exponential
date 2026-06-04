@@ -77,6 +77,14 @@ data class IssueEntity(
     @ColumnInfo(name = "agent_plan_approved_at") @SerialName("agent_plan_approved_at") @JsonNames("agentPlanApprovedAt") val agentPlanApprovedAt: String? = null,
     @ColumnInfo(name = "agent_plan_approved_by") @SerialName("agent_plan_approved_by") @JsonNames("agentPlanApprovedBy") val agentPlanApprovedBy: String? = null,
     @ColumnInfo(name = "agent_last_comment_seen_at") @SerialName("agent_last_comment_seen_at") @JsonNames("agentLastCommentSeenAt") val agentLastCommentSeenAt: String? = null,
+    @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,
+    @ColumnInfo(name = "pr_number") @SerialName("pr_number") @JsonNames("prNumber") val prNumber: Int? = null,
+    @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
+    val branch: String? = null,
+    @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
+    @ColumnInfo(name = "agent_session_id") @SerialName("agent_session_id") @JsonNames("agentSessionId") val agentSessionId: String? = null,
+    @ColumnInfo(name = "agent_run_mode") @SerialName("agent_run_mode") @JsonNames("agentRunMode") val agentRunMode: String? = null,
+    @ColumnInfo(name = "agent_interactive_claimed_at") @SerialName("agent_interactive_claimed_at") @JsonNames("agentInteractiveClaimedAt") val agentInteractiveClaimedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -115,6 +123,7 @@ data class UserEntity(
     val name: String? = null,
     val email: String,
     val image: String? = null,
+    @ColumnInfo(name = "is_agent") @SerialName("is_agent") @JsonNames("isAgent") val isAgent: Boolean = false,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -194,6 +203,56 @@ data class AttachmentEntity(
     // avoid layout shift. Nullable for non-image / not-yet-probed attachments.
     val width: Int? = null,
     val height: Int? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+@Entity(
+    tableName = "notifications",
+    indices = [Index("user_id", "read_at")],
+)
+@Serializable
+data class NotificationEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
+    val type: String,
+    val title: String,
+    val body: String? = null,
+    @ColumnInfo(name = "read_at") @SerialName("read_at") @JsonNames("readAt") val readAt: String? = null,
+    @ColumnInfo(name = "pushed_at") @SerialName("pushed_at") @JsonNames("pushedAt") val pushedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+@Entity(
+    tableName = "issue_subscribers",
+    indices = [Index("user_id"), Index("workspace_id")],
+)
+@Serializable
+data class IssueSubscriberEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
+    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    val source: String,
+    val unsubscribed: Boolean = false,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
+@Entity(
+    tableName = "issue_events",
+    indices = [Index("issue_id"), Index("workspace_id")],
+)
+@Serializable
+data class IssueEventEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    @ColumnInfo(name = "actor_user_id") @SerialName("actor_user_id") @JsonNames("actorUserId") val actorUserId: String? = null,
+    val type: String,
+    @Serializable(with = JsonAsStringSerializer::class) val payload: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

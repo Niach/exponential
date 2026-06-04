@@ -3,7 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
-import { auth } from "@/lib/auth"
+import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
 
@@ -20,27 +20,11 @@ const methodNotAllowed = () =>
     }
   )
 
-// Resolve a user from the request, accepting both Better Auth's MCP OAuth2
-// access tokens (issued via the `mcp` plugin) and `apiKey` plugin bearer
-// tokens (which mock a session when `enableSessionForAPIKeys: true`).
-async function resolveMcpUserId(request: Request): Promise<string | null> {
-  // OAuth path: existing MCP clients that completed the OAuth flow.
-  const mcpSession = await auth.api
-    .getMcpSession({ request, headers: request.headers, asResponse: false })
-    .catch(() => null)
-  if (mcpSession?.userId) return mcpSession.userId
-
-  // api-key path: agent companions authenticating with `Authorization: Bearer
-  // expk_...`. The api-key plugin's `customAPIKeyGetter` (configured in
-  // src/lib/auth.ts) pulls the key from either `x-api-key` or that header.
-  const session = await auth.api
-    .getSession({ headers: request.headers })
-    .catch(() => null)
-  return session?.user?.id ?? null
-}
-
 async function handle(request: Request) {
-  const userId = await resolveMcpUserId(request)
+  // Accepts MCP OAuth2 access tokens (agent credential + human MCP clients),
+  // legacy `expk_` api keys, session cookies, and bearer session tokens — all
+  // via the shared resolveSession chokepoint.
+  const userId = await resolveSessionUserId(request)
 
   if (!userId) {
     const baseURL = process.env.BETTER_AUTH_URL?.replace(/\/$/, ``) ?? ``

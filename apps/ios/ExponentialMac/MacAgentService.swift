@@ -3,10 +3,14 @@ import ExpCore
 import Foundation
 
 /// Locally-stored desktop-agent identity for one workspace (mirrors the Linux
-/// `identity_store` agent-{workspaceId}.json). Holds the agent's `expk_` key.
+/// `identity_store` agent-{workspaceId}.json). `apiKey` holds the OAuth access
+/// token (a valid bearer for every agent call); the refresh fields rotate it.
 struct MacAgentIdentity: Codable, Sendable {
     let instanceUrl: String
     let apiKey: String
+    var refreshToken: String?
+    var tokenEndpoint: String?
+    var oauthClientId: String?
     let agentId: String
     let agentUserId: String
     let agentName: String
@@ -112,34 +116,33 @@ final class MacAgentService {
         lastError = nil
         defer { busy = false }
         do {
-            // 1. companion.create (human session) → setupToken
-            let created = try await trpc(base: base, path: "companion.create",
-                                         input: ["workspaceId": workspaceId, "name": name], bearer: token)
-            guard let setupToken = created?["setupToken"] as? String else {
-                lastError = "Server did not return a setup token"; return
-            }
-            // 2. companion.claimSetup (public) → agent credentials
-            let claim = try await trpc(base: base, path: "companion.claimSetup",
-                                       input: ["setupToken": setupToken], bearer: nil)
-            guard let claim,
-                  let apiKey = claim["apiKey"] as? String,
-                  let agent = claim["agent"] as? [String: Any],
+            // One human-session-authorized call → the agent sub-identity + a
+            // refreshable OAuth credential (no setup token, no public claim).
+            let res = try await trpc(base: base, path: "companion.register",
+                                     input: ["workspaceId": workspaceId, "name": name], bearer: token)
+            guard let res,
+                  let cred = res["credential"] as? [String: Any],
+                  let accessToken = cred["accessToken"] as? String,
+                  let agent = res["agent"] as? [String: Any],
                   let agentId = agent["id"] as? String,
                   let agentUserId = agent["userId"] as? String,
-                  let ws = claim["workspace"] as? [String: Any],
+                  let ws = res["workspace"] as? [String: Any],
                   let wsId = ws["id"] as? String else {
-                lastError = "Claim setup failed"; return
+                lastError = "Registration failed"; return
             }
             let identity = MacAgentIdentity(
                 instanceUrl: base,
-                apiKey: apiKey,
+                apiKey: accessToken,
+                refreshToken: cred["refreshToken"] as? String,
+                tokenEndpoint: cred["tokenEndpoint"] as? String,
+                oauthClientId: cred["clientId"] as? String,
                 agentId: agentId,
                 agentUserId: agentUserId,
                 agentName: (agent["name"] as? String) ?? name,
                 workspaceId: wsId,
                 workspaceSlug: (ws["slug"] as? String) ?? "",
                 workspaceName: (ws["name"] as? String) ?? "",
-                githubClientId: (claim["oauth"] as? [String: Any])?["githubClientId"] as? String,
+                githubClientId: (res["oauth"] as? [String: Any])?["githubClientId"] as? String,
                 githubLogin: nil
             )
             MacAgentStore.save(identity)
@@ -248,8 +251,10 @@ final class MacAgentService {
                                              interval: dc.interval, expiresIn: dc.expiresIn)
             let login = (try? await githubFetchLogin(token: token)) ?? ""
             MacAgentStore.saveGithubToken(token, login: login)
+            // Report the token (stored encrypted server-side) so the web app can
+            // read PR diffs for private repos. Used read-only.
             _ = try? await trpc(base: id.instanceUrl, path: "companion.reportGithubIdentity",
-                                input: ["login": login, "repos": []], bearer: id.apiKey)
+                                input: ["login": login, "repos": [], "token": token], bearer: id.apiKey)
             id.githubLogin = login
             MacAgentStore.save(id)
         } catch {

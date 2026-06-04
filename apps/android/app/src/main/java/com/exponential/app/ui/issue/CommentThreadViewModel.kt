@@ -8,6 +8,7 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.UserEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 data class CommentThreadState(
     val issue: IssueEntity? = null,
     val comments: List<CommentEntity> = emptyList(),
+    val events: List<IssueEventEntity> = emptyList(),
     val usersById: Map<String, UserEntity> = emptyMap(),
     val currentUserId: String? = null,
     val isAdmin: Boolean = false,
@@ -42,20 +44,32 @@ class CommentThreadViewModel @Inject constructor(
 
     private val issueIdFlow = MutableStateFlow<String?>(null)
 
+    // Comments + activity events pre-combined into one flow so the outer combine
+    // stays within the 5-arg typed overload.
+    private val commentsAndEvents = issueIdFlow.flatMapLatest { id ->
+        if (id == null) {
+            flowOf(emptyList<CommentEntity>() to emptyList<IssueEventEntity>())
+        } else {
+            combine(
+                db.commentDao().observeByIssue(id),
+                db.issueEventDao().observeByIssue(id),
+            ) { comments, events -> comments to events }
+        }
+    }
+
     val state: StateFlow<CommentThreadState> = combine(
         issueIdFlow.flatMapLatest { id ->
             if (id == null) flowOf(null) else db.issueDao().observeById(id)
         },
-        issueIdFlow.flatMapLatest { id ->
-            if (id == null) flowOf(emptyList()) else db.commentDao().observeByIssue(id)
-        },
+        commentsAndEvents,
         db.userDao().observeAll(),
         auth.userId,
         auth.isAdmin,
-    ) { issue, comments, users, userId, isAdmin ->
+    ) { issue, (comments, events), users, userId, isAdmin ->
         CommentThreadState(
             issue = issue,
             comments = comments,
+            events = events,
             usersById = users.associateBy { it.id },
             currentUserId = userId,
             isAdmin = isAdmin,

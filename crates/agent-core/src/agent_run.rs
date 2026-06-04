@@ -21,12 +21,22 @@ pub struct RunRequest {
     pub mcp_config_path: Option<String>,
     pub system_prompt: String,
     pub user_prompt: String,
+    // Interactive runs launch the CLI WITHOUT `--print` so the user watches and
+    // steers it in the embedded terminal; the plan is delivered out-of-band via
+    // the MCP plan-submit tool (no stdout parsing). `continue_session_id` resumes
+    // a prior session (approve-and-continue) in the reused worktree.
+    pub interactive: bool,
+    pub continue_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunResult {
     pub exit_code: i32,
     pub final_text: String,
+    // The CLI session id (claude), captured by the host so an interactive run
+    // can later be `--continue`d. None for headless runs / hosts that don't
+    // surface it.
+    pub session_id: Option<String>,
 }
 
 static REGISTRY: OnceLock<Mutex<HashMap<String, mpsc::Sender<RunResult>>>> = OnceLock::new();
@@ -46,15 +56,15 @@ pub fn request_run(req: RunRequest, emit: impl FnOnce(&RunRequest)) -> RunResult
     let (tx, rx) = mpsc::channel();
     registry().lock().unwrap().insert(req.run_id.clone(), tx);
     emit(&req);
-    rx.recv().unwrap_or(RunResult { exit_code: -1, final_text: String::new() })
+    rx.recv().unwrap_or(RunResult { exit_code: -1, final_text: String::new(), session_id: None })
 }
 
 /// Deliver a host's run result to the waiting pipeline. Returns false if no run
-/// with that id is pending.
-pub fn submit_result(run_id: &str, exit_code: i32, final_text: String) -> bool {
+/// with that id is pending. `session_id` is the CLI session (for `--continue`).
+pub fn submit_result(run_id: &str, exit_code: i32, final_text: String, session_id: Option<String>) -> bool {
     let tx = registry().lock().unwrap().remove(run_id);
     match tx {
-        Some(tx) => tx.send(RunResult { exit_code, final_text }).is_ok(),
+        Some(tx) => tx.send(RunResult { exit_code, final_text, session_id }).is_ok(),
         None => false,
     }
 }
@@ -92,6 +102,48 @@ pub fn build_claude_run(cwd: &str, mode: &str, mcp_config_path: &str, system_pro
         mcp_config_path: Some(mcp_config_path.to_string()),
         system_prompt: system_prompt.to_string(),
         user_prompt: user_prompt.to_string(),
+        interactive: false,
+        continue_session_id: None,
+    }
+}
+
+/// Build an INTERACTIVE claude run: no `--print` (the user watches/steers it in
+/// the embedded terminal), `--dangerously-skip-permissions`, and the MCP config.
+/// The plan/code is delivered out-of-band (the agent calls the Exponential MCP
+/// tools inside the session). Plan stage uses `--permission-mode plan`; the
+/// continue (code) stage uses `acceptEdits` + `--continue` to resume the same
+/// session in the reused worktree.
+pub fn build_claude_interactive_run(
+    cwd: &str,
+    mcp_config_path: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    continue_session_id: Option<&str>,
+) -> RunRequest {
+    let continuing = continue_session_id.is_some();
+    let permission_mode = if continuing { "acceptEdits" } else { "plan" };
+    let mut argv = vec![
+        "--dangerously-skip-permissions".into(),
+        "--permission-mode".into(),
+        permission_mode.into(),
+        "--mcp-config".into(),
+        mcp_config_path.into(),
+    ];
+    if continuing {
+        argv.push("--continue".into());
+    }
+    RunRequest {
+        run_id: new_run_id(),
+        cwd: cwd.to_string(),
+        mode: if continuing { "code".into() } else { "plan".into() },
+        program: "claude".to_string(),
+        argv,
+        env: vec![],
+        mcp_config_path: Some(mcp_config_path.to_string()),
+        system_prompt: system_prompt.to_string(),
+        user_prompt: user_prompt.to_string(),
+        interactive: true,
+        continue_session_id: continue_session_id.map(|s| s.to_string()),
     }
 }
 
@@ -112,6 +164,8 @@ pub fn build_codex_run(cwd: &str, mode: &str, mcp_url: &str, token: &str, system
         mcp_config_path: None,
         system_prompt: system_prompt.to_string(),
         user_prompt: user_prompt.to_string(),
+        interactive: false,
+        continue_session_id: None,
     }
 }
 
@@ -132,6 +186,8 @@ mod tests {
             mcp_config_path: None,
             system_prompt: String::new(),
             user_prompt: String::new(),
+            interactive: false,
+            continue_session_id: None,
         };
         let id = req.run_id.clone();
         let result = request_run(req, |_r| {
@@ -139,16 +195,36 @@ mod tests {
             let id = id.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(20));
-                assert!(submit_result(&id, 0, "### PLAN\nbody".into()));
+                assert!(submit_result(&id, 0, "### PLAN\nbody".into(), Some("sess-1".into())));
             });
         });
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.final_text, "### PLAN\nbody");
+        assert_eq!(result.session_id.as_deref(), Some("sess-1"));
     }
 
     #[test]
     fn submit_unknown_run_is_false() {
-        assert!(!submit_result("run-does-not-exist", 0, "x".into()));
+        assert!(!submit_result("run-does-not-exist", 0, "x".into(), None));
+    }
+
+    #[test]
+    fn interactive_builder_has_no_print_and_unsafe_plan_mode() {
+        let plan = build_claude_interactive_run("/w", "/w/.mcp.json", "sys", "user", None);
+        assert!(plan.interactive);
+        assert!(!plan.argv.iter().any(|a| a == "--print"));
+        assert!(plan.argv.iter().any(|a| a == "--dangerously-skip-permissions"));
+        let i = plan.argv.iter().position(|a| a == "--permission-mode").unwrap();
+        assert_eq!(plan.argv[i + 1], "plan");
+        assert!(!plan.argv.iter().any(|a| a == "--continue"));
+
+        // Continuing (approve-and-continue) switches to acceptEdits + --continue.
+        let cont = build_claude_interactive_run("/w", "/w/.mcp.json", "sys", "user", Some("sess-1"));
+        let j = cont.argv.iter().position(|a| a == "--permission-mode").unwrap();
+        assert_eq!(cont.argv[j + 1], "acceptEdits");
+        assert!(cont.argv.iter().any(|a| a == "--continue"));
+        assert_eq!(cont.continue_session_id.as_deref(), Some("sess-1"));
+        assert_eq!(cont.mode, "code");
     }
 
     #[test]

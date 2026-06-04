@@ -9,6 +9,8 @@ import {
   getIssueWorkspaceContext,
   getWorkspaceMember,
 } from "@/lib/workspace-membership"
+import { recordIssueEvent } from "@/lib/integrations/activity"
+import { prStateSchema } from "@/lib/domain"
 
 async function assertAgentForIssue(userId: string, issueId: string) {
   const issueContext = await getIssueWorkspaceContext(issueId)
@@ -76,6 +78,18 @@ export const agentPlanRouter = router({
           })
           .where(eq(issues.id, input.issueId))
           .returning()
+
+        // Surface "plan ready for review" in the activity timeline + inbox.
+        if (input.state === `awaiting_approval`) {
+          await recordIssueEvent(tx, {
+            issueId: input.issueId,
+            workspaceId: issueContext.workspaceId,
+            actorUserId: ctx.session.user.id,
+            type: `plan_ready`,
+            payload: null,
+          })
+        }
+
         return { txId, issue }
       })
 
@@ -247,5 +261,104 @@ export const agentPlanRouter = router({
       })
 
       return result
+    }),
+
+  // The agent reports its PR onto the issue (one issue = one PR = one branch).
+  // Writes the synced pr_* columns + emits pr_opened / pr_merged activity events
+  // on transition. Replaces the old comment-body "PR opened:" convention.
+  reportPr: authedProcedure
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        prUrl: z.string().url(),
+        prNumber: z.number().int().positive(),
+        prState: prStateSchema,
+        branch: z.string().max(255).optional(),
+        mergedAt: z.string().datetime().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const issueContext = await assertAgentForIssue(
+        ctx.session.user.id,
+        input.issueId
+      )
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const [current] = await tx
+          .select({ prState: issues.prState })
+          .from(issues)
+          .where(eq(issues.id, input.issueId))
+          .limit(1)
+        if (!current) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+        }
+
+        const [issue] = await tx
+          .update(issues)
+          .set({
+            prUrl: input.prUrl,
+            prNumber: input.prNumber,
+            prState: input.prState,
+            branch: input.branch ?? undefined,
+            prMergedAt:
+              input.prState === `merged`
+                ? input.mergedAt
+                  ? new Date(input.mergedAt)
+                  : new Date()
+                : null,
+          })
+          .where(eq(issues.id, input.issueId))
+          .returning()
+
+        if (input.prState === `open` && current.prState !== `open`) {
+          await recordIssueEvent(tx, {
+            issueId: input.issueId,
+            workspaceId: issueContext.workspaceId,
+            actorUserId: ctx.session.user.id,
+            type: `pr_opened`,
+            payload: { prUrl: input.prUrl, prNumber: input.prNumber },
+          })
+        }
+        if (input.prState === `merged` && current.prState !== `merged`) {
+          await recordIssueEvent(tx, {
+            issueId: input.issueId,
+            workspaceId: issueContext.workspaceId,
+            actorUserId: ctx.session.user.id,
+            type: `pr_merged`,
+            payload: { prUrl: input.prUrl },
+          })
+        }
+
+        return { txId, issue }
+      })
+    }),
+
+  // The agent reports a terminal error. Emits an agent_error activity event so
+  // the timeline can surface a Retry affordance (the agent still posts the full
+  // error as a comment separately, which notifies subscribers).
+  reportError: authedProcedure
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        message: z.string().max(2000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const issueContext = await assertAgentForIssue(
+        ctx.session.user.id,
+        input.issueId
+      )
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await recordIssueEvent(tx, {
+          issueId: input.issueId,
+          workspaceId: issueContext.workspaceId,
+          actorUserId: ctx.session.user.id,
+          type: `agent_error`,
+          payload: { message: input.message },
+        })
+        return { txId }
+      })
     }),
 })

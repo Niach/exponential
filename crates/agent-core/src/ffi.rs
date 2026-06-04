@@ -60,6 +60,11 @@ struct Runtime {
     dispatcher: Dispatcher,
     #[allow(dead_code)] // kept alive; the loops exit on their own poll cycle
     workers: Vec<JoinHandle<()>>,
+    // Kept so the host-triggered interactive entry points can run a pipeline
+    // slice (build worktree + emit an interactive run_request).
+    config: Arc<Config>,
+    state: Arc<Mutex<State>>,
+    emit: run_pipeline::Emit,
 }
 
 /// Matches `AgentCoreEventCallback` in the C header. `Option<..>` so a NULL
@@ -188,11 +193,15 @@ pub extern "C" fn agent_core_start(core: *mut AgentCore) -> c_int {
             "program": r.program, "argv": r.argv, "env": env,
             "mcpConfigPath": r.mcp_config_path,
             "systemPrompt": r.system_prompt, "userPrompt": r.user_prompt,
+            // Interactive: the host launches the CLI in the visible terminal with
+            // NO output capture (no tee/PIPESTATUS); the plan is delivered via MCP.
+            "interactive": r.interactive,
+            "continueSessionId": r.continue_session_id,
         });
         emit(&slot, &v.to_string());
     });
 
-    let pipeline = run_pipeline::build_pipeline(Arc::clone(&config), Arc::clone(&state), emit_cb);
+    let pipeline = run_pipeline::build_pipeline(Arc::clone(&config), Arc::clone(&state), emit_cb.clone());
     let dispatcher = Dispatcher::start(Arc::clone(&state), core.max_concurrent, pipeline);
 
     // Electric assigned-issues loop → dispatcher.
@@ -208,7 +217,14 @@ pub extern "C" fn agent_core_start(core: *mut AgentCore) -> c_int {
         thread::spawn(move || pr_poll::run_loop(&c, &s, &st))
     };
 
-    *core.runtime.lock().unwrap() = Some(Runtime { stop, dispatcher, workers: vec![electric_h, prpoll_h] });
+    *core.runtime.lock().unwrap() = Some(Runtime {
+        stop,
+        dispatcher,
+        workers: vec![electric_h, prpoll_h],
+        config: Arc::clone(&config),
+        state: Arc::clone(&state),
+        emit: emit_cb,
+    });
     emit(&core.callback, r#"{"type":"log","level":"info","message":"agent loop started"}"#);
     OK
 }
@@ -277,6 +293,9 @@ pub extern "C" fn agent_core_submit_run_result(
     run_id: *const c_char,
     exit_code: c_int,
     final_text: *const c_char,
+    // The CLI session id (claude), so an interactive run can later be continued.
+    // Pass NULL for headless runs / hosts that don't surface it.
+    session_id: *const c_char,
 ) -> c_int {
     if unsafe { core.as_ref() }.is_none() {
         return ERR_INVALID_HANDLE;
@@ -285,7 +304,8 @@ pub extern "C" fn agent_core_submit_run_result(
         return ERR_CONFIG;
     };
     let text = unsafe { cstr_to_string(final_text) }.unwrap_or_default();
-    agent_run::submit_result(&run_id, exit_code as i32, text);
+    let session = unsafe { cstr_to_string(session_id) }.filter(|s| !s.is_empty());
+    agent_run::submit_result(&run_id, exit_code as i32, text, session);
     OK
 }
 
@@ -297,6 +317,50 @@ pub extern "C" fn agent_core_cancel_run(core: *mut AgentCore, run_id: *const c_c
     if let Some(id) = unsafe { cstr_to_string(run_id) } {
         agent_run::cancel(&id);
     }
+    OK
+}
+
+/// Host-triggered: start an INTERACTIVE plan session for one issue (the desktop
+/// "AI" button). Runs on a worker thread (it blocks on the host's terminal run);
+/// the host receives a `run_request` with `interactive: true` and launches the
+/// CLI in the embedded terminal. Returns immediately.
+#[no_mangle]
+pub extern "C" fn agent_core_request_interactive(core: *mut AgentCore, issue_id: *const c_char) -> c_int {
+    let Some(core) = (unsafe { core.as_ref() }) else {
+        return ERR_INVALID_HANDLE;
+    };
+    let Some(issue_id) = (unsafe { cstr_to_string(issue_id) }) else {
+        return ERR_CONFIG;
+    };
+    let guard = core.runtime.lock().unwrap();
+    let Some(rt) = guard.as_ref() else {
+        return ERR_INVALID_HANDLE; // not started
+    };
+    let (config, state, emit) = (Arc::clone(&rt.config), Arc::clone(&rt.state), rt.emit.clone());
+    drop(guard);
+    thread::spawn(move || run_pipeline::run_interactive_plan(config, state, emit, &issue_id));
+    OK
+}
+
+/// Host-triggered: continue an interactive session after the user approved the
+/// plan (the desktop "Approve & continue here"). The host has already approved
+/// with the human session; this resumes the same claude session in the reused
+/// worktree to implement it. Runs on a worker thread.
+#[no_mangle]
+pub extern "C" fn agent_core_approve_interactive(core: *mut AgentCore, issue_id: *const c_char) -> c_int {
+    let Some(core) = (unsafe { core.as_ref() }) else {
+        return ERR_INVALID_HANDLE;
+    };
+    let Some(issue_id) = (unsafe { cstr_to_string(issue_id) }) else {
+        return ERR_CONFIG;
+    };
+    let guard = core.runtime.lock().unwrap();
+    let Some(rt) = guard.as_ref() else {
+        return ERR_INVALID_HANDLE;
+    };
+    let (config, state, emit) = (Arc::clone(&rt.config), Arc::clone(&rt.state), rt.emit.clone());
+    drop(guard);
+    thread::spawn(move || run_pipeline::run_interactive_continue(config, state, emit, &issue_id));
     OK
 }
 

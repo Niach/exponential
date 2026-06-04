@@ -7,6 +7,12 @@ import {
   workspaceRoleValues,
   publicWritePolicyValues,
   commentKindValues,
+  agentPlanStateValues,
+  notificationTypeValues,
+  prStateValues,
+  runModeValues,
+  subscriberSourceValues,
+  issueEventTypeValues,
   recurrenceIntervals,
   issueStatusOrder,
 } from "@exp/db-schema/domain"
@@ -43,6 +49,38 @@ describe(`domain-contract parity`, () => {
 
   it(`comment kind values match the contract`, () => {
     expect([...commentKindValues]).toEqual([...contract.commentKind.values])
+  })
+
+  it(`agent plan state values match the contract`, () => {
+    expect([...agentPlanStateValues]).toEqual([
+      ...contract.agentPlanState.values,
+    ])
+  })
+
+  it(`notification type values match the contract`, () => {
+    expect([...notificationTypeValues]).toEqual([
+      ...contract.notificationType.values,
+    ])
+  })
+
+  it(`pr state values match the contract`, () => {
+    expect([...prStateValues]).toEqual([...contract.prState.values])
+  })
+
+  it(`run mode values match the contract`, () => {
+    expect([...runModeValues]).toEqual([...contract.runMode.values])
+  })
+
+  it(`subscriber source values match the contract`, () => {
+    expect([...subscriberSourceValues]).toEqual([
+      ...contract.subscriberSource.values,
+    ])
+  })
+
+  it(`issue event type values match the contract`, () => {
+    expect([...issueEventTypeValues]).toEqual([
+      ...contract.issueEventType.values,
+    ])
   })
 
   it(`recurrence intervals match the contract`, () => {

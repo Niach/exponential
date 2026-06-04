@@ -72,6 +72,13 @@ impl Inner {
             IssueEventType::Updated => {
                 let existing = self.with_state(|s| s.get_issue(&event.issue_id).ok().flatten());
                 if let Some(ex) = &existing {
+                    if ex.interactive_owned != 0 {
+                        // A desktop interactive session owns this issue (e.g. the
+                        // user is about to approve-and-continue in the embedded
+                        // terminal). Suppress the automatic background code run so
+                        // the two don't both code.
+                        return;
+                    }
                     if !REENTRY.contains(&ex.status.as_str()) {
                         return; // updated events fire constantly; only re-enter from the allowlist
                     }
@@ -347,5 +354,27 @@ mod tests {
         // in_review is not in REENTRY → pipeline must NOT have run.
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(status_of(&st, "a").as_deref(), Some("in_review"));
+    }
+
+    #[test]
+    fn interactive_owned_suppresses_reentry() {
+        let st = state();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (st2, calls2) = (Arc::clone(&st), Arc::clone(&calls));
+        let pipeline: PipelineFn = Arc::new(move |issue: IssueRow| {
+            calls2.fetch_add(1, Ordering::SeqCst);
+            st2.lock().unwrap().set_issue_status(&issue.id, "in_review", None).unwrap();
+        });
+        let d = Dispatcher::start(Arc::clone(&st), 2, pipeline);
+        // awaiting_approval IS in REENTRY, but an interactive session owns it →
+        // the background code stage must NOT run (the desktop continues it).
+        st.lock().unwrap().upsert_issue(&IssueSeed { id: "a", identifier: "EXP-a", title: "t", project_id: "p", status: "awaiting_approval" }).unwrap();
+        st.lock().unwrap().patch_issue("a", &crate::state::IssuePatch { interactive_owned: Some(1), ..Default::default() }).unwrap();
+        let mut e = ev("a", Some("bot"));
+        e.event_type = IssueEventType::Updated;
+        d.enqueue(e);
+        std::thread::sleep(Duration::from_millis(40));
+        d.stop();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 }

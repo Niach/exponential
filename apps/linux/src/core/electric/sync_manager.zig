@@ -1,7 +1,7 @@
 //! Multi-shape sync orchestrator — port of the iOS `SyncManager`.
 //!
 //! Runs one `ShapeClient` per synced table on its own thread, all writing to the
-//! single (mutex-guarded) `Database`. The 10 shapes match every other client
+//! single (mutex-guarded) `Database`. The 13 shapes match every other client
 //! (web/iOS/Android). `gpa` MUST be thread-safe (page_allocator) since the shape
 //! threads allocate concurrently outside the DB lock.
 
@@ -15,7 +15,7 @@ pub const ShapeSpec = struct {
     table: []const u8,
 };
 
-/// The 10 Electric shapes mirrored by all clients (see CLAUDE.md "Mobile parity").
+/// The 13 Electric shapes mirrored by all clients (see CLAUDE.md "Mobile parity").
 pub const specs = [_]ShapeSpec{
     .{ .name = "workspaces", .url_path = "/api/shapes/workspaces", .table = "workspaces" },
     .{ .name = "projects", .url_path = "/api/shapes/projects", .table = "projects" },
@@ -27,6 +27,9 @@ pub const specs = [_]ShapeSpec{
     .{ .name = "workspace-invites", .url_path = "/api/shapes/workspace-invites", .table = "workspace_invites" },
     .{ .name = "comments", .url_path = "/api/shapes/comments", .table = "comments" },
     .{ .name = "attachments", .url_path = "/api/shapes/attachments", .table = "attachments" },
+    .{ .name = "notifications", .url_path = "/api/shapes/notifications", .table = "notifications" },
+    .{ .name = "issue-events", .url_path = "/api/shapes/issue-events", .table = "issue_events" },
+    .{ .name = "issue-subscribers", .url_path = "/api/shapes/issue-subscribers", .table = "issue_subscribers" },
 };
 
 pub const PollOutcome = struct {
@@ -113,8 +116,8 @@ pub const SyncManager = struct {
     }
 };
 
-test "shape registry: 10 shapes with matching tables" {
-    try std.testing.expectEqual(@as(usize, 10), specs.len);
+test "shape registry: 13 shapes with matching tables" {
+    try std.testing.expectEqual(@as(usize, 13), specs.len);
     // dashed shape name maps to the underscored SQLite table.
     for (specs) |s| {
         if (std.mem.eql(u8, s.name, "issue-labels")) {

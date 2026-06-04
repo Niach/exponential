@@ -27,6 +27,11 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -90,6 +95,7 @@ fun IssueDetailScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
+    val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
     val issue = state.issue
     var titleField by remember { mutableStateOf("") }
@@ -118,6 +124,17 @@ fun IssueDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (issue != null) {
+                        IconButton(onClick = { viewModel.toggleSubscribe() }) {
+                            Icon(
+                                if (isSubscribed) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                                contentDescription = if (isSubscribed) "Unsubscribe" else "Subscribe",
+                                tint = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -432,14 +449,30 @@ fun IssueDetailScreen(
     }
 
     if (assigneeMenuOpen && isModerator) {
+        // People first, then Agents — assigning to an agent creates a plan request.
+        val people = state.users.filter { !it.isAgent }
+        val agents = state.users.filter { it.isAgent }
         val assigneeItems: List<com.exponential.app.data.db.UserEntity?> =
-            listOf<com.exponential.app.data.db.UserEntity?>(null) + state.users
+            listOf<com.exponential.app.data.db.UserEntity?>(null) + people + agents
         IssuePickerSheet(
             title = "Assignee",
             items = assigneeItems,
             selected = assigneeItems.firstOrNull { it?.id == state.assignee?.id },
             keyOf = { it?.id ?: "__unassigned__" },
-            labelOf = { user -> user?.name ?: user?.email ?: "Unassigned" },
+            labelOf = { user ->
+                when {
+                    user == null -> "Unassigned"
+                    user.isAgent -> "${user.name ?: user.email} · agent"
+                    else -> user.name ?: user.email
+                }
+            },
+            iconOf = { user ->
+                when {
+                    user == null -> Icons.Filled.PersonOff
+                    user.isAgent -> Icons.Filled.SmartToy
+                    else -> Icons.Filled.Person
+                }
+            },
             onSelect = { viewModel.updateAssignee(it?.id) },
             onDismiss = { assigneeMenuOpen = false },
         )

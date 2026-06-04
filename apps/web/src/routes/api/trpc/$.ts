@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { router } from "@/lib/trpc"
 import { db } from "@/db/connection"
-import { auth } from "@/lib/auth"
+import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { workspacesRouter } from "@/lib/trpc/workspaces"
 import { projectsRouter } from "@/lib/trpc/projects"
 import { issuesRouter } from "@/lib/trpc/issues"
@@ -19,6 +19,8 @@ import { companionRouter } from "@/lib/trpc/companion"
 import { agentPlanRouter } from "@/lib/trpc/agent-plan"
 import { billingRouter } from "@/lib/trpc/billing"
 import { onboardingRouter } from "@/lib/trpc/onboarding"
+import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
+import { notificationsRouter } from "@/lib/trpc/notifications"
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -37,6 +39,8 @@ export const appRouter = router({
   agentPlan: agentPlanRouter,
   billing: billingRouter,
   onboarding: onboardingRouter,
+  subscriptions: subscriptionsRouter,
+  notifications: notificationsRouter,
 })
 
 export type AppRouter = typeof appRouter
@@ -49,7 +53,7 @@ const serve = ({ request }: { request: Request }) => {
     createContext: async () => ({
       db,
       request,
-      session: await auth.api.getSession({ headers: request.headers }),
+      session: await resolveSession(request),
     }),
   })
 }

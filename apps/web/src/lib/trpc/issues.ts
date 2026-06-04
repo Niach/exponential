@@ -1,12 +1,18 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, issues, issueLabels, labels } from "@/db/schema"
+import { attachments, issues, issueLabels, labels, projects } from "@/db/schema"
 import { eq, inArray } from "drizzle-orm"
 import {
   assertCanCreateIssueInProject,
   assertCanMutateIssue,
+  assertWorkspaceMember,
+  getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
+import {
+  fetchPullFiles,
+  resolveAgentRepoToken,
+} from "@/lib/integrations/github-pr"
 import {
   isModerationRestricted,
   stripModerationFields,
@@ -41,7 +47,12 @@ import {
   fireAndForgetDelete,
   fireAndForgetSync,
 } from "@/lib/integrations/google-calendar"
-import { fireAndForgetAssignmentNotify } from "@/lib/integrations/notifications"
+import {
+  fireAndForgetAssignmentNotify,
+  fireAndForgetStatusChangeNotify,
+} from "@/lib/integrations/notifications"
+import { ensureSubscribed } from "@/lib/integrations/subscriptions"
+import { recordIssueEvent } from "@/lib/integrations/activity"
 
 function assertRecurrencePair(
   interval: number | null | undefined,
@@ -148,6 +159,23 @@ export const issuesRouter = router({
           )
         }
 
+        // Auto-subscribe the creator (and assignee, if any) so they get inbox
+        // activity. Agents are skipped inside ensureSubscribed.
+        await ensureSubscribed(tx, {
+          issueId: issue.id,
+          userId: ctx.session.user.id,
+          workspaceId: project.workspaceId,
+          source: `creator`,
+        })
+        if (issue.assigneeId) {
+          await ensureSubscribed(tx, {
+            issueId: issue.id,
+            userId: issue.assigneeId,
+            workspaceId: project.workspaceId,
+            source: `assignee`,
+          })
+        }
+
         return { issue, txId }
       })
 
@@ -212,7 +240,8 @@ export const issuesRouter = router({
       const attachmentCopies: AttachmentCopyOp[] = []
 
       let previousAssigneeId: string | null = null
-      const { issue, clonedIssue } = await ctx.db.transaction(async (tx) => {
+      const { issue, clonedIssue, statusChange } = await ctx.db.transaction(async (tx) => {
+        let statusChange: { from: string; to: string } | null = null
         const [currentIssue] = await tx
           .select({
             description: issues.description,
@@ -316,7 +345,11 @@ export const issuesRouter = router({
             .from(issues)
             .where(eq(issues.id, id))
             .limit(1)
-          return { issue: existing!, clonedIssue: null as typeof existing | null }
+          return {
+            issue: existing!,
+            clonedIssue: null as typeof existing | null,
+            statusChange,
+          }
         }
 
         const [issue] = await tx
@@ -324,6 +357,36 @@ export const issuesRouter = router({
           .set(setValues)
           .where(eq(issues.id, id))
           .returning()
+
+        // Activity-log events for status / assignee changes (compare the final
+        // persisted values, so moderation-stripped updates don't emit events).
+        if (currentIssue.status !== issue.status) {
+          statusChange = { from: currentIssue.status, to: issue.status }
+          await recordIssueEvent(tx, {
+            issueId: id,
+            workspaceId: issueContext.workspaceId,
+            actorUserId: ctx.session.user.id,
+            type: `status_changed`,
+            payload: { from: currentIssue.status, to: issue.status },
+          })
+        }
+        if (previousAssigneeId !== issue.assigneeId) {
+          await recordIssueEvent(tx, {
+            issueId: id,
+            workspaceId: issueContext.workspaceId,
+            actorUserId: ctx.session.user.id,
+            type: `assignee_changed`,
+            payload: { from: previousAssigneeId, to: issue.assigneeId },
+          })
+          if (issue.assigneeId) {
+            await ensureSubscribed(tx, {
+              issueId: id,
+              userId: issue.assigneeId,
+              workspaceId: issueContext.workspaceId,
+              source: `assignee`,
+            })
+          }
+        }
 
         const transitionedToDone =
           updates.status === `done` && currentIssue.status !== `done`
@@ -360,10 +423,10 @@ export const issuesRouter = router({
             })
           attachmentCopies.push(...copies)
 
-          return { issue, clonedIssue: insertedClone }
+          return { issue, clonedIssue: insertedClone, statusChange }
         }
 
-        return { issue, clonedIssue: null }
+        return { issue, clonedIssue: null, statusChange }
       })
 
       await deleteStorageObjects(deletedStorageKeys)
@@ -379,8 +442,54 @@ export const issuesRouter = router({
         newAssigneeId: issue.assigneeId,
         previousAssigneeId: previousAssigneeId,
       })
+      if (statusChange) {
+        fireAndForgetStatusChangeNotify({
+          issueId: issue.id,
+          actorUserId: ctx.session.user.id,
+          fromStatus: statusChange.from,
+          toStatus: statusChange.to,
+        })
+      }
 
       return { issue }
+    }),
+
+  // Changed files for the issue's PR (one issue = one PR), for the diff view.
+  // Fetched from GitHub server-side; see lib/integrations/github-pr.ts for the
+  // token/visibility caveat.
+  prFiles: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { workspaceId } = await getIssueWorkspaceContext(input.issueId)
+      await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+
+      const [row] = await ctx.db
+        .select({
+          prNumber: issues.prNumber,
+          githubRepo: projects.githubRepo,
+        })
+        .from(issues)
+        .innerJoin(projects, eq(projects.id, issues.projectId))
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+
+      if (!row?.prNumber || !row.githubRepo) {
+        return { repo: null as string | null, prNumber: null, files: [] }
+      }
+
+      try {
+        const token = await resolveAgentRepoToken(workspaceId, row.githubRepo)
+        const files = await fetchPullFiles(row.githubRepo, row.prNumber, token)
+        return { repo: row.githubRepo, prNumber: row.prNumber, files }
+      } catch (err) {
+        throw new TRPCError({
+          code: `BAD_GATEWAY`,
+          message:
+            err instanceof Error
+              ? err.message
+              : `Failed to load changes from GitHub`,
+        })
+      }
     }),
 
   delete: authedProcedure

@@ -104,6 +104,17 @@ pub extern fn gtk_box_new(orientation: c_int, spacing: c_int) Object;
 pub extern fn gtk_box_append(box: Object, child: Object) void;
 pub extern fn gtk_box_remove(box: Object, child: Object) void;
 pub extern fn gtk_widget_get_first_child(widget: Object) Object;
+
+// GtkPaned — the IDE-style docked terminal split (content / terminal).
+pub extern fn gtk_paned_new(orientation: c_int) Object;
+pub extern fn gtk_paned_set_start_child(paned: Object, child: Object) void;
+pub extern fn gtk_paned_set_end_child(paned: Object, child: Object) void;
+pub extern fn gtk_paned_set_position(paned: Object, position: c_int) void;
+pub extern fn gtk_paned_get_position(paned: Object) c_int;
+pub extern fn gtk_paned_set_resize_start_child(paned: Object, resize: c_int) void;
+pub extern fn gtk_paned_set_resize_end_child(paned: Object, resize: c_int) void;
+pub extern fn gtk_paned_set_shrink_start_child(paned: Object, shrink: c_int) void;
+pub extern fn gtk_paned_set_shrink_end_child(paned: Object, shrink: c_int) void;
 pub extern fn gtk_widget_get_next_sibling(widget: Object) Object;
 pub extern fn gtk_label_new(str: ?[*:0]const u8) Object;
 pub extern fn gtk_label_set_markup(label: Object, str: [*:0]const u8) void;

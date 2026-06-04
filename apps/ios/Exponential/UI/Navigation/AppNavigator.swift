@@ -5,6 +5,7 @@ import GRDB
 
 enum AppRoute: Hashable {
     case home
+    case inbox
     case project(accountId: String, id: String)
     case issue(accountId: String, id: String)
     case settings
@@ -101,6 +102,9 @@ struct MainNavigator: View {
                 },
                 projectLoader: projectLoader
             )
+        case .inbox:
+            InboxView()
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .project(accountId, id):
             IssueListView(projectId: id)
                 .environment(\.accountId, accountId)

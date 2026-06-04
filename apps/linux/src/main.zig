@@ -120,11 +120,11 @@ fn login(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
 
 /// Register this machine as a desktop agent and persist the identity.
 fn register(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
-    if (args.len < 2) {
-        std.debug.print("usage: exponential register <baseUrl> <setupToken>\n", .{});
+    if (args.len < 3) {
+        std.debug.print("usage: exponential register <baseUrl> <sessionToken> <workspaceId>\n", .{});
         return;
     }
-    var outcome = try registration.claimSetup(gpa, args[0], args[1], 30);
+    var outcome = try registration.registerMachine(gpa, args[0], args[1], args[2], "Desktop agent", 30);
     switch (outcome) {
         .success => |*id| {
             defer id.deinit();

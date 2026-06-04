@@ -783,4 +783,55 @@ export function registerExponentialTools(
       }
     }
   )
+
+  server.registerTool(
+    `exponential_agent_report_pr`,
+    {
+      title: `Report the pull request for an issue`,
+      description: `Record the agent's PR onto an issue (one issue = one PR). Sets the synced pr_url/pr_number/pr_state/branch columns and emits a pr_opened / pr_merged activity event on transition. Use state='open' when the PR is created, 'merged'/'closed' when it resolves. Caller must be an agent member of the issue's workspace.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+        prUrl: z.string().url(),
+        prNumber: z.number().int().positive(),
+        prState: z.enum([`open`, `closed`, `merged`, `draft`]),
+        branch: z.string().max(255).optional(),
+        mergedAt: z.string().datetime().optional(),
+      },
+    },
+    async ({ issueId, prUrl, prNumber, prState, branch, mergedAt }) => {
+      try {
+        const result = await caller(user, request).agentPlan.reportPr({
+          issueId,
+          prUrl,
+          prNumber,
+          prState,
+          branch,
+          mergedAt,
+        })
+        return ok(result.issue)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_agent_report_error`,
+    {
+      title: `Report an agent error`,
+      description: `Record a terminal agent error on an issue. Emits an agent_error activity event so the UI can offer a Retry. Post the full error text as a comment separately. Caller must be an agent member of the issue's workspace.`,
+      inputSchema: {
+        issueId: z.string().uuid(),
+        message: z.string().max(2000),
+      },
+    },
+    async ({ issueId, message }) => {
+      try {
+        await caller(user, request).agentPlan.reportError({ issueId, message })
+        return ok({ ok: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
 }

@@ -1,20 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-const { getSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
+const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
   () => ({
-    getSession: vi.fn(),
+    resolveSession: vi.fn(),
     prepareElectricUrl: vi.fn(),
     proxyElectricRequest: vi.fn(),
   })
 )
 
-vi.mock(`@/lib/auth`, () => ({
-  auth: {
-    api: {
-      getSession,
-    },
-  },
+vi.mock(`@/lib/auth/resolve-bearer`, () => ({
+  resolveSession,
 }))
 
 vi.mock(`@/lib/electric-proxy`, () => ({
@@ -24,13 +20,13 @@ vi.mock(`@/lib/electric-proxy`, () => ({
 
 describe(`shape route handler`, () => {
   beforeEach(() => {
-    getSession.mockReset()
+    resolveSession.mockReset()
     prepareElectricUrl.mockReset()
     proxyElectricRequest.mockReset()
   })
 
   it(`returns 401 for unauthenticated requests when requireAuth is true`, async () => {
-    getSession.mockResolvedValue(null)
+    resolveSession.mockResolvedValue(null)
 
     const handler = createShapeRouteHandler({
       table: `users`,
@@ -46,7 +42,7 @@ describe(`shape route handler`, () => {
 
   it(`forwards anonymous requests to getWhere with a null userId`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
-    getSession.mockResolvedValue(null)
+    resolveSession.mockResolvedValue(null)
     prepareElectricUrl.mockReturnValue(originUrl)
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
 
@@ -67,7 +63,7 @@ describe(`shape route handler`, () => {
   it(`applies the scoped where clause before proxying`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
 
-    getSession.mockResolvedValue({
+    resolveSession.mockResolvedValue({
       user: {
         id: `user-1`,
       },

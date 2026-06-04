@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth"
+import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
 
 interface ShapeRouteHandlerOptions {
@@ -18,12 +18,11 @@ export function createShapeRouteHandler({
   requireAuth = false,
 }: ShapeRouteHandlerOptions) {
   return async ({ request }: { request: Request }) => {
-    // Auth accepts either the session cookie (web) or `Authorization: Bearer`
-    // (iOS, Android, MCP) via better-auth's bearer plugin. May be null for
-    // anonymous requests reading public-workspace data.
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    })
+    // Auth accepts the session cookie (web), `Authorization: Bearer
+    // <sessionToken>` (iOS, Android), legacy `expk_` api keys, or the desktop
+    // agent's MCP OAuth2 access token — all via the single resolveSession
+    // chokepoint. May be null for anonymous requests reading public data.
+    const session = await resolveSession(request)
 
     if (!session && requireAuth) {
       return new Response(`Unauthorized`, { status: 401 })

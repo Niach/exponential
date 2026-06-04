@@ -13,9 +13,10 @@
 use crate::agent_run::{self, RunRequest};
 use crate::dispatcher::PipelineFn;
 use crate::pipeline::{
-    self, build_code_user_prompt, build_plan_user_prompt, decide_stage, format_thread_for_prompt,
-    latest_approved_plan_text, latest_plan_text, parse_driver_output, DriverOutputKind, IssueDetail, Stage,
-    CODE_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, PLAN_REVISION_CAP,
+    self, build_code_user_prompt, build_interactive_plan_user_prompt, build_plan_user_prompt,
+    decide_stage, format_thread_for_prompt, latest_approved_plan_text, latest_plan_text,
+    parse_driver_output, DriverOutputKind, IssueDetail, Stage, CODE_SYSTEM_PROMPT,
+    INTERACTIVE_PLAN_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, PLAN_REVISION_CAP,
 };
 use crate::state::{IssuePatch, IssueRow, State};
 use crate::{git, github, mcp, mcp_config};
@@ -65,7 +66,11 @@ impl Ctx {
         self.set_status(&issue.id, "needs_human", Some(reason));
         if !already {
             self.comment(&issue.id, comment, None);
+            self.report_error(&issue.id, comment);
         }
+    }
+    fn report_error(&self, issue_id: &str, message: &str) {
+        let _ = mcp::report_error(&self.config.base_url, &self.config.api_key, issue_id, message, self.config.timeout_s);
     }
 }
 
@@ -75,9 +80,116 @@ pub fn build_pipeline(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit)
         let ctx = Ctx { config: Arc::clone(&config), state: Arc::clone(&state), emit: Arc::clone(&emit) };
         if let Err(message) = run(&ctx, &issue) {
             ctx.set_status(&issue.id, "failed", Some(&message));
-            ctx.comment(&issue.id, &format!("Agent encountered an error: {}", &message[..message.len().min(1500)]), None);
+            let text = format!("Agent encountered an error: {}", &message[..message.len().min(1500)]);
+            ctx.comment(&issue.id, &text, None);
+            ctx.report_error(&issue.id, &text);
         }
     })
+}
+
+/// Resolve the issue's repo + GitHub auth (shared by the headless + interactive
+/// paths). Returns Err on a hard failure; the needs_human (blocked) cases are
+/// surfaced by the caller. None = blocked (needs_human already posted).
+fn resolve_handle(ctx: &Ctx, issue: &IssueRow) -> Result<Option<git::RepoHandle>, String> {
+    let cfg = &ctx.config;
+    let project = mcp::get_project(&cfg.base_url, &cfg.api_key, &issue.project_id, cfg.timeout_s)?;
+    let owner_repo = match project.and_then(|p| p.github_repo) {
+        Some(r) if !r.is_empty() => r,
+        _ => {
+            ctx.needs_human(issue, "no github repo linked", "No GitHub repo linked for this project. Link one in workspace settings.");
+            return Ok(None);
+        }
+    };
+    if cfg.github_token.is_empty() {
+        ctx.needs_human(issue, "no github authentication", "The desktop agent is not authenticated to GitHub. Connect GitHub in the desktop app.");
+        return Ok(None);
+    }
+    let repo_meta = github::get_repo(&cfg.github_token, &owner_repo, cfg.timeout_s)?;
+    let handle = git::ensure_repo(&cfg.repos_root, &owner_repo, &repo_meta.default_branch, &cfg.github_token)?;
+    Ok(Some(handle))
+}
+
+/// Host-triggered interactive plan run (the desktop "AI" button). Launches
+/// `claude` interactively in the embedded terminal; the plan is delivered
+/// out-of-band via MCP (no stdout parsing). Marks the issue interactive_owned so
+/// the background dispatcher won't auto-run the code stage on approval.
+pub fn run_interactive_plan(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit, issue_id: &str) {
+    let ctx = Ctx { config, state, emit };
+    if let Err(message) = run_interactive(&ctx, issue_id, false) {
+        ctx.set_status(issue_id, "failed", Some(&message));
+        ctx.report_error(issue_id, &format!("Interactive run failed: {message}"));
+    }
+}
+
+/// Host-triggered interactive continue (the desktop "Approve & continue here").
+/// The host has already approved the plan with the human's session; here we
+/// resume the same claude session in the reused worktree to implement it.
+pub fn run_interactive_continue(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit, issue_id: &str) {
+    let ctx = Ctx { config, state, emit };
+    if let Err(message) = run_interactive(&ctx, issue_id, true) {
+        ctx.set_status(issue_id, "failed", Some(&message));
+        ctx.report_error(issue_id, &format!("Interactive continue failed: {message}"));
+    }
+}
+
+fn run_interactive(ctx: &Ctx, issue_id: &str, continuing: bool) -> Result<(), String> {
+    let cfg = &ctx.config;
+    let issue = ctx
+        .state
+        .lock()
+        .unwrap()
+        .get_issue(issue_id)
+        .ok()
+        .flatten()
+        .ok_or_else(|| "issue not found in local state".to_string())?;
+    let Some(handle) = resolve_handle(ctx, &issue)? else {
+        return Ok(());
+    };
+
+    // Claim/reuse the worktree. Reuse (no -B reset) on continue so the plan
+    // session's work is preserved.
+    let claim = if continuing {
+        git::worktree_reuse(&cfg.worktrees_root, &cfg.branch_prefix, &handle.repo_path, &handle.default_branch, &issue.identifier, &issue.title)?
+    } else {
+        git::worktree_claim(&cfg.worktrees_root, &cfg.branch_prefix, &handle.repo_path, &handle.default_branch, &issue.identifier, &issue.title)?
+    };
+    // Mark interactive_owned BEFORE the run so the dispatcher suppresses the
+    // background code stage the moment the plan is approved over Electric.
+    ctx.patch(&issue.id, &IssuePatch {
+        worktree_path: Some(claim.worktree_path.clone()),
+        branch: Some(claim.branch.clone()),
+        repo_path: Some(claim.repo_path.clone()),
+        driver: Some("claude".to_string()),
+        interactive_owned: Some(1),
+        ..Default::default()
+    });
+
+    let mcp_path = mcp_config::write_claude_mcp_json(&claim.worktree_path, &cfg.mcp_url(), &cfg.api_key)?;
+    let (system_prompt, user_prompt) = if continuing {
+        (
+            CODE_SYSTEM_PROMPT.to_string(),
+            "Your plan was approved. Implement it now: make the changes, run the relevant checks, commit, push your branch, and open a PR. Report the PR by calling exponential_agent_report_pr.".to_string(),
+        )
+    } else {
+        let _ = mcp::mark_agent_plan_started(&cfg.base_url, &cfg.api_key, &issue.id, cfg.timeout_s);
+        (
+            INTERACTIVE_PLAN_SYSTEM_PROMPT.to_string(),
+            build_interactive_plan_user_prompt(&issue.id, &issue.identifier, &issue.title),
+        )
+    };
+    let continue_session = if continuing { issue.claude_session_id.as_deref() } else { None };
+    let req = agent_run::build_claude_interactive_run(&claim.worktree_path, &mcp_path, &system_prompt, &user_prompt, continue_session);
+
+    let result = agent_run::request_run(req, |r| (ctx.emit)(r));
+    if let Some(sid) = result.session_id {
+        ctx.patch(&issue.id, &IssuePatch { claude_session_id: Some(sid), ..Default::default() });
+    }
+    // The continue run is the end of the interactive flow — release ownership so
+    // pr_poll / normal reconciliation can take over.
+    if continuing {
+        ctx.patch(&issue.id, &IssuePatch { interactive_owned: Some(0), ..Default::default() });
+    }
+    Ok(())
 }
 
 fn run(ctx: &Ctx, issue: &IssueRow) -> Result<(), String> {
@@ -100,21 +212,9 @@ fn run(ctx: &Ctx, issue: &IssueRow) -> Result<(), String> {
     }
 
     // Both stages need the repo + GitHub auth.
-    let project = mcp::get_project(&cfg.base_url, &cfg.api_key, &issue.project_id, cfg.timeout_s)?;
-    let owner_repo = match project.and_then(|p| p.github_repo) {
-        Some(r) if !r.is_empty() => r,
-        _ => {
-            ctx.needs_human(issue, "no github repo linked", "No GitHub repo linked for this project. Link one in workspace settings.");
-            return Ok(());
-        }
-    };
-    if cfg.github_token.is_empty() {
-        ctx.needs_human(issue, "no github authentication", "The desktop agent is not authenticated to GitHub. Connect GitHub in the desktop app.");
+    let Some(handle) = resolve_handle(ctx, issue)? else {
         return Ok(());
-    }
-
-    let repo_meta = github::get_repo(&cfg.github_token, &owner_repo, cfg.timeout_s)?;
-    let handle = git::ensure_repo(&cfg.repos_root, &owner_repo, &repo_meta.default_branch, &cfg.github_token)?;
+    };
 
     match decision.stage {
         Stage::ProducePlan => produce_plan_stage(ctx, issue, &detail, &handle),
@@ -235,7 +335,7 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
     ctx.set_status(&issue.id, "pushed", None);
     git::push_branch(&claim.repo_path, &handle.owner, &handle.repo, &claim.branch, &cfg.github_token)?;
 
-    let (url, _number) = github::create_pull_request(
+    let (url, number) = github::create_pull_request(
         &cfg.github_token,
         &handle.owner,
         &handle.repo,
@@ -248,6 +348,8 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
 
     ctx.patch(&issue.id, &IssuePatch { pr_url: Some(url.clone()), ..Default::default() });
     ctx.set_status(&issue.id, "in_review", None);
+    // Write the PR to the server (synced pr_* columns + pr_opened event).
+    let _ = mcp::report_pr(&cfg.base_url, &cfg.api_key, &issue.id, &url, number, "open", Some(&claim.branch), cfg.timeout_s);
     ctx.comment(&issue.id, &format!("PR opened: {url}"), None);
     Ok(())
 }

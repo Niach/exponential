@@ -100,6 +100,30 @@ pub fn reset_agent_plan(base_url: &str, api_key: &str, issue_id: &str, timeout_s
     call_tool(base_url, api_key, "exponential_agent_plan_reset", json!({ "issueId": issue_id }), timeout_s).map(|_| ())
 }
 
+/// Report the PR onto the issue (synced pr_* columns + pr_opened/pr_merged
+/// events). `pr_state` is "open" | "closed" | "merged" | "draft".
+pub fn report_pr(
+    base_url: &str,
+    api_key: &str,
+    issue_id: &str,
+    pr_url: &str,
+    pr_number: i64,
+    pr_state: &str,
+    branch: Option<&str>,
+    timeout_s: u64,
+) -> Result<(), String> {
+    let mut args = json!({ "issueId": issue_id, "prUrl": pr_url, "prNumber": pr_number, "prState": pr_state });
+    if let Some(b) = branch {
+        args["branch"] = json!(b);
+    }
+    call_tool(base_url, api_key, "exponential_agent_report_pr", args, timeout_s).map(|_| ())
+}
+
+/// Report a terminal agent error → an agent_error activity event (Retry UI).
+pub fn report_error(base_url: &str, api_key: &str, issue_id: &str, message: &str, timeout_s: u64) -> Result<(), String> {
+    call_tool(base_url, api_key, "exponential_agent_report_error", json!({ "issueId": issue_id, "message": message }), timeout_s).map(|_| ())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Project {
     pub id: String,

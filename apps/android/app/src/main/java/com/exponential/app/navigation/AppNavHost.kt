@@ -23,6 +23,7 @@ import com.exponential.app.ui.admin.AdminUsersScreen
 import com.exponential.app.ui.admin.AdminWorkspacesScreen
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.home.HomeScreen
+import com.exponential.app.ui.inbox.InboxScreen
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.integrations.IntegrationsScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
@@ -195,6 +196,13 @@ private fun AuthenticatedNav(
             HomeScreen(
                 onOpenProject = { _, projectId -> navController.navigate("project/$projectId") },
                 onOpenSettings = { navController.navigate("settings") },
+                onOpenInbox = { navController.navigate("inbox") },
+            )
+        }
+        composable("inbox") {
+            InboxScreen(
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("settings") {

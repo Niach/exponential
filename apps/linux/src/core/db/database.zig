@@ -400,6 +400,8 @@ pub const Database = struct {
         agent_plan_state: [:0]const u8, // "" / drafting / awaiting_answer / awaiting_approval / approved
         agent_plan_approver: [:0]const u8, // display name of who approved ("" when none)
         description: [:0]const u8, // markdown text extracted from the jsonb {text}
+        pr_url: [:0]const u8, // the agent's PR ("" when none) — drives the Changes button
+        pr_state: [:0]const u8, // open/closed/merged/draft ("" when none)
     };
 
     pub fn getIssue(self: *Database, arena: std.mem.Allocator, id: []const u8) !?IssueDetail {
@@ -409,7 +411,8 @@ pub const Database = struct {
             "SELECT i.project_id, p.workspace_id, i.identifier, i.title, i.status, i.priority, " ++
                 "COALESCE(i.due_date,''), COALESCE(i.assignee_id,''), COALESCE(u.name, u.email, ''), " ++
                 "COALESCE(i.recurrence_interval, 0), COALESCE(i.recurrence_unit, ''), " ++
-                "COALESCE(i.agent_plan_state, ''), COALESCE(ap.name, ap.email, ''), i.description " ++
+                "COALESCE(i.agent_plan_state, ''), COALESCE(ap.name, ap.email, ''), i.description, " ++
+                "COALESCE(i.pr_url, ''), COALESCE(i.pr_state, '') " ++
                 "FROM issues i JOIN projects p ON p.id = i.project_id " ++
                 "LEFT JOIN users u ON u.id = i.assignee_id " ++
                 "LEFT JOIN users ap ON ap.id = i.agent_plan_approved_by WHERE i.id = ?;",
@@ -432,6 +435,8 @@ pub const Database = struct {
                 .agent_plan_state = try arena.dupeZ(u8, stmt.columnText(11)),
                 .agent_plan_approver = try arena.dupeZ(u8, stmt.columnText(12)),
                 .description = try extractJsonText(arena, stmt.columnText(13)),
+                .pr_url = try arena.dupeZ(u8, stmt.columnText(14)),
+                .pr_state = try arena.dupeZ(u8, stmt.columnText(15)),
             };
         }
         return null;
@@ -441,13 +446,14 @@ pub const Database = struct {
         author: [:0]const u8, // display name (joined from users), falling back to id
         body: [:0]const u8,
         kind: [:0]const u8,
+        created_at: [:0]const u8,
     };
 
     pub fn listComments(self: *Database, arena: std.mem.Allocator, issue_id: []const u8) ![]CommentRow {
         self.mutex.lock();
         defer self.mutex.unlock();
         var stmt = try self.conn.prepare(
-            "SELECT COALESCE(u.name, u.email, c.author_id), c.body, c.kind FROM comments c " ++
+            "SELECT COALESCE(u.name, u.email, c.author_id), c.body, c.kind, c.created_at FROM comments c " ++
                 "LEFT JOIN users u ON u.id = c.author_id WHERE c.issue_id = ? ORDER BY c.created_at;",
         );
         defer stmt.finalize();
@@ -459,6 +465,36 @@ pub const Database = struct {
                 .author = try arena.dupeZ(u8, stmt.columnText(0)),
                 .body = try extractJsonText(arena, stmt.columnText(1)),
                 .kind = try arena.dupeZ(u8, stmt.columnText(2)),
+                .created_at = try arena.dupeZ(u8, stmt.columnText(3)),
+            });
+        }
+        return rows.toOwnedSlice(arena);
+    }
+
+    pub const IssueEventRow = struct {
+        actor: [:0]const u8, // display name (joined), "" when system/unknown
+        type: [:0]const u8,
+        created_at: [:0]const u8,
+    };
+
+    /// Synced activity events for an issue (status/assignee/label/PR/plan/error),
+    /// for the Linear-style activity timeline merged with comments.
+    pub fn listIssueEvents(self: *Database, arena: std.mem.Allocator, issue_id: []const u8) ![]IssueEventRow {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        var stmt = try self.conn.prepare(
+            "SELECT COALESCE(u.name, u.email, ''), e.type, e.created_at FROM issue_events e " ++
+                "LEFT JOIN users u ON u.id = e.actor_user_id WHERE e.issue_id = ? ORDER BY e.created_at;",
+        );
+        defer stmt.finalize();
+        try stmt.bindText(1, issue_id);
+
+        var rows: std.ArrayList(IssueEventRow) = .empty;
+        while (try stmt.step()) {
+            try rows.append(arena, .{
+                .actor = try arena.dupeZ(u8, stmt.columnText(0)),
+                .type = try arena.dupeZ(u8, stmt.columnText(1)),
+                .created_at = try arena.dupeZ(u8, stmt.columnText(2)),
             });
         }
         return rows.toOwnedSlice(arena);

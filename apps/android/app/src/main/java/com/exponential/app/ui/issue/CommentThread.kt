@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowCircleUp
@@ -53,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.CommentKind
+import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.ui.markdown.MarkdownView
@@ -94,6 +96,12 @@ fun CommentThread(
     val retryAnchorId = remember(state.comments) {
         state.comments.lastOrNull { isErrorComment(it) }?.id
     }
+    // Linear-style activity timeline: comments + issue_events merged by time.
+    val timeline = remember(state.comments, state.events) {
+        (state.comments.map { TimelineItem.Comment(it) } +
+            state.events.map { TimelineItem.Event(it) })
+            .sortedBy { it.createdAt }
+    }
 
     HorizontalDivider()
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -105,7 +113,7 @@ fun CommentThread(
         )
         Spacer(Modifier.height(8.dp))
 
-        if (state.comments.isEmpty()) {
+        if (timeline.isEmpty()) {
             Text(
                 "No comments yet. Be the first to add one.",
                 style = MaterialTheme.typography.bodySmall,
@@ -113,7 +121,13 @@ fun CommentThread(
             )
         }
 
-        state.comments.forEach { comment ->
+        timeline.forEach { item ->
+            when (item) {
+                is TimelineItem.Event -> key(item.event.id) {
+                    EventRow(item.event, state.usersById[item.event.actorUserId])
+                }
+                is TimelineItem.Comment -> {
+            val comment = item.comment
             // Stable identity per comment so list churn (e.g. an active Electric
             // sync) doesn't re-key rows and force their markdown to re-parse.
             key(comment.id) {
@@ -172,6 +186,8 @@ fun CommentThread(
                     },
                 )
             }
+            }
+                }
             }
         }
 
@@ -492,5 +508,47 @@ private fun relativeTime(iso: String): String {
         }
     } catch (_: Throwable) {
         ""
+    }
+}
+
+// One timeline entry — either a comment or a synced activity event, merged by time.
+private sealed interface TimelineItem {
+    val createdAt: String
+
+    data class Comment(val comment: CommentEntity) : TimelineItem {
+        override val createdAt get() = comment.createdAt
+    }
+
+    data class Event(val event: IssueEventEntity) : TimelineItem {
+        override val createdAt get() = event.createdAt
+    }
+}
+
+// Compact Linear-style activity line (status/assignee/label/PR/plan/error).
+@Composable
+private fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
+    val who = actor?.name ?: actor?.email ?: "Someone"
+    val verb = when (event.type) {
+        "status_changed" -> "changed the status"
+        "assignee_changed" -> "changed the assignee"
+        "label_added" -> "added a label"
+        "label_removed" -> "removed a label"
+        "pr_opened" -> "opened a pull request"
+        "pr_merged" -> "merged the pull request"
+        "plan_ready" -> "shared a plan"
+        "agent_error" -> "hit an error"
+        else -> event.type.replace('_', ' ')
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(CommentMeta))
+        Text(
+            "$who $verb · ${relativeTime(event.createdAt)}",
+            style = MaterialTheme.typography.labelSmall,
+            color = CommentMeta,
+        )
     }
 }

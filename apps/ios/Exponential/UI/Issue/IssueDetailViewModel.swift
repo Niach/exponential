@@ -15,6 +15,7 @@ final class IssueDetailViewModel {
     var saving = false
     var error: String?
     var permissions: WorkspacePermissions = .denied
+    var isSubscribed = false
 
     private let accountId: String
     private let issueId: String
@@ -22,6 +23,7 @@ final class IssueDetailViewModel {
     private let issuesApi: IssuesApi
     private let issueImagesApi: IssueImagesApi
     private let labelsApi: LabelsApi
+    private let subscriptionsApi: SubscriptionsApi
     private let auth: AuthRepository
     private let baseURL: URL?
     private var observationTask: Task<Void, Never>?
@@ -34,6 +36,7 @@ final class IssueDetailViewModel {
         issuesApi: IssuesApi,
         issueImagesApi: IssueImagesApi,
         labelsApi: LabelsApi,
+        subscriptionsApi: SubscriptionsApi,
         auth: AuthRepository
     ) {
         self.accountId = accountId
@@ -42,6 +45,7 @@ final class IssueDetailViewModel {
         self.issuesApi = issuesApi
         self.issueImagesApi = issueImagesApi
         self.labelsApi = labelsApi
+        self.subscriptionsApi = subscriptionsApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
         self.baseURL = instanceUrl.flatMap { URL(string: $0) }
@@ -99,6 +103,30 @@ final class IssueDetailViewModel {
                     self.users = users
                 }
             }
+
+            // Subscription state for the Bell toggle in the detail toolbar.
+            let subObs = ValueObservation.tracking { db in
+                try IssueSubscriberEntity.filter(Column("issue_id") == self.issueId).fetchAll(db)
+            }
+            Task {
+                for try await subs in subObs.values(in: pool) {
+                    let me = self.auth.userId
+                    self.isSubscribed = me != nil && subs.contains { $0.userId == me && !$0.unsubscribed }
+                }
+            }
+        }
+    }
+
+    func toggleSubscribe() async {
+        let wasSubscribed = isSubscribed
+        do {
+            if wasSubscribed {
+                try await subscriptionsApi.unsubscribe(accountId: accountId, issueId: issueId)
+            } else {
+                try await subscriptionsApi.subscribe(accountId: accountId, issueId: issueId)
+            }
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 

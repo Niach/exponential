@@ -36,6 +36,20 @@
       "when": 1780007414630,
       "tag": "0004_purple_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780569208498,
+      "tag": "0005_giant_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780578018639,
+      "tag": "0006_giant_jack_murdock",
+      "breakpoints": true
     }
   ]
 }

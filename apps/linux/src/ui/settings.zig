@@ -32,7 +32,6 @@ const Ctx = struct {
     public_check: gtk.Object = null,
     policy_dd: gtk.Object = null,
     link_entry: gtk.Object = null,
-    token_entry: gtk.Object = null,
     agent_status: gtk.Object = null,
     new_label_entry: gtk.Object = null,
     last_link: ?[:0]u8 = null,
@@ -258,23 +257,8 @@ fn rebuild(ctx: *Ctx) void {
         const reg = gtk.gtk_button_new_with_label("Register this machine as a desktop agent");
         gtk.gtk_widget_add_css_class(reg, "suggested-action");
         gtk.gtk_widget_set_halign(reg, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(reg, "clicked", @ptrCast(&onRegisterOwner), ctx, null, 0);
+        _ = gtk.g_signal_connect_data(reg, "clicked", @ptrCast(&onRegister), ctx, null, 0);
         gtk.gtk_box_append(ctx.content, reg);
-
-        const or_lbl = gtk.gtk_label_new("or paste a setup token (expc_…):");
-        gtk.gtk_widget_add_css_class(or_lbl, "dim-label");
-        gtk.gtk_widget_set_halign(or_lbl, gtk.ALIGN_START);
-        gtk.gtk_box_append(ctx.content, or_lbl);
-        const tok_row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
-        const tok = gtk.gtk_entry_new();
-        gtk.gtk_entry_set_placeholder_text(tok, "expc_…");
-        gtk.gtk_widget_set_hexpand(tok, 1);
-        gtk.gtk_box_append(tok_row, tok);
-        ctx.token_entry = tok;
-        const use_tok = gtk.gtk_button_new_with_label("Use token");
-        _ = gtk.g_signal_connect_data(use_tok, "clicked", @ptrCast(&onRegisterToken), ctx, null, 0);
-        gtk.gtk_box_append(tok_row, use_tok);
-        gtk.gtk_box_append(ctx.content, tok_row);
     }
     const status = gtk.gtk_label_new("");
     gtk.gtk_widget_add_css_class(status, "dim-label");
@@ -632,37 +616,11 @@ fn setAgentStatus(ctx: *Ctx, msg: []const u8) void {
     if (arena.allocator().dupeZ(u8, msg)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
 }
 
-/// Owner path: mint a setup token (companion.create) then claim it.
-fn onRegisterOwner(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+/// Register this machine in one human-session-authorized call (companion.register).
+fn onRegister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *Ctx = @ptrCast(@alignCast(data));
     setAgentStatus(ctx, "Registering…");
-    const t = registration.createSetup(ctx.gpa, ctx.instance, ctx.token, ctx.ws_id, "Desktop agent", 30) catch {
-        setAgentStatus(ctx, "Request failed.");
-        return;
-    };
-    switch (t) {
-        .failure => |m| {
-            defer ctx.gpa.free(m);
-            setAgentStatus(ctx, m);
-        },
-        .token => |tok| {
-            defer ctx.gpa.free(tok);
-            claimAndSave(ctx, tok);
-        },
-    }
-}
-
-fn onRegisterToken(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    const entry = ctx.token_entry orelse return;
-    const tok = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(entry)), " \t\r\n");
-    if (tok.len == 0) return;
-    setAgentStatus(ctx, "Registering…");
-    claimAndSave(ctx, tok);
-}
-
-fn claimAndSave(ctx: *Ctx, token: []const u8) void {
-    var oc = registration.claimSetup(ctx.gpa, ctx.instance, token, 30) catch {
+    var oc = registration.registerMachine(ctx.gpa, ctx.instance, ctx.token, ctx.ws_id, "Desktop agent", 30) catch {
         setAgentStatus(ctx, "Request failed.");
         return;
     };
@@ -731,6 +689,10 @@ const GhJob = struct {
     expires_in_s: u64,
     status_label: gtk.Object, // refed across the worker (orphan-safe if the dialog closes)
     result_z: ?[:0]u8 = null,
+    // Agent credential so the worker can report the GitHub token to the server
+    // (for private-repo PR diffs). Null when not registered.
+    base_url: ?[]u8 = null,
+    api_key: ?[]u8 = null,
 };
 
 fn startGhPoll(ctx: *Ctx, client_id: []const u8, dc: *const github_auth.DeviceCode) void {
@@ -751,6 +713,9 @@ fn startGhPoll(ctx: *Ctx, client_id: []const u8, dc: *const github_auth.DeviceCo
     };
     job.status_label = ctx.agent_status;
     if (job.status_label != null) _ = gtk.g_object_ref(job.status_label);
+    // Carry the agent credential into the worker so it can report the token.
+    job.base_url = identity_store.readField(gpa, ctx.ws_id, "instanceUrl");
+    job.api_key = identity_store.readField(gpa, ctx.ws_id, "apiKey");
 
     const th = std.Thread.spawn(.{}, ghWorker, .{job}) catch {
         ghWorker(job);
@@ -773,6 +738,7 @@ fn ghWorker(job: *GhJob) void {
         .success => |c| {
             const sep: []const u8 = if (c.login.len > 0) " as " else "";
             job.result_z = std.fmt.allocPrintSentinel(job.gpa, "<span foreground='#22c55e'>✓ GitHub connected{s}{s}</span>", .{ sep, c.login }, 0) catch null;
+            reportGithubToken(job, c.login, c.token);
             if (c.token.len > 0) job.gpa.free(c.token);
             if (c.login.len > 0) job.gpa.free(c.login);
         },
@@ -783,6 +749,28 @@ fn ghWorker(job: *GhJob) void {
     }
 }
 
+// Report the freshly-obtained GitHub token (+ login) to the server so the web
+// app can read PR diffs for private repos. Stored encrypted server-side, used
+// read-only. Best-effort: failures are silent (the diff just falls back to
+// unauthenticated). Runs on the poll worker thread.
+fn reportGithubToken(job: *GhJob, login: []const u8, token: []const u8) void {
+    const base_url = job.base_url orelse return;
+    const api_key = job.api_key orelse return;
+    if (token.len == 0) return;
+
+    const Repo = struct { fullName: []const u8, defaultBranch: []const u8, private: bool };
+    const empty_repos = [_]Repo{};
+    const input = std.json.Stringify.valueAlloc(
+        job.gpa,
+        .{ .login = login, .repos = empty_repos[0..], .token = token },
+        .{},
+    ) catch return;
+    defer job.gpa.free(input);
+
+    var resp = trpc.call(job.gpa, base_url, "companion.reportGithubIdentity", input, api_key, 30) catch return;
+    resp.deinit();
+}
+
 fn onGhDone(data: gtk.gpointer) callconv(.c) c_int {
     const job: *GhJob = @ptrCast(@alignCast(data));
     if (job.status_label != null) {
@@ -790,6 +778,8 @@ fn onGhDone(data: gtk.gpointer) callconv(.c) c_int {
         gtk.g_object_unref(job.status_label);
     }
     if (job.result_z) |r| job.gpa.free(r);
+    if (job.base_url) |b| job.gpa.free(b);
+    if (job.api_key) |k| job.gpa.free(k);
     job.gpa.free(job.client_id);
     job.gpa.free(job.device_code);
     job.gpa.destroy(job);

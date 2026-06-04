@@ -22,6 +22,7 @@ import { z } from "zod"
 import {
   commentBodySchema,
   issueDescriptionSchema,
+  issueEventTypeSchema,
   issuePrioritySchema,
   issuePriorityValues,
   issueStatusSchema,
@@ -29,6 +30,7 @@ import {
   publicWritePolicyValues,
   recurrenceUnitSchema,
   recurrenceUnitValues,
+  subscriberSourceSchema,
   workspaceRoleSchema,
   workspaceRoleValues,
 } from "./domain"
@@ -156,17 +158,28 @@ export const workspaceAgents = pgTable(
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
+    // The human owner who registered this agent (D2: an agent is a distinct
+    // actor owned by a human). Nullable during the cutover; tightened to
+    // NOT NULL once all agents have re-registered via OAuth.
+    ownerUserId: text(`owner_user_id`).references(() => users.id, {
+      onDelete: `cascade`,
+    }),
     name: varchar({ length: 255 }).notNull(),
-    setupTokenHash: text(`setup_token_hash`).notNull(),
+    // Legacy setup-token columns (the old curl|bash claimSetup flow). Kept
+    // nullable for backward inspection; no longer written by `companion.register`.
+    setupTokenHash: text(`setup_token_hash`),
     setupTokenExpiresAt: timestamp(`setup_token_expires_at`, {
       withTimezone: true,
-    }).notNull(),
+    }),
     setupTokenConsumedAt: timestamp(`setup_token_consumed_at`, {
       withTimezone: true,
     }),
     apiKeyId: text(`api_key_id`).references(() => apikeys.id, {
       onDelete: `set null`,
     }),
+    // The per-agent OAuth client (oauth_applications.client_id) whose
+    // access/refresh token pair is the agent's runtime credential.
+    oauthClientId: text(`oauth_client_id`),
     lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true }),
     // GitHub login the daemon is authenticated as (set after running
     // `companion github login`). null until the daemon authenticates.
@@ -176,12 +189,17 @@ export const workspaceAgents = pgTable(
     // Updated periodically by the daemon; used as the source of choices in
     // the project repo-linking dropdown.
     githubRepos: jsonb(`github_repos`),
+    // The agent's GitHub token (encrypted at rest via lib/crypto/secret-box),
+    // reported by the agent so the server can read PR diffs for private repos
+    // it otherwise has no credential for. Used read-only.
+    githubToken: text(`github_token`),
     ...timestamps,
   },
   (table) => [
     unique().on(table.workspaceId, table.userId),
     index(`idx_workspace_agents_workspace`).on(table.workspaceId),
     index(`idx_workspace_agents_user`).on(table.userId),
+    index(`idx_workspace_agents_owner`).on(table.ownerUserId),
     index(`idx_workspace_agents_setup_token`).on(table.setupTokenHash),
     index(`idx_workspace_agents_api_key`).on(table.apiKeyId),
   ]
@@ -253,6 +271,24 @@ export const issues = pgTable(
       { onDelete: `set null` }
     ),
     agentLastCommentSeenAt: timestamp(`agent_last_comment_seen_at`, {
+      withTimezone: true,
+    }),
+    // PR linkage (D5: one issue = one PR = one branch/worktree). Written by the
+    // agent via `agentPlan.reportPr` / the `exponential_agent_report_pr` MCP
+    // tool, synced to every client so the diff view + PR badge work without
+    // parsing comment bodies. All nullable (no PR until the agent opens one).
+    prUrl: text(`pr_url`),
+    prNumber: integer(`pr_number`),
+    prState: varchar(`pr_state`, { length: 16 }),
+    branch: text(`branch`),
+    prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
+    // Interactive-run bookkeeping (D4). `agentSessionId` is the claude session
+    // to `--continue`; `agentRunMode` is background|interactive;
+    // `agentInteractiveClaimedAt` marks that a desktop interactive session owns
+    // the issue, which suppresses the automatic background code re-entry.
+    agentSessionId: text(`agent_session_id`),
+    agentRunMode: varchar(`agent_run_mode`, { length: 16 }),
+    agentInteractiveClaimedAt: timestamp(`agent_interactive_claimed_at`, {
       withTimezone: true,
     }),
     ...timestamps,
@@ -414,6 +450,62 @@ export const notifications = pgTable(
   ]
 )
 
+// Who is subscribed to an issue (D7). Auto-populated on create/assign/comment/
+// mention; a `manual` row with `unsubscribed=true` suppresses auto-resubscribe.
+// Drives both the inbox feed and the notification push fan-out.
+export const issueSubscribers = pgTable(
+  `issue_subscribers`,
+  {
+    id: uuidPk(),
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project by populate_issue_subscriber_workspace_id
+    // so the Electric shape filter stays workspace-scoped (stable, no 409 churn).
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    source: varchar({ length: 16 }).notNull(),
+    unsubscribed: boolean().notNull().default(false),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.issueId, table.userId),
+    index(`idx_issue_subscribers_user`).on(table.userId),
+    index(`idx_issue_subscribers_workspace`).on(table.workspaceId),
+  ]
+)
+
+// Activity log (D9): status/assignee/label/PR/plan/error events, rendered as a
+// Linear-style timeline on every client. `payload` carries event-specific data
+// (e.g. { from, to } for a status change).
+export const issueEvents = pgTable(
+  `issue_events`,
+  {
+    id: uuidPk(),
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project by populate_issue_event_workspace_id.
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    actorUserId: text(`actor_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    type: varchar({ length: 32 }).notNull(),
+    payload: jsonb(),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_issue_events_issue`).on(table.issueId),
+    index(`idx_issue_events_workspace`).on(table.workspaceId),
+  ]
+)
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -484,6 +576,14 @@ export const selectAttachmentSchema = createSelectSchema(attachments)
 
 export const selectNotificationSchema = createSelectSchema(notifications)
 
+export const selectIssueSubscriberSchema = createSelectSchema(issueSubscribers, {
+  source: subscriberSourceSchema,
+})
+
+export const selectIssueEventSchema = createSelectSchema(issueEvents, {
+  type: issueEventTypeSchema,
+})
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -501,3 +601,5 @@ export type Attachment = InferSelectModel<typeof attachments>
 
 export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>
+export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
+export type IssueEvent = InferSelectModel<typeof issueEvents>

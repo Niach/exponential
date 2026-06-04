@@ -24,7 +24,17 @@ pub const Manager = struct {
     gpa: std.mem.Allocator,
     core: ffi.AgentCore,
     workspace_id: []u8,
+    // Optional IDE-style terminal dock: when set, agent runs mount here instead
+    // of a throwaway window. Opaque so this module needn't import the UI types.
+    dock: ?*anyopaque = null,
+    mount_fn: ?*const fn (dock: *anyopaque, term: gtk.Object, title: [*:0]const u8) void = null,
 };
+
+/// Point this manager's agent runs at the UI terminal dock (called after start).
+pub fn setDock(mgr: *Manager, dock: ?*anyopaque, mount_fn: ?*const fn (dock: *anyopaque, term: gtk.Object, title: [*:0]const u8) void) void {
+    mgr.dock = dock;
+    mgr.mount_fn = mount_fn;
+}
 
 /// Create + start the core for `workspace_id` with the given config JSON.
 pub fn start(gpa: std.mem.Allocator, config_json: []const u8, workspace_id: []const u8) ?*Manager {
@@ -54,6 +64,22 @@ pub fn stop(mgr: *Manager) void {
     ffi.agent_core_free(mgr.core);
     mgr.gpa.free(mgr.workspace_id);
     mgr.gpa.destroy(mgr);
+}
+
+/// Desktop "AI" button: start an interactive plan session for `issue_id`. The
+/// core emits a `run_request` (interactive:true) we launch in a terminal.
+pub fn requestInteractive(mgr: *Manager, issue_id: []const u8) void {
+    const z = mgr.gpa.dupeZ(u8, issue_id) catch return;
+    defer mgr.gpa.free(z);
+    _ = ffi.agent_core_request_interactive(mgr.core, z.ptr);
+}
+
+/// Desktop "Approve & continue here": resume the interactive session to
+/// implement the (already human-approved) plan in the reused worktree.
+pub fn approveInteractive(mgr: *Manager, issue_id: []const u8) void {
+    const z = mgr.gpa.dupeZ(u8, issue_id) catch return;
+    defer mgr.gpa.free(z);
+    _ = ffi.agent_core_approve_interactive(mgr.core, z.ptr);
 }
 
 fn onEvent(ctx: ?*anyopaque, json_ptr: [*c]const u8, len: usize) callconv(.c) void {
@@ -87,6 +113,10 @@ const PendingRun = struct {
     env: std.ArrayListUnmanaged([2][]u8),
     cwd: ?[]u8,
     prompt: []u8, // combined system + user prompt
+    // Interactive runs (desktop AI button / approve-and-continue): the user
+    // watches + steers claude live, the plan is delivered via MCP, so we DON'T
+    // wrap with tee/PIPESTATUS and submit an empty result on exit.
+    interactive: bool = false,
 };
 
 /// Live state for an in-flight terminal run, used by the child-exit handler.
@@ -98,6 +128,7 @@ const RunCtx = struct {
     prompt_path: []u8,
     script_path: []u8,
     window: gtk.Object,
+    interactive: bool = false,
 };
 
 /// Pipeline thread: copy the request and hand it to the main loop. On any setup
@@ -122,6 +153,7 @@ fn handleRunRequest(mgr: *Manager, obj: std.json.ObjectMap) void {
         .env = .empty,
         .cwd = if (objStr(obj, "cwd")) |c| (gpa.dupe(u8, c) catch null) else null,
         .prompt = buildPrompt(gpa, obj),
+        .interactive = if (obj.get("interactive")) |v| (v == .bool and v.bool) else false,
     };
 
     if (obj.get("argv")) |av| {
@@ -190,7 +222,10 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
     // from the prompt file so no quoting of the prompt is needed), tee stdout to
     // the capture file (visible AND captured), and record the real program exit
     // code via PIPESTATUS (the script's own exit would just be tee's).
-    const script = buildScript(a, pending.program, pending.argv.items, prompt_path, out_path, code_path) catch return failNow(pending);
+    const script = if (pending.interactive)
+        buildInteractiveScript(a, pending.program, pending.argv.items, prompt_path) catch return failNow(pending)
+    else
+        buildScript(a, pending.program, pending.argv.items, prompt_path, out_path, code_path) catch return failNow(pending);
     storage.writeSecret(script_path, script) catch return failNow(pending);
 
     const command = std.fmt.allocPrint(a, "/usr/bin/env bash {s}", .{script_path}) catch return failNow(pending);
@@ -208,6 +243,7 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
         .prompt_path = prompt_path,
         .script_path = script_path,
         .window = null,
+        .interactive = pending.interactive,
     };
 
     const term = terminal.create(gpa, .{
@@ -223,13 +259,24 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
         return 0;
     };
 
-    const win = gtk.gtk_window_new();
-    const title = std.fmt.allocPrintSentinel(a, "Agent run — {s}", .{pending.run_id}, 0) catch "Agent run";
-    gtk.gtk_window_set_title(win, title);
-    gtk.gtk_window_set_default_size(win, 960, 640);
-    gtk.gtk_window_set_child(win, term);
-    gtk.gtk_window_present(win);
-    ctx.window = win;
+    const title = if (pending.interactive)
+        std.fmt.allocPrintSentinel(a, "Agent (interactive) — {s}", .{pending.run_id}, 0) catch "Agent run"
+    else
+        std.fmt.allocPrintSentinel(a, "Agent run — {s}", .{pending.run_id}, 0) catch "Agent run";
+
+    // Prefer the docked terminal (IDE-style bottom pane); fall back to a
+    // throwaway window if the dock isn't available.
+    if (mgr.dock != null and mgr.mount_fn != null) {
+        mgr.mount_fn.?(mgr.dock.?, term, title.ptr);
+        ctx.window = null;
+    } else {
+        const win = gtk.gtk_window_new();
+        gtk.gtk_window_set_title(win, title);
+        gtk.gtk_window_set_default_size(win, 960, 640);
+        gtk.gtk_window_set_child(win, term);
+        gtk.gtk_window_present(win);
+        ctx.window = win;
+    }
 
     return 0; // G_SOURCE_REMOVE — fire once
 }
@@ -255,6 +302,23 @@ fn buildScript(a: std.mem.Allocator, program: []const u8, argv: []const []const 
     return buf.toOwnedSlice(a);
 }
 
+/// Build the INTERACTIVE wrapper: run the CLI with the prompt as the final
+/// positional arg, NO tee/PIPESTATUS capture (the user watches + steers the
+/// session live; the plan is delivered out-of-band via the Exponential MCP).
+fn buildInteractiveScript(a: std.mem.Allocator, program: []const u8, argv: []const []const u8, prompt_path: []const u8) ![]u8 {
+    var buf = std.ArrayListUnmanaged(u8).empty;
+    try buf.appendSlice(a, "#!/usr/bin/env bash\n");
+    try shquoteTo(a, &buf, program);
+    for (argv) |arg| {
+        try buf.append(a, ' ');
+        try shquoteTo(a, &buf, arg);
+    }
+    try buf.appendSlice(a, " \"$(cat ");
+    try shquoteTo(a, &buf, prompt_path);
+    try buf.appendSlice(a, ")\"\n");
+    return buf.toOwnedSlice(a);
+}
+
 /// Append `t` as a single-quoted shell token (escaping embedded single quotes).
 fn shquoteTo(a: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8), t: []const u8) !void {
     try buf.append(a, '\'');
@@ -269,6 +333,16 @@ fn shquoteTo(a: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8), t: []const 
 fn onRunExit(ctx_ptr: ?*anyopaque, action_exit_code: i32) void {
     const ctx: *RunCtx = @ptrCast(@alignCast(ctx_ptr orelse return));
     const gpa = ctx.mgr.gpa;
+
+    // Interactive runs capture nothing (the plan/code is delivered via MCP);
+    // submit an empty result so the parked pipeline thread unblocks.
+    if (ctx.interactive) {
+        _ = ffi.agent_core_submit_run_result(ctx.mgr.core, ctx.run_id.ptr, @intCast(action_exit_code), "", null);
+        storage.deleteFile(ctx.prompt_path);
+        storage.deleteFile(ctx.script_path);
+        freeCtx(ctx);
+        return;
+    }
 
     // Prefer the wrapper-recorded exit code (the real program's, via PIPESTATUS);
     // the action's code is the wrapper script's, which isn't meaningful.
@@ -286,7 +360,7 @@ fn onRunExit(ctx_ptr: ?*anyopaque, action_exit_code: i32) void {
     };
     defer gpa.free(text_z);
 
-    _ = ffi.agent_core_submit_run_result(ctx.mgr.core, ctx.run_id.ptr, @intCast(exit_code), text_z.ptr);
+    _ = ffi.agent_core_submit_run_result(ctx.mgr.core, ctx.run_id.ptr, @intCast(exit_code), text_z.ptr, null);
 
     // Clean up transient files; leave the terminal window open so the user can
     // inspect the session (it's freed when they close it).
@@ -300,7 +374,7 @@ fn onRunExit(ctx_ptr: ?*anyopaque, action_exit_code: i32) void {
 fn submitFailure(mgr: *Manager, run_id: []const u8) void {
     const rid = mgr.gpa.dupeZ(u8, run_id) catch return;
     defer mgr.gpa.free(rid);
-    _ = ffi.agent_core_submit_run_result(mgr.core, rid.ptr, -1, "");
+    _ = ffi.agent_core_submit_run_result(mgr.core, rid.ptr, -1, "", null);
 }
 
 /// Submit a failure for a pending run and free it (used on main-thread setup

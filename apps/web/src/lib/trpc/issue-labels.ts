@@ -3,6 +3,7 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { issueLabels } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { assertIssueLabelWorkspaceMatch } from "@/lib/workspace-membership"
+import { recordIssueEvent } from "@/lib/integrations/activity"
 
 export const issueLabelsRouter = router({
   add: authedProcedure
@@ -30,6 +31,14 @@ export const issueLabelsRouter = router({
           })
           .onConflictDoNothing()
 
+        await recordIssueEvent(tx, {
+          issueId: input.issueId,
+          workspaceId: label!.workspaceId,
+          actorUserId: ctx.session.user.id,
+          type: `label_added`,
+          payload: { labelId: input.labelId },
+        })
+
         return { txId }
       })
     }),
@@ -42,7 +51,7 @@ export const issueLabelsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertIssueLabelWorkspaceMatch(
+      const { label } = await assertIssueLabelWorkspaceMatch(
         ctx.session.user.id,
         input.issueId,
         input.labelId
@@ -58,6 +67,14 @@ export const issueLabelsRouter = router({
               eq(issueLabels.labelId, input.labelId)
             )
           )
+
+        await recordIssueEvent(tx, {
+          issueId: input.issueId,
+          workspaceId: label!.workspaceId,
+          actorUserId: ctx.session.user.id,
+          type: `label_removed`,
+          payload: { labelId: input.labelId },
+        })
 
         return { txId }
       })

@@ -8,6 +8,7 @@ import com.exponential.app.data.api.IssueDescription
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
+import com.exponential.app.data.api.SubscriptionsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -52,6 +53,7 @@ class IssueDetailViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
+    private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
@@ -105,6 +107,26 @@ class IssueDetailViewModel @Inject constructor(
             assignee = issue?.assigneeId?.let { id -> users.firstOrNull { it.id == id } },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueDetailState())
+
+    // Subscription state (separate StateFlow — the main combine is at the 5-arg
+    // typed cap). Drives the Bell/BellOff toggle in the detail top bar.
+    val isSubscribed: StateFlow<Boolean> = combine(
+        db.issueSubscriberDao().observeByIssue(issueId),
+        auth.userId,
+    ) { subs, userId ->
+        userId != null && subs.any { it.userId == userId && !it.unsubscribed }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun toggleSubscribe() {
+        val subscribed = isSubscribed.value
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching {
+                if (subscribed) subscriptionsApi.unsubscribe(accountId, issueId)
+                else subscriptionsApi.subscribe(accountId, issueId)
+            }
+        }
+    }
 
     // Debounced description autosave: editing fires updateDescription() on every
     // keystroke, but we only hit the API after the user pauses (or on flush),

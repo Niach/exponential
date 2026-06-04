@@ -3,23 +3,60 @@
 
 import Foundation
 
-public enum DomainContract {
-    public static let issueStatusValues: [String] = ["backlog", "todo", "in_progress", "done", "cancelled"]
-    public static let issueStatusDisplayOrder: [String] = ["in_progress", "todo", "backlog", "done", "cancelled"]
-    public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
-    public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
-    public static let recurrenceUnitValues: [String] = ["day", "week", "month"]
-    public static let workspaceRoleValues: [String] = ["owner", "member", "agent"]
-    public static let publicWritePolicyValues: [String] = ["members", "everyone"]
-    public static let commentKindValues: [String] = ["regular", "question", "plan"]
-    public static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
+enum DomainContract {
+    static let issueStatusValues: [String] = ["backlog", "todo", "in_progress", "done", "cancelled"]
+    static let issueStatusDisplayOrder: [String] = ["in_progress", "todo", "backlog", "done", "cancelled"]
+    static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
+    static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
+    static let recurrenceUnitValues: [String] = ["day", "week", "month"]
+    static let workspaceRoleValues: [String] = ["owner", "member", "agent"]
+    static let publicWritePolicyValues: [String] = ["members", "everyone"]
+    static let commentKindValues: [String] = ["regular", "question", "plan"]
+    static let agentPlanStateValues: [String] = ["drafting", "awaiting_approval", "awaiting_answer", "approved", "coding", "planning", "in_review", "pushed"]
+    static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention"]
+    static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
+    static let runModeValues: [String] = ["background", "interactive"]
+    static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention"]
+    static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error"]
+    static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
 
-    public static let workspaceRoleOwner: String = "owner"
-    public static let workspaceRoleMember: String = "member"
-    public static let workspaceRoleAgent: String = "agent"
-    public static let publicWritePolicyMembers: String = "members"
-    public static let publicWritePolicyEveryone: String = "everyone"
-    public static let commentKindRegular: String = "regular"
-    public static let commentKindQuestion: String = "question"
-    public static let commentKindPlan: String = "plan"
+    static let workspaceRoleOwner: String = "owner"
+    static let workspaceRoleMember: String = "member"
+    static let workspaceRoleAgent: String = "agent"
+    static let publicWritePolicyMembers: String = "members"
+    static let publicWritePolicyEveryone: String = "everyone"
+    static let commentKindRegular: String = "regular"
+    static let commentKindQuestion: String = "question"
+    static let commentKindPlan: String = "plan"
+    static let agentPlanStateDrafting: String = "drafting"
+    static let agentPlanStateAwaitingApproval: String = "awaiting_approval"
+    static let agentPlanStateAwaitingAnswer: String = "awaiting_answer"
+    static let agentPlanStateApproved: String = "approved"
+    static let agentPlanStateCoding: String = "coding"
+    static let agentPlanStatePlanning: String = "planning"
+    static let agentPlanStateInReview: String = "in_review"
+    static let agentPlanStatePushed: String = "pushed"
+    static let notificationTypeIssueAssigned: String = "issue_assigned"
+    static let notificationTypeIssueComment: String = "issue_comment"
+    static let notificationTypeIssueStatusChanged: String = "issue_status_changed"
+    static let notificationTypeIssueMention: String = "issue_mention"
+    static let prStateOpen: String = "open"
+    static let prStateClosed: String = "closed"
+    static let prStateMerged: String = "merged"
+    static let prStateDraft: String = "draft"
+    static let runModeBackground: String = "background"
+    static let runModeInteractive: String = "interactive"
+    static let subscriberSourceCreator: String = "creator"
+    static let subscriberSourceAssignee: String = "assignee"
+    static let subscriberSourceCommenter: String = "commenter"
+    static let subscriberSourceManual: String = "manual"
+    static let subscriberSourceMention: String = "mention"
+    static let issueEventTypeStatusChanged: String = "status_changed"
+    static let issueEventTypeAssigneeChanged: String = "assignee_changed"
+    static let issueEventTypeLabelAdded: String = "label_added"
+    static let issueEventTypeLabelRemoved: String = "label_removed"
+    static let issueEventTypePrOpened: String = "pr_opened"
+    static let issueEventTypePrMerged: String = "pr_merged"
+    static let issueEventTypePlanReady: String = "plan_ready"
+    static let issueEventTypeAgentError: String = "agent_error"
 }

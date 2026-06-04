@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { apikeys } from "@/db/auth-schema"
+import { apikeys, oauthApplications } from "@/db/auth-schema"
 import {
   issues,
   projects,
@@ -12,6 +12,7 @@ interface WorkspaceAgentRecord {
   workspaceId: string
   userId: string
   apiKeyId: string | null
+  oauthClientId: string | null
 }
 
 export async function revokeWorkspaceAgent(
@@ -25,8 +26,15 @@ export async function revokeWorkspaceAgent(
     .where(eq(projects.workspaceId, agent.workspaceId))
 
   await db.transaction(async (tx) => {
+    // Legacy expk_ key (pre-OAuth agents).
     if (agent.apiKeyId) {
       await tx.delete(apikeys).where(eq(apikeys.id, agent.apiKeyId))
+    }
+    // The OAuth client; its access/refresh tokens cascade-delete with it.
+    if (agent.oauthClientId) {
+      await tx
+        .delete(oauthApplications)
+        .where(eq(oauthApplications.clientId, agent.oauthClientId))
     }
 
     if (projectRows.length > 0) {

@@ -50,8 +50,17 @@ struct HomeView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                inboxButton
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 settingsButton
             }
+        }
+    }
+
+    private var inboxButton: some View {
+        NavigationLink(value: AppRoute.inbox) {
+            Image(systemName: "tray")
         }
     }
 

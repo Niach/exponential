@@ -43,7 +43,9 @@ final class MacAgentCore: @unchecked Sendable {
         guard !hasShutdown else { return }
         runId.withCString { rid in
             finalText.withCString { ft in
-                _ = agent_core_submit_run_result(core, rid, exitCode, ft)
+                // session_id NULL: headless macOS Process runner doesn't surface
+                // it (the interactive terminal path passes it in Phase A5/7).
+                _ = agent_core_submit_run_result(core, rid, exitCode, ft, nil)
             }
         }
     }

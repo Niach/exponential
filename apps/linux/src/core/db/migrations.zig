@@ -7,10 +7,76 @@
 //! (issues.description, comments.body) is TEXT, fractional sort orders are REAL.
 //! The iOS v2 attachment width/height migration is folded into the table here.
 
+const std = @import("std");
 const sqlite = @import("sqlite.zig");
 
 pub fn run(conn: *sqlite.Conn) !void {
     try conn.exec(schema_sql);
+    // Self-heal existing caches: `CREATE TABLE IF NOT EXISTS issues` is a no-op
+    // when the table already exists, so columns added in later releases would be
+    // missing on an upgraded install (and a synced issue row carrying them would
+    // fail to UPSERT). ALTER-ADD any new column that isn't present yet. New
+    // tables don't need this — IF NOT EXISTS creates them in full.
+    for (new_issue_columns) |col| {
+        if (!issueHasColumn(conn, col.name)) try conn.exec(col.ddl);
+    }
+}
+
+const IssueColumn = struct { name: []const u8, ddl: [:0]const u8 };
+
+// Columns added to `issues` after the original schema. Keep in sync with the
+// CREATE TABLE above and packages/db-schema/src/schema.ts.
+const new_issue_columns = [_]IssueColumn{
+    .{ .name = "pr_url", .ddl = "ALTER TABLE issues ADD COLUMN pr_url TEXT" },
+    .{ .name = "pr_number", .ddl = "ALTER TABLE issues ADD COLUMN pr_number INTEGER" },
+    .{ .name = "pr_state", .ddl = "ALTER TABLE issues ADD COLUMN pr_state TEXT" },
+    .{ .name = "branch", .ddl = "ALTER TABLE issues ADD COLUMN branch TEXT" },
+    .{ .name = "pr_merged_at", .ddl = "ALTER TABLE issues ADD COLUMN pr_merged_at TEXT" },
+    .{ .name = "agent_session_id", .ddl = "ALTER TABLE issues ADD COLUMN agent_session_id TEXT" },
+    .{ .name = "agent_run_mode", .ddl = "ALTER TABLE issues ADD COLUMN agent_run_mode TEXT" },
+    .{ .name = "agent_interactive_claimed_at", .ddl = "ALTER TABLE issues ADD COLUMN agent_interactive_claimed_at TEXT" },
+};
+
+fn issueHasColumn(conn: *sqlite.Conn, name: []const u8) bool {
+    var stmt = conn.prepare("PRAGMA table_info(issues)") catch return true;
+    defer stmt.finalize();
+    // PRAGMA table_info columns: 0=cid, 1=name, 2=type, ...
+    while (stmt.step() catch false) {
+        if (std.mem.eql(u8, stmt.columnText(1), name)) return true;
+    }
+    return false;
+}
+
+test "run() is a no-op-safe full schema on a fresh DB" {
+    var conn = try sqlite.Conn.open(":memory:");
+    defer conn.close();
+    try run(&conn);
+    // Fresh CREATE TABLE includes every new column, so no ALTER should fire and
+    // all must be present.
+    for (new_issue_columns) |col| {
+        try std.testing.expect(issueHasColumn(&conn, col.name));
+    }
+}
+
+test "run() backfills new issue columns on an upgraded cache" {
+    var conn = try sqlite.Conn.open(":memory:");
+    defer conn.close();
+    // Simulate a pre-existing cache: an old `issues` table missing the new cols
+    // (includes project_id so schema_sql's idx_issues_project index still applies).
+    try conn.exec(
+        \\CREATE TABLE issues (
+        \\  id TEXT PRIMARY KEY,
+        \\  project_id TEXT NOT NULL,
+        \\  title TEXT NOT NULL,
+        \\  created_at TEXT NOT NULL,
+        \\  updated_at TEXT NOT NULL
+        \\);
+    );
+    try std.testing.expect(!issueHasColumn(&conn, "pr_url"));
+    try run(&conn);
+    for (new_issue_columns) |col| {
+        try std.testing.expect(issueHasColumn(&conn, col.name));
+    }
 }
 
 const schema_sql =
@@ -73,6 +139,14 @@ const schema_sql =
     \\  agent_plan_approved_at TEXT,
     \\  agent_plan_approved_by TEXT,
     \\  agent_last_comment_seen_at TEXT,
+    \\  pr_url TEXT,
+    \\  pr_number INTEGER,
+    \\  pr_state TEXT,
+    \\  branch TEXT,
+    \\  pr_merged_at TEXT,
+    \\  agent_session_id TEXT,
+    \\  agent_run_mode TEXT,
+    \\  agent_interactive_claimed_at TEXT,
     \\  created_at TEXT NOT NULL,
     \\  updated_at TEXT NOT NULL
     \\);
@@ -163,4 +237,44 @@ const schema_sql =
     \\);
     \\CREATE INDEX IF NOT EXISTS idx_attachments_workspace ON attachments(workspace_id);
     \\CREATE INDEX IF NOT EXISTS idx_attachments_issue ON attachments(issue_id);
+    \\
+    \\CREATE TABLE IF NOT EXISTS notifications (
+    \\  id TEXT PRIMARY KEY,
+    \\  user_id TEXT NOT NULL,
+    \\  issue_id TEXT,
+    \\  type TEXT NOT NULL,
+    \\  title TEXT NOT NULL,
+    \\  body TEXT,
+    \\  read_at TEXT,
+    \\  pushed_at TEXT,
+    \\  created_at TEXT NOT NULL,
+    \\  updated_at TEXT NOT NULL
+    \\);
+    \\CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at);
+    \\
+    \\CREATE TABLE IF NOT EXISTS issue_subscribers (
+    \\  id TEXT PRIMARY KEY,
+    \\  issue_id TEXT NOT NULL,
+    \\  user_id TEXT NOT NULL,
+    \\  workspace_id TEXT NOT NULL,
+    \\  source TEXT NOT NULL,
+    \\  unsubscribed INTEGER NOT NULL DEFAULT 0,
+    \\  created_at TEXT NOT NULL,
+    \\  updated_at TEXT NOT NULL
+    \\);
+    \\CREATE INDEX IF NOT EXISTS idx_issue_subscribers_user ON issue_subscribers(user_id);
+    \\CREATE INDEX IF NOT EXISTS idx_issue_subscribers_workspace ON issue_subscribers(workspace_id);
+    \\
+    \\CREATE TABLE IF NOT EXISTS issue_events (
+    \\  id TEXT PRIMARY KEY,
+    \\  issue_id TEXT NOT NULL,
+    \\  workspace_id TEXT NOT NULL,
+    \\  actor_user_id TEXT,
+    \\  type TEXT NOT NULL,
+    \\  payload TEXT,
+    \\  created_at TEXT NOT NULL,
+    \\  updated_at TEXT NOT NULL
+    \\);
+    \\CREATE INDEX IF NOT EXISTS idx_issue_events_issue ON issue_events(issue_id);
+    \\CREATE INDEX IF NOT EXISTS idx_issue_events_workspace ON issue_events(workspace_id);
 ;

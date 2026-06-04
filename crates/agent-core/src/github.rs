@@ -41,6 +41,32 @@ pub struct RepoMinimal {
     pub private: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullFile {
+    pub filename: String,
+    pub status: String,
+    pub additions: i64,
+    pub deletions: i64,
+    pub patch: Option<String>,
+}
+
+/// Changed files for a PR (for a local/desktop diff view). The web diff uses the
+/// server-side `issues.prFiles` endpoint; this exists for completeness.
+pub fn list_pull_files(token: &str, owner: &str, repo: &str, number: i64, timeout_s: u64) -> Result<Vec<PullFile>, String> {
+    let raw = gh(token, "GET", &format!("/repos/{owner}/{repo}/pulls/{number}/files?per_page=100"), None, timeout_s)?;
+    let arr = raw.as_array().ok_or("GitHub: expected an array of files")?;
+    Ok(arr
+        .iter()
+        .map(|f| PullFile {
+            filename: f.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            status: f.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            additions: f.get("additions").and_then(|v| v.as_i64()).unwrap_or(0),
+            deletions: f.get("deletions").and_then(|v| v.as_i64()).unwrap_or(0),
+            patch: f.get("patch").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        })
+        .collect())
+}
+
 pub fn get_repo(token: &str, owner_repo: &str, timeout_s: u64) -> Result<RepoMinimal, String> {
     let raw = gh(token, "GET", &format!("/repos/{owner_repo}"), None, timeout_s)?;
     Ok(RepoMinimal {

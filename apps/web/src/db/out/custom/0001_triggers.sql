@@ -87,3 +87,31 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER populate_issue_label_workspace_id
   BEFORE INSERT ON issue_labels
   FOR EACH ROW EXECUTE FUNCTION populate_issue_label_workspace_id();
+
+-- 5. update_updated_at on the new activity/subscription tables.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_subscribers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_events FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- 6. Auto-populate workspace_id on issue_subscribers / issue_events from the
+--    referenced issue's project, so the Electric shape filter can be
+--    workspace-scoped (stable). issues have no direct workspace_id, so resolve
+--    it via issues → projects (NOT the issue_labels template which reads
+--    labels.workspace_id). A wrong source leaves workspace_id NULL → NOT NULL
+--    violation.
+CREATE OR REPLACE FUNCTION populate_issue_child_workspace_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT p.workspace_id INTO NEW.workspace_id
+  FROM issues i JOIN projects p ON p.id = i.project_id
+  WHERE i.id = NEW.issue_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_issue_subscriber_workspace_id
+  BEFORE INSERT ON issue_subscribers
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_workspace_id();
+
+CREATE OR REPLACE TRIGGER populate_issue_event_workspace_id
+  BEFORE INSERT ON issue_events
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_workspace_id();

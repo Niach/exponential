@@ -62,6 +62,21 @@ fn react_closed(config: &Config, state: &Arc<Mutex<State>>, issue: &crate::state
     let final_status = if merged { "done" } else { "cancelled" };
     let _ = state.lock().unwrap().set_issue_status(&issue.id, final_status, None);
     let _ = mcp::update_issue_status(&config.base_url, &config.api_key, &issue.id, final_status, config.timeout_s);
+    // Sync the PR's resolution (synced pr_state + pr_merged event). The server
+    // stamps merged_at when state='merged' and no explicit timestamp is given.
+    if let Some((_owner, _repo, number)) = issue.pr_url.as_deref().and_then(parse_pr_url) {
+        let pr_state = if merged { "merged" } else { "closed" };
+        let _ = mcp::report_pr(
+            &config.base_url,
+            &config.api_key,
+            &issue.id,
+            issue.pr_url.as_deref().unwrap_or(""),
+            number,
+            pr_state,
+            issue.branch.as_deref(),
+            config.timeout_s,
+        );
+    }
 }
 
 fn now_secs() -> i64 {

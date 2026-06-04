@@ -2,6 +2,7 @@ import { z } from "zod"
 import { eq } from "drizzle-orm"
 import { authedProcedure } from "@/lib/trpc"
 import { workspaceAgents } from "@/db/schema"
+import { encryptSecret } from "@/lib/crypto/secret-box"
 import { loadAgentForSessionUser } from "./shared"
 
 export const identityProcedures = {
@@ -20,17 +21,22 @@ export const identityProcedures = {
             })
           )
           .max(2000),
+        // The agent's GitHub token, stored encrypted so the server can read PR
+        // diffs for private repos. Optional — only overwrites when provided.
+        token: z.string().min(1).max(512).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+      const set: Record<string, unknown> = {
+        githubUserLogin: input.login,
+        githubRepos: input.repos,
+        lastSeenAt: new Date(),
+      }
+      if (input.token) set.githubToken = encryptSecret(input.token)
       await ctx.db
         .update(workspaceAgents)
-        .set({
-          githubUserLogin: input.login,
-          githubRepos: input.repos,
-          lastSeenAt: new Date(),
-        })
+        .set(set)
         .where(eq(workspaceAgents.id, agent.id))
       return { ok: true, count: input.repos.length }
     }),
@@ -42,6 +48,7 @@ export const identityProcedures = {
       .set({
         githubUserLogin: null,
         githubRepos: null,
+        githubToken: null,
         lastSeenAt: new Date(),
       })
       .where(eq(workspaceAgents.id, agent.id))

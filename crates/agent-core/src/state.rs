@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS issues (
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   plan_revision INTEGER NOT NULL DEFAULT 0,
+  claude_session_id TEXT,
+  interactive_owned INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS issues_status_idx ON issues(status);
@@ -58,6 +60,11 @@ pub struct IssueRow {
     pub attempts: i64,
     pub last_error: Option<String>,
     pub plan_revision: i64,
+    // The claude session id of an interactive plan run, so approve-and-continue
+    // can `--continue` it. `interactive_owned` = a desktop interactive session
+    // owns this issue → the background dispatcher must NOT auto-run the code stage.
+    pub claude_session_id: Option<String>,
+    pub interactive_owned: i64,
     pub updated_at: i64,
 }
 
@@ -83,6 +90,8 @@ pub struct IssuePatch {
     pub attempts: Option<i64>,
     pub last_error: Option<String>,
     pub plan_revision: Option<i64>,
+    pub claude_session_id: Option<String>,
+    pub interactive_owned: Option<i64>,
 }
 
 pub struct ShapeOffset {
@@ -172,6 +181,8 @@ impl State {
         field!(patch.attempts, "attempts", Value::Integer);
         field!(patch.last_error, "last_error", Value::Text);
         field!(patch.plan_revision, "plan_revision", Value::Integer);
+        field!(patch.claude_session_id, "claude_session_id", Value::Text);
+        field!(patch.interactive_owned, "interactive_owned", Value::Integer);
         if sets.is_empty() {
             return Ok(());
         }
@@ -188,7 +199,8 @@ impl State {
     pub fn reset_for_assignment(&self, id: &str) -> rusqlite::Result<()> {
         self.conn.execute(
             "UPDATE issues SET last_error = NULL, plan_revision = 0, pr_url = NULL,
-               worktree_path = NULL, branch = NULL, updated_at = ?1 WHERE id = ?2",
+               worktree_path = NULL, branch = NULL, claude_session_id = NULL,
+               interactive_owned = 0, updated_at = ?1 WHERE id = ?2",
             params![now_ms(), id],
         )?;
         Ok(())
@@ -263,6 +275,8 @@ fn row_to_issue(r: &rusqlite::Row) -> rusqlite::Result<IssueRow> {
         attempts: r.get("attempts")?,
         last_error: r.get("last_error")?,
         plan_revision: r.get("plan_revision")?,
+        claude_session_id: r.get("claude_session_id")?,
+        interactive_owned: r.get("interactive_owned")?,
         updated_at: r.get("updated_at")?,
     })
 }

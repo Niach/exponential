@@ -32,11 +32,58 @@ export const recurrenceIntervals = [
 
 export const commentKindValues = [`regular`, `question`, `plan`] as const
 
+// The agent plan/run lifecycle. The first four are the server-synced states
+// (issues.agent_plan_state); the latter four are agent-only progress states the
+// native clients render as badges (kept here so badge logic doesn't fall
+// through to a default). Stored as varchar — not a pg enum.
 export const agentPlanStateValues = [
   `drafting`,
   `awaiting_approval`,
   `awaiting_answer`,
   `approved`,
+  `coding`,
+  `planning`,
+  `in_review`,
+  `pushed`,
+] as const
+
+// Notification kinds. Mirrors the `notification_type` pg enum in schema.ts;
+// promoted into the contract so the native inbox can label rows.
+export const notificationTypeValues = [
+  `issue_assigned`,
+  `issue_comment`,
+  `issue_status_changed`,
+  `issue_mention`,
+] as const
+
+// Pull-request state surfaced on issues.pr_state (varchar). Mirrors the GitHub
+// PR state machine the agent reports back.
+export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
+
+// How an agent run was launched (issues.agent_run_mode, varchar).
+export const runModeValues = [`background`, `interactive`] as const
+
+// Why a user is subscribed to an issue (issue_subscribers.source, varchar).
+// `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.
+export const subscriberSourceValues = [
+  `creator`,
+  `assignee`,
+  `commenter`,
+  `manual`,
+  `mention`,
+] as const
+
+// Activity-log event kinds (issue_events.type, varchar). Drives the
+// Linear-style timeline on every client.
+export const issueEventTypeValues = [
+  `status_changed`,
+  `assignee_changed`,
+  `label_added`,
+  `label_removed`,
+  `pr_opened`,
+  `pr_merged`,
+  `plan_ready`,
+  `agent_error`,
 ] as const
 
 export type IssueStatus = (typeof issueStatusValues)[number]
@@ -46,6 +93,11 @@ export type PublicWritePolicy = (typeof publicWritePolicyValues)[number]
 export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type AgentPlanState = (typeof agentPlanStateValues)[number]
+export type NotificationType = (typeof notificationTypeValues)[number]
+export type PrState = (typeof prStateValues)[number]
+export type RunMode = (typeof runModeValues)[number]
+export type SubscriberSource = (typeof subscriberSourceValues)[number]
+export type IssueEventType = (typeof issueEventTypeValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
@@ -54,6 +106,11 @@ export const publicWritePolicySchema = z.enum(publicWritePolicyValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const agentPlanStateSchema = z.enum(agentPlanStateValues)
+export const notificationTypeSchema = z.enum(notificationTypeValues)
+export const prStateSchema = z.enum(prStateValues)
+export const runModeSchema = z.enum(runModeValues)
+export const subscriberSourceSchema = z.enum(subscriberSourceValues)
+export const issueEventTypeSchema = z.enum(issueEventTypeValues)
 export const recurrenceIntervalSchema = z.number().int().min(1).max(999)
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 export const timeOnlySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/)

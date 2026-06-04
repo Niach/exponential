@@ -18,6 +18,10 @@ export const users = pgTable(`users`, {
   isAdmin: boolean(`is_admin`)
     .$defaultFn(() => false)
     .notNull(),
+  // True for synthetic agent users (a desktop coding agent registered by a
+  // human owner). Replaces the brittle `email LIKE 'agent-%'` hack. Agent users
+  // are hidden from member/admin lists and excluded from notification fan-out.
+  isAgent: boolean(`is_agent`).notNull().default(false),
   creemCustomerId: text(`creem_customer_id`),
   hadTrial: boolean(`had_trial`).notNull().default(false),
   onboardingCompletedAt: timestamp(`onboarding_completed_at`, {

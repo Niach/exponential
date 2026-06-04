@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, like, not, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts } from "@/db/auth-schema"
 import { workspaces, workspaceMembers, projects } from "@/db/schema"
@@ -22,7 +22,7 @@ export const adminRouter = router({
         providers: sql<string[]>`coalesce(array_agg(distinct ${accounts.providerId}) filter (where ${accounts.providerId} is not null), '{}')`,
       })
       .from(users)
-      .where(not(like(users.email, `agent-%@exponential.local`)))
+      .where(eq(users.isAgent, false))
       .leftJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
       .leftJoin(accounts, eq(accounts.userId, users.id))
       .groupBy(users.id)
