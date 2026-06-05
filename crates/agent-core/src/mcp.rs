@@ -88,8 +88,12 @@ pub fn update_issue_status(base_url: &str, api_key: &str, issue_id: &str, status
     call_tool(base_url, api_key, "exponential_issues_update", json!({ "id": issue_id, "status": status }), timeout_s).map(|_| ())
 }
 
-pub fn submit_agent_plan(base_url: &str, api_key: &str, issue_id: &str, plan: &str, state: &str, timeout_s: u64) -> Result<(), String> {
-    call_tool(base_url, api_key, "exponential_agent_plan_submit", json!({ "issueId": issue_id, "plan": plan, "state": state }), timeout_s).map(|_| ())
+pub fn submit_agent_plan(base_url: &str, api_key: &str, issue_id: &str, plan: &str, state: &str, question: Option<&str>, timeout_s: u64) -> Result<(), String> {
+    let mut args = json!({ "issueId": issue_id, "plan": plan, "state": state });
+    if let Some(q) = question {
+        args["question"] = json!(q);
+    }
+    call_tool(base_url, api_key, "exponential_agent_plan_submit", args, timeout_s).map(|_| ())
 }
 
 pub fn mark_agent_plan_started(base_url: &str, api_key: &str, issue_id: &str, timeout_s: u64) -> Result<(), String> {
@@ -193,14 +197,21 @@ pub fn to_issue_detail(payload: &Value) -> IssueDetail {
                 .collect()
         })
         .unwrap_or_default();
+    let non_empty = |s: String| if s.is_empty() { None } else { Some(s) };
     IssueDetail {
         identifier: s(payload, "identifier"),
         title: s(payload, "title"),
+        project_id: s(payload, "projectId"),
+        status: s(payload, "status"),
         description_text: text_of(payload.get("description")),
         agent_plan_state: opt_s(payload, "agentPlanState"),
         agent_plan_revision: payload.get("agentPlanRevision").and_then(|n| n.as_i64()).unwrap_or(0),
         agent_plan_approved_at: opt_s(payload, "agentPlanApprovedAt"),
         agent_last_comment_seen_at: opt_s(payload, "agentLastCommentSeenAt"),
+        // Structured plan/question text (server-only). Preferred over parsing
+        // plan/question comments.
+        agent_plan_text: non_empty(text_of(payload.get("agentPlanText"))),
+        agent_question: non_empty(text_of(payload.get("agentQuestion"))),
         recent_comments: comments,
     }
 }

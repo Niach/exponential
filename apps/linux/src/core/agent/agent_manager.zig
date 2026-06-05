@@ -102,9 +102,14 @@ fn onEvent(ctx: ?*anyopaque, json_ptr: [*c]const u8, len: usize) callconv(.c) vo
         else => return,
     };
     const typ = objStr(obj, "type") orelse return;
-    if (std.mem.eql(u8, typ, "run_request")) handleRunRequest(mgr, obj);
-    // "log" and other event types are ignored here (could be surfaced via
-    // g_idle_add later); this thread must not touch GTK directly.
+    if (std.mem.eql(u8, typ, "run_request")) {
+        handleRunRequest(mgr, obj);
+    } else if (std.mem.eql(u8, typ, "log")) {
+        // Surface core logs to stderr (safe off the GTK thread — no GTK calls).
+        const level = objStr(obj, "level") orelse "info";
+        const msg = objStr(obj, "message") orelse "";
+        std.debug.print("[agent-core] {s}: {s}\n", .{ level, msg });
+    }
 }
 
 // -------------------------------------------------------------------------

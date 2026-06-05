@@ -47,7 +47,15 @@ pub fn open(
 ) void {
     var tmp = std.heap.ArenaAllocator.init(gpa);
     defer tmp.deinit();
-    const ws = workspace_id orelse (db.firstWorkspaceId(tmp.allocator()) catch null) orelse return;
+    // Prefer the user's own (non-public, owned) default workspace. Falling back
+    // to firstWorkspaceId can pick the synced public/shared workspace, which
+    // would register the agent against the wrong workspace.
+    const ws = workspace_id orelse (blk: {
+        if (current_user_id) |uid| {
+            if (db.defaultOwnedWorkspaceId(tmp.allocator(), uid) catch null) |w| break :blk w;
+        }
+        break :blk (db.firstWorkspaceId(tmp.allocator()) catch null);
+    }) orelse return;
 
     const ctx = gpa.create(Ctx) catch return;
     ctx.gpa = gpa;
@@ -627,14 +635,72 @@ fn onRegister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     }
 }
 
+// Confirmation before unregistering — accidental unregister silently stops the
+// agent from picking up assigned issues, so make it deliberate.
+const UnregConfirm = struct { ctx: *Ctx, dialog: gtk.Object = null };
+
 fn onUnregister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const uc = ctx.gpa.create(UnregConfirm) catch return;
+    uc.ctx = ctx;
+
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, "Unregister this machine");
+    gtk.adw_dialog_set_content_width(dialog, 420);
+    uc.dialog = dialog;
+
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    const cancel = gtk.gtk_button_new_with_label("Cancel");
+    _ = gtk.g_signal_connect_data(cancel, "clicked", @ptrCast(&onUnregCancel), uc, null, 0);
+    gtk.adw_header_bar_pack_start(header, cancel);
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+
+    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 10);
+    gtk.gtk_widget_set_margin_top(form, 16);
+    gtk.gtk_widget_set_margin_bottom(form, 16);
+    gtk.gtk_widget_set_margin_start(form, 16);
+    gtk.gtk_widget_set_margin_end(form, 16);
+    const msg = gtk.gtk_label_new("Unregister this machine? It will stop running assigned issues until you register it again.");
+    gtk.gtk_label_set_wrap(msg, 1);
+    gtk.gtk_widget_set_halign(msg, gtk.ALIGN_START);
+    gtk.gtk_box_append(form, msg);
+    const confirm = gtk.gtk_button_new_with_label("Unregister");
+    gtk.gtk_widget_add_css_class(confirm, "destructive-action");
+    gtk.gtk_widget_set_halign(confirm, gtk.ALIGN_END);
+    _ = gtk.g_signal_connect_data(confirm, "clicked", @ptrCast(&onUnregConfirm), uc, null, 0);
+    gtk.gtk_box_append(form, confirm);
+
+    gtk.adw_toolbar_view_set_content(tv, form);
+    gtk.adw_dialog_set_child(dialog, tv);
+    _ = gtk.g_signal_connect_data(dialog, "closed", @ptrCast(&onUnregClosed), uc, null, 0);
+    gtk.adw_dialog_present(dialog, ctx.dialog);
+}
+
+fn onUnregCancel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
+    _ = gtk.adw_dialog_close(uc.dialog);
+}
+
+fn onUnregClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
+    uc.ctx.gpa.destroy(uc);
+}
+
+fn onUnregConfirm(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
+    const ctx = uc.ctx;
+    doUnregister(ctx);
+    _ = gtk.adw_dialog_close(uc.dialog); // frees uc via onUnregClosed
+    rebuild(ctx);
+}
+
+fn doUnregister(ctx: *Ctx) void {
     if (identity_store.readField(ctx.gpa, ctx.ws_id, "apiKey")) |key| {
         defer ctx.gpa.free(key);
         _ = registration.uninstall(ctx.gpa, ctx.instance, key, 30);
     }
     identity_store.delete(ctx.gpa, ctx.ws_id);
-    rebuild(ctx);
 }
 
 /// GitHub is connected in the web app now — open Account → Integrations in the

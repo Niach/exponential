@@ -561,6 +561,26 @@ pub const Database = struct {
         return null;
     }
 
+    /// The user's own default workspace: the oldest non-public workspace they
+    /// OWN. This is what agent registration must pin to — `firstWorkspaceId`
+    /// can resolve to the Electric-synced public/shared workspace (which every
+    /// signed-in user receives), orphaning the agent against the wrong
+    /// workspace so it never shows up in web settings. null when none synced.
+    pub fn defaultOwnedWorkspaceId(self: *Database, arena: std.mem.Allocator, user_id: []const u8) !?[:0]const u8 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        var stmt = try self.conn.prepare(
+            "SELECT w.id FROM workspaces w " ++
+                "JOIN workspace_members wm ON wm.workspace_id = w.id " ++
+                "WHERE wm.user_id = ? AND wm.role = 'owner' AND COALESCE(w.is_public,0) = 0 " ++
+                "ORDER BY w.created_at LIMIT 1;",
+        );
+        defer stmt.finalize();
+        try stmt.bindText(1, user_id);
+        if (try stmt.step()) return try arena.dupeZ(u8, stmt.columnText(0));
+        return null;
+    }
+
     pub const WorkspaceRow = struct {
         id: [:0]const u8,
         name: [:0]const u8,

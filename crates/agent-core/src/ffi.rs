@@ -347,8 +347,10 @@ pub extern "C" fn agent_core_request_interactive(core: *mut AgentCore, issue_id:
     let Some(issue_id) = (unsafe { cstr_to_string(issue_id) }) else {
         return ERR_CONFIG;
     };
+    emit(&core.callback, &format!(r#"{{"type":"log","level":"info","message":"request_interactive issue={issue_id}"}}"#));
     let guard = core.runtime.lock().unwrap();
     let Some(rt) = guard.as_ref() else {
+        emit(&core.callback, r#"{"type":"log","level":"error","message":"request_interactive: runtime not started"}"#);
         return ERR_INVALID_HANDLE; // not started
     };
     let (config, state, emit) = (Arc::clone(&rt.config), Arc::clone(&rt.state), rt.emit.clone());

@@ -1294,12 +1294,20 @@ fn reconcileAgent(state: *AppState) void {
     }
 }
 
-/// Default the active workspace to the first synced one (once sync delivers it).
+/// Default the active workspace once sync delivers it. Prefer the user's own
+/// (non-public, owned) default workspace so agent registration/run pins to the
+/// right one — firstWorkspaceId can resolve to the synced public/shared workspace.
 fn ensureActiveWorkspace(state: *AppState) void {
     if (state.active_workspace_id != null) return;
     const db = if (state.db) |*d| d else return;
     var arena = std.heap.ArenaAllocator.init(state.gpa);
     defer arena.deinit();
+    if (currentUserId(state, arena.allocator())) |uid| {
+        if (db.defaultOwnedWorkspaceId(arena.allocator(), uid) catch null) |ws| {
+            state.active_workspace_id = state.gpa.dupe(u8, ws) catch null;
+            return;
+        }
+    }
     if (db.firstWorkspaceId(arena.allocator()) catch null) |ws|
         state.active_workspace_id = state.gpa.dupe(u8, ws) catch null;
 }
@@ -3757,7 +3765,7 @@ fn showOnboarding(state: *AppState) void {
     gtk.gtk_label_set_markup(title, "<span size='x-large' weight='bold'>Welcome to Exponential</span>");
     gtk.gtk_box_append(box, title);
 
-    const desc = gtk.gtk_label_new("Create a workspace and your first project to get started. Already set up on the web? Just skip.");
+    const desc = gtk.gtk_label_new("Create a project and start tracking work — then let a coding agent open pull requests for you. Already set up on the web? Just skip.");
     gtk.gtk_widget_add_css_class(desc, "dim-label");
     gtk.gtk_label_set_wrap(desc, 1);
     gtk.gtk_widget_set_halign(desc, gtk.ALIGN_CENTER);
@@ -3767,13 +3775,13 @@ fn showOnboarding(state: *AppState) void {
     const actions = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
     gtk.gtk_widget_set_halign(actions, gtk.ALIGN_CENTER);
     gtk.gtk_widget_set_margin_top(actions, 8);
-    const ws_btn = gtk.gtk_button_new_with_label("New workspace");
-    gtk.gtk_widget_add_css_class(ws_btn, "suggested-action");
-    _ = gtk.g_signal_connect_data(ws_btn, "clicked", @ptrCast(&onOnboardWorkspace), ctx, null, 0);
-    gtk.gtk_box_append(actions, ws_btn);
     const proj_btn = gtk.gtk_button_new_with_label("New project");
+    gtk.gtk_widget_add_css_class(proj_btn, "suggested-action");
     _ = gtk.g_signal_connect_data(proj_btn, "clicked", @ptrCast(&onOnboardProject), ctx, null, 0);
     gtk.gtk_box_append(actions, proj_btn);
+    const agent_btn = gtk.gtk_button_new_with_label("Set up coding agent");
+    _ = gtk.g_signal_connect_data(agent_btn, "clicked", @ptrCast(&onOnboardSetupAgent), ctx, null, 0);
+    gtk.gtk_box_append(actions, agent_btn);
     const skip = gtk.gtk_button_new_with_label("Skip");
     gtk.gtk_widget_add_css_class(skip, "flat");
     _ = gtk.g_signal_connect_data(skip, "clicked", @ptrCast(&onOnboardSkip), ctx, null, 0);
@@ -3803,6 +3811,15 @@ fn onOnboardProject(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const state = ctx.state;
     _ = gtk.adw_dialog_close(ctx.dialog);
     openProjectDialog(state);
+}
+
+fn onOnboardSetupAgent(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *OnboardCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    _ = gtk.adw_dialog_close(ctx.dialog);
+    // Open Settings, where the "Register this machine as a desktop agent"
+    // section + the Connect-GitHub link live.
+    onSettingsClicked(null, @ptrCast(state));
 }
 
 fn onOnboardSkip(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {

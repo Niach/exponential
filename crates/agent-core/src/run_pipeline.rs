@@ -18,7 +18,7 @@ use crate::pipeline::{
     parse_driver_output, DriverOutputKind, IssueDetail, Stage, CODE_SYSTEM_PROMPT,
     INTERACTIVE_PLAN_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, PLAN_REVISION_CAP,
 };
-use crate::state::{IssuePatch, IssueRow, State};
+use crate::state::{IssuePatch, IssueRow, IssueSeed, State};
 use crate::{git, github, mcp, mcp_config, trpc};
 use std::sync::{Arc, Mutex};
 
@@ -57,16 +57,14 @@ impl Ctx {
     fn patch(&self, id: &str, patch: &IssuePatch) {
         let _ = self.state.lock().unwrap().patch_issue(id, patch);
     }
-    fn comment(&self, issue_id: &str, body: &str, kind: Option<&str>) {
-        let _ = mcp::create_comment(&self.config.base_url, &self.config.api_key, issue_id, body, kind, self.config.timeout_s);
-    }
-    /// needs_human, posting the comment only on the first hit (dedup via lastError).
-    fn needs_human(&self, issue: &IssueRow, reason: &str, comment: &str) {
+    /// needs_human, reporting the error event only on the first hit (dedup via
+    /// lastError). The reason surfaces in the issue's Plan Panel error card +
+    /// activity feed — no comment is posted.
+    fn needs_human(&self, issue: &IssueRow, reason: &str, message: &str) {
         let already = issue.last_error.as_deref() == Some(reason);
         self.set_status(&issue.id, "needs_human", Some(reason));
         if !already {
-            self.comment(&issue.id, comment, None);
-            self.report_error(&issue.id, comment);
+            self.report_error(&issue.id, message);
         }
     }
     fn report_error(&self, issue_id: &str, message: &str) {
@@ -81,7 +79,6 @@ pub fn build_pipeline(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit)
         if let Err(message) = run(&ctx, &issue) {
             ctx.set_status(&issue.id, "failed", Some(&message));
             let text = format!("Agent encountered an error: {}", &message[..message.len().min(1500)]);
-            ctx.comment(&issue.id, &text, None);
             ctx.report_error(&issue.id, &text);
         }
     })
@@ -145,14 +142,35 @@ pub fn run_interactive_continue(config: Arc<Config>, state: Arc<Mutex<State>>, e
 
 fn run_interactive(ctx: &Ctx, issue_id: &str, continuing: bool) -> Result<(), String> {
     let cfg = &ctx.config;
-    let issue = ctx
-        .state
-        .lock()
-        .unwrap()
-        .get_issue(issue_id)
-        .ok()
-        .flatten()
-        .ok_or_else(|| "issue not found in local state".to_string())?;
+    let issue = match ctx.state.lock().unwrap().get_issue(issue_id).ok().flatten() {
+        Some(row) => row,
+        // The "AI" button starts an interactive session on ANY issue, but the
+        // dispatcher only syncs issues ASSIGNED to the agent into local state.
+        // Hydrate an unassigned issue from the server (MCP) on first use, then
+        // re-read it so the rest of the pipeline has a real local row.
+        None => {
+            let detail = mcp::get_issue(&cfg.base_url, &cfg.api_key, issue_id, cfg.timeout_s)?
+                .ok_or_else(|| "issue not found".to_string())?;
+            ctx.state
+                .lock()
+                .unwrap()
+                .upsert_issue(&IssueSeed {
+                    id: issue_id,
+                    identifier: &detail.identifier,
+                    title: &detail.title,
+                    project_id: &detail.project_id,
+                    status: &detail.status,
+                })
+                .map_err(|e| format!("seed issue: {e}"))?;
+            ctx.state
+                .lock()
+                .unwrap()
+                .get_issue(issue_id)
+                .ok()
+                .flatten()
+                .ok_or_else(|| "issue not found after hydrate".to_string())?
+        }
+    };
     let Some(handle) = resolve_handle(ctx, &issue)? else {
         return Ok(());
     };
@@ -280,11 +298,11 @@ fn produce_plan_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle:
 
     match parsed.kind {
         DriverOutputKind::Questions => {
-            ctx.comment(&issue.id, &parsed.body, Some("question"));
-            mcp::submit_agent_plan(&cfg.base_url, &cfg.api_key, &issue.id, "", "awaiting_answer", cfg.timeout_s)?;
+            // Questions go through the structured field now — not a comment.
+            mcp::submit_agent_plan(&cfg.base_url, &cfg.api_key, &issue.id, "", "awaiting_answer", Some(&parsed.body), cfg.timeout_s)?;
         }
         DriverOutputKind::Plan => {
-            mcp::submit_agent_plan(&cfg.base_url, &cfg.api_key, &issue.id, &parsed.body, "awaiting_approval", cfg.timeout_s)?;
+            mcp::submit_agent_plan(&cfg.base_url, &cfg.api_key, &issue.id, &parsed.body, "awaiting_approval", None, cfg.timeout_s)?;
         }
     }
     ctx.patch(&issue.id, &IssuePatch {
@@ -353,6 +371,7 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
 
     ctx.patch(&issue.id, &IssuePatch { pr_url: Some(url.clone()), ..Default::default() });
     ctx.set_status(&issue.id, "in_review", None);
-    ctx.comment(&issue.id, &format!("PR opened: {url}"), None);
+    // The server already recorded a pr_opened event; no comment needed.
+    let _ = url;
     Ok(())
 }
