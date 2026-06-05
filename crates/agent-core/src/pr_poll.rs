@@ -6,7 +6,7 @@
 use crate::github::{self, parse_pr_url};
 use crate::run_pipeline::Config;
 use crate::state::State;
-use crate::{git, mcp};
+use crate::{git, mcp, trpc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -22,9 +22,6 @@ pub fn run_loop(config: &Config, state: &Arc<Mutex<State>>, stop: &Arc<AtomicBoo
 }
 
 fn tick(config: &Config, state: &Arc<Mutex<State>>) {
-    if config.github_token.is_empty() {
-        return;
-    }
     let pending = {
         let s = state.lock().unwrap();
         s.list_issues(&["in_review", "pushed"]).unwrap_or_default()
@@ -32,7 +29,18 @@ fn tick(config: &Config, state: &Arc<Mutex<State>>) {
     for issue in pending {
         let Some(pr_url) = issue.pr_url.as_deref() else { continue };
         let Some((owner, repo, number)) = parse_pr_url(pr_url) else { continue };
-        let pr = match github::get_pull_request(&config.github_token, &owner, &repo, number, config.timeout_s) {
+        // Fresh App installation token for this repo (cached server-side).
+        let token = trpc::repo_token(
+            &config.base_url,
+            &config.api_key,
+            &format!("{owner}/{repo}"),
+            config.timeout_s,
+        )
+        .unwrap_or_else(|| config.github_token.clone());
+        if token.is_empty() {
+            continue;
+        }
+        let pr = match github::get_pull_request(&token, &owner, &repo, number, config.timeout_s) {
             Ok(pr) => pr,
             Err(_) => continue, // transient; retry next tick
         };

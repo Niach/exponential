@@ -97,23 +97,6 @@ function AccountIntegrations() {
     }
   }
 
-  const handleConnectGithub = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      await authClient.linkSocial({
-        provider: `github`,
-        callbackURL: `/account/integrations`,
-        // `repo` lets the agent clone/push private repos + the server open PRs
-        // and read diffs on the owner's behalf.
-        scopes: [`repo`],
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setBusy(false)
-    }
-  }
-
   const handleDisconnect = async () => {
     setBusy(true)
     setError(null)
@@ -219,9 +202,9 @@ function AccountIntegrations() {
             <div className="flex-1">
               <CardTitle>GitHub</CardTitle>
               <CardDescription>
-                Connect GitHub so the desktop agent can clone + push your repos
-                and the server can open pull requests and show diffs on your
-                behalf. Requested scope: <code>repo</code>.
+                Install the Exponential GitHub App on the repos you want the
+                agent to work on. It opens pull requests, reads diffs, and lets
+                the desktop agent clone + push — scoped to just those repos.
               </CardDescription>
             </div>
           </div>
@@ -231,24 +214,43 @@ function AccountIntegrations() {
             <div className="text-sm text-muted-foreground">
               GitHub is not configured on this server. Set
               <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
-                GITHUB_CLIENT_ID
+                GITHUB_APP_ID
               </code>
               and
               <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
-                GITHUB_CLIENT_SECRET
+                GITHUB_APP_PRIVATE_KEY
               </code>
               to enable it.
             </div>
-          ) : githubStatus.connected ? (
-            <div className="flex items-center gap-2 text-sm">
-              <div className="h-2 w-2 rounded-full bg-green-500" />
-              <span>Connected</span>
+          ) : githubStatus.installed ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm">
+                <div className="h-2 w-2 rounded-full bg-green-500" />
+                <span>
+                  Installed
+                  {githubStatus.accounts.length > 0
+                    ? ` · ${githubStatus.accounts.join(`, `)}`
+                    : ``}
+                </span>
+              </div>
+              {githubStatus.installUrl && (
+                <Button asChild variant="outline">
+                  <a href={githubStatus.installUrl}>
+                    <ExternalLink className="h-4 w-4" />
+                    Manage / add repos
+                  </a>
+                </Button>
+              )}
             </div>
           ) : (
-            <Button onClick={handleConnectGithub} disabled={busy}>
-              <ExternalLink className="h-4 w-4" />
-              Connect GitHub
-            </Button>
+            githubStatus.installUrl && (
+              <Button asChild>
+                <a href={githubStatus.installUrl}>
+                  <ExternalLink className="h-4 w-4" />
+                  Install GitHub App
+                </a>
+              </Button>
+            )
           )}
         </CardContent>
       </Card>

@@ -50,6 +50,7 @@ import { Route as AuthenticatedAccountIntegrationsRouteImport } from './routes/_
 import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
 import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$workspaceSlug/inbox/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
+import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as WWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/index'
 import { Route as WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
 
@@ -267,6 +268,12 @@ const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   path: '/api/issues/$issueId/images',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiIntegrationsGithubSetupRoute =
+  ApiIntegrationsGithubSetupRouteImport.update({
+    id: '/api/integrations/github/setup',
+    path: '/api/integrations/github/setup',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const WWorkspaceSlugProjectsProjectSlugIndexRoute =
   WWorkspaceSlugProjectsProjectSlugIndexRouteImport.update({
     id: '/projects/$projectSlug/',
@@ -318,6 +325,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
@@ -360,6 +368,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
+  '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/inbox': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsIndexRoute
@@ -406,6 +415,7 @@ export interface FileRoutesById {
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
@@ -452,6 +462,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/github'
     | '/admin/'
     | '/w/$workspaceSlug/'
+    | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/settings/'
@@ -494,6 +505,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/github'
     | '/admin'
     | '/w/$workspaceSlug'
+    | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/inbox'
     | '/w/$workspaceSlug/settings'
@@ -539,6 +551,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/github'
     | '/_authenticated/admin/'
     | '/w/$workspaceSlug/'
+    | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/settings/'
@@ -577,6 +590,7 @@ export interface RootRouteChildren {
   ApiShapesWorkspacesRoute: typeof ApiShapesWorkspacesRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
   ApiWebhooksGithubRoute: typeof ApiWebhooksGithubRoute
+  ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
   ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
 }
 
@@ -869,6 +883,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIssuesIssueIdImagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/integrations/github/setup': {
+      id: '/api/integrations/github/setup'
+      path: '/api/integrations/github/setup'
+      fullPath: '/api/integrations/github/setup'
+      preLoaderRoute: typeof ApiIntegrationsGithubSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/w/$workspaceSlug/projects/$projectSlug/': {
       id: '/w/$workspaceSlug/projects/$projectSlug/'
       path: '/projects/$projectSlug'
@@ -976,6 +997,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesWorkspacesRoute: ApiShapesWorkspacesRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
   ApiWebhooksGithubRoute: ApiWebhooksGithubRoute,
+  ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
   ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
 }
 export const routeTree = rootRouteImport

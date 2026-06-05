@@ -14,7 +14,6 @@ test {
     _ = @import("core/agent/registration.zig");
     _ = @import("core/agent/identity_store.zig");
     _ = @import("core/agent/heartbeat.zig");
-    _ = @import("core/agent/github_auth.zig");
     _ = @import("core/db/database.zig");
     _ = @import("core/db/migrations.zig");
     _ = @import("ui/oauth.zig");

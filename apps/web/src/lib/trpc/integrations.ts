@@ -1,8 +1,11 @@
 import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { accounts, issues, projects } from "@/db/schema"
+import { accounts, githubInstallations, issues, projects } from "@/db/schema"
 import { fireAndForgetSync } from "@/lib/integrations/google-calendar"
-import { resolveOwnerGithubToken } from "@/lib/integrations/github-pr"
+import {
+  githubAppConfigured,
+  githubAppInstallUrl,
+} from "@/lib/integrations/github-app"
 import { getUserWorkspaceIds } from "@/lib/workspace-membership"
 
 const GOOGLE_PROVIDER_ID = `google`
@@ -132,18 +135,30 @@ export const integrationsRouter = router({
   }),
 
   github: router({
-    // Whether this user has connected GitHub (linkSocial). Drives the web
-    // "Connect GitHub" button + the desktop agent's readiness.
+    // GitHub App install state for this user (drives the web Install button).
+    // Token resolution is storage-free (the App JWT looks up a repo's
+    // installation on demand); this only reflects what the user has installed.
     status: authedProcedure.query(async ({ ctx }) => {
-      const token = await resolveOwnerGithubToken(ctx.session.user.id)
-      return { connected: Boolean(token) }
-    }),
-    // The desktop host fetches the owner's access token to hand to agent-core
-    // for clone/push (the only operations that need a local git credential;
-    // PR creation + diff happen server-side). Null when not connected.
-    token: authedProcedure.query(async ({ ctx }) => {
-      const token = await resolveOwnerGithubToken(ctx.session.user.id)
-      return { token: token ?? null }
+      if (!githubAppConfigured()) {
+        return {
+          configured: false as const,
+          installed: false,
+          installUrl: null as string | null,
+          accounts: [] as string[],
+        }
+      }
+      const rows = await ctx.db
+        .select({ accountLogin: githubInstallations.accountLogin })
+        .from(githubInstallations)
+        .where(eq(githubInstallations.userId, ctx.session.user.id))
+      return {
+        configured: true as const,
+        installed: rows.length > 0,
+        installUrl: githubAppInstallUrl(),
+        accounts: rows
+          .map((r) => r.accountLogin)
+          .filter((a): a is string => Boolean(a)),
+      }
     }),
   }),
 })

@@ -3,7 +3,7 @@
 //! tokio); plain JSON body, `{result:{data}}` / `{error:{message}}` envelope (no
 //! transformer); auth via `Authorization: Bearer <expk_ key>`.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
 
@@ -110,30 +110,17 @@ fn parse_control(data: &serde_json::Value) -> Result<(String, Vec<PollActivityIs
     Ok((cursor, issues))
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct GithubRepo {
-    #[serde(rename = "fullName")]
-    pub full_name: String,
-    #[serde(rename = "defaultBranch")]
-    pub default_branch: String,
-    pub private: bool,
-}
-
-pub fn report_github_identity(
-    base_url: &str,
-    api_key: &str,
-    login: &str,
-    repos: &[GithubRepo],
-    github_token: &str,
-    timeout_s: u64,
-) -> Result<(), String> {
-    // Report the GitHub token (stored encrypted server-side) so the web app can
-    // read PR diffs for private repos it has no credential for. Used read-only.
-    let mut input = json!({ "login": login, "repos": repos });
-    if !github_token.is_empty() {
-        input["token"] = json!(github_token);
-    }
-    call(base_url, "companion.reportGithubIdentity", Some(&input), Some(api_key), timeout_s).map(|_| ())
+/// Fetch a short-lived GitHub App installation token for `repo` ("owner/name")
+/// from the server (companion.repoToken). The server mints it from the App; the
+/// agent only uses it for the local git transport (clone/push). None if the App
+/// isn't installed on the repo, or on any error.
+pub fn repo_token(base_url: &str, api_key: &str, repo: &str, timeout_s: u64) -> Option<String> {
+    let input = json!({ "repo": repo });
+    let data = call(base_url, "companion.repoToken", Some(&input), Some(api_key), timeout_s).ok()?;
+    data.get("token")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 #[cfg(test)]
@@ -181,13 +168,5 @@ mod tests {
         assert_eq!(issues[0].id, "i1");
         assert_eq!(issues[0].assignee_id.as_deref(), Some("u1"));
         assert!(issues[1].assignee_id.is_none());
-    }
-
-    #[test]
-    fn github_repo_serializes_camelcase() {
-        let r = GithubRepo { full_name: "o/r".into(), default_branch: "main".into(), private: false };
-        let v = serde_json::to_value(&r).unwrap();
-        assert_eq!(v.get("fullName").unwrap(), &json!("o/r"));
-        assert_eq!(v.get("defaultBranch").unwrap(), &json!("main"));
     }
 }

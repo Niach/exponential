@@ -27,7 +27,6 @@ const ServerAccount = @import("../core/auth/server_account.zig").ServerAccount;
 const Database = @import("../core/db/database.zig").Database;
 const sync = @import("../core/electric/sync_manager.zig");
 const identity_store = @import("../core/agent/identity_store.zig");
-const github_auth = @import("../core/agent/github_auth.zig");
 const agent_manager = @import("../core/agent/agent_manager.zig");
 const terminal_dock = @import("terminal_dock.zig");
 const Heartbeat = @import("../core/agent/heartbeat.zig").Heartbeat;
@@ -1237,18 +1236,6 @@ fn reconcileHeartbeat(state: *AppState) void {
 /// Start/stop the Rust agent-core loop to match whether the active workspace has
 /// a stored agent identity. Built from the identity (api key + agent user id),
 /// the GitHub token, and per-machine repo/worktree/db paths. Called each refresh.
-/// Fetch the owner's connected GitHub token from the server (integrations.github
-/// .token, linkSocial) for the agent's clone/push. Null when not connected.
-fn fetchGithubToken(a: std.mem.Allocator, instance: []const u8, session: ?[]const u8) ?[]u8 {
-    var resp = trpc.query(a, instance, "integrations.github.token", session, 15) catch return null;
-    defer resp.deinit();
-    const obj = trpc.asObject(resp.data() orelse return null) orelse return null;
-    if (trpc.objString(obj, "token")) |t| {
-        if (t.len > 0) return a.dupe(u8, t) catch null;
-    }
-    return null;
-}
-
 fn reconcileAgent(state: *AppState) void {
     const want: ?[]const u8 = if (state.active_workspace_id) |ws|
         (if (identity_store.existsFor(state.gpa, ws)) ws else null)
@@ -1276,11 +1263,10 @@ fn reconcileAgent(state: *AppState) void {
 
     const api_key = identity_store.readField(a, ws, "apiKey") orelse return;
     const agent_uid = identity_store.readField(a, ws, "agentUserId") orelse return;
-    // GitHub credential for clone/push: the owner's token, connected once in the
-    // web app (linkSocial) and fetched from the server. Falls back to a legacy
-    // device-flow token during the transition.
-    const github = fetchGithubToken(a, instance, state.token) orelse
-        (github_auth.loadToken(a) orelse "");
+    // agent-core fetches a fresh per-repo GitHub App installation token from the
+    // server (companion.repoToken) just before clone/push, so the host no longer
+    // feeds a token. Left empty (the agent self-fetches).
+    const github = "";
     const dir = storage.configDir(a) catch return;
     const repos_root = std.fmt.allocPrint(a, "{s}/repos", .{dir}) catch return;
     const worktrees_root = std.fmt.allocPrint(a, "{s}/worktrees", .{dir}) catch return;

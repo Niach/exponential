@@ -73,10 +73,13 @@ async function pollOpenPrs(): Promise<void> {
   }
 }
 
-// Start the self-hosted outbound PR-merge poller. No-op on cloud (cloud relies
-// on the GitHub webhook instead). Fire-and-forget; safe to call once at boot.
+// Start the outbound PR-merge poller, gated on GITHUB_POLLING (decoupled from
+// SELF_HOSTED — reachability ≠ deployment type). Set it on instances GitHub
+// can't reach by webhook (LAN / NAT); reachable instances use the App webhook
+// instead and leave it unset. Never enable on cloud (per-user polling doesn't
+// scale). Fire-and-forget; safe to call once at boot.
 export function bootstrapSelfHosted(): void {
-  if (process.env.SELF_HOSTED !== `true`) return
+  if (process.env.GITHUB_POLLING !== `true`) return
   setTimeout(() => {
     void pollOpenPrs()
   }, INITIAL_DELAY_MS)

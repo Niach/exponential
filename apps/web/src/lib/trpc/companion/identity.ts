@@ -1,57 +1,41 @@
 import { z } from "zod"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
+import { TRPCError } from "@trpc/server"
 import { authedProcedure } from "@/lib/trpc"
-import { workspaceAgents } from "@/db/schema"
-import { encryptSecret } from "@/lib/crypto/secret-box"
+import { projects } from "@/db/schema"
+import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import { loadAgentForSessionUser } from "./shared"
 
 export const identityProcedures = {
-  reportGithubIdentity: authedProcedure
+  // The desktop agent fetches a short-lived GitHub App installation token to
+  // clone/push `repo`. Gated: the caller must be the agent of a workspace whose
+  // project points at this repo. (Server-side PR creation + diff mint their
+  // own tokens; this is only for the local git transport.)
+  repoToken: authedProcedure
     .input(
       z.object({
-        login: z.string().min(1).max(128),
-        repos: z
-          .array(
-            z.object({
-              fullName: z
-                .string()
-                .regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/),
-              defaultBranch: z.string().min(1).max(255),
-              private: z.boolean(),
-            })
-          )
-          .max(2000),
-        // The agent's GitHub token, stored encrypted so the server can read PR
-        // diffs for private repos. Optional — only overwrites when provided.
-        token: z.string().min(1).max(512).optional(),
+        repo: z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-      const set: Record<string, unknown> = {
-        githubUserLogin: input.login,
-        githubRepos: input.repos,
-        lastSeenAt: new Date(),
+      const [hit] = await ctx.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.workspaceId, agent.workspaceId),
+            eq(projects.githubRepo, input.repo)
+          )
+        )
+        .limit(1)
+      if (!hit) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Repo ${input.repo} is not in this agent's workspace`,
+        })
       }
-      if (input.token) set.githubToken = encryptSecret(input.token)
-      await ctx.db
-        .update(workspaceAgents)
-        .set(set)
-        .where(eq(workspaceAgents.id, agent.id))
-      return { ok: true, count: input.repos.length }
+      const token = await resolveRepoInstallationToken(input.repo)
+      return { token: token ?? null }
     }),
-
-  clearGithubIdentity: authedProcedure.mutation(async ({ ctx }) => {
-    const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-    await ctx.db
-      .update(workspaceAgents)
-      .set({
-        githubUserLogin: null,
-        githubRepos: null,
-        githubToken: null,
-        lastSeenAt: new Date(),
-      })
-      .where(eq(workspaceAgents.id, agent.id))
-    return { ok: true }
-  }),
 }

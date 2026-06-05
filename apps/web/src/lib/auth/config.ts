@@ -21,7 +21,7 @@ export function buildAuthConfig(): AuthConfig {
     googleCalendarEnabled:
       googleClientConfigured && process.env.GOOGLE_CALENDAR_ENABLED === `true`,
     githubEnabled: Boolean(
-      process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+      process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY
     ),
   }
 }

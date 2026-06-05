@@ -17,8 +17,6 @@ struct MacAgentIdentity: Codable, Sendable {
     let workspaceId: String
     let workspaceSlug: String
     let workspaceName: String
-    var githubClientId: String?
-    var githubLogin: String?
 }
 
 enum MacAgentStore {
@@ -113,16 +111,6 @@ final class MacAgentService {
         cores[workspaceId]?.cancelIssue(issueId: issueId)
     }
 
-    /// Fetch the owner's connected GitHub token for clone/push. Resolved under the
-    /// OWNER account's human session (the account signed in on this instance) —
-    /// NOT the agent credential, which the server can't resolve to a GitHub token.
-    private func fetchOwnerGithubToken(instanceUrl: String) async -> String? {
-        guard let owner = auth.accounts.first(where: { $0.instanceUrl == instanceUrl && $0.token != nil }) else {
-            return nil
-        }
-        return try? await integrationsApi.githubToken(accountId: owner.id)
-    }
-
     static var defaultAgentName: String { "\(ProcessInfo.processInfo.hostName)" }
 
     func isRegistered(_ workspaceId: String) -> Bool { registered.contains(workspaceId) }
@@ -166,9 +154,7 @@ final class MacAgentService {
                 agentName: (agent["name"] as? String) ?? name,
                 workspaceId: wsId,
                 workspaceSlug: (ws["slug"] as? String) ?? "",
-                workspaceName: (ws["name"] as? String) ?? "",
-                githubClientId: (res["oauth"] as? [String: Any])?["githubClientId"] as? String,
-                githubLogin: nil
+                workspaceName: (ws["name"] as? String) ?? ""
             )
             MacAgentStore.save(identity)
             registered.insert(wsId)
@@ -208,12 +194,9 @@ final class MacAgentService {
         guard cores[id.workspaceId] == nil, startingCores.insert(id.workspaceId).inserted else { return }
         Task { @MainActor in
             defer { startingCores.remove(id.workspaceId) }
-            // GitHub credential for clone/push: the owner's token, connected once in
-            // the web app (linkSocial) and fetched from the server. Empty when not
-            // connected (matches Linux — the agent simply can't push until linked).
-            let githubToken = await fetchOwnerGithubToken(instanceUrl: id.instanceUrl)
-            // A concurrent start may have created the core during the await.
-            guard cores[id.workspaceId] == nil else { return }
+            // agent-core fetches a fresh per-repo GitHub App installation token from
+            // the server (companion.repoToken) just before clone/push, so the host
+            // no longer feeds a token.
             let dir = MacAgentStore.dir().path
             for sub in ["repos", "worktrees"] {
                 try? FileManager.default.createDirectory(atPath: "\(dir)/\(sub)", withIntermediateDirectories: true)
@@ -222,7 +205,7 @@ final class MacAgentService {
                 "baseUrl": id.instanceUrl,
                 "apiKey": id.apiKey,
                 "botUserId": id.agentUserId,
-                "githubToken": githubToken ?? "",
+                "githubToken": "",
                 "reposRoot": "\(dir)/repos",
                 "worktreesRoot": "\(dir)/worktrees",
                 "branchPrefix": "agent",

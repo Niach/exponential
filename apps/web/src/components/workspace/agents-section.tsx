@@ -103,9 +103,6 @@ export function WorkspaceAgentsSection({
                       {agent.name}
                     </span>
                     <Badge variant="secondary">agent</Badge>
-                    {agent.githubUserLogin && (
-                      <Badge variant="outline">@{agent.githubUserLogin}</Badge>
-                    )}
                   </div>
                   <div className="mt-1 truncate text-xs text-muted-foreground">
                     {agent.ownerName ? `Owned by ${agent.ownerName} · ` : ``}

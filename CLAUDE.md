@@ -275,9 +275,11 @@ OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
 OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
 GOOGLE_CLIENT_ID              # Google OAuth client ID (required for login or Calendar)
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
-GITHUB_CLIENT_ID              # GitHub OAuth App client ID (Connect GitHub on /account/integrations)
-GITHUB_CLIENT_SECRET          # GitHub OAuth App client secret
-GITHUB_WEBHOOK_SECRET         # GitHub webhook HMAC secret (cloud PR-merge detection; point a repo/org webhook at ${BETTER_AUTH_URL}/api/webhooks/github)
+GITHUB_APP_ID                 # GitHub App numeric ID (users install the App from /account/integrations; server mints per-repo installation tokens)
+GITHUB_APP_SLUG               # GitHub App URL slug (builds the install link)
+GITHUB_APP_PRIVATE_KEY        # GitHub App PEM private key, base64-encoded (base64 -w0 app.private-key.pem)
+GITHUB_WEBHOOK_SECRET         # GitHub App webhook HMAC secret (cloud PR-merge detection; App webhook → ${BETTER_AUTH_URL}/api/webhooks/github)
+GITHUB_POLLING                # 'true' to run the outbound merge cron (self-hosted behind NAT, unreachable by webhook); decoupled from SELF_HOSTED
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
 GOOGLE_CALENDAR_ENABLED       # Enable Google Calendar integration (default: false)
 SELF_HOSTED                   # 'true' for self-hosted (disables billing, unlocks plan limits)

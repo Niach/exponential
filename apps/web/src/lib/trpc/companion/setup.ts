@@ -28,8 +28,6 @@ export const setupProcedures = {
           ownerUserId: workspaceAgents.ownerUserId,
           name: workspaceAgents.name,
           lastSeenAt: workspaceAgents.lastSeenAt,
-          githubUserLogin: workspaceAgents.githubUserLogin,
-          githubRepos: workspaceAgents.githubRepos,
           createdAt: workspaceAgents.createdAt,
           updatedAt: workspaceAgents.updatedAt,
           email: users.email,
@@ -146,10 +144,6 @@ export const setupProcedures = {
             result.credential.accessTokenExpiresAt.toISOString(),
           clientId: result.credential.clientId,
           tokenEndpoint: result.credential.tokenEndpoint,
-        },
-        oauth: {
-          githubClientId:
-            process.env.EXPONENTIAL_GITHUB_OAUTH_CLIENT_ID || null,
         },
       }
     }),

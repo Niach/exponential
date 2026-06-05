@@ -19,7 +19,7 @@ use crate::pipeline::{
     INTERACTIVE_PLAN_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, PLAN_REVISION_CAP,
 };
 use crate::state::{IssuePatch, IssueRow, State};
-use crate::{git, github, mcp, mcp_config};
+use crate::{git, github, mcp, mcp_config, trpc};
 use std::sync::{Arc, Mutex};
 
 /// Everything a pipeline run needs. `api_key` is the agent `expk_` (MCP +
@@ -100,13 +100,24 @@ fn resolve_handle(ctx: &Ctx, issue: &IssueRow) -> Result<Option<git::RepoHandle>
             return Ok(None);
         }
     };
-    if cfg.github_token.is_empty() {
-        ctx.needs_human(issue, "no github authentication", "The desktop agent is not authenticated to GitHub. Connect GitHub in the desktop app.");
+    let token = repo_token(cfg, &owner_repo);
+    if token.is_empty() {
+        ctx.needs_human(issue, "no github access", "The Exponential GitHub App isn't installed on this repo. Install it from Account \u{2192} Integrations on the web app.");
         return Ok(None);
     }
-    let repo_meta = github::get_repo(&cfg.github_token, &owner_repo, cfg.timeout_s)?;
-    let handle = git::ensure_repo(&cfg.repos_root, &owner_repo, &repo_meta.default_branch, &cfg.github_token)?;
+    let repo_meta = github::get_repo(&token, &owner_repo, cfg.timeout_s)?;
+    let handle = git::ensure_repo(&cfg.repos_root, &owner_repo, &repo_meta.default_branch, &token)?;
     Ok(Some(handle))
+}
+
+/// A GitHub token for `repo` ("owner/name"): a fresh, short-lived **App
+/// installation token** fetched from the server (companion.repoToken). Falls
+/// back to a configured token during the transition. Empty if neither.
+fn repo_token(cfg: &Config, repo: &str) -> String {
+    if let Some(t) = trpc::repo_token(&cfg.base_url, &cfg.api_key, repo, cfg.timeout_s) {
+        return t;
+    }
+    cfg.github_token.clone()
 }
 
 /// Host-triggered interactive plan run (the desktop "AI" button). Launches
@@ -333,7 +344,8 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
     }
 
     ctx.set_status(&issue.id, "pushed", None);
-    git::push_branch(&claim.repo_path, &handle.owner, &handle.repo, &claim.branch, &cfg.github_token)?;
+    let push_token = repo_token(cfg, &format!("{}/{}", handle.owner, handle.repo));
+    git::push_branch(&claim.repo_path, &handle.owner, &handle.repo, &claim.branch, &push_token)?;
 
     // The SERVER opens the PR with the owner's connected GitHub token + records
     // pr_* + pr_opened (the agent no longer creates the PR via the API itself).

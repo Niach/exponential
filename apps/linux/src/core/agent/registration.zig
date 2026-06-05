@@ -22,7 +22,6 @@ pub const AgentIdentity = struct {
     workspace_id: []const u8,
     workspace_slug: []const u8,
     workspace_name: []const u8,
-    github_client_id: ?[]const u8 = null,
 
     pub fn deinit(self: *AgentIdentity) void {
         const a = self.allocator;
@@ -37,7 +36,6 @@ pub const AgentIdentity = struct {
         a.free(self.workspace_id);
         a.free(self.workspace_slug);
         a.free(self.workspace_name);
-        if (self.github_client_id) |g| a.free(g);
     }
 };
 
@@ -90,11 +88,6 @@ pub fn registerMachine(
     const ws_slug = trpc.objString(workspace, "slug") orelse return fail(allocator, "missing workspace.slug");
     const ws_name = trpc.objString(workspace, "name") orelse return fail(allocator, "missing workspace.name");
 
-    var github_client_id: ?[]const u8 = null;
-    if (trpc.asObject(obj.get("oauth") orelse std.json.Value{ .null = {} })) |oauth| {
-        if (trpc.objString(oauth, "githubClientId")) |g| github_client_id = try allocator.dupe(u8, g);
-    }
-
     return .{ .success = .{
         .allocator = allocator,
         .instance_url = try allocator.dupe(u8, base_url),
@@ -108,7 +101,6 @@ pub fn registerMachine(
         .workspace_id = try allocator.dupe(u8, ws_id),
         .workspace_slug = try allocator.dupe(u8, ws_slug),
         .workspace_name = try allocator.dupe(u8, ws_name),
-        .github_client_id = github_client_id,
     } };
 }
 

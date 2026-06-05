@@ -33,7 +33,6 @@ pub fn save(gpa: std.mem.Allocator, id: *const AgentIdentity) ![]u8 {
         .workspaceId = id.workspace_id,
         .workspaceSlug = id.workspace_slug,
         .workspaceName = id.workspace_name,
-        .githubClientId = id.github_client_id,
     };
     const json = try std.json.Stringify.valueAlloc(gpa, view, .{});
     defer gpa.free(json);

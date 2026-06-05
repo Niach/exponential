@@ -3,10 +3,8 @@ import { z } from "zod"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments, issues, projects } from "@/db/schema"
-import {
-  createPullRequest,
-  resolveWorkspaceAgentOwnerToken,
-} from "@/lib/integrations/github-pr"
+import { createPullRequest } from "@/lib/integrations/github-pr"
+import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import {
   assertCanApprovePlan,
   assertCanMutateIssue,
@@ -306,13 +304,11 @@ export const agentPlanRouter = router({
         })
       }
 
-      const token = await resolveWorkspaceAgentOwnerToken(
-        issueContext.workspaceId
-      )
+      const token = await resolveRepoInstallationToken(row.repo)
       if (!token) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The agent owner hasn't connected GitHub. Connect it in the web app (Integrations).`,
+          message: `The Exponential GitHub App isn't installed on ${row.repo}. Install it from Account → Integrations.`,
         })
       }
 

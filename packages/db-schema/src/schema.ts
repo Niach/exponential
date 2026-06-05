@@ -181,18 +181,6 @@ export const workspaceAgents = pgTable(
     // access/refresh token pair is the agent's runtime credential.
     oauthClientId: text(`oauth_client_id`),
     lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true }),
-    // GitHub login the daemon is authenticated as (set after running
-    // `companion github login`). null until the daemon authenticates.
-    githubUserLogin: text(`github_user_login`),
-    // Snapshot of repos the daemon's GitHub identity can access. Shape:
-    // Array<{ fullName: string; defaultBranch: string; private: boolean }>.
-    // Updated periodically by the daemon; used as the source of choices in
-    // the project repo-linking dropdown.
-    githubRepos: jsonb(`github_repos`),
-    // The agent's GitHub token (encrypted at rest via lib/crypto/secret-box),
-    // reported by the agent so the server can read PR diffs for private repos
-    // it otherwise has no credential for. Used read-only.
-    githubToken: text(`github_token`),
     ...timestamps,
   },
   (table) => [
@@ -425,6 +413,20 @@ export const fcmTokens = pgTable(`fcm_tokens`, {
     .references(() => users.id, { onDelete: `cascade` }),
   token: text().notNull().unique(),
   platform: varchar({ length: 20 }).notNull(),
+  ...timestamps,
+})
+
+// GitHub App installations (server-only, not synced). Captured by the install
+// setup route so the UI can show "installed" per user; token resolution itself
+// is storage-free (the App JWT looks up a repo's installation on demand).
+export const githubInstallations = pgTable(`github_installations`, {
+  id: uuidPk(),
+  installationId: bigint(`installation_id`, { mode: `number` })
+    .notNull()
+    .unique(),
+  accountLogin: text(`account_login`),
+  accountType: varchar(`account_type`, { length: 20 }),
+  userId: text(`user_id`).references(() => users.id, { onDelete: `set null` }),
   ...timestamps,
 })
 
