@@ -54,6 +54,10 @@ export const notificationTypeValues = [
   `issue_comment`,
   `issue_status_changed`,
   `issue_mention`,
+  // Action-needed agent notifications (the only agent events that push): a
+  // plan is ready to approve, or the agent is waiting on an answer.
+  `agent_plan_review`,
+  `agent_question`,
 ] as const
 
 // Pull-request state surfaced on issues.pr_state (varchar). Mirrors the GitHub
@@ -84,6 +88,11 @@ export const issueEventTypeValues = [
   `pr_merged`,
   `plan_ready`,
   `agent_error`,
+  // Agent activity-feed events (decoupled from comments): the agent began
+  // working, asked a question, and the human answered it.
+  `agent_started`,
+  `agent_question`,
+  `agent_answer`,
 ] as const
 
 export type IssueStatus = (typeof issueStatusValues)[number]

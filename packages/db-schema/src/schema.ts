@@ -63,6 +63,8 @@ export const notificationTypeEnum = pgEnum(`notification_type`, [
   `issue_comment`,
   `issue_status_changed`,
   `issue_mention`,
+  `agent_plan_review`,
+  `agent_question`,
 ])
 
 export const workspaceMemberRoleEnum = pgEnum(
@@ -359,6 +361,21 @@ export const comments = pgTable(
     index(`idx_comments_workspace`).on(table.workspaceId),
   ]
 )
+
+// Agent plan/question TEXT for an issue. Server-only — deliberately NOT an
+// Electric shape, so large plan bodies don't sync to mobile and force a
+// domain-contract bump. The lightweight `issues.agent_plan_state` (already
+// synced) is what every client renders; the web Plan Panel fetches this text
+// via tRPC (issues.getAgentState). One row per issue.
+export const issueAgentState = pgTable(`issue_agent_state`, {
+  issueId: uuid(`issue_id`)
+    .primaryKey()
+    .references(() => issues.id, { onDelete: `cascade` }),
+  planText: jsonb(`plan_text`),
+  question: jsonb(`question`),
+  questionAskedAt: timestamp(`question_asked_at`, { withTimezone: true }),
+  ...timestamps,
+})
 
 export const attachments = pgTable(
   `attachments`,

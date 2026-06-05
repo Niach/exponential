@@ -27,6 +27,12 @@ export const users = pgTable(`users`, {
   onboardingCompletedAt: timestamp(`onboarding_completed_at`, {
     withTimezone: true,
   }),
+  // When the user dismissed the "Set up coding agent" setup checklist. The
+  // checklist's completion is computed server-side from real signals; this only
+  // records the explicit dismissal so it follows the user across web + desktop.
+  setupChecklistDismissedAt: timestamp(`setup_checklist_dismissed_at`, {
+    withTimezone: true,
+  }),
   createdAt: timestamp(`created_at`)
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
