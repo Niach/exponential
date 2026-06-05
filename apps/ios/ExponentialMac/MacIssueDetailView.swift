@@ -347,6 +347,19 @@ final class MacIssueDetailModel {
         try? await deps.agentPlanApi.requestChanges(accountId: accountId, issueId: issue.id)
     }
 
+    func answerQuestion(_ answer: String) async {
+        guard let issue else { return }
+        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do { try await deps.agentPlanApi.answerQuestion(accountId: accountId, issueId: issue.id, answer: trimmed) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    func retry() async {
+        guard let issue else { return }
+        try? await deps.agentPlanApi.retry(accountId: accountId, issueId: issue.id)
+    }
+
     /// Approve the plan with the human session, THEN resume the interactive session
     /// to implement it. Order is load-bearing — the agent credential can't approve;
     /// the host approves (human session), then only resumes the session.
@@ -441,6 +454,7 @@ struct MacIssueDetailView: View {
                         Divider()
                         attachmentsSection(model)
                         MacAgentPanel(model: model, issue: issue)
+                        MacAgentActivityFeed(events: model.issueEvents, user: model.user)
                         Divider()
                         commentsSection(model)
                         errorText(model)
@@ -495,6 +509,7 @@ struct MacIssueDetailView: View {
             Divider()
             attachmentsSection(model)
             MacAgentPanel(model: model, issue: issue)
+            MacAgentActivityFeed(events: model.issueEvents, user: model.user)
             Divider()
             commentsSection(model)
             errorText(model)
@@ -817,21 +832,17 @@ struct MacIssueDetailView: View {
         }
     }
 
+    // Only regular (human) comments reach this row — plan/question comments are
+    // rendered by the Plan Panel now (and filtered out of `timeline`).
     @ViewBuilder
     private func commentRow(_ comment: CommentEntity, model: MacIssueDetailModel) -> some View {
         let author = model.user(comment.authorId)
         let body = getCommentBodyText(comment.body)
-        let kind = comment.commentKind
         let canModify = comment.authorId == deps.auth.userId || deps.auth.isAdmin
         let isEditing = editingCommentId == comment.id
-        // Only the latest plan comment hosts the approval affordance (a re-plan
-        // supersedes the old one) — web/iOS parity.
-        let isLatestPlan = model.comments.last(where: { $0.commentKind == .plan })?.id == comment.id
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(author?.name ?? author?.email ?? "Unknown").font(.caption.weight(.semibold))
-                if kind == .question { Text("asks").font(.caption).foregroundStyle(.purple) }
-                if kind == .plan { Text("plan").font(.caption).foregroundStyle(Accent.indigo) }
                 Text(macRelativeDate(comment.createdAt)).font(.caption2).foregroundStyle(.tertiary)
                 if comment.editedAt != nil {
                     Text("· edited").font(.caption2).foregroundStyle(.tertiary)
@@ -839,9 +850,7 @@ struct MacIssueDetailView: View {
                 Spacer()
                 if canModify && !isEditing {
                     Menu {
-                        if kind == .regular {
-                            Button("Edit") { editDraft = body; editingCommentId = comment.id }
-                        }
+                        Button("Edit") { editDraft = body; editingCommentId = comment.id }
                         Button("Delete", role: .destructive) { Task { await model.deleteComment(comment.id) } }
                     } label: {
                         Image(systemName: "ellipsis").font(.caption2)
@@ -865,34 +874,11 @@ struct MacIssueDetailView: View {
             } else {
                 Text(body).font(.callout).textSelection(.enabled)
             }
-            if kind == .plan, isLatestPlan, model.issue?.agentPlanState == "awaiting_approval",
-               model.permissions?.canApprovePlan(creatorId: model.issue?.creatorId) == true {
-                HStack(spacing: 8) {
-                    Button("Approve") { Task { await model.approvePlan() } }
-                    Button("Request changes") { Task { await model.requestChanges() } }
-                    if deps.agentService.canRunInteractive(workspaceId: model.workspaceId ?? "") {
-                        Button("Approve & continue here") {
-                            if let wid = model.workspaceId {
-                                Task { await model.approveAndContinue(workspaceId: wid) }
-                            }
-                        }
-                    }
-                }
-                .controlSize(.small)
-            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(kindBackground(kind))
+        .background(Color.white.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func kindBackground(_ kind: CommentKind) -> Color {
-        switch kind {
-        case .regular: Color.white.opacity(0.04)
-        case .question: Color.purple.opacity(0.10)
-        case .plan: Accent.indigo.opacity(0.10)
-        }
     }
 
     // MARK: - Activity timeline (comments + issue_events, merged by created_at)
@@ -914,9 +900,14 @@ struct MacIssueDetailView: View {
         }
     }
 
+    // The human conversation timeline: regular comments + non-agent events
+    // (status/assignee/label changes). Plan/question comments and agent
+    // lifecycle events are surfaced by the Plan Panel + activity feed instead.
     private func timeline(_ model: MacIssueDetailModel) -> [MacTimelineItem] {
-        (model.comments.map { MacTimelineItem.comment($0) }
-            + model.issueEvents.map { MacTimelineItem.event($0) })
+        let comments = model.comments.filter { $0.commentKind == .regular }
+        let events = model.issueEvents.filter { !macAgentEventTypes.contains($0.type) }
+        return (comments.map { MacTimelineItem.comment($0) }
+            + events.map { MacTimelineItem.event($0) })
             .sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -925,29 +916,12 @@ struct MacIssueDetailView: View {
         let who = model.user(event.actorUserId).map { $0.name ?? $0.email } ?? "Someone"
         HStack(spacing: 8) {
             Circle().fill(Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
-            Text("\(who) \(eventVerb(event.type))")
+            Text("\(who) \(macAgentEventVerb(event.type))")
                 .font(.caption).foregroundStyle(.secondary)
             Text(macRelativeDate(event.createdAt)).font(.caption2).foregroundStyle(.tertiary)
             Spacer()
         }
         .padding(.vertical, 2)
-    }
-
-    private func eventVerb(_ type: String) -> String {
-        switch type {
-        case "status_changed": return "changed the status"
-        case "assignee_changed": return "changed the assignee"
-        case "label_added": return "added a label"
-        case "label_removed": return "removed a label"
-        case "pr_opened": return "opened a pull request"
-        case "pr_merged": return "merged the pull request"
-        case "plan_ready": return "posted a plan for review"
-        case "agent_error": return "hit an error"
-        case "agent_started": return "started working"
-        case "agent_question": return "asked a question"
-        case "agent_answer": return "answered the agent"
-        default: return type.replacingOccurrences(of: "_", with: " ")
-        }
     }
 
     // MARK: - Helpers

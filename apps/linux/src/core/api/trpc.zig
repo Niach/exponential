@@ -81,6 +81,46 @@ pub fn query(
     return .{ .parsed = parsed, .status = resp.status };
 }
 
+/// GET a query procedure that takes an input. tRPC routes queries to GET; the
+/// raw input JSON (same shape as `call`'s body — no superjson wrapper) is
+/// percent-encoded into `?input=`. Caller owns the returned Response (`deinit`).
+pub fn queryInput(
+    allocator: std.mem.Allocator,
+    base_url: []const u8,
+    path: []const u8,
+    input_json: []const u8,
+    token: ?[]const u8,
+    timeout_s: c_long,
+) Error!Response {
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    defer scratch.deinit();
+    const sa = scratch.allocator();
+    const trimmed = std.mem.trimEnd(u8, base_url, "/");
+
+    // Percent-encode everything except RFC-3986 unreserved chars so the JSON
+    // delimiters ({ } " : , …) survive as a single query-param value.
+    const hex = "0123456789ABCDEF";
+    var enc: std.ArrayList(u8) = .empty;
+    for (input_json) |c| {
+        const unreserved = (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or
+            (c >= '0' and c <= '9') or c == '-' or c == '.' or c == '_' or c == '~';
+        if (unreserved) {
+            enc.append(sa, c) catch return Error.ParseFailed;
+        } else {
+            enc.appendSlice(sa, &[_]u8{ '%', hex[c >> 4], hex[c & 0x0F] }) catch return Error.ParseFailed;
+        }
+    }
+
+    const url = try std.fmt.allocPrintSentinel(sa, "{s}/api/trpc/{s}?input={s}", .{ trimmed, path, enc.items }, 0);
+
+    var resp = try http.get(allocator, url, token, timeout_s, null);
+    defer resp.deinit();
+
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, resp.body, .{}) catch
+        return Error.ParseFailed;
+    return .{ .parsed = parsed, .status = resp.status };
+}
+
 // --- small JSON helpers shared by the auth/agent layers ---
 
 pub fn asObject(v: std.json.Value) ?std.json.ObjectMap {

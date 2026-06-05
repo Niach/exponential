@@ -709,19 +709,17 @@ export function registerExponentialTools(
     `exponential_comments_create`,
     {
       title: `Comment on an issue`,
-      description: `Post a comment on an issue authored by the MCP user. Body is plain text. Pass kind='question' (agent members only) to render the comment as a "the agent is waiting for your answer" card in the UI.`,
+      description: `Post a regular comment on an issue authored by the MCP user. Body is plain text. To ask the owner a question, call exponential_agent_plan_submit with state='awaiting_answer' instead — do NOT post questions as comments.`,
       inputSchema: {
         issueId: z.string().uuid(),
         bodyText: z.string().min(1).max(10_000),
-        kind: z.enum([`regular`, `question`]).optional(),
       },
     },
-    async ({ issueId, bodyText, kind }) => {
+    async ({ issueId, bodyText }) => {
       try {
         const result = await caller(user, request).comments.create({
           issueId,
           body: { text: bodyText },
-          kind: kind ?? `regular`,
         })
         return ok(result.comment)
       } catch (e) {

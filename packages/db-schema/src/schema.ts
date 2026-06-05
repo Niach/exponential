@@ -1,5 +1,6 @@
 import {
   bigint,
+  check,
   doublePrecision,
   index,
   integer,
@@ -359,6 +360,10 @@ export const comments = pgTable(
   (table) => [
     index(`idx_comments_issue`).on(table.issueId),
     index(`idx_comments_workspace`).on(table.workspaceId),
+    // Only human (`regular`) comments exist now — the agent plan/question
+    // lifecycle lives in `issue_agent_state`. (Migration 0012 deletes any legacy
+    // `plan`/`question` rows before this constraint is added.)
+    check(`comments_kind_regular`, sql`${table.kind} = 'regular'`),
   ]
 )
 

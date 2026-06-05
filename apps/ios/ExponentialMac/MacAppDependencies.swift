@@ -27,6 +27,7 @@ final class MacAppDependencies: @unchecked Sendable {
     let workspaceInvitesApi: WorkspaceInvitesApi
     let issueImagesApi: IssueImagesApi
     let agentPlanApi: AgentPlanApi
+    let companionApi: CompanionApi
     let adminApi: AdminApi
     let integrationsApi: IntegrationsApi
     let notificationsApi: NotificationsApi
@@ -78,6 +79,7 @@ final class MacAppDependencies: @unchecked Sendable {
         self.workspaceInvitesApi = WorkspaceInvitesApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
         self.agentPlanApi = AgentPlanApi(trpc: trpc)
+        self.companionApi = CompanionApi(trpc: trpc)
         self.adminApi = AdminApi(trpc: trpc)
         let integrationsApi = IntegrationsApi(trpc: trpc)
         self.integrationsApi = integrationsApi

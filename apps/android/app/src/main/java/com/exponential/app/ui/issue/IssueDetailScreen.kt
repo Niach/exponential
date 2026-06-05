@@ -415,10 +415,15 @@ fun IssueDetailScreen(
             AttachmentList(issueId = issue.id)
 
             Spacer(Modifier.height(20.dp))
-            CommentThread(
+            // Agent plan/question lifecycle (first-class panel; the plan/question
+            // text is fetched server-side, not synced).
+            AgentPlanPanel(
                 issueId = issue.id,
                 canApprovePlan = permissions.canApprovePlan(issue.creatorId),
             )
+
+            Spacer(Modifier.height(8.dp))
+            CommentThread(issueId = issue.id)
         }
     }
 

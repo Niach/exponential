@@ -1773,10 +1773,59 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
         gtk.gtk_box_append(box, ed.container);
     }
 
-    // Comments + composer.
+    // Comments + activity. Plan/question text lives in the structured store
+    // (issue_agent_state), fetched on demand via agentPlan.getState — NOT in
+    // comments — so we render a first-class plan panel + a human-only thread.
     const comments = db.listComments(a, id) catch &[_]Database.CommentRow{};
+    const events = db.listIssueEvents(a, id) catch &[_]Database.IssueEventRow{};
+
+    // The latest agent lifecycle event being an error drives the Retry CTA.
+    var latest_is_error = false;
+    {
+        var i: usize = events.len;
+        while (i > 0) {
+            i -= 1;
+            if (isAgentEvent(events[i].type)) {
+                latest_is_error = std.mem.eql(u8, events[i].type, "agent_error");
+                break;
+            }
+        }
+    }
+
+    // Plan/question TEXT (server-only `issue_agent_state`). Fetched synchronously
+    // because the detail builds only on user actions (open / edit), never on the
+    // sync tick (doRefresh re-renders the list, not the open detail).
+    var plan_text: []const u8 = "";
+    var question_text: []const u8 = "";
+    const ps = issue.agent_plan_state;
+    if (std.mem.eql(u8, ps, "awaiting_approval") or std.mem.eql(u8, ps, "awaiting_answer") or std.mem.eql(u8, ps, "approved")) {
+        if (state.instance) |inst| {
+            const input = std.fmt.allocPrint(a, "{{\"issueId\":\"{s}\"}}", .{id}) catch "";
+            var resp = trpc.queryInput(state.gpa, inst, "agentPlan.getState", input, state.token, 20) catch null;
+            if (resp) |*r| {
+                defer r.deinit();
+                if (r.data()) |d| {
+                    if (trpc.asObject(d)) |obj| {
+                        if (trpc.objString(obj, "planText")) |p| plan_text = a.dupe(u8, p) catch "";
+                        if (trpc.objString(obj, "question")) |q| question_text = a.dupe(u8, q) catch "";
+                    }
+                }
+            }
+        }
+    }
+
+    // First-class agent plan panel (above the human thread).
+    if (agentPlanPanel(state, a, id, issue.agent_plan_state, issue.agent_plan_approver, plan_text, question_text, latest_is_error)) |panel| {
+        gtk.gtk_box_append(box, panel);
+    }
+
+    // Human conversation: regular comments only (plan/question are in the panel).
+    var regular_count: usize = 0;
+    for (comments) |c| {
+        if (std.mem.eql(u8, c.kind, "regular")) regular_count += 1;
+    }
     const ch = gtk.gtk_label_new(null);
-    if (std.fmt.allocPrintSentinel(a, "Comments ({d})", .{comments.len}, 0)) |c| {
+    if (std.fmt.allocPrintSentinel(a, "Comments ({d})", .{regular_count}, 0)) |c| {
         gtk.gtk_label_set_text(ch, c.ptr);
     } else |_| {}
     gtk.gtk_widget_add_css_class(ch, "title-4");
@@ -1784,9 +1833,8 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     gtk.gtk_widget_set_margin_top(ch, 8);
     gtk.gtk_box_append(box, ch);
 
-    // Linear-style activity timeline: merge comments + synced issue_events by
-    // created_at (both come back ordered, so a linear two-pointer merge suffices).
-    const events = db.listIssueEvents(a, id) catch &[_]Database.IssueEventRow{};
+    // Linear-style activity timeline: merge regular comments + synced issue_events
+    // by created_at (both come back ordered, so a linear two-pointer merge works).
     const TimelineItem = union(enum) { comment: Database.CommentRow, event: Database.IssueEventRow };
     var timeline = std.ArrayList(TimelineItem).empty;
     {
@@ -1809,29 +1857,13 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
         }
     }
 
-    // The plan-approval affordance + "waiting" badge attach to the latest plan /
-    // question COMMENT (tracked by its position in the merged timeline).
-    var last_plan: isize = -1;
-    var last_question: isize = -1;
-    for (timeline.items, 0..) |item, i| {
-        switch (item) {
-            .comment => |c| {
-                if (std.mem.eql(u8, c.kind, "plan")) last_plan = @intCast(i);
-                if (std.mem.eql(u8, c.kind, "question")) last_question = @intCast(i);
-            },
-            .event => {},
-        }
-    }
-    const awaiting_answer = std.mem.eql(u8, issue.agent_plan_state, "awaiting_answer");
-
     const comments_box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 6);
-    for (timeline.items, 0..) |item, i| {
+    for (timeline.items) |item| {
         switch (item) {
             .comment => |c| {
-                gtk.gtk_box_append(comments_box, commentBubble(a, c.author, c.kind, c.body, awaiting_answer, @as(isize, @intCast(i)) == last_question));
-                // Plan approval actions live under the latest plan comment.
-                if (@as(isize, @intCast(i)) == last_plan)
-                    appendPlanActions(state, comments_box, id, issue.agent_plan_state, issue.agent_plan_approver);
+                // Skip plan/question comments — the panel renders those now.
+                if (!std.mem.eql(u8, c.kind, "regular")) continue;
+                gtk.gtk_box_append(comments_box, commentBubble(a, c.author, c.kind, c.body, false, false));
             },
             .event => |e| gtk.gtk_box_append(comments_box, eventLine(a, e)),
         }
@@ -2039,6 +2071,165 @@ fn appendPlanActions(state: *AppState, box: gtk.Object, issue_id: []const u8, pl
     wirePlanButton(state, approve, issue_id, true, row);
     wirePlanButton(state, reject, issue_id, false, row);
     gtk.gtk_box_append(box, row);
+}
+
+// --- Structured agent plan panel (web / iOS / Android parity) ---
+
+fn isAgentEvent(t: []const u8) bool {
+    const kinds = [_][]const u8{ "agent_started", "plan_ready", "agent_question", "agent_answer", "pr_opened", "pr_merged", "agent_error" };
+    for (kinds) |k| {
+        if (std.mem.eql(u8, t, k)) return true;
+    }
+    return false;
+}
+
+fn planLabel(a: std.mem.Allocator, text: []const u8, dim: bool) gtk.Object {
+    const lbl = gtk.gtk_label_new(null);
+    if (a.dupeZ(u8, text)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
+    gtk.gtk_label_set_wrap(lbl, 1);
+    gtk.gtk_label_set_xalign(lbl, 0.0);
+    gtk.gtk_label_set_selectable(lbl, 1);
+    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+    if (dim) gtk.gtk_widget_add_css_class(lbl, "dim-label");
+    return lbl;
+}
+
+/// The structured agent plan/question panel. Lifecycle is driven by `plan_state`;
+/// the plan/question TEXT is fetched by the caller via agentPlan.getState
+/// (server-only `issue_agent_state`, not synced) and passed in. Returns null when
+/// the issue has no agent activity.
+fn agentPlanPanel(
+    state: *AppState,
+    a: std.mem.Allocator,
+    issue_id: []const u8,
+    plan_state: []const u8,
+    approver: []const u8,
+    plan_text: []const u8,
+    question_text: []const u8,
+    latest_is_error: bool,
+) ?gtk.Object {
+    if (plan_state.len == 0 and !latest_is_error) return null;
+
+    const card = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 8);
+    gtk.gtk_widget_add_css_class(card, "exp-plan");
+    gtk.gtk_widget_set_margin_top(card, 8);
+
+    const title = gtk.gtk_label_new("✦ Agent plan");
+    gtk.gtk_widget_add_css_class(title, "caption-heading");
+    gtk.gtk_widget_set_halign(title, gtk.ALIGN_START);
+    gtk.gtk_box_append(card, title);
+
+    if (std.mem.eql(u8, plan_state, "drafting") or std.mem.eql(u8, plan_state, "planning")) {
+        gtk.gtk_box_append(card, planLabel(a, "Agent is working on a plan…", true));
+    } else if (std.mem.eql(u8, plan_state, "awaiting_answer")) {
+        gtk.gtk_box_append(card, planLabel(a, "⚠ The agent has a question", false));
+        gtk.gtk_box_append(card, planLabel(a, if (question_text.len > 0) question_text else "Loading…", false));
+        if (canModerate(state)) gtk.gtk_box_append(card, answerComposer(state, issue_id));
+    } else if (std.mem.eql(u8, plan_state, "awaiting_approval") or std.mem.eql(u8, plan_state, "approved")) {
+        gtk.gtk_box_append(card, planLabel(a, if (plan_text.len > 0) plan_text else "Loading plan…", false));
+        // Approve / Request changes (awaiting_approval) or the "Approved by X"
+        // badge (approved) — reuse the existing affordance.
+        appendPlanActions(state, card, issue_id, plan_state, approver);
+    }
+
+    if (latest_is_error) {
+        const err_row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
+        gtk.gtk_widget_set_margin_top(err_row, 4);
+        const el = gtk.gtk_label_new(null);
+        gtk.gtk_label_set_markup(el, "<span foreground='#f87171'>The agent hit an error.</span>");
+        gtk.gtk_widget_set_halign(el, gtk.ALIGN_START);
+        gtk.gtk_box_append(err_row, el);
+        const retry = gtk.gtk_button_new_with_label("Retry");
+        gtk.gtk_widget_add_css_class(retry, "flat");
+        if (makeIssueActionCtx(state, issue_id)) |ctx| {
+            gtk.g_object_set_data_full(retry, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeIssueActionCtx));
+            _ = gtk.g_signal_connect_data(retry, "clicked", @ptrCast(&onRetryClicked), ctx, null, 0);
+        }
+        gtk.gtk_box_append(err_row, retry);
+        gtk.gtk_box_append(card, err_row);
+    }
+
+    return card;
+}
+
+fn onRetryClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    var arena = std.heap.ArenaAllocator.init(state.gpa);
+    defer arena.deinit();
+    const json = std.json.Stringify.valueAlloc(arena.allocator(), .{ .issueId = ctx.issue_id }, .{}) catch return;
+    if (state.instance) |inst| mutate.fire(state.gpa, inst, state.token, "agentPlan.retry", json);
+}
+
+// --- Answer composer (human answers the agent's open question) ---
+
+const AnswerCtx = struct {
+    state: *AppState,
+    issue_id: [:0]u8,
+    entry: gtk.Object,
+};
+
+fn freeAnswer(p: gtk.gpointer) callconv(.c) void {
+    const c: *AnswerCtx = @ptrCast(@alignCast(p));
+    c.state.gpa.free(c.issue_id);
+    c.state.gpa.destroy(c);
+}
+
+fn answerComposer(state: *AppState, issue_id: []const u8) gtk.Object {
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
+    gtk.gtk_widget_set_margin_top(row, 4);
+
+    const view = gtk.gtk_text_view_new();
+    gtk.gtk_text_view_set_wrap_mode(view, gtk.WRAP_WORD_CHAR);
+    gtk.gtk_text_view_set_top_margin(view, 6);
+    gtk.gtk_text_view_set_left_margin(view, 8);
+    const scrolled = gtk.gtk_scrolled_window_new();
+    gtk.gtk_widget_add_css_class(scrolled, "card");
+    gtk.gtk_scrolled_window_set_child(scrolled, view);
+    gtk.gtk_scrolled_window_set_max_content_height(scrolled, 120);
+    gtk.gtk_widget_set_size_request(scrolled, -1, 56);
+    gtk.gtk_widget_set_hexpand(scrolled, 1);
+    gtk.gtk_box_append(row, scrolled);
+
+    const btn = gtk.gtk_button_new_with_label("Send answer");
+    gtk.gtk_widget_add_css_class(btn, "suggested-action");
+    gtk.gtk_widget_set_valign(btn, gtk.ALIGN_END);
+    gtk.gtk_box_append(row, btn);
+
+    const ctx = state.gpa.create(AnswerCtx) catch return row;
+    ctx.* = .{
+        .state = state,
+        .issue_id = state.gpa.dupeZ(u8, issue_id) catch {
+            state.gpa.destroy(ctx);
+            return row;
+        },
+        .entry = view,
+    };
+    gtk.g_object_set_data_full(btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeAnswer));
+    _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onAnswerSubmit), ctx, null, 0);
+    return row;
+}
+
+fn onAnswerSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *AnswerCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    const buffer = gtk.gtk_text_view_get_buffer(ctx.entry);
+    var start: [128]u8 align(8) = undefined;
+    var end: [128]u8 align(8) = undefined;
+    gtk.gtk_text_buffer_get_bounds(buffer, @ptrCast(&start), @ptrCast(&end));
+    const raw = gtk.gtk_text_buffer_get_text(buffer, @ptrCast(&start), @ptrCast(&end), 0) orelse return;
+    defer gtk.g_free(@ptrCast(raw));
+    const text = std.mem.trim(u8, std.mem.span(raw), " \t\r\n");
+    if (text.len == 0) return;
+
+    var arena = std.heap.ArenaAllocator.init(state.gpa);
+    defer arena.deinit();
+    const json = std.json.Stringify.valueAlloc(arena.allocator(), .{
+        .issueId = ctx.issue_id,
+        .answer = text,
+    }, .{}) catch return;
+    if (state.instance) |inst| mutate.fire(state.gpa, inst, state.token, "agentPlan.answerQuestion", json);
+    gtk.gtk_text_buffer_set_text(buffer, "", 0);
 }
 
 // --- Interactive agent actions (AI button + approve-and-continue) ---

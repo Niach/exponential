@@ -19,7 +19,7 @@
     "values": ["members", "everyone"]
   },
   "commentKind": {
-    "values": ["regular", "question", "plan"]
+    "values": ["regular"]
   },
   "agentPlanState": {
     "values": [

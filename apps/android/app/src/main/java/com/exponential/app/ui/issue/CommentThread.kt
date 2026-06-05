@@ -1,7 +1,6 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,20 +16,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowCircleUp
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.QuestionMark
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,7 +55,7 @@ import kotlinx.coroutines.launch
 // iOS comment palette (CommentRow.swift / CommentComposer.swift) — explicit white
 // tiers because the issue screen floats on AppBackground (a Box, not a Material
 // Surface), so any Text without an explicit color would inherit LocalContentColor's
-// black default (the bug the user hit). Mirrors the glass theme exactly.
+// black default. Mirrors the glass theme exactly.
 private val CommentAuthor = Color.White.copy(alpha = 0.9f)
 private val CommentMeta = Color.White.copy(alpha = 0.5f)
 private val CommentAvatarBg = Color.White.copy(alpha = 0.08f)
@@ -72,13 +64,14 @@ private val CommentFieldBg = Color.White.copy(alpha = 0.06f)
 private val CommentFieldText = Color.White.copy(alpha = 0.9f)
 private val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 
-// Mirrors apps/web/src/components/issue-timeline.tsx: renders the four
-// comment kinds, the agent plan-approval CTAs on the latest plan, and the
-// Retry CTA on error-shaped terminal regular comments.
+// The human conversation thread: regular comments + non-agent events
+// (status/assignee/label changes), plus a collapsible "Agent activity" feed for
+// agent lifecycle events. Plan/question comments and the plan approval / retry
+// affordances live in the AgentPlanPanel (a sibling above this view), so this
+// view stays a plain human thread. Mirrors apps/web/src/components/issue-timeline.tsx.
 @Composable
 fun CommentThread(
     issueId: String,
-    canApprovePlan: Boolean,
     viewModel: CommentThreadViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
@@ -87,27 +80,23 @@ fun CommentThread(
     var draft by remember { mutableStateOf("") }
     var editingId by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
-    var pendingPlanAction by remember { mutableStateOf(false) }
-    var pendingRetry by remember { mutableStateOf(false) }
 
-    val latestPlanId = remember(state.comments) {
-        state.comments.lastOrNull { commentKindOf(it.kind) == CommentKind.Plan }?.id
+    val humanComments = remember(state.comments) {
+        state.comments.filter { commentKindOf(it.kind) == CommentKind.Regular }
     }
-    val retryAnchorId = remember(state.comments) {
-        state.comments.lastOrNull { isErrorComment(it) }?.id
-    }
-    // Linear-style activity timeline: comments + issue_events merged by time.
-    val timeline = remember(state.comments, state.events) {
-        (state.comments.map { TimelineItem.Comment(it) } +
-            state.events.map { TimelineItem.Event(it) })
+    // Timeline: regular comments + non-agent events merged by time. Agent
+    // lifecycle events go to the AgentActivityFeed below.
+    val timeline = remember(humanComments, state.events) {
+        (humanComments.map { TimelineItem.Comment(it) } +
+            state.events.filter { it.type !in agentEventTypes }.map { TimelineItem.Event(it) })
             .sortedBy { it.createdAt }
     }
 
     HorizontalDivider()
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text(
-            if (state.comments.isEmpty()) "Comments"
-            else "Comments (${state.comments.size})",
+            if (humanComments.isEmpty()) "Comments"
+            else "Comments (${humanComments.size})",
             style = MaterialTheme.typography.labelMedium,
             color = CommentMeta,
         )
@@ -127,69 +116,34 @@ fun CommentThread(
                     EventRow(item.event, state.usersById[item.event.actorUserId])
                 }
                 is TimelineItem.Comment -> {
-            val comment = item.comment
-            // Stable identity per comment so list churn (e.g. an active Electric
-            // sync) doesn't re-key rows and force their markdown to re-parse.
-            key(comment.id) {
-            when (commentKindOf(comment.kind)) {
-                CommentKind.Regular -> RegularCommentRow(
-                    comment = comment,
-                    author = state.usersById[comment.authorId],
-                    isAuthor = state.currentUserId != null && comment.authorId == state.currentUserId,
-                    isAdmin = state.isAdmin,
-                    isEditing = editingId == comment.id,
-                    showRetry = comment.id == retryAnchorId,
-                    retrying = pendingRetry && comment.id == retryAnchorId,
-                    onEdit = { editingId = comment.id },
-                    onCancelEdit = { editingId = null },
-                    onSaveEdit = { text ->
-                        scope.launch {
-                            viewModel.updateComment(comment.id, text)
-                            editingId = null
-                        }
-                    },
-                    onDelete = {
-                        scope.launch { viewModel.deleteComment(comment.id) }
-                    },
-                    onRetry = {
-                        scope.launch {
-                            pendingRetry = true
-                            viewModel.retry()
-                            pendingRetry = false
-                        }
-                    },
-                )
-                CommentKind.Question -> QuestionCommentRow(
-                    comment = comment,
-                    author = state.usersById[comment.authorId],
-                )
-                CommentKind.Plan -> PlanCommentRow(
-                    comment = comment,
-                    isLatestPlan = comment.id == latestPlanId,
-                    issueState = state.issue?.agentPlanState,
-                    approved = state.issue?.agentPlanApprovedAt != null,
-                    canApprovePlan = canApprovePlan,
-                    isApproving = pendingPlanAction,
-                    onApprove = {
-                        scope.launch {
-                            pendingPlanAction = true
-                            viewModel.approvePlan()
-                            pendingPlanAction = false
-                        }
-                    },
-                    onRequestChanges = {
-                        scope.launch {
-                            pendingPlanAction = true
-                            viewModel.requestChanges()
-                            pendingPlanAction = false
-                        }
-                    },
-                )
-            }
-            }
+                    val comment = item.comment
+                    // Stable identity per comment so list churn (e.g. an active
+                    // Electric sync) doesn't re-key rows and force re-parse.
+                    key(comment.id) {
+                        RegularCommentRow(
+                            comment = comment,
+                            author = state.usersById[comment.authorId],
+                            isAuthor = state.currentUserId != null && comment.authorId == state.currentUserId,
+                            isAdmin = state.isAdmin,
+                            isEditing = editingId == comment.id,
+                            onEdit = { editingId = comment.id },
+                            onCancelEdit = { editingId = null },
+                            onSaveEdit = { text ->
+                                scope.launch {
+                                    viewModel.updateComment(comment.id, text)
+                                    editingId = null
+                                }
+                            },
+                            onDelete = {
+                                scope.launch { viewModel.deleteComment(comment.id) }
+                            },
+                        )
+                    }
                 }
             }
         }
+
+        AgentActivityFeed(events = state.events, usersById = state.usersById)
 
         Spacer(Modifier.height(8.dp))
         // Glass composer matching iOS CommentComposer.swift: rounded translucent
@@ -255,13 +209,10 @@ private fun RegularCommentRow(
     isAuthor: Boolean,
     isAdmin: Boolean,
     isEditing: Boolean,
-    showRetry: Boolean,
-    retrying: Boolean,
     onEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onSaveEdit: (String) -> Unit,
     onDelete: () -> Unit,
-    onRetry: () -> Unit,
 ) {
     val canModify = isAuthor || isAdmin
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
@@ -345,157 +296,16 @@ private fun RegularCommentRow(
                 }
             } else {
                 MarkdownView(bodyText)
-                if (showRetry) {
-                    Spacer(Modifier.height(4.dp))
-                    OutlinedButton(
-                        onClick = onRetry,
-                        enabled = !retrying,
-                    ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (retrying) "Retrying…" else "Retry")
-                    }
-                }
             }
         }
     }
-}
-
-@Composable
-private fun QuestionCommentRow(comment: CommentEntity, author: UserEntity?) {
-    val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .background(Color(0x14B388F5), RoundedCornerShape(8.dp))
-            .border(0.5.dp, Color(0x44B388F5), RoundedCornerShape(8.dp))
-            .padding(10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Filled.QuestionMark,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = Color(0xFFB388F5),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                (author?.name ?: author?.email ?: "Agent") + " asks",
-                style = MaterialTheme.typography.labelMedium,
-                color = CommentAuthor,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                relativeTime(comment.createdAt),
-                style = MaterialTheme.typography.labelSmall,
-                color = CommentMeta,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        MarkdownView(bodyText)
-    }
-}
-
-@Composable
-private fun PlanCommentRow(
-    comment: CommentEntity,
-    isLatestPlan: Boolean,
-    issueState: String?,
-    approved: Boolean,
-    canApprovePlan: Boolean,
-    isApproving: Boolean,
-    onApprove: () -> Unit,
-    onRequestChanges: () -> Unit,
-) {
-    val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
-    val awaitingApproval = isLatestPlan && issueState == "awaiting_approval"
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .background(Color(0x142563EB), RoundedCornerShape(8.dp))
-            .border(0.5.dp, Color(0x442563EB), RoundedCornerShape(8.dp))
-            .padding(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Plan",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF60A5FA),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                relativeTime(comment.createdAt),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (approved && isLatestPlan) {
-                Spacer(Modifier.weight(1f))
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                    tint = Color(0xFF34D399),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    "Approved",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF34D399),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        MarkdownView(bodyText)
-
-        if (awaitingApproval && canApprovePlan) {
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onApprove,
-                    enabled = !isApproving,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF22C55E).copy(alpha = 0.22f),
-                        contentColor = Color(0xFF22C55E),
-                    ),
-                ) {
-                    Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (isApproving) "Approving…" else "Approve")
-                }
-                OutlinedButton(
-                    onClick = onRequestChanges,
-                    enabled = !isApproving,
-                ) {
-                    Text("Request changes")
-                }
-            }
-        }
-    }
-}
-
-// Same agent terminal-error patterns the web timeline uses. Tests-failed /
-// agent-error / no-repo / no-auth show a Retry CTA; "PR opened" is
-// terminal but not an error.
-private val errorBodyPatterns = listOf(
-    Regex("^Tests failed after retry"),
-    Regex("^Agent encountered an error"),
-    Regex("^No GitHub repo linked"),
-    Regex("Companion is not authenticated to GitHub"),
-)
-
-private fun isErrorComment(comment: CommentEntity): Boolean {
-    if (commentKindOf(comment.kind) != CommentKind.Regular) return false
-    val body = getCommentBodyText(comment.body)
-    return errorBodyPatterns.any { it.containsMatchIn(body) }
 }
 
 private fun initials(name: String): String =
     name.split(" ", limit = 2).mapNotNull { it.firstOrNull()?.toString() }.joinToString("").uppercase()
 
-private fun relativeTime(iso: String): String {
+// Relative timestamp ("3h ago"). Internal so the AgentActivityFeed can reuse it.
+internal fun relativeTime(iso: String): String {
     return try {
         val instant = java.time.Instant.parse(iso)
         val now = java.time.Instant.now()
@@ -524,24 +334,10 @@ private sealed interface TimelineItem {
     }
 }
 
-// Compact Linear-style activity line (status/assignee/label/PR/plan/error).
+// Compact Linear-style activity line for non-agent events (status/assignee/label).
 @Composable
 private fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
     val who = actor?.name ?: actor?.email ?: "Someone"
-    val verb = when (event.type) {
-        "status_changed" -> "changed the status"
-        "assignee_changed" -> "changed the assignee"
-        "label_added" -> "added a label"
-        "label_removed" -> "removed a label"
-        "pr_opened" -> "opened a pull request"
-        "pr_merged" -> "merged the pull request"
-        "plan_ready" -> "posted a plan for review"
-        "agent_error" -> "hit an error"
-        "agent_started" -> "started working"
-        "agent_question" -> "asked a question"
-        "agent_answer" -> "answered the agent"
-        else -> event.type.replace('_', ' ')
-    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -549,7 +345,7 @@ private fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
     ) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(CommentMeta))
         Text(
-            "$who $verb · ${relativeTime(event.createdAt)}",
+            "$who ${agentEventVerb(event.type)} · ${relativeTime(event.createdAt)}",
             style = MaterialTheme.typography.labelSmall,
             color = CommentMeta,
         )

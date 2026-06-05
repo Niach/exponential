@@ -177,6 +177,14 @@ final class MacAgentService {
         } catch {
             lastError = "Removed locally; the server uninstall failed: \(error.localizedDescription)"
         }
+        forgetLocal(workspaceId: workspaceId)
+    }
+
+    /// Local-only teardown for a workspace's agent: stop the heartbeat, shut the
+    /// core down, drop the stored identity. Used both by `unregister` (after the
+    /// best-effort server uninstall) and after revoking an orphan agent the
+    /// server already removed (so this Mac stops pinging under a dead credential).
+    func forgetLocal(workspaceId: String) {
         stopHeartbeat(workspaceId)
         cores[workspaceId]?.shutdown()
         cores[workspaceId] = nil

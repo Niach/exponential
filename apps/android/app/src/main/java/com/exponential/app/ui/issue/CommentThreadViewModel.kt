@@ -2,7 +2,6 @@ package com.exponential.app.ui.issue
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.AgentPlanApi
 import com.exponential.app.data.api.CommentsApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CommentEntity
@@ -35,7 +34,6 @@ data class CommentThreadState(
 class CommentThreadViewModel @Inject constructor(
     private val holder: DatabaseHolder,
     private val commentsApi: CommentsApi,
-    private val agentPlanApi: AgentPlanApi,
     private val auth: AuthRepository,
 ) : ViewModel() {
 
@@ -94,23 +92,5 @@ class CommentThreadViewModel @Inject constructor(
     suspend fun deleteComment(id: String) {
         val accountId = auth.activeAccountId.value ?: return
         runCatching { commentsApi.delete(accountId, id) }
-    }
-
-    suspend fun approvePlan() {
-        val issueId = issueIdFlow.value ?: return
-        val accountId = auth.activeAccountId.value ?: return
-        runCatching { agentPlanApi.approvePlan(accountId, issueId) }
-    }
-
-    suspend fun requestChanges() {
-        val issueId = issueIdFlow.value ?: return
-        val accountId = auth.activeAccountId.value ?: return
-        runCatching { agentPlanApi.requestChanges(accountId, issueId) }
-    }
-
-    suspend fun retry() {
-        val issueId = issueIdFlow.value ?: return
-        val accountId = auth.activeAccountId.value ?: return
-        runCatching { agentPlanApi.retry(accountId, issueId) }
     }
 }

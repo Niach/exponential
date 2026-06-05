@@ -85,6 +85,13 @@
       "when": 1780667175964,
       "tag": "0011_true_stature",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1780694570182,
+      "tag": "0012_soft_roulette",
+      "breakpoints": true
     }
   ]
 }

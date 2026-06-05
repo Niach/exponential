@@ -60,47 +60,17 @@ export const agentPlanRouter = router({
           .orderBy(desc(comments.createdAt))
           .limit(1)
 
-        // The structured store is the source of truth (web Plan Panel + daemon
-        // read it). We ALSO mirror plan/question into comments as a server-side
-        // dual-write so mobile clients — which still render plan/question from
-        // comments and host their Approve UI there — keep working until they
-        // ship a structured Plan Panel. Web hides these comments; no
-        // notification fires (we never call fireAndForgetCommentNotify here).
-        // Removing this dual-write is the P3c "drain" step, after mobile ships.
+        // The structured `issue_agent_state` store is the single source of
+        // truth: the web + native (iOS/Android/macOS) Plan Panels read it via
+        // agentPlan.getState, and the agent reads it via issues_get's
+        // agentPlanText/agentQuestion. Plan/question are NOT mirrored into
+        // comments — that dual-write was drained once every client shipped the
+        // native Plan Panel.
         const planText = input.plan.length > 0 ? { text: input.plan } : null
         const questionText =
           input.question && input.question.length > 0
             ? { text: input.question }
             : null
-        // Captured so the watermark below includes the agent's own plan/question
-        // comment — otherwise decide_stage would treat it as "new discussion"
-        // and re-plan in a loop.
-        let dualWriteAt: Date | null = null
-        if (input.state === `awaiting_approval` && planText) {
-          const [c] = await tx
-            .insert(comments)
-            .values({
-              issueId: input.issueId,
-              workspaceId: issueContext.workspaceId,
-              authorId: ctx.session.user.id,
-              body: planText,
-              kind: `plan`,
-            })
-            .returning({ createdAt: comments.createdAt })
-          dualWriteAt = c?.createdAt ?? null
-        } else if (input.state === `awaiting_answer` && questionText) {
-          const [c] = await tx
-            .insert(comments)
-            .values({
-              issueId: input.issueId,
-              workspaceId: issueContext.workspaceId,
-              authorId: ctx.session.user.id,
-              body: questionText,
-              kind: `question`,
-            })
-            .returning({ createdAt: comments.createdAt })
-          dualWriteAt = c?.createdAt ?? null
-        }
         if (input.state === `awaiting_approval`) {
           await tx
             .insert(issueAgentState)
@@ -147,8 +117,10 @@ export const agentPlanRouter = router({
             agentPlanRevision: sql`${issues.agentPlanRevision} + 1`,
             agentPlanApprovedAt: null,
             agentPlanApprovedBy: null,
-            agentLastCommentSeenAt:
-              dualWriteAt ?? latestComment?.createdAt ?? new Date(),
+            // No comment is written here anymore, so the watermark is just the
+            // latest existing comment (or now) — the agent won't mistake its own
+            // plan submission for "new discussion" and re-plan in a loop.
+            agentLastCommentSeenAt: latestComment?.createdAt ?? new Date(),
           })
           .where(eq(issues.id, input.issueId))
           .returning()
@@ -534,11 +506,15 @@ export const agentPlanRouter = router({
       })
     }),
 
-  // Human answers the agent's open question (replaces the old "reply with a
-  // regular comment" convention). Clears the open question, flips the issue to
-  // `drafting` (the daemon's re-plan signal), and records an agent_answer
-  // event. Also dual-writes a regular comment during the rollout window so the
-  // legacy comment-watermark daemon still detects the answer.
+  // Human answers the agent's open question. The answer is written as a regular
+  // comment (its only home — the agent reads it from the thread when it
+  // re-plans), and the issue flips to `drafting` (the agent's re-plan signal) +
+  // records an agent_answer event. We intentionally do NOT clear
+  // issue_agent_state.question: the agent's re-plan prompt surfaces it
+  // (pipeline.rs format_thread_for_prompt) "so a re-plan run remembers what it
+  // asked", and it's naturally overwritten by the next submitPlan. (Before the
+  // dual-write drain the question also survived as a kind='question' comment;
+  // keeping the structured copy preserves that re-plan context.)
   answerQuestion: authedProcedure
     .input(
       z.object({
@@ -560,11 +536,6 @@ export const agentPlanRouter = router({
           body: { text: input.answer },
           kind: `regular`,
         })
-
-        await tx
-          .update(issueAgentState)
-          .set({ question: null, questionAskedAt: null, updatedAt: new Date() })
-          .where(eq(issueAgentState.issueId, input.issueId))
 
         const [issue] = await tx
           .update(issues)
@@ -616,42 +587,13 @@ export const agentPlanRouter = router({
       const planBody = row?.planText as { text: string } | null | undefined
       const questionBody = row?.question as { text: string } | null | undefined
 
-      let planText = planBody?.text ?? null
-      let question = questionBody?.text ?? null
-      let questionAskedAt = row?.questionAskedAt ?? null
-
-      // Rollout fallback: until the Rust daemon is updated to feed plan text +
-      // questions through submitPlan's structured fields, they still arrive as
-      // kind='plan'/'question' comments. Read the latest of those when the
-      // structured store hasn't been populated for this issue yet.
-      if (planText === null) {
-        const [planComment] = await ctx.db
-          .select({ body: comments.body })
-          .from(comments)
-          .where(
-            and(eq(comments.issueId, input.issueId), eq(comments.kind, `plan`))
-          )
-          .orderBy(desc(comments.createdAt))
-          .limit(1)
-        planText =
-          (planComment?.body as { text?: string } | undefined)?.text ?? null
-      }
-      if (question === null && issue?.state === `awaiting_answer`) {
-        const [qComment] = await ctx.db
-          .select({ body: comments.body, createdAt: comments.createdAt })
-          .from(comments)
-          .where(
-            and(
-              eq(comments.issueId, input.issueId),
-              eq(comments.kind, `question`)
-            )
-          )
-          .orderBy(desc(comments.createdAt))
-          .limit(1)
-        question =
-          (qComment?.body as { text?: string } | undefined)?.text ?? null
-        questionAskedAt = qComment?.createdAt ?? questionAskedAt
-      }
+      // The structured `issue_agent_state` store is the source of truth (the
+      // daemon writes it via submitPlan; the 0010 migration backfilled it from
+      // the legacy plan/question comments). The comment fallback was removed with
+      // the dual-write drain.
+      const planText = planBody?.text ?? null
+      const question = questionBody?.text ?? null
+      const questionAskedAt = row?.questionAskedAt ?? null
 
       return {
         planText,

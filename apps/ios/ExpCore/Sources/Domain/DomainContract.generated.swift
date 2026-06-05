@@ -11,7 +11,7 @@ public enum DomainContract {
     public static let recurrenceUnitValues: [String] = ["day", "week", "month"]
     public static let workspaceRoleValues: [String] = ["owner", "member", "agent"]
     public static let publicWritePolicyValues: [String] = ["members", "everyone"]
-    public static let commentKindValues: [String] = ["regular", "question", "plan"]
+    public static let commentKindValues: [String] = ["regular"]
     public static let agentPlanStateValues: [String] = ["drafting", "awaiting_approval", "awaiting_answer", "approved", "coding", "planning", "in_review", "pushed"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "agent_plan_review", "agent_question"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
@@ -26,8 +26,6 @@ public enum DomainContract {
     public static let publicWritePolicyMembers: String = "members"
     public static let publicWritePolicyEveryone: String = "everyone"
     public static let commentKindRegular: String = "regular"
-    public static let commentKindQuestion: String = "question"
-    public static let commentKindPlan: String = "plan"
     public static let agentPlanStateDrafting: String = "drafting"
     public static let agentPlanStateAwaitingApproval: String = "awaiting_approval"
     public static let agentPlanStateAwaitingAnswer: String = "awaiting_answer"

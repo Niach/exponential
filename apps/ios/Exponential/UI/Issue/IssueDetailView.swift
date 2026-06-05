@@ -261,11 +261,15 @@ struct IssueDetailView: View {
                         // surfaces them as discoverable items.
                         AttachmentListView(issueId: issue.id)
 
-                        // Comments
-                        CommentThreadView(
+                        // Agent plan/question lifecycle (first-class panel; the
+                        // plan/question text is fetched server-side, not synced).
+                        AgentPlanPanel(
                             issue: issue,
                             canApprovePlan: vm.permissions.canApprovePlan(creatorId: issue.creatorId)
                         )
+
+                        // Comments
+                        CommentThreadView(issue: issue)
                     }
                     .padding(20)
                 }

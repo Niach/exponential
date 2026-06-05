@@ -9,6 +9,36 @@ struct WorkspaceSettingsTarget: Identifiable, Hashable {
     var id: String { accountId + ":" + workspaceId }
 }
 
+/// The owner's default agent workspace — the oldest one they own that is NOT
+/// public. Agents register here so they never get orphaned in a shared/public
+/// workspace. Mirrors `defaultOwnedWorkspaceId` on Linux + the server filter.
+struct OwnedWorkspaceRef: Equatable {
+    let id: String
+    let name: String
+}
+
+/// Resolve the oldest non-public workspace `userId` owns from `pool`. The owner
+/// join + is_public filter is done in Swift (rather than raw SQL) so the
+/// permissive `is_public` decoding in `WorkspaceEntity` applies. Shared by the
+/// settings agent section and the "Set up coding agent" entry point.
+func resolveDefaultOwnedWorkspace(pool: DatabasePool, userId: String) -> OwnedWorkspaceRef? {
+    let resolved = try? pool.read { db -> OwnedWorkspaceRef? in
+        let ownedIds = Set(
+            try WorkspaceMemberEntity
+                .filter(Column("user_id") == userId)
+                .filter(Column("role") == DomainContract.workspaceRoleOwner)
+                .fetchAll(db)
+                .map(\.workspaceId)
+        )
+        let candidate = try WorkspaceEntity.fetchAll(db)
+            .filter { ownedIds.contains($0.id) && !$0.isPublic }
+            .sorted { $0.createdAt < $1.createdAt }
+            .first
+        return candidate.map { OwnedWorkspaceRef(id: $0.id, name: $0.name) }
+    }
+    return resolved ?? nil
+}
+
 @MainActor
 @Observable
 final class MacWorkspaceSettingsModel {
@@ -19,6 +49,9 @@ final class MacWorkspaceSettingsModel {
     var projects: [ProjectEntity] = []
     var users: [UserEntity] = []
     var error: String?
+    // The oldest non-public workspace the current user owns — where a new agent
+    // should be registered. Resolved once on start (#2 owned-workspace fix).
+    var ownedDefault: OwnedWorkspaceRef?
 
     let accountId: String
     let workspaceId: String
@@ -39,7 +72,19 @@ final class MacWorkspaceSettingsModel {
 
     func user(_ id: String) -> UserEntity? { users.first { $0.id == id } }
 
+    var isCurrentPublic: Bool { workspace?.isPublic ?? false }
+    // The current workspace is a valid agent home: the user owns/admins it and
+    // it isn't public.
+    var canRegisterHere: Bool { isOwnerOrAdmin && !isCurrentPublic }
+
+    /// Resolve the oldest non-public workspace the current user owns.
+    func loadOwnedDefault() {
+        guard let uid = deps.auth.userId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        ownedDefault = resolveDefaultOwnedWorkspace(pool: pool, userId: uid)
+    }
+
     func start() {
+        loadOwnedDefault()
         guard tasks.isEmpty, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let wid = workspaceId
         let wsObs = ValueObservation.tracking { db in try WorkspaceEntity.fetchOne(db, key: wid) }
@@ -173,6 +218,11 @@ struct MacWorkspaceSettingsView: View {
     @State private var editingLabelId: String?
     @State private var editingName = ""
     @State private var showDeleteConfirm = false
+    @State private var showUnregisterConfirm = false
+    // Agents this account registered against OTHER workspaces (the pre-fix orphan
+    // case) — surfaced with a Revoke action. Loaded from companion.listMine.
+    @State private var orphanAgents: [CompanionAgentSummary] = []
+    @State private var revokingAgentId: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -190,7 +240,7 @@ struct MacWorkspaceSettingsView: View {
                     invitesSection(model)
                     projectsSection(model)
                     labelsSection(model)
-                    agentSection()
+                    agentSection(model)
                     dangerSection(model)
                     if let error = model.error {
                         Text(error).foregroundStyle(.red).font(.callout)
@@ -209,11 +259,27 @@ struct MacWorkspaceSettingsView: View {
                 } message: {
                     Text("This permanently deletes the workspace and all its data.")
                 }
+                .confirmationDialog(
+                    "Unregister this Mac?",
+                    isPresented: $showUnregisterConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button("Unregister", role: .destructive) {
+                        Task {
+                            await deps.agentService.unregister(workspaceId: target.workspaceId)
+                            await loadOrphans()
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This Mac will stop running assigned issues until you register it again.")
+                }
             } else {
                 ProgressView().frame(maxHeight: .infinity)
             }
         }
         .frame(width: 520, height: 620)
+        .task(id: target.id) { await loadOrphans() }
         .onAppear {
             if model == nil {
                 let m = MacWorkspaceSettingsModel(deps: deps, accountId: target.accountId, workspaceId: target.workspaceId)
@@ -222,6 +288,32 @@ struct MacWorkspaceSettingsView: View {
             }
         }
         .onDisappear { model?.stop() }
+    }
+
+    // Load the owner's agents in OTHER workspaces (orphans relative to this one).
+    private func loadOrphans() async {
+        do {
+            let mine = try await deps.companionApi.listMine(accountId: target.accountId)
+            orphanAgents = mine.filter { $0.workspaceId != target.workspaceId }
+        } catch {
+            // Non-owner / transient — just don't surface orphans.
+            orphanAgents = []
+        }
+    }
+
+    private func revokeOrphan(_ agent: CompanionAgentSummary) {
+        revokingAgentId = agent.id
+        Task {
+            defer { revokingAgentId = nil }
+            do {
+                try await deps.companionApi.revoke(accountId: target.accountId, agentId: agent.id)
+                // Stop this Mac pinging under the now-dead credential, if it held one.
+                deps.agentService.forgetLocal(workspaceId: agent.workspaceId)
+                await loadOrphans()
+            } catch {
+                model?.error = error.localizedDescription
+            }
+        }
     }
 
     @ViewBuilder
@@ -329,39 +421,106 @@ struct MacWorkspaceSettingsView: View {
     }
 
     @ViewBuilder
-    private func agentSection() -> some View {
+    private func agentSection(_ model: MacWorkspaceSettingsModel) -> some View {
         let agent = deps.agentService
         let wid = target.workspaceId
         Section("Desktop Agent") {
             if agent.isRegistered(wid) {
-                let id = agent.identity(wid)
-                HStack(spacing: 8) {
-                    Circle().fill(agent.isOnline(wid) ? Color.green : Color.secondary).frame(width: 8, height: 8)
-                    Text(id?.agentName ?? "This Mac")
-                    Spacer()
-                    Text(agent.isOnline(wid) ? "Online" : "Connecting…").font(.caption).foregroundStyle(.secondary)
-                }
-                if let base = deps.auth.accounts.first(where: { $0.id == target.accountId })?.instanceUrl,
-                   let url = URL(string: "\(base)/account/integrations") {
-                    Button("Connect GitHub in browser") { Platform.open(url) }
-                    Text("Connect GitHub once in the web app; this Mac fetches the token to clone & push.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Unregister this Mac", role: .destructive) {
-                    Task { await agent.unregister(workspaceId: wid) }
-                }
-                .disabled(agent.busy)
+                registeredAgentRows(agent)
             } else {
-                TextField("Agent name", text: $agentName).textFieldStyle(.roundedBorder)
-                Button("Register this Mac as an agent") {
-                    Task { await agent.register(accountId: target.accountId, workspaceId: wid, name: agentName) }
-                }
-                .disabled(agent.busy || agentName.trimmingCharacters(in: .whitespaces).isEmpty)
-                Text("Registers this Mac so it can run coding agents on assigned issues (while the app is open).")
-                    .font(.caption).foregroundStyle(.secondary)
+                unregisteredAgentRows(model, agent: agent)
             }
+            orphanRows()
             if let err = agent.lastError {
                 Text(err).font(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func registeredAgentRows(_ agent: MacAgentService) -> some View {
+        let wid = target.workspaceId
+        let id = agent.identity(wid)
+        HStack(spacing: 8) {
+            Circle().fill(agent.isOnline(wid) ? Color.green : Color.secondary).frame(width: 8, height: 8)
+            Text(id?.agentName ?? "This Mac")
+            Spacer()
+            Text(agent.isOnline(wid) ? "Online" : "Connecting…").font(.caption).foregroundStyle(.secondary)
+        }
+        if let base = deps.auth.accounts.first(where: { $0.id == target.accountId })?.instanceUrl,
+           let url = URL(string: "\(base)/account/integrations") {
+            Button("Connect GitHub in browser") { Platform.open(url) }
+            Text("Connect GitHub once in the web app; this Mac fetches the token to clone & push.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Button("Unregister this Mac", role: .destructive) { showUnregisterConfirm = true }
+            .disabled(agent.busy)
+    }
+
+    @ViewBuilder
+    private func unregisteredAgentRows(_ model: MacWorkspaceSettingsModel, agent: MacAgentService) -> some View {
+        if model.canRegisterHere {
+            // Owned, non-public workspace: register it directly.
+            TextField("Agent name", text: $agentName).textFieldStyle(.roundedBorder)
+            Button("Register this Mac as an agent") {
+                Task {
+                    await agent.register(accountId: target.accountId, workspaceId: target.workspaceId, name: agentName)
+                    await loadOrphans()
+                }
+            }
+            .disabled(agent.busy || agentName.trimmingCharacters(in: .whitespaces).isEmpty)
+            Text("Registers this Mac so it can run coding agents on assigned issues (while the app is open).")
+                .font(.caption).foregroundStyle(.secondary)
+        } else if let owned = model.ownedDefault {
+            // This workspace is public or not owned — steer registration to the
+            // user's own private workspace so the agent isn't orphaned.
+            Text(model.isCurrentPublic
+                ? "Agents belong in your own private workspace, not a public one."
+                : "You can only register an agent in a workspace you own.")
+                .font(.caption).foregroundStyle(.secondary)
+            TextField("Agent name", text: $agentName).textFieldStyle(.roundedBorder)
+            Button("Register this Mac in “\(owned.name)”") {
+                Task {
+                    await agent.register(accountId: target.accountId, workspaceId: owned.id, name: agentName)
+                    await loadOrphans()
+                }
+            }
+            .disabled(agent.busy || agentName.trimmingCharacters(in: .whitespaces).isEmpty)
+        } else {
+            Text("Create a private workspace you own to register a desktop agent.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    // Amber card: agents this account registered against another workspace (the
+    // pre-fix orphan case). Mirrors the web agents-section.tsx pattern.
+    @ViewBuilder
+    private func orphanRows() -> some View {
+        if !orphanAgents.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This account has an agent registered in another workspace. Revoke it if it’s an orphan, then re-register here.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(orphanAgents) { orphan in
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(orphan.name).font(.callout)
+                            Text("in \(orphan.workspaceName)").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(role: .destructive) { revokeOrphan(orphan) } label: {
+                            if revokingAgentId == orphan.id {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "trash")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(revokingAgentId != nil)
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
             }
         }
     }

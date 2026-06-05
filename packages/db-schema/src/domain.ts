@@ -30,7 +30,11 @@ export const recurrenceIntervals = [
   1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30,
 ] as const
 
-export const commentKindValues = [`regular`, `question`, `plan`] as const
+// Only `regular` (human) comments exist now. Agent plan/question lifecycle moved
+// off comments into the structured issue_agent_state store; the legacy `plan` /
+// `question` kinds were drained (their rows deleted by migration 0012). Old rows,
+// if any survive, decode tolerantly on clients (unknown kind → regular).
+export const commentKindValues = [`regular`] as const
 
 // The agent plan/run lifecycle. The first four are the server-synced states
 // (issues.agent_plan_state); the latter four are agent-only progress states the

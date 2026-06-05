@@ -63,7 +63,7 @@ mod domain_contract_tests {
     fn contract_constants_present() {
         assert!(dc::ISSUE_STATUS_VALUES.contains(&"in_progress"));
         assert_eq!(dc::WORKSPACE_ROLE_AGENT, "agent");
-        assert_eq!(dc::COMMENT_KIND_PLAN, "plan");
+        assert_eq!(dc::COMMENT_KIND_REGULAR, "regular");
         assert!(dc::RECURRENCE_INTERVALS.contains(&30));
     }
 }

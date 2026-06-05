@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { and, desc, eq, isNull } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments } from "@/db/schema"
 import {
@@ -61,12 +61,9 @@ export const commentsRouter = router({
       )
       const isAgentAuthor = member?.role === `agent`
 
-      // Only agents may post kind='question' or 'plan'. Anyone else is
-      // clamped to regular so the rendering affordances don't get spoofed.
-      let kind = input.kind
-      if ((kind === `question` || kind === `plan`) && !isAgentAuthor) {
-        kind = `regular`
-      }
+      // Only `regular` comments exist now — agent plan/question lifecycle lives in
+      // the structured issue_agent_state store, not in comments. `input.kind` is
+      // already constrained to `regular` by commentKindSchema.
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -77,34 +74,9 @@ export const commentsRouter = router({
             workspaceId: issueContext.workspaceId,
             authorId: ctx.session.user.id,
             body: input.body,
-            kind,
+            kind: input.kind,
           })
           .returning()
-
-        // When a human comment lands, mark the latest unanswered agent
-        // question on the same issue as answered. This is what flips the
-        // amber "waiting for your answer" card to a softer "Answered" badge
-        // in the UI.
-        if (kind === `regular`) {
-          const [latestUnanswered] = await tx
-            .select({ id: comments.id })
-            .from(comments)
-            .where(
-              and(
-                eq(comments.issueId, input.issueId),
-                eq(comments.kind, `question`),
-                isNull(comments.answeredAt)
-              )
-            )
-            .orderBy(desc(comments.createdAt))
-            .limit(1)
-          if (latestUnanswered) {
-            await tx
-              .update(comments)
-              .set({ answeredAt: new Date() })
-              .where(eq(comments.id, latestUnanswered.id))
-          }
-        }
 
         // Auto-subscribe the commenter (skipped for agents inside ensureSubscribed).
         await ensureSubscribed(tx, {
