@@ -13,11 +13,11 @@ public enum DomainContract {
     public static let publicWritePolicyValues: [String] = ["members", "everyone"]
     public static let commentKindValues: [String] = ["regular", "question", "plan"]
     public static let agentPlanStateValues: [String] = ["drafting", "awaiting_approval", "awaiting_answer", "approved", "coding", "planning", "in_review", "pushed"]
-    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention"]
+    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "agent_plan_review", "agent_question"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let runModeValues: [String] = ["background", "interactive"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention"]
-    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error"]
+    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error", "agent_started", "agent_question", "agent_answer"]
     public static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
 
     public static let workspaceRoleOwner: String = "owner"
@@ -40,6 +40,8 @@ public enum DomainContract {
     public static let notificationTypeIssueComment: String = "issue_comment"
     public static let notificationTypeIssueStatusChanged: String = "issue_status_changed"
     public static let notificationTypeIssueMention: String = "issue_mention"
+    public static let notificationTypeAgentPlanReview: String = "agent_plan_review"
+    public static let notificationTypeAgentQuestion: String = "agent_question"
     public static let prStateOpen: String = "open"
     public static let prStateClosed: String = "closed"
     public static let prStateMerged: String = "merged"
@@ -59,4 +61,7 @@ public enum DomainContract {
     public static let issueEventTypePrMerged: String = "pr_merged"
     public static let issueEventTypePlanReady: String = "plan_ready"
     public static let issueEventTypeAgentError: String = "agent_error"
+    public static let issueEventTypeAgentStarted: String = "agent_started"
+    public static let issueEventTypeAgentQuestion: String = "agent_question"
+    public static let issueEventTypeAgentAnswer: String = "agent_answer"
 }

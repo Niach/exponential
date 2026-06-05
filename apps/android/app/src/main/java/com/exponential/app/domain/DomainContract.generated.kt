@@ -12,11 +12,11 @@ object DomainContract {
     val publicWritePolicyValues: List<String> = listOf("members", "everyone")
     val commentKindValues: List<String> = listOf("regular", "question", "plan")
     val agentPlanStateValues: List<String> = listOf("drafting", "awaiting_approval", "awaiting_answer", "approved", "coding", "planning", "in_review", "pushed")
-    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention")
+    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "agent_plan_review", "agent_question")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val runModeValues: List<String> = listOf("background", "interactive")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention")
-    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error")
+    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error", "agent_started", "agent_question", "agent_answer")
     val recurrenceIntervals: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30)
 
     const val workspaceRoleOwner: String = "owner"
@@ -39,6 +39,8 @@ object DomainContract {
     const val notificationTypeIssueComment: String = "issue_comment"
     const val notificationTypeIssueStatusChanged: String = "issue_status_changed"
     const val notificationTypeIssueMention: String = "issue_mention"
+    const val notificationTypeAgentPlanReview: String = "agent_plan_review"
+    const val notificationTypeAgentQuestion: String = "agent_question"
     const val prStateOpen: String = "open"
     const val prStateClosed: String = "closed"
     const val prStateMerged: String = "merged"
@@ -58,4 +60,7 @@ object DomainContract {
     const val issueEventTypePrMerged: String = "pr_merged"
     const val issueEventTypePlanReady: String = "plan_ready"
     const val issueEventTypeAgentError: String = "agent_error"
+    const val issueEventTypeAgentStarted: String = "agent_started"
+    const val issueEventTypeAgentQuestion: String = "agent_question"
+    const val issueEventTypeAgentAnswer: String = "agent_answer"
 }

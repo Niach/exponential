@@ -237,8 +237,11 @@ struct CommentThreadView: View {
             case "label_removed": return "removed a label"
             case "pr_opened": return "opened a pull request"
             case "pr_merged": return "merged the pull request"
-            case "plan_ready": return "shared a plan"
+            case "plan_ready": return "posted a plan for review"
             case "agent_error": return "hit an error"
+            case "agent_started": return "started working"
+            case "agent_question": return "asked a question"
+            case "agent_answer": return "answered the agent"
             default: return event.type.replacingOccurrences(of: "_", with: " ")
             }
         }()

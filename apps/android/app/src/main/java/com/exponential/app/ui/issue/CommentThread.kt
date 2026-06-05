@@ -535,8 +535,11 @@ private fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
         "label_removed" -> "removed a label"
         "pr_opened" -> "opened a pull request"
         "pr_merged" -> "merged the pull request"
-        "plan_ready" -> "shared a plan"
+        "plan_ready" -> "posted a plan for review"
         "agent_error" -> "hit an error"
+        "agent_started" -> "started working"
+        "agent_question" -> "asked a question"
+        "agent_answer" -> "answered the agent"
         else -> event.type.replace('_', ' ')
     }
     Row(
