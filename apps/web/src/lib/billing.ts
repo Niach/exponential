@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   workspaceMembers,
+  workspaces,
   projects,
   attachments,
   creem_subscriptions,
@@ -15,17 +16,28 @@ type PlanLimits = {
   members: number
   projects: number
   storageMb: number
+  // Number of non-public workspaces a user may OWN. Capping this closes the
+  // hole where one free user spins up N workspaces × the per-workspace project
+  // quota. `ownedWorkspaces` is required so the compiler flags every literal.
+  ownedWorkspaces: number
   push: boolean
 }
 
 const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
-  free: { members: 1, projects: 3, storageMb: 50, push: false },
-  pro: { members: 5, projects: 10, storageMb: 1024, push: true },
-  business: { members: 25, projects: Infinity, storageMb: 10240, push: true },
+  free: { members: 1, projects: 3, storageMb: 50, ownedWorkspaces: 1, push: false },
+  pro: { members: 5, projects: 10, storageMb: 1024, ownedWorkspaces: 3, push: true },
+  business: {
+    members: 25,
+    projects: Infinity,
+    storageMb: 10240,
+    ownedWorkspaces: 10,
+    push: true,
+  },
   unlimited: {
     members: Infinity,
     projects: Infinity,
     storageMb: Infinity,
+    ownedWorkspaces: Infinity,
     push: true,
   },
 }
@@ -95,6 +107,77 @@ export async function getWorkspacePlan(
   }
 
   return { plan: bestPlan, limits: PLAN_LIMITS[bestPlan] }
+}
+
+// User-scoped entitlement: the best plan a user is entitled to, independent of
+// any single workspace. The owned-workspace cap is a per-user limit, so it must
+// resolve from the user's own subscriptions, not a workspace's owner set.
+export async function getUserPlan(
+  userId: string
+): Promise<{ plan: PlanTier; limits: PlanLimits }> {
+  if (!isCloudInstance()) {
+    return { plan: `unlimited`, limits: PLAN_LIMITS.unlimited }
+  }
+
+  const subs = await db
+    .select({
+      productId: creem_subscriptions.productId,
+      status: creem_subscriptions.status,
+    })
+    .from(creem_subscriptions)
+    .where(
+      sql`${creem_subscriptions.referenceId} = ${userId} AND ${creem_subscriptions.status} IN (${sql.join(
+        ACTIVE_STATUSES.map((s) => sql`${s}`),
+        sql`, `
+      )})`
+    )
+
+  let bestPlan: PlanTier = `free`
+  for (const sub of subs) {
+    const tier = productIdToTier(sub.productId)
+    if (tier === `business`) {
+      bestPlan = `business`
+      break
+    }
+    if (tier === `pro` && bestPlan === `free`) {
+      bestPlan = `pro`
+    }
+  }
+
+  return { plan: bestPlan, limits: PLAN_LIMITS[bestPlan] }
+}
+
+// Number of non-public workspaces the user OWNS. The public feedback workspace
+// is excluded (it's shared infra that admins "own" but shouldn't be billed for).
+export async function countOwnedWorkspaces(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .where(
+      sql`${workspaceMembers.userId} = ${userId} AND ${workspaceMembers.role} = 'owner' AND ${workspaces.isPublic} = false`
+    )
+  return row?.count ?? 0
+}
+
+// Gate workspace creation by the per-plan owned-workspace cap. Never called on
+// the auto-created first workspace (ensureDefault is exempt by design), so a
+// user with zero owned workspaces always passes.
+export async function assertCanCreateWorkspace(userId: string): Promise<void> {
+  if (!isCloudInstance()) return
+
+  const { limits } = await getUserPlan(userId)
+  if (limits.ownedWorkspaces === Infinity) return
+
+  const owned = await countOwnedWorkspaces(userId)
+  if (owned >= limits.ownedWorkspaces) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Your plan allows up to ${limits.ownedWorkspaces} workspace${
+        limits.ownedWorkspaces === 1 ? `` : `s`
+      } you can own. Upgrade to create more.`,
+    })
+  }
 }
 
 export type WorkspaceUsage = {

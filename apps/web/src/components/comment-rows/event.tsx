@@ -1,8 +1,11 @@
 import {
   AlertTriangle,
   CircleDot,
+  CornerDownLeft,
   GitMerge,
   GitPullRequest,
+  HelpCircle,
+  Play,
   Sparkles,
   Tag,
   UserPlus,
@@ -76,6 +79,18 @@ export function EventRow({
     case `plan_ready`:
       Icon = Sparkles
       text = <>posted a plan for review</>
+      break
+    case `agent_started`:
+      Icon = Play
+      text = <>started working</>
+      break
+    case `agent_question`:
+      Icon = HelpCircle
+      text = <>asked a question</>
+      break
+    case `agent_answer`:
+      Icon = CornerDownLeft
+      text = <>answered the agent</>
       break
     case `pr_opened`:
       Icon = GitPullRequest

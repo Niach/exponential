@@ -4,6 +4,7 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte } from "drizzle-or
 import { db } from "@/db/connection"
 import {
   comments,
+  issueAgentState,
   issueLabels,
   issues,
   labels,
@@ -400,10 +401,22 @@ export function registerExponentialTools(
           .where(eq(comments.issueId, id))
           .orderBy(desc(comments.createdAt))
           .limit(commentsLimit ?? 50)
+        // Structured agent plan/question text (server-only; not on the issue
+        // row). The daemon reads these instead of parsing plan/question comments.
+        const [agentState] = await db
+          .select({
+            agentPlanText: issueAgentState.planText,
+            agentQuestion: issueAgentState.question,
+          })
+          .from(issueAgentState)
+          .where(eq(issueAgentState.issueId, id))
+          .limit(1)
         return ok({
           ...issue,
           labelIds: labelRows.map((r) => r.labelId),
           recentComments,
+          agentPlanText: agentState?.agentPlanText ?? null,
+          agentQuestion: agentState?.agentQuestion ?? null,
         })
       } catch (e) {
         return err(e)
@@ -721,19 +734,21 @@ export function registerExponentialTools(
     `exponential_agent_plan_submit`,
     {
       title: `Submit an agent plan`,
-      description: `Write the latest agent plan onto an issue. Use state='awaiting_approval' when the plan is complete and ready for the owner to approve. Use state='awaiting_answer' (with an empty plan body) when the agent has open questions and posted them as kind='question' comments. The revision counter bumps automatically; any prior approval is cleared. Caller must be an agent member of the issue's workspace.`,
+      description: `Write the latest agent plan or open question onto an issue. Use state='awaiting_approval' with the full plan when it's ready for the owner to approve. Use state='awaiting_answer' and pass your questions in the 'question' field (markdown) when you need the owner to answer before continuing — do NOT post questions as comments. The revision counter bumps automatically; any prior approval is cleared. Caller must be an agent member of the issue's workspace.`,
       inputSchema: {
         issueId: z.string().uuid(),
         plan: z.string().max(50_000),
         state: z.enum([`awaiting_approval`, `awaiting_answer`]),
+        question: z.string().max(50_000).optional(),
       },
     },
-    async ({ issueId, plan, state }) => {
+    async ({ issueId, plan, state, question }) => {
       try {
         const result = await caller(user, request).agentPlan.submitPlan({
           issueId,
           plan,
           state,
+          question,
         })
         return ok(result.issue)
       } catch (e) {

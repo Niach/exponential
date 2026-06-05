@@ -10,6 +10,7 @@ import { workspaces, workspaceMembers } from "@/db/schema"
 import { publicWritePolicySchema } from "@exp/db-schema/domain"
 import { and, eq } from "drizzle-orm"
 import { randomBytes } from "crypto"
+import { assertCanCreateWorkspace } from "@/lib/billing"
 import {
   assertWorkspaceOwner,
   assertNotPublicWorkspace,
@@ -112,6 +113,9 @@ export const workspacesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
+      // Per-plan cap on owned workspaces (cloud only). Checked before the tx so
+      // the FORBIDDEN path stays cheap. ensureDefault is intentionally exempt.
+      await assertCanCreateWorkspace(userId)
 
       return await ctx.db.transaction(async (tx) => {
         const slug = await uniqueSlug(tx, input.name)

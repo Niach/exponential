@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import type { Project } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
+import { useShowWorkspaceChrome } from "@/hooks/use-workspace-data"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
@@ -46,6 +47,7 @@ export function WorkspaceMobileTopbar({
     : undefined
   const isAuthed = Boolean(session?.user)
   const isAdmin = isAdminUser(session?.user)
+  const showChrome = useShowWorkspaceChrome(workspaceId, session?.user?.id)
   const userInitials = session?.user?.name
     ? getInitials(session.user.name)
     : `?`
@@ -133,7 +135,7 @@ export function WorkspaceMobileTopbar({
                 }
               >
                 <Settings className="mr-2 h-4 w-4" />
-                Workspace settings
+                {showChrome ? `Workspace settings` : `Settings`}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>

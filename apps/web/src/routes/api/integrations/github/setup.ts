@@ -13,9 +13,16 @@ import { getInstallation } from "@/lib/integrations/github-app"
 async function handleSetup(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const installationId = Number(url.searchParams.get(`installation_id`))
+  // When the install was launched from the in-app project/agent dialog
+  // (state=dialog), land on a small client page that lets the original tab
+  // re-detect the connection; otherwise keep the standalone Integrations flow.
+  const fromDialog = url.searchParams.get(`state`) === `dialog`
+  const okLocation = fromDialog
+    ? `/integrations/github/installed`
+    : `/account/integrations?github=installed`
   const ok = new Response(null, {
     status: 302,
-    headers: { location: `/account/integrations?github=installed` },
+    headers: { location: okLocation },
   })
 
   try {

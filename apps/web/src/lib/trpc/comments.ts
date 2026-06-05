@@ -55,15 +55,17 @@ export const commentsRouter = router({
         issueContext.workspaceId
       )
 
+      const member = await getWorkspaceMember(
+        ctx.session.user.id,
+        issueContext.workspaceId
+      )
+      const isAgentAuthor = member?.role === `agent`
+
       // Only agents may post kind='question' or 'plan'. Anyone else is
       // clamped to regular so the rendering affordances don't get spoofed.
       let kind = input.kind
-      if (kind === `question` || kind === `plan`) {
-        const member = await getWorkspaceMember(
-          ctx.session.user.id,
-          issueContext.workspaceId
-        )
-        if (!member || member.role !== `agent`) kind = `regular`
+      if ((kind === `question` || kind === `plan`) && !isAgentAuthor) {
+        kind = `regular`
       }
 
       const result = await ctx.db.transaction(async (tx) => {
@@ -131,12 +133,16 @@ export const commentsRouter = router({
         return { txId, comment, mentionedUserIds }
       })
 
-      fireAndForgetCommentNotify({
-        issueId: input.issueId,
-        actorUserId: ctx.session.user.id,
-        commentBodyText: getCommentBodyText(input.body),
-        mentionedUserIds: result.mentionedUserIds,
-      })
+      // Agent-authored comments never fan out as notifications — agent
+      // action-needed alerts go through fireAndForgetAgentActionNotify instead.
+      if (!isAgentAuthor) {
+        fireAndForgetCommentNotify({
+          issueId: input.issueId,
+          actorUserId: ctx.session.user.id,
+          commentBodyText: getCommentBodyText(input.body),
+          mentionedUserIds: result.mentionedUserIds,
+        })
+      }
 
       return result
     }),

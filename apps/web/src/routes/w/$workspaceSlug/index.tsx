@@ -1,9 +1,13 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { Bot, FolderKanban } from "lucide-react"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
 } from "@/hooks/use-workspace-data"
+import { EmptyState } from "@/components/empty-state"
+import { CreateProjectDialog } from "@/components/create-project-dialog"
+import { Button } from "@/components/ui/button"
 
 export const Route = createFileRoute(`/w/$workspaceSlug/`)({
   component: WorkspaceIndexPage,
@@ -14,6 +18,7 @@ function WorkspaceIndexPage() {
   const navigate = useNavigate()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const projects = useWorkspaceProjects(workspace?.id)
+  const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
     if (projects && projects.length > 0) {
@@ -30,13 +35,36 @@ function WorkspaceIndexPage() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center h-full">
-      <div className="text-center text-muted-foreground">
-        <p className="text-lg font-medium">No projects yet</p>
-        <p className="mt-1 text-sm">
-          Create a project from the sidebar to get started.
-        </p>
-      </div>
+    <div className="flex h-full flex-1 items-center justify-center">
+      <EmptyState
+        icon={FolderKanban}
+        title="Track work, then hand it to a coding agent"
+        description="Create a project to start tracking issues. Connect a GitHub repo and a coding agent can plan, get your approval, and open pull requests."
+      >
+        <Button onClick={() => setCreateOpen(true)}>
+          <FolderKanban className="mr-2 size-4" />
+          Create a project
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() =>
+            navigate({
+              to: `/w/$workspaceSlug/setup-agent`,
+              params: { workspaceSlug },
+            })
+          }
+        >
+          <Bot className="mr-2 size-4" />
+          Set up coding agent
+        </Button>
+      </EmptyState>
+      {workspace && (
+        <CreateProjectDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          workspaceId={workspace.id}
+        />
+      )}
     </div>
   )
 }

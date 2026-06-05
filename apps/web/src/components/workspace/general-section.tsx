@@ -23,8 +23,12 @@ import type { PublicWritePolicy } from "@/lib/domain"
 
 export function WorkspaceGeneralSection({
   workspace,
+  solo = false,
 }: {
   workspace: Workspace
+  // Solo users don't see the "workspace" concept, so the name field (a name
+  // nobody else sees) is hidden and the card is framed as visibility only.
+  solo?: boolean
 }) {
   const [name, setName] = useState(workspace.name)
   const [isPublic, setIsPublic] = useState(workspace.isPublic)
@@ -66,20 +70,26 @@ export function WorkspaceGeneralSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">General</CardTitle>
+        <CardTitle className="text-base">
+          {solo ? `Visibility` : `General`}
+        </CardTitle>
         <CardDescription>
-          Workspace name, visibility, and contribution rules
+          {solo
+            ? `Visibility and contribution rules`
+            : `Workspace name, visibility, and contribution rules`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="workspace-name">Name</Label>
-          <Input
-            id="workspace-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
+        {!solo && (
+          <div className="space-y-2">
+            <Label htmlFor="workspace-name">Name</Label>
+            <Input
+              id="workspace-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-4 rounded-md border p-3">
           <div className="space-y-1">

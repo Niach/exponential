@@ -31,6 +31,13 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
+        // Optional "owner/repo" to link at creation. The agent-first path picks
+        // a repo up front; trusting the string here (no GitHub round-trip)
+        // keeps create fast — the agent run degrades gracefully if unresolvable.
+        repo: z
+          .string()
+          .regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/, `Expected "owner/repo"`)
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -50,6 +57,7 @@ export const projectsRouter = router({
             slug: slugify(input.name),
             prefix: input.prefix.toUpperCase(),
             color: input.color ?? `#6366f1`,
+            githubRepo: input.repo ?? null,
           })
           .returning()
 

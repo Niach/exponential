@@ -25,6 +25,8 @@ import {
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
+import { AgentPlanPanel } from "@/components/agent-plan-panel"
+import { AgentActivityFeed } from "@/components/agent-activity-feed"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { AgentPanel } from "@/components/agent-panel"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
@@ -350,7 +352,6 @@ export function IssueDetailView({
       issue={issue}
       currentUserId={currentUserId}
       isAdmin={isAdmin}
-      canApprovePlan={canApprovePlan}
       users={users}
     />
   ) : null
@@ -360,6 +361,13 @@ export function IssueDetailView({
     : undefined
   const agentPanel = assigneeUser?.isAgent ? (
     <AgentPanel issue={issue} project={project} agent={assigneeUser} />
+  ) : null
+
+  // Plan/question lifecycle (approve/answer/retry) + a quiet agent activity
+  // feed, decoupled from the human comment thread.
+  const planPanel = <AgentPlanPanel issue={issue} canApprovePlan={canApprovePlan} />
+  const activityFeed = currentUserId ? (
+    <AgentActivityFeed issueId={issue.id} users={users} />
   ) : null
 
   if (isMobile) {
@@ -372,6 +380,8 @@ export function IssueDetailView({
           {editor}
           {attachmentRail}
           {agentPanel}
+          {planPanel}
+          {activityFeed}
           {timeline}
         </div>
       </div>
@@ -388,6 +398,8 @@ export function IssueDetailView({
             {editor}
             {attachmentRail}
             {agentPanel}
+            {planPanel}
+            {activityFeed}
             {timeline}
           </div>
         </div>

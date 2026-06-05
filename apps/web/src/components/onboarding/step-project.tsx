@@ -2,6 +2,7 @@ import { useState } from "react"
 import { FolderKanban } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
+import { invalidateSetupChecklistCache } from "@/hooks/use-setup-checklist"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -18,8 +19,8 @@ import { derivePrefix } from "@/lib/project"
 
 export function StepProject({
   workspaceId,
+  onProjectCreated,
   onNext,
-  onSkip,
 }: StepProps) {
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
@@ -32,19 +33,23 @@ export function StepProject({
   }
 
   const handleContinue = async () => {
-    if (!name.trim() || !prefix.trim()) {
-      onSkip()
-      return
-    }
+    if (!name.trim() || !prefix.trim()) return
     setSaving(true)
     try {
-      await trpc.projects.create.mutate({
+      const result = await trpc.projects.create.mutate({
         workspaceId,
         name: name.trim(),
         prefix: prefix.trim(),
         color,
       })
       invalidateBillingCache()
+      invalidateSetupChecklistCache()
+      if (result.project) {
+        onProjectCreated?.({
+          id: result.project.id,
+          slug: result.project.slug,
+        })
+      }
       onNext()
     } finally {
       setSaving(false)
@@ -87,13 +92,10 @@ export function StepProject({
           <Label>Color</Label>
           <ColorSwatchGrid value={color} onChange={setColor} />
         </div>
-        <div className="flex justify-between">
-          <Button variant="ghost" onClick={onSkip}>
-            Skip
-          </Button>
+        <div className="flex justify-end">
           <Button
             onClick={handleContinue}
-            disabled={saving || (!name.trim() && !prefix.trim())}
+            disabled={saving || !name.trim() || !prefix.trim()}
           >
             {saving ? `Creating...` : `Continue`}
           </Button>

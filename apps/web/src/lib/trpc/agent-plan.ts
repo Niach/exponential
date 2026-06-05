@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { comments, issues, projects } from "@/db/schema"
+import { comments, issueAgentState, issues, projects } from "@/db/schema"
 import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import {
@@ -10,8 +10,10 @@ import {
   assertCanMutateIssue,
   getIssueWorkspaceContext,
   getWorkspaceMember,
+  resolveWorkspaceAccess,
 } from "@/lib/workspace-membership"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { fireAndForgetAgentActionNotify } from "@/lib/integrations/notifications"
 import { prStateSchema } from "@/lib/domain"
 
 async function assertAgentForIssue(userId: string, issueId: string) {
@@ -36,6 +38,10 @@ export const agentPlanRouter = router({
         issueId: z.string().uuid(),
         plan: z.string().max(50_000),
         state: z.enum([`awaiting_approval`, `awaiting_answer`]),
+        // New agents pass their questions here (state='awaiting_answer')
+        // instead of posting a separate kind='question' comment. Optional so
+        // older agent builds keep working during the rollout window.
+        question: z.string().max(50_000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -54,19 +60,84 @@ export const agentPlanRouter = router({
           .orderBy(desc(comments.createdAt))
           .limit(1)
 
-        // Each plan revision is its own comment so the timeline renders the
-        // full history. The latest kind='plan' comment IS the current plan.
-        // Only insert when there's actual body text — for state ==
-        // 'awaiting_answer' the body is empty because the questions live in
-        // a separate kind='question' comment posted alongside this call.
-        if (input.plan.length > 0) {
-          await tx.insert(comments).values({
-            issueId: input.issueId,
-            workspaceId: issueContext.workspaceId,
-            authorId: ctx.session.user.id,
-            body: { text: input.plan },
-            kind: `plan`,
-          })
+        // The structured store is the source of truth (web Plan Panel + daemon
+        // read it). We ALSO mirror plan/question into comments as a server-side
+        // dual-write so mobile clients — which still render plan/question from
+        // comments and host their Approve UI there — keep working until they
+        // ship a structured Plan Panel. Web hides these comments; no
+        // notification fires (we never call fireAndForgetCommentNotify here).
+        // Removing this dual-write is the P3c "drain" step, after mobile ships.
+        const planText = input.plan.length > 0 ? { text: input.plan } : null
+        const questionText =
+          input.question && input.question.length > 0
+            ? { text: input.question }
+            : null
+        // Captured so the watermark below includes the agent's own plan/question
+        // comment — otherwise decide_stage would treat it as "new discussion"
+        // and re-plan in a loop.
+        let dualWriteAt: Date | null = null
+        if (input.state === `awaiting_approval` && planText) {
+          const [c] = await tx
+            .insert(comments)
+            .values({
+              issueId: input.issueId,
+              workspaceId: issueContext.workspaceId,
+              authorId: ctx.session.user.id,
+              body: planText,
+              kind: `plan`,
+            })
+            .returning({ createdAt: comments.createdAt })
+          dualWriteAt = c?.createdAt ?? null
+        } else if (input.state === `awaiting_answer` && questionText) {
+          const [c] = await tx
+            .insert(comments)
+            .values({
+              issueId: input.issueId,
+              workspaceId: issueContext.workspaceId,
+              authorId: ctx.session.user.id,
+              body: questionText,
+              kind: `question`,
+            })
+            .returning({ createdAt: comments.createdAt })
+          dualWriteAt = c?.createdAt ?? null
+        }
+        if (input.state === `awaiting_approval`) {
+          await tx
+            .insert(issueAgentState)
+            .values({
+              issueId: input.issueId,
+              planText,
+              question: null,
+              questionAskedAt: null,
+            })
+            .onConflictDoUpdate({
+              target: issueAgentState.issueId,
+              set: {
+                planText,
+                question: null,
+                questionAskedAt: null,
+                updatedAt: new Date(),
+              },
+            })
+        } else {
+          await tx
+            .insert(issueAgentState)
+            .values({
+              issueId: input.issueId,
+              planText,
+              question: questionText,
+              questionAskedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: issueAgentState.issueId,
+              set: {
+                // Preserve an existing plan if this call carried none.
+                ...(planText ? { planText } : {}),
+                question: questionText,
+                questionAskedAt: new Date(),
+                updatedAt: new Date(),
+              },
+            })
         }
 
         const [issue] = await tx
@@ -76,23 +147,32 @@ export const agentPlanRouter = router({
             agentPlanRevision: sql`${issues.agentPlanRevision} + 1`,
             agentPlanApprovedAt: null,
             agentPlanApprovedBy: null,
-            agentLastCommentSeenAt: latestComment?.createdAt ?? new Date(),
+            agentLastCommentSeenAt:
+              dualWriteAt ?? latestComment?.createdAt ?? new Date(),
           })
           .where(eq(issues.id, input.issueId))
           .returning()
 
-        // Surface "plan ready for review" in the activity timeline + inbox.
-        if (input.state === `awaiting_approval`) {
-          await recordIssueEvent(tx, {
-            issueId: input.issueId,
-            workspaceId: issueContext.workspaceId,
-            actorUserId: ctx.session.user.id,
-            type: `plan_ready`,
-            payload: null,
-          })
-        }
+        // Surface progress in the activity feed + (P3b) action-needed inbox.
+        await recordIssueEvent(tx, {
+          issueId: input.issueId,
+          workspaceId: issueContext.workspaceId,
+          actorUserId: ctx.session.user.id,
+          type: input.state === `awaiting_approval` ? `plan_ready` : `agent_question`,
+          payload: null,
+        })
 
         return { txId, issue }
+      })
+
+      // Action-needed notification to the approver(s) only — the sole agent
+      // event that pushes. Routine progress stays quiet.
+      fireAndForgetAgentActionNotify({
+        issueId: input.issueId,
+        type:
+          input.state === `awaiting_approval`
+            ? `agent_plan_review`
+            : `agent_question`,
       })
 
       return result
@@ -220,7 +300,10 @@ export const agentPlanRouter = router({
   markStarted: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertAgentForIssue(ctx.session.user.id, input.issueId)
+      const issueContext = await assertAgentForIssue(
+        ctx.session.user.id,
+        input.issueId
+      )
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
@@ -233,6 +316,17 @@ export const agentPlanRouter = router({
             )
           )
           .returning()
+        // Only emit the "started" activity entry when we actually flipped a
+        // null state (a real run kickoff), not on idempotent re-calls.
+        if (issue) {
+          await recordIssueEvent(tx, {
+            issueId: input.issueId,
+            workspaceId: issueContext.workspaceId,
+            actorUserId: ctx.session.user.id,
+            type: `agent_started`,
+            payload: null,
+          })
+        }
         return { txId, issue: issue ?? null }
       })
       return result
@@ -438,5 +532,134 @@ export const agentPlanRouter = router({
         })
         return { txId }
       })
+    }),
+
+  // Human answers the agent's open question (replaces the old "reply with a
+  // regular comment" convention). Clears the open question, flips the issue to
+  // `drafting` (the daemon's re-plan signal), and records an agent_answer
+  // event. Also dual-writes a regular comment during the rollout window so the
+  // legacy comment-watermark daemon still detects the answer.
+  answerQuestion: authedProcedure
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        answer: z.string().min(1).max(10_000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertCanMutateIssue(ctx.session.user.id, input.issueId)
+      const issueContext = await getIssueWorkspaceContext(input.issueId)
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+
+        await tx.insert(comments).values({
+          issueId: input.issueId,
+          workspaceId: issueContext.workspaceId,
+          authorId: ctx.session.user.id,
+          body: { text: input.answer },
+          kind: `regular`,
+        })
+
+        await tx
+          .update(issueAgentState)
+          .set({ question: null, questionAskedAt: null, updatedAt: new Date() })
+          .where(eq(issueAgentState.issueId, input.issueId))
+
+        const [issue] = await tx
+          .update(issues)
+          .set({ agentPlanState: `drafting`, updatedAt: new Date() })
+          .where(eq(issues.id, input.issueId))
+          .returning()
+
+        await recordIssueEvent(tx, {
+          issueId: input.issueId,
+          workspaceId: issueContext.workspaceId,
+          actorUserId: ctx.session.user.id,
+          type: `agent_answer`,
+          payload: null,
+        })
+
+        return { txId, issue }
+      })
+    }),
+
+  // Read the structured agent plan/question text for an issue (server-only —
+  // not synced via Electric). Backs the web Plan Panel. Any workspace member or
+  // public-workspace viewer may read it.
+  getState: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const issueContext = await getIssueWorkspaceContext(input.issueId)
+      await resolveWorkspaceAccess(ctx.session.user.id, issueContext.workspaceId)
+
+      const [row] = await ctx.db
+        .select({
+          planText: issueAgentState.planText,
+          question: issueAgentState.question,
+          questionAskedAt: issueAgentState.questionAskedAt,
+        })
+        .from(issueAgentState)
+        .where(eq(issueAgentState.issueId, input.issueId))
+        .limit(1)
+
+      const [issue] = await ctx.db
+        .select({
+          state: issues.agentPlanState,
+          revision: issues.agentPlanRevision,
+          approvedAt: issues.agentPlanApprovedAt,
+        })
+        .from(issues)
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+
+      const planBody = row?.planText as { text: string } | null | undefined
+      const questionBody = row?.question as { text: string } | null | undefined
+
+      let planText = planBody?.text ?? null
+      let question = questionBody?.text ?? null
+      let questionAskedAt = row?.questionAskedAt ?? null
+
+      // Rollout fallback: until the Rust daemon is updated to feed plan text +
+      // questions through submitPlan's structured fields, they still arrive as
+      // kind='plan'/'question' comments. Read the latest of those when the
+      // structured store hasn't been populated for this issue yet.
+      if (planText === null) {
+        const [planComment] = await ctx.db
+          .select({ body: comments.body })
+          .from(comments)
+          .where(
+            and(eq(comments.issueId, input.issueId), eq(comments.kind, `plan`))
+          )
+          .orderBy(desc(comments.createdAt))
+          .limit(1)
+        planText =
+          (planComment?.body as { text?: string } | undefined)?.text ?? null
+      }
+      if (question === null && issue?.state === `awaiting_answer`) {
+        const [qComment] = await ctx.db
+          .select({ body: comments.body, createdAt: comments.createdAt })
+          .from(comments)
+          .where(
+            and(
+              eq(comments.issueId, input.issueId),
+              eq(comments.kind, `question`)
+            )
+          )
+          .orderBy(desc(comments.createdAt))
+          .limit(1)
+        question =
+          (qComment?.body as { text?: string } | undefined)?.text ?? null
+        questionAskedAt = qComment?.createdAt ?? questionAskedAt
+      }
+
+      return {
+        planText,
+        question,
+        questionAskedAt,
+        state: issue?.state ?? null,
+        revision: issue?.revision ?? 0,
+        approvedAt: issue?.approvedAt ?? null,
+      }
     }),
 })

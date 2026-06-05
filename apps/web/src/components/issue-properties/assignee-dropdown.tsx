@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Bot, User as UserIcon, X } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { invalidateSetupChecklistCache } from "@/hooks/use-setup-checklist"
 import type { User } from "@/db/schema"
 import { getInitials } from "@/lib/utils"
 
@@ -43,6 +44,10 @@ export function AssigneeDropdown({
   const handleSelect = async (userId: string | null) => {
     setOpen(false)
     await trpc.issues.update.mutate({ id: issueId, assigneeId: userId })
+    // Assigning to an agent flips the "assign your first issue" checklist step.
+    if (userId && userMap.get(userId)?.isAgent) {
+      invalidateSetupChecklistCache()
+    }
   }
 
   const renderUser = (user: User) => (

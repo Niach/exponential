@@ -13,10 +13,13 @@ export function githubAppConfigured(): boolean {
   return Boolean(APP_ID && PRIVATE_KEY_B64)
 }
 
-export function githubAppInstallUrl(): string | null {
-  return APP_SLUG
-    ? `https://github.com/apps/${APP_SLUG}/installations/new`
-    : null
+// `state` is echoed back to the App's Setup URL (our /api/integrations/github/
+// setup route), letting the callback distinguish an in-dialog install from the
+// standalone /account/integrations flow.
+export function githubAppInstallUrl(state?: string): string | null {
+  if (!APP_SLUG) return null
+  const base = `https://github.com/apps/${APP_SLUG}/installations/new`
+  return state ? `${base}?state=${encodeURIComponent(state)}` : base
 }
 
 function privateKeyPem(): string {
@@ -122,6 +125,56 @@ export async function getInstallation(
     id: i.id,
     account: i.account?.login ?? ``,
     accountType: i.account?.type ?? ``,
+  }
+}
+
+export interface InstallationRepo {
+  fullName: string // "owner/name"
+  private: boolean
+  defaultBranch: string
+  installationId: number
+}
+
+// One page of the repos an installation can access. Uses the **installation
+// token** (not the App JWT) — a distinct auth from `ghApp`. Paginated so the
+// caller (the repo picker) can lazy-load rather than fan out across huge orgs.
+export async function listInstallationRepos(
+  installationId: number,
+  page = 1,
+  perPage = 100
+): Promise<{ repos: InstallationRepo[]; hasMore: boolean }> {
+  if (!githubAppConfigured()) return { repos: [], hasMore: false }
+  const token = await installationToken(installationId)
+  const res = await fetch(
+    `https://api.github.com/installation/repositories?per_page=${perPage}&page=${page}`,
+    {
+      headers: {
+        accept: `application/vnd.github+json`,
+        "user-agent": `exponential`,
+        "x-github-api-version": `2022-11-28`,
+        authorization: `Bearer ${token}`,
+      },
+    }
+  )
+  if (!res.ok) {
+    throw new Error(`GitHub repo list failed (${res.status})`)
+  }
+  const data = (await res.json()) as {
+    total_count: number
+    repositories: Array<{
+      full_name: string
+      private: boolean
+      default_branch: string
+    }>
+  }
+  return {
+    repos: data.repositories.map((r) => ({
+      fullName: r.full_name,
+      private: r.private,
+      defaultBranch: r.default_branch,
+      installationId,
+    })),
+    hasMore: page * perPage < data.total_count,
   }
 }
 

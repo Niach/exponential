@@ -44,6 +44,7 @@ export function WorkspaceMembersSection({
   userMap,
   workspaceId,
   showInvite,
+  solo = false,
 }: {
   currentUserId: string | undefined
   isOwner: boolean
@@ -51,6 +52,9 @@ export function WorkspaceMembersSection({
   userMap: Map<string, User>
   workspaceId?: string
   showInvite?: boolean
+  // When the user is solo, frame this as the deliberate "invite a teammate"
+  // path (inviting a second human is what reveals the workspace concept).
+  solo?: boolean
 }) {
   const ownerCount = members.filter((member) => member.role === `owner`).length
 
@@ -69,10 +73,13 @@ export function WorkspaceMembersSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Members</CardTitle>
+        <CardTitle className="text-base">
+          {solo ? `Invite teammates` : `Members`}
+        </CardTitle>
         <CardDescription>
-          {members.length} member{members.length !== 1 ? `s` : ``} in this
-          workspace
+          {solo
+            ? `Invite someone to collaborate. Shared projects unlock team features.`
+            : `${members.length} member${members.length !== 1 ? `s` : ``} in this workspace`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

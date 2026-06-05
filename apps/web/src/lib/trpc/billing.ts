@@ -1,6 +1,8 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
 import {
+  countOwnedWorkspaces,
+  getUserPlan,
   getWorkspacePlan,
   getWorkspaceUsage,
   type PlanTier,
@@ -18,6 +20,7 @@ export const billingRouter = router({
             members: Infinity,
             projects: Infinity,
             storageMb: Infinity,
+            ownedWorkspaces: Infinity,
             push: true,
           },
           usage: { members: 0, projects: 0, storageMb: 0 },
@@ -34,4 +37,17 @@ export const billingRouter = router({
         usage,
       }
     }),
+
+  // User-scoped plan + owned-workspace usage, for pre-gating workspace creation.
+  userPlan: authedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    if (!isCloudInstance()) {
+      return { plan: `unlimited` as PlanTier, ownedWorkspaces: 0, limit: Infinity }
+    }
+    const [{ plan, limits }, ownedWorkspaces] = await Promise.all([
+      getUserPlan(userId),
+      countOwnedWorkspaces(userId),
+    ])
+    return { plan, ownedWorkspaces, limit: limits.ownedWorkspaces }
+  }),
 })

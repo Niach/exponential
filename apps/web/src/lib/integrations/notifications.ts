@@ -6,6 +6,7 @@ import {
   notifications,
   projects,
   users,
+  workspaceMembers,
 } from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
 import { canUsePush } from "@/lib/billing"
@@ -157,6 +158,56 @@ export function fireAndForgetAssignmentNotify(args: {
       })
     } catch (err) {
       console.error(`[notify] assignment failed:`, err)
+    }
+  })()
+}
+
+// Workspace owners (non-agent), the people who can approve a plan / answer a
+// question. In the solo case this is the single human owner.
+async function workspaceOwnerRecipients(workspaceId: string): Promise<string[]> {
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.role, `owner`)
+      )
+    )
+  return [...new Set(rows.map((r) => r.userId))]
+}
+
+/**
+ * The ONLY agent events that notify: a plan is ready to approve, or the agent
+ * is waiting on an answer. Targeted at workspace owners (the approvers) — not
+ * the full subscriber fan-out — so routine agent activity stays quiet.
+ */
+export function fireAndForgetAgentActionNotify(args: {
+  issueId: string
+  type: `agent_plan_review` | `agent_question`
+}): void {
+  const { issueId, type } = args
+  void (async () => {
+    try {
+      const issue = await loadIssueMeta(issueId)
+      if (!issue) return
+      const recipients = await workspaceOwnerRecipients(issue.workspaceId)
+      if (recipients.length === 0) return
+      const title =
+        type === `agent_plan_review`
+          ? `Agent finished a plan for ${issue.identifier}`
+          : `Agent has a question on ${issue.identifier}`
+      await deliver({
+        issue,
+        recipientIds: recipients,
+        type,
+        pushType:
+          type === `agent_plan_review` ? `plan_awaiting_approval` : `agent_question`,
+        title,
+        body: issue.title,
+      })
+    } catch (err) {
+      console.error(`[notify] agent action failed:`, err)
     }
   })()
 }

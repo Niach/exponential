@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
 import {
+  useShowWorkspaceChrome,
   useWorkspaceBySlug,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
@@ -68,6 +69,8 @@ function WorkspaceSettings() {
     (member) => member.userId === session?.user?.id
   )
   const isOwner = currentMember?.role === `owner`
+  const showChrome = useShowWorkspaceChrome(workspace?.id, session?.user?.id)
+  const solo = !showChrome
 
   const handleDeleteWorkspace = async () => {
     if (!workspace || deleteConfirmation !== workspace.name) return
@@ -83,9 +86,13 @@ function WorkspaceSettings() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold">Workspace Settings</h1>
+        <h1 className="text-2xl font-bold">
+          {solo ? `Settings` : `Workspace Settings`}
+        </h1>
         <p className="text-sm text-muted-foreground">
-          Manage members, invites, and labels for {workspace?.name}
+          {solo
+            ? `Manage your projects, labels, and billing.`
+            : `Manage members, invites, and labels for ${workspace?.name ?? ``}`}
         </p>
       </div>
 
@@ -100,7 +107,7 @@ function WorkspaceSettings() {
       )}
 
       {workspace && isOwner && (
-        <WorkspaceGeneralSection workspace={workspace} />
+        <WorkspaceGeneralSection workspace={workspace} solo={solo} />
       )}
 
       {workspace && isOwner && (
@@ -108,7 +115,10 @@ function WorkspaceSettings() {
       )}
 
       {workspace && isOwner && (
-        <WorkspaceProjectsSection workspaceId={workspace.id} />
+        <WorkspaceProjectsSection
+          workspaceId={workspace.id}
+          isPublic={workspace.isPublic}
+        />
       )}
 
       <WorkspaceMembersSection
@@ -118,13 +128,14 @@ function WorkspaceSettings() {
         isOwner={isOwner}
         workspaceId={workspace?.id}
         showInvite={isOwner}
+        solo={solo}
       />
 
       <Separator />
 
       {workspace && <WorkspaceLabelsSection workspaceId={workspace.id} />}
 
-      {workspace && isOwner && !workspace.isPublic && (
+      {workspace && isOwner && !workspace.isPublic && !solo && (
         <>
           <Separator />
           <Card className="border-destructive/50">
