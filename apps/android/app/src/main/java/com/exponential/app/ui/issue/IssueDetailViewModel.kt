@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.PrFilesApi
+import com.exponential.app.data.api.PullFile
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.SubscriptionsApi
 import com.exponential.app.data.api.UpdateIssueInput
@@ -54,6 +56,7 @@ class IssueDetailViewModel @Inject constructor(
     private val labelsApi: LabelsApi,
     private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
+    private val prFilesApi: PrFilesApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -310,4 +313,7 @@ class IssueDetailViewModel @Inject constructor(
         }
         issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
     }.getOrNull()
+
+    // Changed files for this issue's PR (live GitHub fetch via the server).
+    suspend fun loadPrFiles(): List<PullFile> = prFilesApi.get(accountId, issueId).files
 }

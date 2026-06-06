@@ -429,6 +429,11 @@ fun IssueDetailScreen(
                 canApprovePlan = permissions.canApprovePlan(issue.creatorId),
             )
 
+            PrDiffSection(
+                prUrl = issue.prUrl,
+                loadFiles = { viewModel.loadPrFiles() },
+            )
+
             Spacer(Modifier.height(8.dp))
             CommentThread(issueId = issue.id)
         }
