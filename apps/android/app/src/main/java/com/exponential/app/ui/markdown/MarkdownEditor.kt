@@ -53,6 +53,9 @@ fun MarkdownEditor(
     // shared into the app). Keyed by the same `draft://` placeholder that appears
     // in the markdown so the tiles render before the host uploads them.
     initialPendingImages: Map<String, Uri> = emptyMap(),
+    // Workspace members offered by @mention autocomplete (agents excluded by the
+    // caller). Empty disables the affordance.
+    mentionMembers: List<MentionMember> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     if (!editable) {
@@ -134,6 +137,7 @@ fun MarkdownEditor(
                             model = model,
                             row = row,
                             placeholder = if (row.id == soleEmptyId) placeholder else null,
+                            mentionMembers = mentionMembers,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         is EditorRow.Image -> BlockImageEditView(model = model, row = row)
@@ -168,6 +172,9 @@ private suspend fun seedPendingPreviews(
         model.pendingImages[placeholder] = image
     }
 }
+
+/** A workspace member offered by @mention autocomplete. */
+data class MentionMember(val name: String, val email: String)
 
 /** Pull `text` out of `{ "text": "..." }` issue description JSON; tolerate plain markdown. */
 fun extractDescriptionMarkdown(raw: String?): String {

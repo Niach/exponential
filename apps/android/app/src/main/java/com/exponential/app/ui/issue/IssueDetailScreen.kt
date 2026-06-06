@@ -74,6 +74,7 @@ import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.markdown.MarkdownEditor
+import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.PlanColors
@@ -230,6 +231,11 @@ fun IssueDetailScreen(
             )
 
             Spacer(Modifier.height(16.dp))
+            val mentionMembers = remember(state.users) {
+                state.users
+                    .filter { !it.isAgent }
+                    .map { MentionMember(it.name ?: it.email, it.email) }
+            }
             MarkdownEditor(
                 markdown = descriptionField,
                 editable = isModerator,
@@ -239,6 +245,7 @@ fun IssueDetailScreen(
                 },
                 onUploadImage = if (isModerator) { uri -> viewModel.uploadImage(uri) } else null,
                 imageUploadEnabled = isModerator,
+                mentionMembers = mentionMembers,
             )
             DisposableEffect(Unit) {
                 onDispose { viewModel.flushDescription() }

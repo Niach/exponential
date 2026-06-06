@@ -263,6 +263,20 @@ pub extern fn gtk_popover_new() Object;
 pub extern fn gtk_popover_set_child(self: Object, child: Object) void;
 pub extern fn gtk_popover_popdown(self: Object) void;
 
+// --- @mention autocomplete popover (anchored at the caret in a text view) ---
+pub const GdkRectangle = extern struct { x: c_int, y: c_int, width: c_int, height: c_int };
+pub const POS_BOTTOM: c_int = 3; // GtkPositionType
+pub const TEXT_WINDOW_WIDGET: c_int = 1; // GtkTextWindowType
+pub extern fn gtk_popover_popup(self: Object) void;
+pub extern fn gtk_popover_set_pointing_to(self: Object, rect: *const GdkRectangle) void;
+pub extern fn gtk_popover_set_autohide(self: Object, autohide: c_int) void;
+pub extern fn gtk_popover_set_has_arrow(self: Object, has_arrow: c_int) void;
+pub extern fn gtk_popover_set_position(self: Object, position: c_int) void;
+pub extern fn gtk_widget_set_parent(widget: Object, parent: Object) void;
+pub extern fn gtk_text_iter_get_offset(iter: ?*anyopaque) c_int;
+pub extern fn gtk_text_view_get_iter_location(text_view: Object, iter: ?*anyopaque, location: *GdkRectangle) void;
+pub extern fn gtk_text_view_buffer_to_window_coords(text_view: Object, win: c_int, buffer_x: c_int, buffer_y: c_int, window_x: *c_int, window_y: *c_int) void;
+
 // --- segmented filter tabs + search ---
 pub extern fn gtk_search_entry_new() Object;
 pub extern fn gtk_check_button_new_with_label(label: [*:0]const u8) Object;

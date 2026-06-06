@@ -3,12 +3,17 @@ package com.exponential.app.ui.markdown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,10 +40,21 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
+
+// In-progress mention `@query` at the caret (after start-of-text or whitespace);
+// the query stops at whitespace. Mirrors apps/web/src/components/mention-textarea.tsx.
+private val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
 
 /**
  * One editable paragraph line, backed by a [BasicTextField]. Per-paragraph
@@ -53,6 +69,7 @@ fun BlockTextField(
     model: EditorModel,
     row: EditorRow.Para,
     placeholder: String?,
+    mentionMembers: List<MentionMember> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val revision = model.revision(row.id)
@@ -82,6 +99,36 @@ fun BlockTextField(
                 attempts++
             }
         }
+    }
+
+    // @mention autocomplete: detect an in-progress `@query` before the caret and
+    // offer matching members; tapping inserts the canonical `@email ` form the
+    // server resolves. Tap-to-insert keeps Enter behaving as a newline.
+    val beforeCaret = value.text.take(value.selection.start)
+    val mentionMatch =
+        if (mentionMembers.isNotEmpty()) MENTION_AT_CARET.find(beforeCaret) else null
+    val mentionQuery = mentionMatch?.groupValues?.get(1)
+    val mentionCandidates =
+        if (mentionQuery != null) {
+            val q = mentionQuery.lowercase()
+            mentionMembers
+                .filter { it.name.lowercase().contains(q) || it.email.lowercase().contains(q) }
+                .take(6)
+        } else {
+            emptyList()
+        }
+
+    fun insertMention(member: MentionMember) {
+        val caret = value.selection.start
+        val q = mentionQuery ?: return
+        val start = caret - q.length - 1
+        if (start < 0) return
+        val newText =
+            value.text.substring(0, start) + "@" + member.email + " " + value.text.substring(caret)
+        val newCaret = start + member.email.length + 2
+        value = TextFieldValue(newText, TextRange(newCaret))
+        model.updatePara(row.id, newText, newCaret)
+        model.updateSelection(row.id, newCaret..newCaret)
     }
 
     val attrs = row.attrs
@@ -136,6 +183,51 @@ fun BlockTextField(
             )
         },
     )
+
+    if (mentionCandidates.isNotEmpty()) {
+        val provider = remember {
+            object : PopupPositionProvider {
+                override fun calculatePosition(
+                    anchorBounds: IntRect,
+                    windowSize: IntSize,
+                    layoutDirection: LayoutDirection,
+                    popupContentSize: IntSize,
+                ): IntOffset = IntOffset(anchorBounds.left, anchorBounds.bottom)
+            }
+        }
+        Popup(
+            popupPositionProvider = provider,
+            properties = PopupProperties(focusable = false),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 4.dp,
+                shadowElevation = 8.dp,
+            ) {
+                Column(modifier = Modifier.width(260.dp)) {
+                    mentionCandidates.forEach { m ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { insertMention(m) }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(m.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                m.email,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

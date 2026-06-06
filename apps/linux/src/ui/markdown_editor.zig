@@ -17,6 +17,11 @@ const std = @import("std");
 const gtk = @import("gtk.zig");
 const http = @import("../core/api/http.zig");
 
+// A workspace member offered by @mention autocomplete (borrowed at the call;
+// setMentionMembers dups into editor-owned storage).
+pub const MentionMember = struct { name: []const u8, email: []const u8 };
+const OwnedMention = struct { name: [:0]u8, email: [:0]u8 };
+
 pub const MarkdownEditor = struct {
     gpa: std.mem.Allocator,
     container: gtk.Object, // vbox: toolbar + scrolled(view) — embed this
@@ -31,6 +36,11 @@ pub const MarkdownEditor = struct {
     base_url: ?[]const u8 = null,
     token: ?[]const u8 = null,
     issue_id: ?[]const u8 = null,
+    // @mention autocomplete state.
+    mention_popover: gtk.Object = null,
+    mention_list: gtk.Object = null, // GtkBox of member buttons, rebuilt per query
+    mention_members: []OwnedMention = &.{},
+    mention_start_offset: c_int = -1, // char offset of the '@' for the live query
 
     pub fn create(gpa: std.mem.Allocator) ?*MarkdownEditor {
         const self = gpa.create(MarkdownEditor) catch return null;
@@ -121,7 +131,137 @@ pub const MarkdownEditor = struct {
         gtk.gtk_box_append(container, scrolled);
         self.container = container;
 
+        // @mention autocomplete popover, parented to the view + anchored at the
+        // caret. autohide=0 so it never steals focus while the user keeps typing.
+        self.mention_members = &.{};
+        self.mention_start_offset = -1;
+        const mpop = gtk.gtk_popover_new();
+        gtk.gtk_widget_set_parent(mpop, view);
+        gtk.gtk_popover_set_autohide(mpop, 0);
+        gtk.gtk_popover_set_has_arrow(mpop, 0);
+        gtk.gtk_popover_set_position(mpop, gtk.POS_BOTTOM);
+        const mlist = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
+        gtk.gtk_popover_set_child(mpop, mlist);
+        self.mention_popover = mpop;
+        self.mention_list = mlist;
+
         return self;
+    }
+
+    // Set the workspace members offered by @mention autocomplete; dups into
+    // editor-owned storage (freed by destroy / the next set).
+    pub fn setMentionMembers(self: *MarkdownEditor, members: []const MentionMember) void {
+        self.freeMentions();
+        var list: std.ArrayList(OwnedMention) = .empty;
+        for (members) |m| {
+            const name = self.gpa.dupeZ(u8, m.name) catch continue;
+            const email = self.gpa.dupeZ(u8, m.email) catch {
+                self.gpa.free(name);
+                continue;
+            };
+            list.append(self.gpa, .{ .name = name, .email = email }) catch {
+                self.gpa.free(name);
+                self.gpa.free(email);
+                continue;
+            };
+        }
+        self.mention_members = list.toOwnedSlice(self.gpa) catch &.{};
+    }
+
+    fn freeMentions(self: *MarkdownEditor) void {
+        for (self.mention_members) |m| {
+            self.gpa.free(m.name);
+            self.gpa.free(m.email);
+        }
+        if (self.mention_members.len > 0) self.gpa.free(self.mention_members);
+        self.mention_members = &.{};
+    }
+
+    /// Free editor-owned allocations + the struct (replaces a bare gpa.destroy).
+    pub fn destroy(self: *MarkdownEditor) void {
+        self.freeMentions();
+        self.gpa.destroy(self);
+    }
+
+    fn hideMention(self: *MarkdownEditor) void {
+        self.mention_start_offset = -1;
+        if (self.mention_popover) |p| gtk.gtk_popover_popdown(p);
+    }
+
+    /// Scan the text before the caret for an in-progress `@query` and show/refresh
+    /// the member popover. Called from onChanged.
+    fn checkMention(self: *MarkdownEditor) void {
+        if (self.mention_members.len == 0) return self.hideMention();
+        const buffer = self.buffer;
+        var cur: [128]u8 align(8) = undefined;
+        gtk.gtk_text_buffer_get_iter_at_mark(buffer, @ptrCast(&cur), gtk.gtk_text_buffer_get_insert(buffer));
+        const cur_off = gtk.gtk_text_iter_get_offset(@ptrCast(&cur));
+        var s: [128]u8 align(8) = undefined;
+        gtk.gtk_text_buffer_get_start_iter(buffer, @ptrCast(&s));
+        const before_c = gtk.gtk_text_buffer_get_text(buffer, @ptrCast(&s), @ptrCast(&cur), 0) orelse return self.hideMention();
+        defer gtk.g_free(@ptrCast(before_c));
+        const before = std.mem.span(before_c);
+        const at = std.mem.lastIndexOfScalar(u8, before, '@') orelse return self.hideMention();
+        if (at > 0) {
+            const pc = before[at - 1];
+            if (pc != ' ' and pc != '\n' and pc != '\t') return self.hideMention();
+        }
+        const query = before[at + 1 ..];
+        for (query) |c| {
+            const ok = (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or
+                (c >= '0' and c <= '9') or c == '.' or c == '_' or c == '%' or c == '+' or c == '-';
+            if (!ok) return self.hideMention();
+        }
+        // query is ASCII so its char count == byte length; the '@' is one char.
+        self.mention_start_offset = cur_off - @as(c_int, @intCast(query.len)) - 1;
+        if (!self.populateMention(query)) return self.hideMention();
+        var rect: gtk.GdkRectangle = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+        gtk.gtk_text_view_get_iter_location(self.view, @ptrCast(&cur), &rect);
+        var wx: c_int = 0;
+        var wy: c_int = 0;
+        gtk.gtk_text_view_buffer_to_window_coords(self.view, gtk.TEXT_WINDOW_WIDGET, rect.x, rect.y, &wx, &wy);
+        rect.x = wx;
+        rect.y = wy;
+        if (self.mention_popover) |p| {
+            gtk.gtk_popover_set_pointing_to(p, &rect);
+            gtk.gtk_popover_popup(p);
+        }
+    }
+
+    fn populateMention(self: *MarkdownEditor, query: []const u8) bool {
+        const list = self.mention_list orelse return false;
+        while (gtk.gtk_widget_get_first_child(list)) |child| {
+            gtk.gtk_box_remove(list, child);
+        }
+        var count: usize = 0;
+        for (self.mention_members) |m| {
+            if (count >= 6) break;
+            if (!asciiContainsIgnoreCase(m.name, query) and !asciiContainsIgnoreCase(m.email, query)) continue;
+            const label = std.fmt.allocPrintSentinel(self.gpa, "{s}  ·  {s}", .{ m.name, m.email }, 0) catch continue;
+            defer self.gpa.free(label);
+            const btn = gtk.gtk_button_new_with_label(label.ptr);
+            gtk.gtk_widget_add_css_class(btn, "flat");
+            gtk.gtk_widget_set_halign(btn, gtk.ALIGN_FILL);
+            gtk.g_object_set_data_full(btn, "exp-email", @ptrCast(gtk.g_strdup(m.email.ptr)), @ptrCast(&gtk.g_free));
+            _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onMentionSelect), self, null, 0);
+            gtk.gtk_box_append(list, btn);
+            count += 1;
+        }
+        return count > 0;
+    }
+
+    fn insertMention(self: *MarkdownEditor, email: []const u8) void {
+        if (self.mention_start_offset < 0) return;
+        const buffer = self.buffer;
+        var start_it: [128]u8 align(8) = undefined;
+        var end_it: [128]u8 align(8) = undefined;
+        gtk.gtk_text_buffer_get_iter_at_offset(buffer, @ptrCast(&start_it), self.mention_start_offset);
+        gtk.gtk_text_buffer_get_iter_at_mark(buffer, @ptrCast(&end_it), gtk.gtk_text_buffer_get_insert(buffer));
+        gtk.gtk_text_buffer_delete(buffer, @ptrCast(&start_it), @ptrCast(&end_it));
+        const ins = std.fmt.allocPrintSentinel(self.gpa, "@{s} ", .{email}, 0) catch return;
+        defer self.gpa.free(ins);
+        gtk.gtk_text_buffer_insert_at_cursor(buffer, ins.ptr, @intCast(ins.len));
+        self.hideMention();
     }
 
     /// Walk the buffer, emitting text and each image anchor's stored markdown.
@@ -495,7 +635,29 @@ fn editorOf(data: gtk.gpointer) *MarkdownEditor {
 }
 
 fn onChanged(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    editorOf(data).restyle();
+    const self = editorOf(data);
+    self.restyle();
+    self.checkMention();
+}
+
+fn onMentionSelect(button: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const self = editorOf(data);
+    const email_c = gtk.g_object_get_data(button, "exp-email") orelse return;
+    self.insertMention(std.mem.span(@as([*:0]const u8, @ptrCast(email_c))));
+}
+
+fn asciiContainsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+    var i: usize = 0;
+    outer: while (i + needle.len <= haystack.len) : (i += 1) {
+        var j: usize = 0;
+        while (j < needle.len) : (j += 1) {
+            if (std.ascii.toLower(haystack[i + j]) != std.ascii.toLower(needle[j])) continue :outer;
+        }
+        return true;
+    }
+    return false;
 }
 
 fn onBold(_: gtk.Object, d: gtk.gpointer) callconv(.c) void {

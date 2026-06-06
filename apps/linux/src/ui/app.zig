@@ -1639,6 +1639,19 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     if (state.detail_issue_id) |p| state.gpa.free(p);
     state.detail_issue_id = state.gpa.dupe(u8, id) catch null;
 
+    // Workspace members offered by @mention autocomplete in the description +
+    // comment editors (agents excluded — you mention people). Lives in arena `a`,
+    // valid for the rest of this builder; each editor dups what it needs.
+    const mention_members: []const md.MentionMember = blk: {
+        const rows = db.listMembers(a, issue.workspace_id) catch break :blk &.{};
+        var ms: std.ArrayList(md.MentionMember) = .empty;
+        for (rows) |m| {
+            if (std.mem.eql(u8, m.role, "agent")) continue;
+            ms.append(a, .{ .name = m.name, .email = m.email }) catch {};
+        }
+        break :blk ms.toOwnedSlice(a) catch &.{};
+    };
+
     // The detail subpage: its own header bar with Edit (back is auto-injected by
     // AdwNavigationView).
     const detail_toolbar = gtk.adw_toolbar_view_new();
@@ -1747,6 +1760,7 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
         const ctx = buildDetailEditCtx(state, id, title_entry, issue.title, ed, issue.description);
         const ctx_issue_id: ?[]const u8 = if (ctx) |c| c.issue_id else null;
         ed.setIssueContext(state.instance, state.token, ctx_issue_id);
+        ed.setMentionMembers(mention_members);
         ed.setText(issue.description);
         // Inline sizing: grow with content (min 180, cap 600) rather than eat all space.
         gtk.gtk_widget_set_vexpand(ed.scrolled, 0);
@@ -1842,7 +1856,7 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     }
     gtk.gtk_box_append(box, comments_box);
 
-    gtk.gtk_box_append(box, commentComposer(state, id, comments_box));
+    gtk.gtk_box_append(box, commentComposer(state, id, comments_box, mention_members));
 
     gtk.gtk_scrolled_window_set_child(scrolled, box);
     gtk.adw_toolbar_view_set_content(detail_toolbar, scrolled);
@@ -1858,7 +1872,7 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
 
 fn destroyDetailEditor(p: gtk.gpointer) callconv(.c) void {
     const ed: *md.MarkdownEditor = @ptrCast(@alignCast(p));
-    ed.gpa.destroy(ed);
+    ed.destroy();
 }
 
 // --- Inline detail editing: title + description save on blur ---
@@ -2848,12 +2862,12 @@ const CommentCtx = struct {
 
 fn freeComment(p: gtk.gpointer) callconv(.c) void {
     const c: *CommentCtx = @ptrCast(@alignCast(p));
-    c.state.gpa.destroy(c.editor);
+    c.editor.destroy();
     c.state.gpa.free(c.issue_id);
     c.state.gpa.destroy(c);
 }
 
-fn commentComposer(state: *AppState, issue_id: []const u8, comments_box: gtk.Object) gtk.Object {
+fn commentComposer(state: *AppState, issue_id: []const u8, comments_box: gtk.Object, mention_members: []const md.MentionMember) gtk.Object {
     // Rich markdown composer — reuses the description MarkdownEditor (toolbar:
     // bold/italic/strike/code/headings/lists/task-lists/quote/links + image
     // upload) so comments reach parity with the web composer. Return inserts a
@@ -2887,6 +2901,7 @@ fn commentComposer(state: *AppState, issue_id: []const u8, comments_box: gtk.Obj
     };
     // Borrow the stable duped issue_id (+ app-lifetime instance/token) for image upload.
     editor.setIssueContext(state.instance, state.token, ctx.issue_id);
+    editor.setMentionMembers(mention_members);
     gtk.g_object_set_data_full(btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeComment));
     _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onCommentSubmit), ctx, null, 0);
 
@@ -3402,7 +3417,7 @@ fn onCreateClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 }
 
 fn freeCreateCtx(ctx: *CreateCtx) void {
-    ctx.state.gpa.destroy(ctx.editor);
+    ctx.editor.destroy();
     ctx.arena.deinit();
     ctx.state.gpa.destroy(ctx);
 }

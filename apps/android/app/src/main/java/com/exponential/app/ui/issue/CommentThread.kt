@@ -49,6 +49,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.markdown.MentionMember
 import kotlinx.coroutines.launch
 
 // iOS comment palette (CommentRow.swift / CommentComposer.swift) — explicit white
@@ -88,6 +89,12 @@ fun CommentThread(
         (humanComments.map { TimelineItem.Comment(it) } +
             state.events.filter { it.type !in agentEventTypes }.map { TimelineItem.Event(it) })
             .sortedBy { it.createdAt }
+    }
+    // Workspace members for @mention autocomplete (agents excluded — you mention people).
+    val mentionMembers = remember(state.usersById) {
+        state.usersById.values
+            .filter { !it.isAgent }
+            .map { MentionMember(it.name ?: it.email, it.email) }
     }
 
     HorizontalDivider()
@@ -136,6 +143,7 @@ fun CommentThread(
                                 scope.launch { viewModel.deleteComment(comment.id) }
                             },
                             onUploadImage = { uri -> viewModel.uploadImage(uri) },
+                            mentionMembers = mentionMembers,
                         )
                     }
                 }
@@ -162,6 +170,7 @@ fun CommentThread(
                 onUploadImage = { uri -> viewModel.uploadImage(uri) },
                 placeholder = "Write a comment…",
                 minHeight = 40.dp,
+                mentionMembers = mentionMembers,
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -204,6 +213,7 @@ private fun RegularCommentRow(
     onSaveEdit: (String) -> Unit,
     onDelete: () -> Unit,
     onUploadImage: suspend (Uri) -> String?,
+    mentionMembers: List<MentionMember>,
 ) {
     val canModify = isAuthor || isAdmin
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
@@ -276,6 +286,7 @@ private fun RegularCommentRow(
                     onUploadImage = onUploadImage,
                     placeholder = "Edit comment…",
                     minHeight = 40.dp,
+                    mentionMembers = mentionMembers,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

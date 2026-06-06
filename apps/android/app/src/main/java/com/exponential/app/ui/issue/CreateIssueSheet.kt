@@ -47,6 +47,7 @@ import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.markdown.MarkdownEditor
+import com.exponential.app.ui.markdown.MentionMember
 import java.util.UUID
 
 data class CreateIssuePayload(
@@ -130,6 +131,11 @@ fun CreateIssueSheet(
                 placeholder = "Description (markdown supported)",
                 minHeight = 120.dp,
                 initialPendingImages = initialPendingImages,
+                mentionMembers = remember(users) {
+                    users
+                        .filter { !it.isAgent }
+                        .map { MentionMember(it.name ?: it.email, it.email) }
+                },
             )
             Spacer(Modifier.height(12.dp))
             FlowRow(
