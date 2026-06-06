@@ -3,6 +3,7 @@ package com.exponential.app.ui.issue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CommentsApi
+import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -34,7 +35,10 @@ data class CommentThreadState(
 class CommentThreadViewModel @Inject constructor(
     private val holder: DatabaseHolder,
     private val commentsApi: CommentsApi,
+    private val issueImagesApi: IssueImagesApi,
     private val auth: AuthRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext
+    private val appContext: android.content.Context,
 ) : ViewModel() {
 
     private val accountId = auth.activeAccountId.value ?: ""
@@ -93,4 +97,28 @@ class CommentThreadViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return
         runCatching { commentsApi.delete(accountId, id) }
     }
+
+    // Comment images upload to the issue's attachments (same store as
+    // descriptions) and embed as /api/attachments/{id} in the comment body.
+    suspend fun uploadImage(uri: android.net.Uri): String? = runCatching {
+        val issueId = issueIdFlow.value ?: return@runCatching null
+        val accountId = auth.activeAccountId.value ?: return@runCatching null
+        val resolver = appContext.contentResolver
+        val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: return@runCatching null
+        val contentType = resolver.getType(uri) ?: "image/jpeg"
+        val filename = run {
+            resolver.query(
+                uri,
+                arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+            } ?: uri.lastPathSegment ?: "image"
+        }
+        issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
+    }.getOrNull()
 }

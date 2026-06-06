@@ -1,7 +1,7 @@
 package com.exponential.app.ui.issue
 
+import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +23,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,6 +47,7 @@ import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.commentKindOf
+import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownView
 import kotlinx.coroutines.launch
 
@@ -61,7 +60,6 @@ private val CommentMeta = Color.White.copy(alpha = 0.5f)
 private val CommentAvatarBg = Color.White.copy(alpha = 0.08f)
 private val CommentAvatarText = Color.White.copy(alpha = 0.7f)
 private val CommentFieldBg = Color.White.copy(alpha = 0.06f)
-private val CommentFieldText = Color.White.copy(alpha = 0.9f)
 private val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 
 // The human conversation thread: regular comments + non-agent events
@@ -137,6 +135,7 @@ fun CommentThread(
                             onDelete = {
                                 scope.launch { viewModel.deleteComment(comment.id) }
                             },
+                            onUploadImage = { uri -> viewModel.uploadImage(uri) },
                         )
                     }
                 }
@@ -146,57 +145,48 @@ fun CommentThread(
         AgentActivityFeed(events = state.events, usersById = state.usersById)
 
         Spacer(Modifier.height(8.dp))
-        // Glass composer matching iOS CommentComposer.swift: rounded translucent
-        // field + an up-arrow send button (blue when there's text, dimmed when empty).
-        Row(
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // Rich markdown composer — reuses the block MarkdownEditor (same editor as
+        // issue descriptions: bold/italic/strikethrough/lists/task-lists/headings/
+        // links + image upload) so comments reach parity with the web composer.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(CommentFieldBg)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
         ) {
-            BasicTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                enabled = !sending,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = CommentFieldText),
-                cursorBrush = SolidColor(CommentAccent),
-                maxLines = 6,
-                modifier = Modifier.weight(1f),
-                decorationBox = { inner ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(CommentFieldBg)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                    ) {
-                        if (draft.isEmpty()) {
-                            Text(
-                                "Write a comment…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = CommentMeta,
-                            )
-                        }
-                        inner()
-                    }
-                },
+            MarkdownEditor(
+                markdown = draft,
+                editable = true,
+                onChange = { draft = it },
+                onUploadImage = { uri -> viewModel.uploadImage(uri) },
+                placeholder = "Write a comment…",
+                minHeight = 40.dp,
             )
-            IconButton(
-                onClick = {
-                    val trimmed = draft.trim()
-                    if (trimmed.isEmpty()) return@IconButton
-                    sending = true
-                    scope.launch {
-                        viewModel.createComment(trimmed)
-                        draft = ""
-                        sending = false
-                    }
-                },
-                enabled = !sending && draft.isNotBlank(),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
             ) {
-                Icon(
-                    Icons.Filled.ArrowCircleUp,
-                    contentDescription = "Send",
-                    modifier = Modifier.size(30.dp),
-                    tint = if (draft.isBlank()) Color.White.copy(alpha = 0.3f) else CommentAccent,
-                )
+                IconButton(
+                    onClick = {
+                        val trimmed = draft.trim()
+                        if (trimmed.isEmpty()) return@IconButton
+                        sending = true
+                        scope.launch {
+                            viewModel.createComment(trimmed)
+                            draft = ""
+                            sending = false
+                        }
+                    },
+                    enabled = !sending && draft.isNotBlank(),
+                ) {
+                    Icon(
+                        Icons.Filled.ArrowCircleUp,
+                        contentDescription = "Send",
+                        modifier = Modifier.size(30.dp),
+                        tint = if (draft.isBlank()) Color.White.copy(alpha = 0.3f) else CommentAccent,
+                    )
+                }
             }
         }
     }
@@ -213,6 +203,7 @@ private fun RegularCommentRow(
     onCancelEdit: () -> Unit,
     onSaveEdit: (String) -> Unit,
     onDelete: () -> Unit,
+    onUploadImage: suspend (Uri) -> String?,
 ) {
     val canModify = isAuthor || isAdmin
     val bodyText = remember(comment.body) { getCommentBodyText(comment.body) }
@@ -278,11 +269,14 @@ private fun RegularCommentRow(
                 }
             }
             if (isEditing) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
+                MarkdownEditor(
+                    markdown = draft,
+                    editable = true,
+                    onChange = { draft = it },
+                    onUploadImage = onUploadImage,
+                    placeholder = "Edit comment…",
+                    minHeight = 40.dp,
                     modifier = Modifier.fillMaxWidth(),
-                    maxLines = 4,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(

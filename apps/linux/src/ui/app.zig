@@ -2842,55 +2842,57 @@ fn removeChipById(chips_box: gtk.Object, label_id: []const u8) void {
 const CommentCtx = struct {
     state: *AppState,
     issue_id: [:0]u8,
-    entry: gtk.Object,
+    editor: *md.MarkdownEditor,
     comments_box: gtk.Object,
 };
 
 fn freeComment(p: gtk.gpointer) callconv(.c) void {
     const c: *CommentCtx = @ptrCast(@alignCast(p));
+    c.state.gpa.destroy(c.editor);
     c.state.gpa.free(c.issue_id);
     c.state.gpa.destroy(c);
 }
 
 fn commentComposer(state: *AppState, issue_id: []const u8, comments_box: gtk.Object) gtk.Object {
-    // Multi-line composer (GtkTextView in a card) + Send button, mirroring the
-    // web textarea. Return inserts a newline; Ctrl/⌘+Return submits.
+    // Rich markdown composer — reuses the description MarkdownEditor (toolbar:
+    // bold/italic/strike/code/headings/lists/task-lists/quote/links + image
+    // upload) so comments reach parity with the web composer. Return inserts a
+    // newline; Ctrl/⌘+Return submits.
     const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
     gtk.gtk_widget_set_margin_top(row, 6);
 
-    const view = gtk.gtk_text_view_new();
-    gtk.gtk_text_view_set_wrap_mode(view, gtk.WRAP_WORD_CHAR);
-    gtk.gtk_text_view_set_top_margin(view, 6);
-    gtk.gtk_text_view_set_left_margin(view, 8);
-    const scrolled = gtk.gtk_scrolled_window_new();
-    gtk.gtk_widget_add_css_class(scrolled, "card");
-    gtk.gtk_scrolled_window_set_child(scrolled, view);
-    gtk.gtk_scrolled_window_set_max_content_height(scrolled, 160);
-    gtk.gtk_widget_set_size_request(scrolled, -1, 64);
-    gtk.gtk_widget_set_hexpand(scrolled, 1);
-    gtk.gtk_box_append(row, scrolled);
+    const editor = md.MarkdownEditor.create(state.gpa) orelse return row;
+    gtk.gtk_widget_set_hexpand(editor.container, 1);
+    if (editor.scrolled) |sc| gtk.gtk_widget_set_size_request(sc, -1, 64);
+    gtk.gtk_box_append(row, editor.container);
 
     const btn = gtk.gtk_button_new_with_label("Comment");
     gtk.gtk_widget_add_css_class(btn, "suggested-action");
     gtk.gtk_widget_set_valign(btn, gtk.ALIGN_END);
     gtk.gtk_box_append(row, btn);
 
-    const ctx = state.gpa.create(CommentCtx) catch return row;
+    const ctx = state.gpa.create(CommentCtx) catch {
+        state.gpa.destroy(editor);
+        return row;
+    };
     ctx.* = .{
         .state = state,
         .issue_id = state.gpa.dupeZ(u8, issue_id) catch {
+            state.gpa.destroy(editor);
             state.gpa.destroy(ctx);
             return row;
         },
-        .entry = view,
+        .editor = editor,
         .comments_box = comments_box,
     };
+    // Borrow the stable duped issue_id (+ app-lifetime instance/token) for image upload.
+    editor.setIssueContext(state.instance, state.token, ctx.issue_id);
     gtk.g_object_set_data_full(btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeComment));
     _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onCommentSubmit), ctx, null, 0);
 
     const key = gtk.gtk_event_controller_key_new();
     _ = gtk.g_signal_connect_data(key, "key-pressed", @ptrCast(&onCommentKey), ctx, null, 0);
-    gtk.gtk_widget_add_controller(view, key);
+    gtk.gtk_widget_add_controller(editor.view, key);
     return row;
 }
 
@@ -2908,18 +2910,14 @@ fn onCommentKey(_: gtk.Object, keyval: c_uint, _: c_uint, mods: c_uint, data: gt
 fn onCommentSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *CommentCtx = @ptrCast(@alignCast(data));
     const state = ctx.state;
-    const buffer = gtk.gtk_text_view_get_buffer(ctx.entry);
-    var start: [128]u8 align(8) = undefined;
-    var end: [128]u8 align(8) = undefined;
-    gtk.gtk_text_buffer_get_bounds(buffer, @ptrCast(&start), @ptrCast(&end));
-    const raw = gtk.gtk_text_buffer_get_text(buffer, @ptrCast(&start), @ptrCast(&end), 0) orelse return;
-    defer gtk.g_free(@ptrCast(raw));
-    const text = std.mem.trim(u8, std.mem.span(raw), " \t\r\n");
-    if (text.len == 0) return;
 
     var arena = std.heap.ArenaAllocator.init(state.gpa);
     defer arena.deinit();
     const a = arena.allocator();
+
+    const raw = ctx.editor.getText(a) catch return;
+    const text = std.mem.trim(u8, raw, " \t\r\n");
+    if (text.len == 0) return;
 
     const json = std.json.Stringify.valueAlloc(a, .{
         .issueId = ctx.issue_id,
@@ -2931,7 +2929,7 @@ fn onCommentSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     mutate.fire(state.gpa, state.instance.?, state.token, "comments.create", json);
     const showing_same = if (state.detail_issue_id) |d| std.mem.eql(u8, d, ctx.issue_id) else false;
     if (showing_same) gtk.gtk_box_append(ctx.comments_box, commentBubble(a, "You", "regular", text, false, false));
-    gtk.gtk_text_buffer_set_text(buffer, "", 0);
+    ctx.editor.setText("");
 }
 
 /// Update a single scalar field of an issue (status/priority/dueDate/assigneeId)
