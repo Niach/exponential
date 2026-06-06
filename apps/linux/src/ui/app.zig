@@ -2298,28 +2298,73 @@ fn onApproveInteractive(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 
 /// One compact activity line for the merged timeline (status/assignee/label/PR/
 /// plan/error events synced via the issue_events shape).
+/// Human label for an issue_status enum value.
+fn statusLabel(s: []const u8) []const u8 {
+    if (std.mem.eql(u8, s, "backlog")) return "Backlog";
+    if (std.mem.eql(u8, s, "todo")) return "Todo";
+    if (std.mem.eql(u8, s, "in_progress")) return "In Progress";
+    if (std.mem.eql(u8, s, "done")) return "Done";
+    if (std.mem.eql(u8, s, "cancelled")) return "Cancelled";
+    return s;
+}
+
+/// Pull a string/integer field out of an event's JSON payload (arena-allocated;
+/// integers are stringified). Returns null for missing/null/empty/non-scalar.
+fn eventField(a: std.mem.Allocator, payload: []const u8, key: []const u8) ?[]const u8 {
+    if (payload.len == 0) return null;
+    const v = std.json.parseFromSliceLeaky(std.json.Value, a, payload, .{}) catch return null;
+    const obj = switch (v) {
+        .object => |o| o,
+        else => return null,
+    };
+    const field = obj.get(key) orelse return null;
+    return switch (field) {
+        .string => |s| if (s.len == 0) null else s,
+        .integer => |i| std.fmt.allocPrint(a, "{d}", .{i}) catch null,
+        else => null,
+    };
+}
+
+/// Build a rich activity phrase from the event type + payload (status from→to,
+/// PR number, assigned/unassigned). Mirrors the web activity timeline.
+fn eventPhrase(a: std.mem.Allocator, e: Database.IssueEventRow) []const u8 {
+    if (std.mem.eql(u8, e.type, "status_changed")) {
+        const to = eventField(a, e.payload, "to") orelse return "changed the status";
+        if (eventField(a, e.payload, "from")) |from| {
+            return std.fmt.allocPrint(a, "changed status from {s} to {s}", .{ statusLabel(from), statusLabel(to) }) catch "changed the status";
+        }
+        return std.fmt.allocPrint(a, "changed status to {s}", .{statusLabel(to)}) catch "changed the status";
+    }
+    if (std.mem.eql(u8, e.type, "assignee_changed")) {
+        return if (eventField(a, e.payload, "to") == null) "unassigned this issue" else "assigned this issue";
+    }
+    if (std.mem.eql(u8, e.type, "label_added")) return "added a label";
+    if (std.mem.eql(u8, e.type, "label_removed")) return "removed a label";
+    if (std.mem.eql(u8, e.type, "pr_opened")) {
+        if (eventField(a, e.payload, "prNumber")) |n| {
+            return std.fmt.allocPrint(a, "opened PR #{s}", .{n}) catch "opened a pull request";
+        }
+        return "opened a pull request";
+    }
+    if (std.mem.eql(u8, e.type, "pr_merged")) {
+        if (eventField(a, e.payload, "prNumber")) |n| {
+            return std.fmt.allocPrint(a, "merged PR #{s}", .{n}) catch "merged the pull request";
+        }
+        return "merged the pull request";
+    }
+    if (std.mem.eql(u8, e.type, "plan_ready")) return "shared a plan";
+    if (std.mem.eql(u8, e.type, "agent_started")) return "started working";
+    if (std.mem.eql(u8, e.type, "agent_question")) return "asked a question";
+    if (std.mem.eql(u8, e.type, "agent_answer")) return "answered";
+    if (std.mem.eql(u8, e.type, "agent_error")) return "hit an error";
+    return e.type;
+}
+
 fn eventLine(a: std.mem.Allocator, e: Database.IssueEventRow) gtk.Object {
-    const verb = if (std.mem.eql(u8, e.type, "status_changed"))
-        "changed the status"
-    else if (std.mem.eql(u8, e.type, "assignee_changed"))
-        "changed the assignee"
-    else if (std.mem.eql(u8, e.type, "label_added"))
-        "added a label"
-    else if (std.mem.eql(u8, e.type, "label_removed"))
-        "removed a label"
-    else if (std.mem.eql(u8, e.type, "pr_opened"))
-        "opened a pull request"
-    else if (std.mem.eql(u8, e.type, "pr_merged"))
-        "merged the pull request"
-    else if (std.mem.eql(u8, e.type, "plan_ready"))
-        "shared a plan"
-    else if (std.mem.eql(u8, e.type, "agent_error"))
-        "hit an error"
-    else
-        e.type;
     const who = if (e.actor.len > 0) e.actor else "Someone";
+    const phrase = eventPhrase(a, e);
     const lbl = gtk.gtk_label_new(null);
-    if (std.fmt.allocPrintSentinel(a, "• {s} {s}", .{ who, verb }, 0)) |t| {
+    if (std.fmt.allocPrintSentinel(a, "• {s} {s}", .{ who, phrase }, 0)) |t| {
         gtk.gtk_label_set_text(lbl, t.ptr);
     } else |_| {}
     gtk.gtk_widget_add_css_class(lbl, "dim-label");

@@ -505,6 +505,7 @@ pub const Database = struct {
         actor: [:0]const u8, // display name (joined), "" when system/unknown
         type: [:0]const u8,
         created_at: [:0]const u8,
+        payload: [:0]const u8, // raw JSON text, "" when none
     };
 
     /// Synced activity events for an issue (status/assignee/label/PR/plan/error),
@@ -513,7 +514,7 @@ pub const Database = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         var stmt = try self.conn.prepare(
-            "SELECT COALESCE(u.name, u.email, ''), e.type, e.created_at FROM issue_events e " ++
+            "SELECT COALESCE(u.name, u.email, ''), e.type, e.created_at, COALESCE(e.payload, '') FROM issue_events e " ++
                 "LEFT JOIN users u ON u.id = e.actor_user_id WHERE e.issue_id = ? ORDER BY e.created_at;",
         );
         defer stmt.finalize();
@@ -525,6 +526,7 @@ pub const Database = struct {
                 .actor = try arena.dupeZ(u8, stmt.columnText(0)),
                 .type = try arena.dupeZ(u8, stmt.columnText(1)),
                 .created_at = try arena.dupeZ(u8, stmt.columnText(2)),
+                .payload = try arena.dupeZ(u8, stmt.columnText(3)),
             });
         }
         return rows.toOwnedSlice(arena);
