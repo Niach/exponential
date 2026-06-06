@@ -19,8 +19,6 @@ import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.push.DeepLinkBus
-import com.exponential.app.ui.admin.AdminUsersScreen
-import com.exponential.app.ui.admin.AdminWorkspacesScreen
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.home.HomeScreen
 import com.exponential.app.ui.inbox.InboxScreen
@@ -210,8 +208,6 @@ private fun AuthenticatedNav(
                 onOpenIntegrations = { navController.navigate("integrations") },
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
                 onOpenWorkspaceSettings = { navController.navigate("workspace-settings") },
-                onOpenAdminUsers = { navController.navigate("admin-users") },
-                onOpenAdminWorkspaces = { navController.navigate("admin-workspaces") },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
                 onAddServer = { navController.navigate("add-server") },
                 onBack = { navController.popBackStack() },
@@ -248,12 +244,6 @@ private fun AuthenticatedNav(
         }
         composable("workspace-settings") {
             WorkspaceSettingsScreen(onBack = { navController.popBackStack() })
-        }
-        composable("admin-users") {
-            AdminUsersScreen(onBack = { navController.popBackStack() })
-        }
-        composable("admin-workspaces") {
-            AdminWorkspacesScreen(onBack = { navController.popBackStack() })
         }
         composable("integrations") {
             IntegrationsScreen(onBack = { navController.popBackStack() })

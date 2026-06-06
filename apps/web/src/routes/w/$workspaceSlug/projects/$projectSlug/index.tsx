@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { IssueFilterBar } from "@/components/issue-filter-bar"
@@ -6,13 +6,42 @@ import { IssueList } from "@/components/issue-list"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import type { IssueFilters } from "@/lib/filters"
-import { emptyFilters } from "@/lib/filters"
-import type { IssueStatus } from "@/lib/domain"
+import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
+import type { IssuePriority, IssueStatus } from "@/lib/domain"
 
+// Filters live in the URL so a filtered board is shareable and survives a
+// refresh. They are stored as clean comma-joined values (?status=todo,in_progress
+// &priority=high&labels=<id>,<id>); validateSearch drops anything unrecognised.
 type ProjectSearch = {
   description?: string
   new?: 1
   title?: string
+  status?: string
+  priority?: string
+  labels?: string
+}
+
+const STATUS_VALUES = issueStatusOptions.map((o) => o.value)
+const PRIORITY_VALUES = issuePriorityOptions.map((o) => o.value)
+
+// Coerce a raw search value (array or comma string) to a validated, comma-joined
+// string, or undefined when empty — so cleared filters drop out of the URL.
+function validatedCsv(
+  raw: unknown,
+  allowed?: readonly string[]
+): string | undefined {
+  let arr: string[]
+  if (Array.isArray(raw)) {
+    arr = raw.filter((v): v is string => typeof v === `string`)
+  } else if (typeof raw === `string` && raw.length > 0) {
+    arr = raw.split(`,`)
+  } else {
+    return undefined
+  }
+  const cleaned = allowed
+    ? arr.filter((v) => allowed.includes(v))
+    : arr.filter((v) => v.length > 0)
+  return cleaned.length ? cleaned.join(`,`) : undefined
 }
 
 export const Route = createFileRoute(
@@ -23,6 +52,9 @@ export const Route = createFileRoute(
     title: typeof search.title === `string` ? search.title : undefined,
     description:
       typeof search.description === `string` ? search.description : undefined,
+    status: validatedCsv(search.status, STATUS_VALUES),
+    priority: validatedCsv(search.priority, PRIORITY_VALUES),
+    labels: validatedCsv(search.labels),
   }),
   component: ProjectPage,
 })
@@ -44,15 +76,49 @@ function ProjectPage() {
         title: search.title,
         description: search.description,
       })
+      // Clear only the one-shot create keys; keep any active filter params.
       void navigate({
         to: `/w/$workspaceSlug/projects/$projectSlug`,
         params: { workspaceSlug, projectSlug },
-        search: {},
+        search: (prev) => ({
+          ...prev,
+          new: undefined,
+          title: undefined,
+          description: undefined,
+        }),
         replace: true,
       })
     }
   }, [search.new, search.title, search.description, navigate, workspaceSlug, projectSlug])
-  const [filters, setFilters] = useState<IssueFilters>(emptyFilters)
+
+  const filters = useMemo<IssueFilters>(
+    () => ({
+      statuses: search.status
+        ? (search.status.split(`,`) as IssueStatus[])
+        : [],
+      priorities: search.priority
+        ? (search.priority.split(`,`) as IssuePriority[])
+        : [],
+      labelIds: search.labels ? search.labels.split(`,`) : [],
+    }),
+    [search.status, search.priority, search.labels]
+  )
+
+  const setFilters = (next: IssueFilters) => {
+    void navigate({
+      to: `/w/$workspaceSlug/projects/$projectSlug`,
+      params: { workspaceSlug, projectSlug },
+      search: (prev) => ({
+        ...prev,
+        status: next.statuses.length ? next.statuses.join(`,`) : undefined,
+        priority: next.priorities.length
+          ? next.priorities.join(`,`)
+          : undefined,
+        labels: next.labelIds.length ? next.labelIds.join(`,`) : undefined,
+      }),
+      replace: true,
+    })
+  }
 
   const {
     issueLabelMap,

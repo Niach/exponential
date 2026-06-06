@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Email
@@ -65,7 +64,6 @@ class SettingsViewModel @Inject constructor(
     private val selection: WorkspaceSelection,
     multiAccountWorkspaces: MultiAccountWorkspaceRepository,
 ) : ViewModel() {
-    val isAdmin: StateFlow<Boolean> = auth.isAdmin
     val instanceUrl: StateFlow<String?> = auth.instanceUrl
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
     val serverGroups: StateFlow<List<ServerWorkspaceGroup>> =
@@ -96,7 +94,7 @@ class SettingsViewModel @Inject constructor(
 }
 
 // iOS-parity Settings: a centered nav title, the zinc AppBackground gradient,
-// and grouped glass sections (Servers / Workspaces / General / Admin) of
+// and grouped glass sections (Servers / Workspaces / General) of
 // leading-icon + title (+ optional subtitle) + trailing-chevron rows.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,14 +102,11 @@ fun SettingsScreen(
     onOpenIntegrations: () -> Unit,
     onOpenServerDetail: (accountId: String) -> Unit,
     onOpenWorkspaceSettings: () -> Unit,
-    onOpenAdminUsers: () -> Unit,
-    onOpenAdminWorkspaces: () -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
     onAddServer: () -> Unit,
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
     val instanceUrl by viewModel.instanceUrl.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val serverGroups by viewModel.serverGroups.collectAsStateWithLifecycle()
@@ -223,26 +218,6 @@ fun SettingsScreen(
                                         context.startActivity(intent)
                                     }
                                 },
-                            )
-                        }
-                    }
-                }
-
-                // Admin section (only when current user is admin on the active server).
-                if (isAdmin) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SectionHeader("Admin")
-                        Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-                            SettingsRow(
-                                icon = Icons.Filled.AdminPanelSettings,
-                                title = "Users",
-                                onClick = onOpenAdminUsers,
-                            )
-                            CardDivider()
-                            SettingsRow(
-                                icon = Icons.Filled.AdminPanelSettings,
-                                title = "Workspaces",
-                                onClick = onOpenAdminWorkspaces,
                             )
                         }
                     }

@@ -16,7 +16,6 @@ const md = @import("markdown_editor.zig");
 const format = @import("format.zig");
 const widgets = @import("widgets.zig");
 const settings = @import("settings.zig");
-const admin = @import("admin.zig");
 const integrations = @import("integrations.zig");
 const trpc = @import("../core/api/trpc.zig");
 const mutate = @import("../core/api/mutate.zig");
@@ -733,8 +732,7 @@ fn buildTrackerUI(state: *AppState) void {
     _ = gtk.g_signal_connect_data(feedback_btn, "clicked", @ptrCast(&onFeedbackClicked), state, null, 0);
     gtk.gtk_box_append(sidebar_box, feedback_btn);
 
-    // User-identity menu: avatar + email → Admin (if admin) / Integrations / Sign out.
-    var is_admin = false;
+    // User-identity menu: avatar + email → Integrations / Sign out.
     const user_box = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
     {
         var arena = std.heap.ArenaAllocator.init(state.gpa);
@@ -745,7 +743,6 @@ fn buildTrackerUI(state: *AppState) void {
         if (store) |*s| {
             if (activeAccount(s)) |acc| {
                 display = std.fmt.bufPrint(&name_buf, "{s}", .{acc.user_name orelse acc.user_email orelse "Account"}) catch "Account";
-                is_admin = acc.is_admin;
             }
             s.deinit();
         }
@@ -769,14 +766,6 @@ fn buildTrackerUI(state: *AppState) void {
 
     const user_pop = gtk.gtk_popover_new();
     const user_pop_box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 2);
-
-    if (is_admin) {
-        const admin_item = gtk.gtk_button_new_with_label("Admin");
-        gtk.gtk_widget_add_css_class(admin_item, "flat");
-        gtk.gtk_widget_set_halign(admin_item, gtk.ALIGN_FILL);
-        _ = gtk.g_signal_connect_data(admin_item, "clicked", @ptrCast(&onAdminClicked), state, null, 0);
-        gtk.gtk_box_append(user_pop_box, admin_item);
-    }
 
     const integrations_item = gtk.gtk_button_new_with_label("Integrations");
     gtk.gtk_widget_add_css_class(integrations_item, "flat");
@@ -3599,21 +3588,6 @@ fn onSettingsClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     } else |_| {}
 
     settings.open(state.gpa, instance, state.token, db, state.window, uid_buf, state.active_workspace_id);
-}
-
-fn onAdminClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const state: *AppState = @ptrCast(@alignCast(data));
-    const instance = state.instance orelse return;
-    var uid_buf: ?[]u8 = null;
-    defer if (uid_buf) |b| state.gpa.free(b);
-    if (AccountStore.open(state.gpa)) |store_val| {
-        var store = store_val;
-        defer store.deinit();
-        if (activeAccount(&store)) |acc| {
-            if (acc.user_id) |u| uid_buf = state.gpa.dupe(u8, u) catch null;
-        }
-    } else |_| {}
-    admin.open(state.gpa, instance, state.token, state.window, uid_buf);
 }
 
 fn onIntegrationsClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
