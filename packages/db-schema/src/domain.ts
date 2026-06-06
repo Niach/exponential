@@ -128,21 +128,24 @@ export const recurrenceIntervalSchema = z.number().int().min(1).max(999)
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 export const timeOnlySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/)
 
-export const issueDescriptionSchema = z.object({
-  text: z.string(),
-})
+// Issue descriptions and comment bodies are plain GFM markdown strings (stored
+// in `text` columns). The legacy jsonb `{ text }` envelope was unwrapped; the
+// helpers below stay tolerant of any old `{ text }` rows still in flight.
+export const issueDescriptionSchema = z.string()
 
 export type IssueDescription = z.infer<typeof issueDescriptionSchema>
 
-export const commentBodySchema = z.object({
-  text: z.string().min(1).max(10_000),
-})
+export const commentBodySchema = z.string().min(1).max(10_000)
 
 export type CommentBody = z.infer<typeof commentBodySchema>
 
 export function getCommentBodyText(body: unknown): string {
-  const parsed = commentBodySchema.safeParse(body)
-  return parsed.success ? parsed.data.text : ``
+  if (typeof body === `string`) return body
+  if (body && typeof body === `object` && `text` in body) {
+    const t = (body as { text?: unknown }).text
+    return typeof t === `string` ? t : ``
+  }
+  return ``
 }
 
 export const issueStatusOrder: IssueStatus[] = [
@@ -154,17 +157,21 @@ export const issueStatusOrder: IssueStatus[] = [
 ]
 
 export function getIssueDescriptionText(description: unknown): string {
-  const parsed = issueDescriptionSchema.safeParse(description)
-  return parsed.success ? parsed.data.text : ``
+  if (typeof description === `string`) return description
+  if (description && typeof description === `object` && `text` in description) {
+    const t = (description as { text?: unknown }).text
+    return typeof t === `string` ? t : ``
+  }
+  return ``
 }
 
 export function normalizeIssueDescriptionText(text: string) {
   return text.trim()
 }
 
-export function toIssueDescription(text: string): IssueDescription | null {
+export function toIssueDescription(text: string): string | null {
   const trimmed = normalizeIssueDescriptionText(text)
-  return trimmed ? { text: trimmed } : null
+  return trimmed ? trimmed : null
 }
 
 export function addRecurrence(

@@ -152,6 +152,21 @@ interface CommentDao {
 }
 
 @Dao
+interface AgentRunDao {
+    @Query("SELECT * FROM agent_runs WHERE issue_id = :issueId LIMIT 1")
+    fun observeByIssue(issueId: String): Flow<AgentRunEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AgentRunEntity)
+
+    @Query("DELETE FROM agent_runs WHERE issue_id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM agent_runs")
+    suspend fun clear()
+}
+
+@Dao
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<AttachmentEntity>>

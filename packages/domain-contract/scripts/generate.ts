@@ -35,6 +35,17 @@ interface Contract {
   subscriberSource: Section
   issueEventType: Section
   recurrenceIntervals: number[]
+  // Issue fields a non-moderator may NOT set in a public workspace (clamped on
+  // create / stripped on update). Shared so the native WorkspacePermissions +
+  // web hook stop hand-mirroring the list.
+  moderationRestrictedFields: string[]
+  // Agent-core pipeline state machine (Rust-only consumer). Emitted to
+  // domain_contract.rs so the dispatcher/pipeline stop hand-coding these.
+  agentPipeline: {
+    nonTerminalStatuses: string[]
+    reentryStatuses: string[]
+    planRevisionCap: number
+  }
 }
 
 const contract: Contract = JSON.parse(
@@ -145,6 +156,7 @@ ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("runModeValues", contract.runMode.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${swiftStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
     public static let recurrenceIntervals: [Int] = [${contract.recurrenceIntervals.join(", ")}]
 
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
@@ -176,6 +188,7 @@ ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("runModeValues", contract.runMode.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${kotlinStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
 ${kotlinIntArray("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
@@ -214,6 +227,7 @@ ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("runModeValues", contract.runMode.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
+${rustStrSlice("moderationRestrictedFields", contract.moderationRestrictedFields)}
 pub const RECURRENCE_INTERVALS: &[i32] = &[${contract.recurrenceIntervals.join(", ")}];
 
 ${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
@@ -225,6 +239,11 @@ ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("runMode", contract.runMode.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
+
+// --- Agent-core pipeline state machine (consumed by dispatcher.rs / pipeline.rs) ---
+${rustStrSlice("agentPipelineNonTerminalStatuses", contract.agentPipeline.nonTerminalStatuses)}
+${rustStrSlice("agentPipelineReentryStatuses", contract.agentPipeline.reentryStatuses)}
+pub const AGENT_PIPELINE_PLAN_REVISION_CAP: i64 = ${contract.agentPipeline.planRevisionCap};
 `
 
 const zig = `${HEADER_ZIG}
@@ -242,6 +261,7 @@ ${zigStrArray("prStateValues", contract.prState.values)}
 ${zigStrArray("runModeValues", contract.runMode.values)}
 ${zigStrArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${zigStrArray("issueEventTypeValues", contract.issueEventType.values)}
+${zigStrArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
 pub const recurrence_intervals = [_]i32{ ${contract.recurrenceIntervals.join(", ")} };
 
 ${zigNamedValues("workspaceRole", contract.workspaceRole.values)}

@@ -20,6 +20,10 @@ export interface DomainContract {
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
   recurrenceIntervals: readonly number[]
+  // Issue fields a non-moderator may not set in a public workspace (clamped on
+  // create / stripped on update). Single source of truth for the server clamp +
+  // the native WorkspacePermissions field list.
+  moderationRestrictedFields: readonly string[]
 }
 
 export const contract = contractJson as unknown as DomainContract

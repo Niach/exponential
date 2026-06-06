@@ -16,10 +16,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Statuses that count as "in flight" (re-enqueued on boot; cancelled on unassign).
-const NON_TERMINAL: &[&str] = &["queued", "claimed", "planning", "awaiting_approval", "coding", "pushed"];
+/// Single source of truth: packages/domain-contract/contract.json (agentPipeline).
+const NON_TERMINAL: &[&str] = crate::domain_contract::AGENT_PIPELINE_NON_TERMINAL_STATUSES;
 
 /// Statuses the dispatcher may re-enter the pipeline from on an `updated` event.
-const REENTRY: &[&str] = &["queued", "cancelled", "failed", "awaiting_approval", "needs_human"];
+const REENTRY: &[&str] = crate::domain_contract::AGENT_PIPELINE_REENTRY_STATUSES;
 
 /// The per-issue pipeline. Captures whatever it needs (state, config, mcp); the
 /// dispatcher just invokes it on a worker thread.

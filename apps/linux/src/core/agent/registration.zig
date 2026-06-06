@@ -63,7 +63,7 @@ pub fn registerMachine(
     defer scratch.deinit();
     const input = try std.json.Stringify.valueAlloc(scratch.allocator(), .{ .workspaceId = workspace_id, .name = name }, .{});
 
-    var resp = try trpc.call(allocator, base_url, "companion.register", input, session_token, timeout_s);
+    var resp = try trpc.call(allocator, base_url, "agent.register", input, session_token, timeout_s);
     defer resp.deinit();
 
     if (resp.errorMessage()) |msg| return .{ .failure = try allocator.dupe(u8, msg) };
@@ -111,7 +111,7 @@ fn fail(allocator: std.mem.Allocator, comptime msg: []const u8) Error!Outcome {
 /// Agent-initiated self-revoke (`companion.uninstallSelf`, Bearer access token).
 /// Returns true on success.
 pub fn uninstall(allocator: std.mem.Allocator, base_url: []const u8, api_key: []const u8, timeout_s: c_long) bool {
-    var resp = trpc.call(allocator, base_url, "companion.uninstallSelf", null, api_key, timeout_s) catch return false;
+    var resp = trpc.call(allocator, base_url, "agent.uninstallSelf", null, api_key, timeout_s) catch return false;
     defer resp.deinit();
     return resp.ok();
 }

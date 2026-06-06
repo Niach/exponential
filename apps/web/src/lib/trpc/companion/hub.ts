@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { and, asc, eq, gt, isNull } from "drizzle-orm"
 import { authedProcedure } from "@/lib/trpc"
-import { issues, workspaceAgents } from "@/db/schema"
+import { issues, agentRegistrations } from "@/db/schema"
 import { revokeWorkspaceAgent } from "@/lib/companion-agents"
 import { loadAgentForSessionUser } from "./shared"
 
@@ -9,10 +9,10 @@ export const hubProcedures = {
   heartbeat: authedProcedure.mutation(async ({ ctx }) => {
     const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
     const [updated] = await ctx.db
-      .update(workspaceAgents)
+      .update(agentRegistrations)
       .set({ lastSeenAt: new Date() })
-      .where(eq(workspaceAgents.id, agent.id))
-      .returning({ lastSeenAt: workspaceAgents.lastSeenAt })
+      .where(eq(agentRegistrations.id, agent.id))
+      .returning({ lastSeenAt: agentRegistrations.lastSeenAt })
 
     return { ok: true, lastSeenAt: updated?.lastSeenAt ?? null }
   }),
@@ -38,9 +38,9 @@ export const hubProcedures = {
       const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
       const now = new Date()
       await ctx.db
-        .update(workspaceAgents)
+        .update(agentRegistrations)
         .set({ lastSeenAt: now })
-        .where(eq(workspaceAgents.id, agent.id))
+        .where(eq(agentRegistrations.id, agent.id))
 
       let activityIssues: Array<{
         id: string

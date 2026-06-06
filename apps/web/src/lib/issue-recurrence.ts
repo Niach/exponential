@@ -161,7 +161,7 @@ export async function cloneIssueForRecurrence(
       title: params.sourceTitle,
       priority: params.sourcePriority,
       assigneeId: params.sourceAssigneeId,
-      description: clonedText ? { text: clonedText } : null,
+      description: clonedText ? clonedText : null,
       status: `todo`,
       dueDate: nextDueDate,
       recurrenceInterval: params.recurrenceInterval,

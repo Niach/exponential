@@ -2,31 +2,17 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { comments, issueAgentState, issues, projects } from "@/db/schema"
+import { agentRuns, comments, issues, projects } from "@/db/schema"
 import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import {
-  assertCanApprovePlan,
-  assertCanMutateIssue,
+  assertIssueAccess,
   getIssueWorkspaceContext,
-  getWorkspaceMember,
   resolveWorkspaceAccess,
 } from "@/lib/workspace-membership"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetAgentActionNotify } from "@/lib/integrations/notifications"
 import { prStateSchema } from "@/lib/domain"
-
-async function assertAgentForIssue(userId: string, issueId: string) {
-  const issueContext = await getIssueWorkspaceContext(issueId)
-  const member = await getWorkspaceMember(userId, issueContext.workspaceId)
-  if (!member || member.role !== `agent`) {
-    throw new TRPCError({
-      code: `FORBIDDEN`,
-      message: `Only an agent member can mutate an agent plan`,
-    })
-  }
-  return issueContext
-}
 
 export const agentPlanRouter = router({
   // Daemon writes the latest plan (or empty body + state='awaiting_answer'
@@ -45,9 +31,10 @@ export const agentPlanRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueContext = await assertAgentForIssue(
+      const issueContext = await assertIssueAccess(
         ctx.session.user.id,
-        input.issueId
+        input.issueId,
+        `agent_write`
       )
 
       const result = await ctx.db.transaction(async (tx) => {
@@ -60,68 +47,50 @@ export const agentPlanRouter = router({
           .orderBy(desc(comments.createdAt))
           .limit(1)
 
-        // The structured `issue_agent_state` store is the single source of
-        // truth: the web + native (iOS/Android/macOS) Plan Panels read it via
-        // agentPlan.getState, and the agent reads it via issues_get's
-        // agentPlanText/agentQuestion. Plan/question are NOT mirrored into
-        // comments — that dual-write was drained once every client shipped the
-        // native Plan Panel.
+        // `agent_runs` is the single source of truth for plan/question TEXT +
+        // run bookkeeping (synced via Electric, so the Plan Panels render
+        // straight from sync). Plan/question are NOT mirrored into comments.
         const planText = input.plan.length > 0 ? { text: input.plan } : null
         const questionText =
           input.question && input.question.length > 0
             ? { text: input.question }
             : null
-        if (input.state === `awaiting_approval`) {
-          await tx
-            .insert(issueAgentState)
-            .values({
-              issueId: input.issueId,
-              planText,
-              question: null,
-              questionAskedAt: null,
-            })
-            .onConflictDoUpdate({
-              target: issueAgentState.issueId,
-              set: {
-                planText,
-                question: null,
-                questionAskedAt: null,
-                updatedAt: new Date(),
-              },
-            })
-        } else {
-          await tx
-            .insert(issueAgentState)
-            .values({
-              issueId: input.issueId,
-              planText,
-              question: questionText,
-              questionAskedAt: new Date(),
-            })
-            .onConflictDoUpdate({
-              target: issueAgentState.issueId,
-              set: {
-                // Preserve an existing plan if this call carried none.
-                ...(planText ? { planText } : {}),
-                question: questionText,
-                questionAskedAt: new Date(),
-                updatedAt: new Date(),
-              },
-            })
-        }
+        const isApproval = input.state === `awaiting_approval`
+        // Watermark: the latest existing comment (or now) so the agent won't
+        // mistake its own plan submission for "new discussion" and re-plan.
+        const lastCommentSeenAt = latestComment?.createdAt ?? new Date()
+
+        await tx
+          .insert(agentRuns)
+          .values({
+            issueId: input.issueId,
+            workspaceId: issueContext.workspaceId,
+            planText,
+            question: isApproval ? null : questionText,
+            questionAskedAt: isApproval ? null : new Date(),
+            planRevision: 1,
+            approvedAt: null,
+            approvedBy: null,
+            lastCommentSeenAt,
+          })
+          .onConflictDoUpdate({
+            target: agentRuns.issueId,
+            set: {
+              // Preserve an existing plan if an awaiting_answer call had none.
+              ...(isApproval || planText ? { planText } : {}),
+              question: isApproval ? null : questionText,
+              questionAskedAt: isApproval ? null : new Date(),
+              planRevision: sql`${agentRuns.planRevision} + 1`,
+              approvedAt: null,
+              approvedBy: null,
+              lastCommentSeenAt,
+              updatedAt: new Date(),
+            },
+          })
 
         const [issue] = await tx
           .update(issues)
-          .set({
-            agentPlanState: input.state,
-            agentPlanRevision: sql`${issues.agentPlanRevision} + 1`,
-            agentPlanApprovedAt: null,
-            agentPlanApprovedBy: null,
-            // No comment is written here anymore, so the watermark is just the
-            // latest existing comment (or now) — the agent won't mistake its own
-            // plan submission for "new discussion" and re-plan in a loop.
-            agentLastCommentSeenAt: latestComment?.createdAt ?? new Date(),
-          })
+          .set({ agentPlanState: input.state })
           .where(eq(issues.id, input.issueId))
           .returning()
 
@@ -153,7 +122,7 @@ export const agentPlanRouter = router({
   approvePlan: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertCanApprovePlan(ctx.session.user.id, input.issueId)
+      await assertIssueAccess(ctx.session.user.id, input.issueId, `approve_plan`)
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -173,13 +142,17 @@ export const agentPlanRouter = router({
         }
         const [issue] = await tx
           .update(issues)
-          .set({
-            agentPlanState: `approved`,
-            agentPlanApprovedAt: new Date(),
-            agentPlanApprovedBy: ctx.session.user.id,
-          })
+          .set({ agentPlanState: `approved` })
           .where(eq(issues.id, input.issueId))
           .returning()
+        await tx
+          .update(agentRuns)
+          .set({
+            approvedAt: new Date(),
+            approvedBy: ctx.session.user.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(agentRuns.issueId, input.issueId))
         return { txId, issue }
       })
 
@@ -191,17 +164,13 @@ export const agentPlanRouter = router({
   requestChanges: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertCanApprovePlan(ctx.session.user.id, input.issueId)
+      await assertIssueAccess(ctx.session.user.id, input.issueId, `approve_plan`)
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
           .update(issues)
-          .set({
-            agentPlanState: `drafting`,
-            agentPlanApprovedAt: null,
-            agentPlanApprovedBy: null,
-          })
+          .set({ agentPlanState: `drafting` })
           .where(
             and(
               eq(issues.id, input.issueId),
@@ -210,6 +179,10 @@ export const agentPlanRouter = router({
             )
           )
           .returning()
+        await tx
+          .update(agentRuns)
+          .set({ approvedAt: null, approvedBy: null, updatedAt: new Date() })
+          .where(eq(agentRuns.issueId, input.issueId))
         return { txId, issue }
       })
 
@@ -226,7 +199,7 @@ export const agentPlanRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Anyone who can mutate the issue can retry it. Approval gating stays
       // with approvePlan — retrying isn't an approval, it's a re-roll.
-      await assertCanMutateIssue(ctx.session.user.id, input.issueId)
+      await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -248,17 +221,22 @@ export const agentPlanRouter = router({
                   // daemon re-enters with the existing approved plan intact.
                   updatedAt: new Date(),
                 }
-              : {
-                  agentPlanState: null,
-                  agentPlanRevision: 0,
-                  agentPlanApprovedAt: null,
-                  agentPlanApprovedBy: null,
-                  agentLastCommentSeenAt: null,
-                  updatedAt: new Date(),
-                }
+              : { agentPlanState: null, updatedAt: new Date() }
           )
           .where(eq(issues.id, input.issueId))
           .returning()
+        if (!preserveApprovedPlan) {
+          await tx
+            .update(agentRuns)
+            .set({
+              planRevision: 0,
+              approvedAt: null,
+              approvedBy: null,
+              lastCommentSeenAt: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(agentRuns.issueId, input.issueId))
+        }
         return { txId, issue }
       })
 
@@ -272,9 +250,10 @@ export const agentPlanRouter = router({
   markStarted: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const issueContext = await assertAgentForIssue(
+      const issueContext = await assertIssueAccess(
         ctx.session.user.id,
-        input.issueId
+        input.issueId,
+        `agent_write`
       )
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -310,21 +289,29 @@ export const agentPlanRouter = router({
   resetPlan: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertAgentForIssue(ctx.session.user.id, input.issueId)
+      await assertIssueAccess(ctx.session.user.id, input.issueId, `agent_write`)
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [issue] = await tx
           .update(issues)
-          .set({
-            agentPlanState: null,
-            agentPlanRevision: 0,
-            agentPlanApprovedAt: null,
-            agentPlanApprovedBy: null,
-            agentLastCommentSeenAt: null,
-          })
+          .set({ agentPlanState: null })
           .where(eq(issues.id, input.issueId))
           .returning()
+        // Wipe the plan so the UI doesn't show a stale plan during the new run.
+        await tx
+          .update(agentRuns)
+          .set({
+            planText: null,
+            question: null,
+            questionAskedAt: null,
+            planRevision: 0,
+            approvedAt: null,
+            approvedBy: null,
+            lastCommentSeenAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(agentRuns.issueId, input.issueId))
         return { txId, issue }
       })
 
@@ -348,9 +335,10 @@ export const agentPlanRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueContext = await assertAgentForIssue(
+      const issueContext = await assertIssueAccess(
         ctx.session.user.id,
-        input.issueId
+        input.issueId,
+        `agent_write`
       )
 
       const [row] = await ctx.db
@@ -422,9 +410,10 @@ export const agentPlanRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueContext = await assertAgentForIssue(
+      const issueContext = await assertIssueAccess(
         ctx.session.user.id,
-        input.issueId
+        input.issueId,
+        `agent_write`
       )
 
       return await ctx.db.transaction(async (tx) => {
@@ -489,12 +478,17 @@ export const agentPlanRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueContext = await assertAgentForIssue(
+      const issueContext = await assertIssueAccess(
         ctx.session.user.id,
-        input.issueId
+        input.issueId,
+        `agent_write`
       )
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        await tx
+          .update(agentRuns)
+          .set({ lastError: input.message, updatedAt: new Date() })
+          .where(eq(agentRuns.issueId, input.issueId))
         await recordIssueEvent(tx, {
           issueId: input.issueId,
           workspaceId: issueContext.workspaceId,
@@ -523,8 +517,11 @@ export const agentPlanRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertCanMutateIssue(ctx.session.user.id, input.issueId)
-      const issueContext = await getIssueWorkspaceContext(input.issueId)
+      const issueContext = await assertIssueAccess(
+        ctx.session.user.id,
+        input.issueId,
+        `write`
+      )
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -533,8 +530,7 @@ export const agentPlanRouter = router({
           issueId: input.issueId,
           workspaceId: issueContext.workspaceId,
           authorId: ctx.session.user.id,
-          body: { text: input.answer },
-          kind: `regular`,
+          body: input.answer,
         })
 
         const [issue] = await tx
@@ -555,9 +551,10 @@ export const agentPlanRouter = router({
       })
     }),
 
-  // Read the structured agent plan/question text for an issue (server-only —
-  // not synced via Electric). Backs the web Plan Panel. Any workspace member or
-  // public-workspace viewer may read it.
+  // Read the agent run's plan/question text for an issue. Now also available via
+  // the synced `agent_runs` shape (the web Plan Panel reads that directly); this
+  // procedure stays for native clients that haven't migrated yet. Any workspace
+  // member or public-workspace viewer may read it.
   getState: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -566,20 +563,18 @@ export const agentPlanRouter = router({
 
       const [row] = await ctx.db
         .select({
-          planText: issueAgentState.planText,
-          question: issueAgentState.question,
-          questionAskedAt: issueAgentState.questionAskedAt,
+          planText: agentRuns.planText,
+          question: agentRuns.question,
+          questionAskedAt: agentRuns.questionAskedAt,
+          revision: agentRuns.planRevision,
+          approvedAt: agentRuns.approvedAt,
         })
-        .from(issueAgentState)
-        .where(eq(issueAgentState.issueId, input.issueId))
+        .from(agentRuns)
+        .where(eq(agentRuns.issueId, input.issueId))
         .limit(1)
 
       const [issue] = await ctx.db
-        .select({
-          state: issues.agentPlanState,
-          revision: issues.agentPlanRevision,
-          approvedAt: issues.agentPlanApprovedAt,
-        })
+        .select({ state: issues.agentPlanState })
         .from(issues)
         .where(eq(issues.id, input.issueId))
         .limit(1)
@@ -587,10 +582,7 @@ export const agentPlanRouter = router({
       const planBody = row?.planText as { text: string } | null | undefined
       const questionBody = row?.question as { text: string } | null | undefined
 
-      // The structured `issue_agent_state` store is the source of truth (the
-      // daemon writes it via submitPlan; the 0010 migration backfilled it from
-      // the legacy plan/question comments). The comment fallback was removed with
-      // the dual-write drain.
+      // `agent_runs` is the source of truth for plan/question text + revision.
       const planText = planBody?.text ?? null
       const question = questionBody?.text ?? null
       const questionAskedAt = row?.questionAskedAt ?? null
@@ -600,8 +592,8 @@ export const agentPlanRouter = router({
         question,
         questionAskedAt,
         state: issue?.state ?? null,
-        revision: issue?.revision ?? 0,
-        approvedAt: issue?.approvedAt ?? null,
+        revision: row?.revision ?? 0,
+        approvedAt: row?.approvedAt ?? null,
       }
     }),
 })

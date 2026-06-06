@@ -67,5 +67,21 @@
       "agent_answer"
     ]
   },
-  "recurrenceIntervals": [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
+  "recurrenceIntervals": [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30],
+  "moderationRestrictedFields": [
+    "status",
+    "priority",
+    "assigneeId",
+    "dueDate",
+    "dueTime",
+    "endTime",
+    "recurrenceInterval",
+    "recurrenceUnit",
+    "archivedAt"
+  ],
+  "agentPipeline": {
+    "nonTerminalStatuses": ["queued", "claimed", "planning", "awaiting_approval", "coding", "pushed"],
+    "reentryStatuses": ["queued", "cancelled", "failed", "awaiting_approval", "needs_human"],
+    "planRevisionCap": 8
+  }
 }

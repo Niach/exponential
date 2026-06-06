@@ -3,7 +3,7 @@ import { apikeys, oauthApplications } from "@/db/auth-schema"
 import {
   issues,
   projects,
-  workspaceAgents,
+  agentRegistrations,
   workspaceMembers,
 } from "@/db/schema"
 
@@ -60,6 +60,6 @@ export async function revokeWorkspaceAgent(
           eq(workspaceMembers.userId, agent.userId)
         )
       )
-    await tx.delete(workspaceAgents).where(eq(workspaceAgents.id, agent.id))
+    await tx.delete(agentRegistrations).where(eq(agentRegistrations.id, agent.id))
   })
 }

@@ -49,6 +49,10 @@ pub mod mcp_config;
 /// The agent-run handshake (run_request → host runs CLI → submit_result).
 pub mod agent_run;
 
+/// Recover a `claude` CLI session id from its on-disk session files, so an
+/// interactive run can later be `--continue`d (the host can't surface it).
+pub mod session;
+
 /// The per-issue pipeline I/O stages (plan / code), ported from `pipeline.ts`.
 pub mod run_pipeline;
 

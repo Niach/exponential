@@ -253,18 +253,14 @@ describe(`CreateIssueDialog`, () => {
       status: `backlog`,
       priority: `none`,
       assigneeId: undefined,
-      description: {
-        text: `Intro paragraph`,
-      },
+      description: `Intro paragraph`,
       dueDate: undefined,
       labelIds: undefined,
     })
 
     expect(mockState.updateMutate).toHaveBeenCalledWith({
       id: `issue-1`,
-      description: {
-        text: `Intro paragraph\n![draft.png](/api/attachments/attachment-1)`,
-      },
+      description: `Intro paragraph\n![draft.png](/api/attachments/attachment-1)`,
     })
 
     expect(events).toEqual([`create`, `fetch`, `update`])
@@ -336,9 +332,7 @@ describe(`CreateIssueDialog`, () => {
       status: `backlog`,
       priority: `none`,
       assigneeId: undefined,
-      description: {
-        text: `Intro paragraph`,
-      },
+      description: `Intro paragraph`,
       dueDate: undefined,
       labelIds: undefined,
     })

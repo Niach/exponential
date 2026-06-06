@@ -4,7 +4,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateIssueInput
-import com.exponential.app.data.api.IssueDescription
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.UpdateIssueInput
@@ -314,7 +313,7 @@ class IssueListViewModel @Inject constructor(
                         title = title.trim(),
                         status = status.wire,
                         priority = priority.wire,
-                        description = strippedDescription?.let { IssueDescription(it) },
+                        description = strippedDescription,
                         assigneeId = assigneeId,
                         dueDate = dueDate,
                         dueTime = dueTime,
@@ -336,7 +335,7 @@ class IssueListViewModel @Inject constructor(
                     if (finalDescription != strippedDescription.orEmpty() && finalDescription.isNotBlank()) {
                         issuesApi.update(
                             accountId,
-                            UpdateIssueInput(id = created.id, description = IssueDescription(finalDescription))
+                            UpdateIssueInput(id = created.id, description = finalDescription)
                         )
                     }
                 }

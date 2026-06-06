@@ -17,6 +17,7 @@ object DomainContract {
     val runModeValues: List<String> = listOf("background", "interactive")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error", "agent_started", "agent_question", "agent_answer")
+    val moderationRestrictedFields: List<String> = listOf("status", "priority", "assigneeId", "dueDate", "dueTime", "endTime", "recurrenceInterval", "recurrenceUnit", "archivedAt")
     val recurrenceIntervals: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30)
 
     const val workspaceRoleOwner: String = "owner"

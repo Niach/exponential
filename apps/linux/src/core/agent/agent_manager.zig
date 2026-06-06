@@ -136,12 +136,9 @@ const PendingRun = struct {
 const RunCtx = struct {
     mgr: *Manager,
     run_id: [:0]u8,
-    out_path: []u8,
-    code_path: []u8,
     prompt_path: []u8,
     script_path: []u8,
     window: gtk.Object,
-    interactive: bool = false,
 };
 
 /// Pipeline thread: copy the request and hand it to the main loop. On any setup
@@ -226,19 +223,14 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
     // gpa-owned paths live in the RunCtx until the child exits.
     const prompt_path = std.fmt.allocPrint(gpa, "{s}/{s}.prompt", .{ runs_dir, pending.run_id }) catch return failNow(pending);
     const script_path = std.fmt.allocPrint(gpa, "{s}/{s}.sh", .{ runs_dir, pending.run_id }) catch return failNow(pending);
-    const out_path = std.fmt.allocPrint(gpa, "{s}/{s}.out", .{ runs_dir, pending.run_id }) catch return failNow(pending);
-    const code_path = std.fmt.allocPrint(gpa, "{s}/{s}.code", .{ runs_dir, pending.run_id }) catch return failNow(pending);
 
     storage.writeSecret(prompt_path, pending.prompt) catch return failNow(pending);
 
-    // Wrapper: run the CLI with the prompt as the final positional arg (read
-    // from the prompt file so no quoting of the prompt is needed), tee stdout to
-    // the capture file (visible AND captured), and record the real program exit
-    // code via PIPESTATUS (the script's own exit would just be tee's).
-    const script = if (pending.interactive)
-        buildInteractiveScript(a, pending.program, pending.argv.items, prompt_path) catch return failNow(pending)
-    else
-        buildScript(a, pending.program, pending.argv.items, prompt_path, out_path, code_path) catch return failNow(pending);
+    // The host only launches INTERACTIVE agent sessions now — headless plan/code
+    // runs execute in-core (agent-core spawns them itself). The user watches and
+    // steers the session and the plan is delivered via MCP, so there's no stdout
+    // capture: the prompt is read from its file as the final positional arg.
+    const script = buildInteractiveScript(a, pending.program, pending.argv.items, prompt_path) catch return failNow(pending);
     storage.writeSecret(script_path, script) catch return failNow(pending);
 
     const command = std.fmt.allocPrint(a, "/usr/bin/env bash {s}", .{script_path}) catch return failNow(pending);
@@ -251,12 +243,9 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
     ctx.* = .{
         .mgr = mgr,
         .run_id = gpa.dupeZ(u8, pending.run_id) catch return failNow(pending),
-        .out_path = out_path,
-        .code_path = code_path,
         .prompt_path = prompt_path,
         .script_path = script_path,
         .window = null,
-        .interactive = pending.interactive,
     };
 
     const term = terminal.create(gpa, .{
@@ -272,10 +261,7 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
         return 0;
     };
 
-    const title = if (pending.interactive)
-        std.fmt.allocPrintSentinel(a, "Agent (interactive) — {s}", .{pending.run_id}, 0) catch "Agent run"
-    else
-        std.fmt.allocPrintSentinel(a, "Agent run — {s}", .{pending.run_id}, 0) catch "Agent run";
+    const title = std.fmt.allocPrintSentinel(a, "Agent — {s}", .{pending.run_id}, 0) catch "Agent run";
 
     // Prefer the docked terminal (IDE-style bottom pane); fall back to a
     // throwaway window if the dock isn't available.
@@ -345,42 +331,13 @@ fn shquoteTo(a: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8), t: []const 
 /// exit code and submit them to the core (unblocking the pipeline thread).
 fn onRunExit(ctx_ptr: ?*anyopaque, action_exit_code: i32) void {
     const ctx: *RunCtx = @ptrCast(@alignCast(ctx_ptr orelse return));
-    const gpa = ctx.mgr.gpa;
-
-    // Interactive runs capture nothing (the plan/code is delivered via MCP);
-    // submit an empty result so the parked pipeline thread unblocks.
-    if (ctx.interactive) {
-        _ = ffi.agent_core_submit_run_result(ctx.mgr.core, ctx.run_id.ptr, @intCast(action_exit_code), "", null);
-        storage.deleteFile(ctx.prompt_path);
-        storage.deleteFile(ctx.script_path);
-        freeCtx(ctx);
-        return;
-    }
-
-    // Prefer the wrapper-recorded exit code (the real program's, via PIPESTATUS);
-    // the action's code is the wrapper script's, which isn't meaningful.
-    var exit_code: i32 = action_exit_code;
-    if (storage.readFileAlloc(gpa, ctx.code_path)) |raw| {
-        defer gpa.free(raw);
-        if (std.fmt.parseInt(i32, std.mem.trim(u8, raw, " \t\r\n"), 10)) |c| exit_code = c else |_| {}
-    }
-
-    const out = storage.readFileAlloc(gpa, ctx.out_path) orelse gpa.dupe(u8, "") catch null;
-    defer if (out) |o| gpa.free(o);
-    const text_z = gpa.dupeZ(u8, out orelse "") catch {
-        freeCtx(ctx);
-        return;
-    };
-    defer gpa.free(text_z);
-
-    _ = ffi.agent_core_submit_run_result(ctx.mgr.core, ctx.run_id.ptr, @intCast(exit_code), text_z.ptr, null);
-
-    // Clean up transient files; leave the terminal window open so the user can
-    // inspect the session (it's freed when they close it).
+    // The host only runs interactive sessions now: the plan/code is delivered via
+    // MCP (no stdout capture) and the claude session id is recovered in-core from
+    // its logs, so just submit an empty result to unblock the pipeline thread.
+    // The terminal window stays open so the user can inspect the session.
+    _ = ffi.agent_core_submit_run_result(ctx.mgr.core, ctx.run_id.ptr, @intCast(action_exit_code), "", null);
     storage.deleteFile(ctx.prompt_path);
     storage.deleteFile(ctx.script_path);
-    storage.deleteFile(ctx.code_path);
-    storage.deleteFile(ctx.out_path);
     freeCtx(ctx);
 }
 
@@ -416,8 +373,6 @@ fn freePending(pending: *PendingRun) void {
 fn freeCtx(ctx: *RunCtx) void {
     const gpa = ctx.mgr.gpa;
     gpa.free(ctx.run_id);
-    gpa.free(ctx.out_path);
-    gpa.free(ctx.code_path);
     gpa.free(ctx.prompt_path);
     gpa.free(ctx.script_path);
     gpa.destroy(ctx);

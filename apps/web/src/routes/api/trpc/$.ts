@@ -35,6 +35,11 @@ export const appRouter = router({
   integrations: integrationsRouter,
   admin: adminRouter,
   pushTokens: pushTokensRouter,
+  // The desktop agent runtime + web agent UI call these under `agent.*` (the
+  // companion daemon was replaced by agent-core). `companion` is a temporary
+  // alias so already-deployed agent builds keep working for one release; drop it
+  // once every client ships the `agent.*` paths.
+  agent: companionRouter,
   companion: companionRouter,
   agentPlan: agentPlanRouter,
   billing: billingRouter,

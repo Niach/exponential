@@ -4,19 +4,18 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issues, issueLabels, labels, projects } from "@/db/schema"
 import { eq, inArray } from "drizzle-orm"
 import {
-  assertCanCreateIssueInProject,
-  assertCanMutateIssue,
+  resolveWorkspaceAccess,
+  assertIssueAccess,
   assertWorkspaceMember,
   getIssueWorkspaceContext,
+  getProjectWorkspaceId,
+  isModerationRestricted,
+  applyModerationRestrictions,
 } from "@/lib/workspace-membership"
 import {
   fetchPullFiles,
   resolveRepoToken,
 } from "@/lib/integrations/github-pr"
-import {
-  isModerationRestricted,
-  stripModerationFields,
-} from "./issue-moderation"
 import {
   dateOnlySchema,
   getIssueDescriptionText,
@@ -88,9 +87,11 @@ export const issuesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await assertCanCreateIssueInProject(
+      const project = await getProjectWorkspaceId(input.projectId)
+      await resolveWorkspaceAccess(
         ctx.session.user.id,
-        input.projectId
+        project.workspaceId,
+        `create_issue`
       )
 
       // Non-moderators submitting to a public workspace can only set
@@ -103,7 +104,7 @@ export const issuesRouter = router({
 
       assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
 
-      if (input.description && hasMarkdownImages(input.description.text)) {
+      if (input.description && hasMarkdownImages(input.description)) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
           message: `Images can only be added after the issue is created`,
@@ -215,7 +216,11 @@ export const issuesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      const issueContext = await assertCanMutateIssue(ctx.session.user.id, id)
+      const issueContext = await assertIssueAccess(
+        ctx.session.user.id,
+        id,
+        `write`
+      )
 
       // Non-moderators (e.g., a non-member who created the issue in a public
       // workspace) may only touch title/description; strip moderation fields
@@ -226,7 +231,7 @@ export const issuesRouter = router({
           issueContext.workspaceId
         )
       ) {
-        stripModerationFields(updates as Record<string, unknown>)
+        applyModerationRestrictions(updates as Record<string, unknown>)
       }
 
       if (
@@ -317,7 +322,7 @@ export const issuesRouter = router({
               ? ``
               : canonicalizeMarkdownImageUrls(rawNextText, ctx.request.url)
           if (updates.description !== null) {
-            setValues.description = { text: nextText }
+            setValues.description = nextText
           }
 
           const removedKeys = await collectAndDeleteRemovedAttachmentsInTx(
@@ -499,7 +504,7 @@ export const issuesRouter = router({
   delete: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertCanMutateIssue(ctx.session.user.id, input.id)
+      await assertIssueAccess(ctx.session.user.id, input.id, `delete`)
 
       const storageKeys: Array<string> = []
       let googleCalendarEventId: string | null = null

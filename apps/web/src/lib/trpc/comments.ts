@@ -3,13 +3,9 @@ import { z } from "zod"
 import { eq } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { comments } from "@/db/schema"
+import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
 import {
-  commentBodySchema,
-  commentKindSchema,
-  getCommentBodyText,
-} from "@/lib/domain"
-import {
-  assertCanCommentInWorkspace,
+  resolveWorkspaceAccess,
   getIssueWorkspaceContext,
   getWorkspaceMember,
 } from "@/lib/workspace-membership"
@@ -45,14 +41,14 @@ export const commentsRouter = router({
       z.object({
         issueId: z.string().uuid(),
         body: commentBodySchema,
-        kind: commentKindSchema.default(`regular`),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const issueContext = await getIssueWorkspaceContext(input.issueId)
-      await assertCanCommentInWorkspace(
+      await resolveWorkspaceAccess(
         ctx.session.user.id,
-        issueContext.workspaceId
+        issueContext.workspaceId,
+        `comment`
       )
 
       const member = await getWorkspaceMember(
@@ -61,10 +57,8 @@ export const commentsRouter = router({
       )
       const isAgentAuthor = member?.role === `agent`
 
-      // Only `regular` comments exist now — agent plan/question lifecycle lives in
-      // the structured issue_agent_state store, not in comments. `input.kind` is
-      // already constrained to `regular` by commentKindSchema.
-
+      // Only human comments exist now — the agent plan/question lifecycle lives
+      // in the structured `agent_runs` store, not in comments.
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [comment] = await tx
@@ -74,7 +68,6 @@ export const commentsRouter = router({
             workspaceId: issueContext.workspaceId,
             authorId: ctx.session.user.id,
             body: input.body,
-            kind: input.kind,
           })
           .returning()
 

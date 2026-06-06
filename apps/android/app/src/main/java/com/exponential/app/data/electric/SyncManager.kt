@@ -2,6 +2,7 @@ package com.exponential.app.data.electric
 
 import androidx.room.withTransaction
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.AgentRunEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -140,6 +141,7 @@ class SyncManager @Inject constructor(
         val notificationDao = db.notificationDao()
         val issueSubscriberDao = db.issueSubscriberDao()
         val issueEventDao = db.issueEventDao()
+        val agentRunDao = db.agentRunDao()
 
         return listOf(
             launchShape(
@@ -271,6 +273,16 @@ class SyncManager @Inject constructor(
                 onUpdate = { issueSubscriberDao.upsert(it) },
                 onDelete = { issueSubscriberDao.deleteById(it.id) },
                 onRefetch = { issueSubscriberDao.clear() },
+            ),
+            launchShape(
+                shape = "agent_runs", path = "/api/shapes/agent-runs", tableName = "agent_runs",
+                serializer = AgentRunEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("agent_runs"),
+                onInsert = { agentRunDao.upsert(it) },
+                onUpdate = { agentRunDao.upsert(it) },
+                onDelete = { agentRunDao.deleteById(it.issueId) },
+                onRefetch = { agentRunDao.clear() },
             ),
         )
     }

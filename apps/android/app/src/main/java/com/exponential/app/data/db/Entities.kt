@@ -177,6 +177,33 @@ data class CommentEntity(
 
 enum class CommentKind { Regular, Question, Plan }
 
+// The agent's current run per issue (synced via the agent_runs shape): plan/
+// question TEXT + run bookkeeping extracted off the issue row. plan_text/question
+// are jsonb `{ text }` on the server, stored as the raw string via JsonAsString.
+@Entity(
+    tableName = "agent_runs",
+    indices = [Index("workspace_id")],
+)
+@Serializable
+data class AgentRunEntity(
+    @PrimaryKey @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    @Serializable(with = JsonAsStringSerializer::class) @ColumnInfo(name = "plan_text") @SerialName("plan_text") @JsonNames("planText") val planText: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val question: String? = null,
+    @ColumnInfo(name = "question_asked_at") @SerialName("question_asked_at") @JsonNames("questionAskedAt") val questionAskedAt: String? = null,
+    @ColumnInfo(name = "plan_revision") @SerialName("plan_revision") @JsonNames("planRevision") val planRevision: Int = 0,
+    @ColumnInfo(name = "approved_at") @SerialName("approved_at") @JsonNames("approvedAt") val approvedAt: String? = null,
+    @ColumnInfo(name = "approved_by") @SerialName("approved_by") @JsonNames("approvedBy") val approvedBy: String? = null,
+    @ColumnInfo(name = "last_comment_seen_at") @SerialName("last_comment_seen_at") @JsonNames("lastCommentSeenAt") val lastCommentSeenAt: String? = null,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @ColumnInfo(name = "run_mode") @SerialName("run_mode") @JsonNames("runMode") val runMode: String? = null,
+    @ColumnInfo(name = "interactive_claimed_at") @SerialName("interactive_claimed_at") @JsonNames("interactiveClaimedAt") val interactiveClaimedAt: String? = null,
+    @ColumnInfo(name = "interactive_claimed_expires_at") @SerialName("interactive_claimed_expires_at") @JsonNames("interactiveClaimedExpiresAt") val interactiveClaimedExpiresAt: String? = null,
+    @ColumnInfo(name = "last_error") @SerialName("last_error") @JsonNames("lastError") val lastError: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
 fun commentKindOf(raw: String?): CommentKind = when (raw) {
     "question" -> CommentKind.Question
     "plan" -> CommentKind.Plan

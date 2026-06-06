@@ -26,8 +26,9 @@ data class WorkspacePermissions(
         return false
     }
 
-    // Mirrors assertCanApprovePlan in apps/web/src/lib/workspace-membership.ts:
-    // only the issue creator or a workspace owner can approve agent plans.
+    // Mirrors assertIssueAccess(..., "approve_plan") in
+    // apps/web/src/lib/auth/access.ts: only the issue creator or a workspace
+    // owner can approve agent plans.
     fun canApprovePlan(creatorId: String?): Boolean {
         if (!isAuthed) return false
         if (creatorId != null && creatorId == currentUserId) return true

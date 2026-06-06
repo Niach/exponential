@@ -26,11 +26,8 @@ import {
 
 export function WorkspaceProjectsSection({
   workspaceId,
-  isPublic = false,
 }: {
   workspaceId: string
-  // Public-workspace projects (e.g. the feedback project) never link a repo.
-  isPublic?: boolean
 }) {
   const projects = useWorkspaceProjects(workspaceId)
   const visibleProjects = projects.filter((p) => !p.archivedAt)
@@ -122,25 +119,23 @@ export function WorkspaceProjectsSection({
                   >
                     {project.prefix}
                   </Badge>
-                  {!isPublic && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0 gap-1.5 text-xs text-muted-foreground"
-                      onClick={() =>
-                        setRepoTarget({
-                          id: project.id,
-                          name: project.name,
-                          repo: project.githubRepo ?? null,
-                        })
-                      }
-                    >
-                      <Github className="h-3.5 w-3.5" />
-                      <span className="max-w-[10rem] truncate">
-                        {project.githubRepo ?? `Connect repo`}
-                      </span>
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 gap-1.5 text-xs text-muted-foreground"
+                    onClick={() =>
+                      setRepoTarget({
+                        id: project.id,
+                        name: project.name,
+                        repo: project.githubRepo ?? null,
+                      })
+                    }
+                  >
+                    <Github className="h-3.5 w-3.5" />
+                    <span className="max-w-[10rem] truncate">
+                      {project.githubRepo ?? `Connect repo`}
+                    </span>
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"

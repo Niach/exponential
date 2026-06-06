@@ -115,10 +115,7 @@ function WorkspaceSettings() {
       )}
 
       {workspace && isOwner && (
-        <WorkspaceProjectsSection
-          workspaceId={workspace.id}
-          isPublic={workspace.isPublic}
-        />
+        <WorkspaceProjectsSection workspaceId={workspace.id} />
       )}
 
       <WorkspaceMembersSection

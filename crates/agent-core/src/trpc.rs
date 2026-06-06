@@ -61,11 +61,11 @@ pub fn call(
 // --- companion.* lifecycle calls (Bearer = the agent's expk_ key) ---
 
 pub fn heartbeat(base_url: &str, api_key: &str, timeout_s: u64) -> Result<(), String> {
-    call(base_url, "companion.heartbeat", None, Some(api_key), timeout_s).map(|_| ())
+    call(base_url, "agent.heartbeat", None, Some(api_key), timeout_s).map(|_| ())
 }
 
 pub fn uninstall_self(base_url: &str, api_key: &str, timeout_s: u64) -> Result<(), String> {
-    call(base_url, "companion.uninstallSelf", None, Some(api_key), timeout_s).map(|_| ())
+    call(base_url, "agent.uninstallSelf", None, Some(api_key), timeout_s).map(|_| ())
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -93,7 +93,7 @@ pub fn poll_control(
         Some(c) => json!({ "activityCursor": c }),
         None => json!({}),
     };
-    let data = call(base_url, "companion.pollControl", Some(&input), Some(api_key), timeout_s)?;
+    let data = call(base_url, "agent.pollControl", Some(&input), Some(api_key), timeout_s)?;
     parse_control(&data)
 }
 
@@ -116,7 +116,7 @@ fn parse_control(data: &serde_json::Value) -> Result<(String, Vec<PollActivityIs
 /// isn't installed on the repo, or on any error.
 pub fn repo_token(base_url: &str, api_key: &str, repo: &str, timeout_s: u64) -> Option<String> {
     let input = json!({ "repo": repo });
-    let data = call(base_url, "companion.repoToken", Some(&input), Some(api_key), timeout_s).ok()?;
+    let data = call(base_url, "agent.repoToken", Some(&input), Some(api_key), timeout_s).ok()?;
     data.get("token")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn endpoint_trims_trailing_slash() {
-        assert_eq!(endpoint("https://x.at/", "companion.heartbeat"), "https://x.at/api/trpc/companion.heartbeat");
+        assert_eq!(endpoint("https://x.at/", "agent.heartbeat"), "https://x.at/api/trpc/agent.heartbeat");
         assert_eq!(endpoint("https://x.at", "a.b"), "https://x.at/api/trpc/a.b");
     }
 

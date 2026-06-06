@@ -5,7 +5,7 @@ import { projects } from "@/db/schema"
 import { eq } from "drizzle-orm"
 import {
   assertProjectMember,
-  assertCanMutateWorkspaceResources,
+  resolveWorkspaceAccess,
   assertWorkspaceOwner,
 } from "@/lib/workspace-membership"
 import { assertWithinPlanLimits } from "@/lib/billing"
@@ -41,9 +41,10 @@ export const projectsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertCanMutateWorkspaceResources(
+      await resolveWorkspaceAccess(
         ctx.session.user.id,
-        input.workspaceId
+        input.workspaceId,
+        `mutate_resources`
       )
       await assertWithinPlanLimits(input.workspaceId, `projects`)
 

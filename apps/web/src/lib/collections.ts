@@ -2,6 +2,7 @@ import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
+  selectAgentRunSchema,
   selectAttachmentSchema,
   selectCommentSchema,
   selectIssueEventSchema,
@@ -204,5 +205,21 @@ export const issueSubscriberCollection = createCollection(
     },
     schema: selectIssueSubscriberSchema,
     getKey: (item) => item.id,
+  })
+)
+
+// The agent's current run per issue (plan/question text + run bookkeeping),
+// workspace-scoped. Synced so the Plan Panel renders straight from sync instead
+// of a tRPC round-trip (agentPlan.getState).
+export const agentRunCollection = createCollection(
+  electricCollectionOptions({
+    id: `agent_runs`,
+    shapeOptions: {
+      url: getShapeUrl(`/api/shapes/agent-runs`),
+      parser: shapeParser,
+      columnMapper,
+    },
+    schema: selectAgentRunSchema,
+    getKey: (item) => item.issueId,
   })
 )

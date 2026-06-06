@@ -18,14 +18,17 @@ import androidx.room.RoomDatabase
         NotificationEntity::class,
         IssueSubscriberEntity::class,
         IssueEventEntity::class,
+        AgentRunEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
     // v3: added 8 agent/PR fields on issues + notifications / issue_subscribers
     //     / issue_events tables (parity with web; the 11th/12th/13th shapes).
     // v4: added users.is_agent (assign-to-agent picker segmentation).
+    // v5: agent_runs table (14th shape) — plan/question text + run bookkeeping
+    //     extracted off issues; drops the agentPlan.getState round-trip.
     // No Migration object — DatabaseHolder uses destructive fallback + resync.
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -42,5 +45,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun issueSubscriberDao(): IssueSubscriberDao
     abstract fun issueEventDao(): IssueEventDao
+    abstract fun agentRunDao(): AgentRunDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

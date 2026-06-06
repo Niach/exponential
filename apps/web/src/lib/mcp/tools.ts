@@ -4,7 +4,7 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte } from "drizzle-or
 import { db } from "@/db/connection"
 import {
   comments,
-  issueAgentState,
+  agentRuns,
   issueLabels,
   issues,
   labels,
@@ -392,8 +392,6 @@ export function registerExponentialTools(
             id: comments.id,
             authorId: comments.authorId,
             body: comments.body,
-            kind: comments.kind,
-            answeredAt: comments.answeredAt,
             createdAt: comments.createdAt,
             editedAt: comments.editedAt,
           })
@@ -405,11 +403,11 @@ export function registerExponentialTools(
         // row). The daemon reads these instead of parsing plan/question comments.
         const [agentState] = await db
           .select({
-            agentPlanText: issueAgentState.planText,
-            agentQuestion: issueAgentState.question,
+            agentPlanText: agentRuns.planText,
+            agentQuestion: agentRuns.question,
           })
-          .from(issueAgentState)
-          .where(eq(issueAgentState.issueId, id))
+          .from(agentRuns)
+          .where(eq(agentRuns.issueId, id))
           .limit(1)
         return ok({
           ...issue,
@@ -446,9 +444,7 @@ export function registerExponentialTools(
       try {
         const result = await caller(user, request).issues.create({
           ...rest,
-          description: descriptionText
-            ? { text: descriptionText }
-            : undefined,
+          description: descriptionText ? descriptionText : undefined,
         })
         return ok(result.issue)
       } catch (e) {
@@ -481,7 +477,7 @@ export function registerExponentialTools(
             ? undefined
             : descriptionText === null
               ? null
-              : { text: descriptionText }
+              : descriptionText
         const result = await caller(user, request).issues.update({
           ...rest,
           description,
@@ -719,7 +715,7 @@ export function registerExponentialTools(
       try {
         const result = await caller(user, request).comments.create({
           issueId,
-          body: { text: bodyText },
+          body: bodyText,
         })
         return ok(result.comment)
       } catch (e) {

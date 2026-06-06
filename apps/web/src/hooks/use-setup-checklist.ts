@@ -56,7 +56,7 @@ export function useSetupChecklist(workspaceId: string | undefined): {
   useEffect(() => {
     if (!workspaceId) return
     let cancelled = false
-    void trpc.companion.setupStatus
+    void trpc.agent.setupStatus
       .query({ workspaceId })
       .then((s) => {
         if (cancelled) return

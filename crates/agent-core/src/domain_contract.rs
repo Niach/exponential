@@ -16,6 +16,7 @@ pub const PR_STATE_VALUES: &[&str] = &["open", "closed", "merged", "draft"];
 pub const RUN_MODE_VALUES: &[&str] = &["background", "interactive"];
 pub const SUBSCRIBER_SOURCE_VALUES: &[&str] = &["creator", "assignee", "commenter", "manual", "mention"];
 pub const ISSUE_EVENT_TYPE_VALUES: &[&str] = &["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error", "agent_started", "agent_question", "agent_answer"];
+pub const MODERATION_RESTRICTED_FIELDS: &[&str] = &["status", "priority", "assigneeId", "dueDate", "dueTime", "endTime", "recurrenceInterval", "recurrenceUnit", "archivedAt"];
 pub const RECURRENCE_INTERVALS: &[i32] = &[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30];
 
 pub const WORKSPACE_ROLE_OWNER: &str = "owner";
@@ -60,3 +61,8 @@ pub const ISSUE_EVENT_TYPE_AGENT_ERROR: &str = "agent_error";
 pub const ISSUE_EVENT_TYPE_AGENT_STARTED: &str = "agent_started";
 pub const ISSUE_EVENT_TYPE_AGENT_QUESTION: &str = "agent_question";
 pub const ISSUE_EVENT_TYPE_AGENT_ANSWER: &str = "agent_answer";
+
+// --- Agent-core pipeline state machine (consumed by dispatcher.rs / pipeline.rs) ---
+pub const AGENT_PIPELINE_NON_TERMINAL_STATUSES: &[&str] = &["queued", "claimed", "planning", "awaiting_approval", "coding", "pushed"];
+pub const AGENT_PIPELINE_REENTRY_STATUSES: &[&str] = &["queued", "cancelled", "failed", "awaiting_approval", "needs_human"];
+pub const AGENT_PIPELINE_PLAN_REVISION_CAP: i64 = 8;

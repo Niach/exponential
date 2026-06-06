@@ -7,8 +7,16 @@
 
 use crate::mcp_config;
 use std::collections::HashMap;
+use std::io::Read;
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Mutex, OnceLock};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+/// Generous wall-clock cap for an in-core headless run (plan/code stages take
+/// minutes, so this is deliberately large — it's a runaway guard, not the short
+/// HTTP `Config::timeout_s`). The legacy host path had no timeout at all.
+pub const HEADLESS_RUN_TIMEOUT_S: u64 = 30 * 60;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunRequest {
@@ -55,6 +63,33 @@ fn issue_runs() -> &'static Mutex<HashMap<String, String>> {
     ISSUE_RUNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// run_id → the spawned headless child, so cancel/shutdown can kill it. Headless
+// runs (the background pipeline's plan/code stages) execute IN-CORE via
+// `run_headless`; only interactive runs are delegated to the host's terminal.
+static PROCS: OnceLock<Mutex<HashMap<String, Arc<Mutex<Child>>>>> = OnceLock::new();
+
+fn procs() -> &'static Mutex<HashMap<String, Arc<Mutex<Child>>>> {
+    PROCS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Kill a headless child AND its descendants. Headless children are spawned as
+/// their own process-group leader (`process_group(0)`), so a group SIGKILL reaps
+/// grandchildren too — otherwise one that inherited the stdout pipe (e.g. a CLI
+/// subprocess) would keep it open and block our reader threads after a kill.
+fn kill_child_group(child: &Mutex<Child>) {
+    let mut guard = child.lock().unwrap();
+    #[cfg(unix)]
+    {
+        // The child is the group leader, so its pid == pgid; `-pid` targets the
+        // whole group.
+        let pid = guard.id() as i32;
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+    let _ = guard.kill();
+}
+
 pub fn new_run_id() -> String {
     format!("run-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
@@ -94,9 +129,17 @@ pub fn submit_result(run_id: &str, exit_code: i32, final_text: String, session_i
     }
 }
 
-/// Cancel one pending run (drops its channel → the waiter gets a failure result).
+/// Cancel one run: kill its in-core headless child (if any) AND drop its host
+/// channel (if any). Returns true if either was found.
 pub fn cancel(run_id: &str) -> bool {
-    registry().lock().unwrap().remove(run_id).is_some()
+    let proc = procs().lock().unwrap().remove(run_id);
+    let killed = if let Some(child) = proc {
+        kill_child_group(&child);
+        true
+    } else {
+        false
+    };
+    registry().lock().unwrap().remove(run_id).is_some() || killed
 }
 
 /// Cancel the run currently in flight for an issue (the desktop "Cancel" button).
@@ -111,11 +154,128 @@ pub fn cancel_issue(issue_id: &str) -> bool {
     }
 }
 
-/// Drop all pending run channels — unblocks every parked `request_run` caller
-/// (used on shutdown so pipeline threads don't hang waiting for the host).
+/// Drop all pending run channels + kill all in-core children — unblocks every
+/// parked `request_run` caller and stops every headless run (used on shutdown so
+/// pipeline threads don't hang).
 pub fn cancel_all() {
     registry().lock().unwrap().clear();
     issue_runs().lock().unwrap().clear();
+    let drained: Vec<_> = procs().lock().unwrap().drain().map(|(_, c)| c).collect();
+    for child in drained {
+        kill_child_group(&child);
+    }
+}
+
+/// Combined system+user prompt — matches the host wrapper's `buildPrompt` so the
+/// CLI sees identical input whether a run executes in-core or (legacy) on a host.
+fn combined_prompt(system: &str, user: &str) -> String {
+    format!("{system}\n\n<user_issue>\n{user}\n</user_issue>")
+}
+
+/// Execute a HEADLESS run IN-CORE (the background pipeline's plan/code stages):
+/// spawn the CLI with the prompt as the final positional arg — mirroring the
+/// host's `<program> <argv> "$(cat prompt)" 2>&1` wrapper — drain stdout+stderr
+/// (threaded, so a full pipe can't deadlock the child), enforce `timeout_s`, and
+/// return the combined output + exit code. Killable via `cancel`/`cancel_issue`/
+/// `cancel_all`. The host is no longer involved in headless runs at all.
+pub fn run_headless(req: &RunRequest, timeout_s: u64) -> RunResult {
+    let prompt = combined_prompt(&req.system_prompt, &req.user_prompt);
+    let mut cmd = Command::new(&req.program);
+    cmd.args(&req.argv)
+        .arg(&prompt)
+        .current_dir(&req.cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (k, v) in &req.env {
+        cmd.env(k, v);
+    }
+    // Own process group so cancel/timeout can SIGKILL the whole tree (the CLI may
+    // spawn subprocesses that inherit — and keep open — the stdout pipe).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return RunResult {
+                exit_code: -1,
+                final_text: format!("failed to spawn {}: {e}", req.program),
+                session_id: None,
+            }
+        }
+    };
+
+    // Drain both pipes off-thread so a full pipe buffer can't deadlock the child.
+    let mut out = child.stdout.take();
+    let mut err = child.stderr.take();
+    let out_h = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(o) = out.as_mut() {
+            let _ = o.read_to_string(&mut s);
+        }
+        s
+    });
+    let err_h = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(e) = err.as_mut() {
+            let _ = e.read_to_string(&mut s);
+        }
+        s
+    });
+
+    let child = Arc::new(Mutex::new(child));
+    procs().lock().unwrap().insert(req.run_id.clone(), Arc::clone(&child));
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_s.max(1));
+    let mut exit_code = -1;
+    loop {
+        // Cancelled? (cancel/cancel_all removed us from PROCS.)
+        if !procs().lock().unwrap().contains_key(&req.run_id) {
+            kill_child_group(&child);
+            break;
+        }
+        match child.lock().unwrap().try_wait() {
+            Ok(Some(status)) => {
+                exit_code = status.code().unwrap_or(-1);
+                break;
+            }
+            Ok(None) => {}
+            Err(_) => break,
+        }
+        if Instant::now() >= deadline {
+            kill_child_group(&child);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    procs().lock().unwrap().remove(&req.run_id);
+    // Reap (no-op if already exited) so we don't leave a zombie after a kill.
+    let _ = child.lock().unwrap().wait();
+
+    let mut text = out_h.join().unwrap_or_default();
+    let err_text = err_h.join().unwrap_or_default();
+    if !err_text.is_empty() {
+        text.push_str(&err_text);
+    }
+    RunResult { exit_code, final_text: text, session_id: None }
+}
+
+/// `run_headless`, recording the issue→run_id mapping so `cancel_issue` can
+/// target it (parity with `request_run_for_issue`).
+pub fn run_headless_for_issue(issue_id: &str, req: &RunRequest, timeout_s: u64) -> RunResult {
+    issue_runs()
+        .lock()
+        .unwrap()
+        .insert(issue_id.to_string(), req.run_id.clone());
+    let result = run_headless(req, timeout_s);
+    let mut map = issue_runs().lock().unwrap();
+    if map.get(issue_id).map(String::as_str) == Some(req.run_id.as_str()) {
+        map.remove(issue_id);
+    }
+    result
 }
 
 /// Build a claude-CLI run request (`--print`, `--mcp-config`,
@@ -304,6 +464,48 @@ mod tests {
     #[test]
     fn run_ids_are_unique() {
         assert_ne!(new_run_id(), new_run_id());
+    }
+
+    fn sh_req(script: &str) -> RunRequest {
+        RunRequest {
+            run_id: new_run_id(),
+            cwd: "/tmp".into(),
+            mode: "plan".into(),
+            program: "sh".into(),
+            argv: vec!["-c".into(), script.into()],
+            env: vec![],
+            mcp_config_path: None,
+            system_prompt: String::new(),
+            user_prompt: String::new(),
+            interactive: false,
+            continue_session_id: None,
+        }
+    }
+
+    #[test]
+    fn run_headless_captures_stdout_stderr_and_exit_code() {
+        // `sh -c <script> <prompt>` — the appended prompt is $0 (ignored here).
+        let req = sh_req("printf 'hello-out'; printf 'oops' 1>&2; exit 3");
+        let r = run_headless(&req, 30);
+        assert_eq!(r.exit_code, 3);
+        assert!(r.final_text.contains("hello-out"), "stdout: {:?}", r.final_text);
+        assert!(r.final_text.contains("oops"), "stderr: {:?}", r.final_text);
+        assert_eq!(r.session_id, None);
+    }
+
+    #[test]
+    fn run_headless_is_cancellable_by_issue() {
+        let issue = format!("issue-{}", new_run_id());
+        let req = sh_req("sleep 30");
+        let issue_t = issue.clone();
+        let handle = std::thread::spawn(move || run_headless_for_issue(&issue_t, &req, 30));
+        // Let it spawn + register before cancelling.
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(cancel_issue(&issue), "cancel_issue should find the in-flight run");
+        let r = handle.join().unwrap();
+        assert_ne!(r.exit_code, 0, "a killed run must not report success");
+        // Mapping cleared once the run returns.
+        assert!(!cancel_issue(&issue));
     }
 
     #[test]

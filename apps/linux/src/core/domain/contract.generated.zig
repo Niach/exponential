@@ -15,6 +15,7 @@ pub const pr_state_values = [_][]const u8{ "open", "closed", "merged", "draft" }
 pub const run_mode_values = [_][]const u8{ "background", "interactive" };
 pub const subscriber_source_values = [_][]const u8{ "creator", "assignee", "commenter", "manual", "mention" };
 pub const issue_event_type_values = [_][]const u8{ "status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error", "agent_started", "agent_question", "agent_answer" };
+pub const moderation_restricted_fields = [_][]const u8{ "status", "priority", "assigneeId", "dueDate", "dueTime", "endTime", "recurrenceInterval", "recurrenceUnit", "archivedAt" };
 pub const recurrence_intervals = [_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30 };
 
 pub const workspace_role_owner: []const u8 = "owner";

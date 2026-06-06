@@ -12,11 +12,11 @@ import {
 } from "@/components/ui/card"
 
 type CompanionAgentList = Awaited<
-  ReturnType<typeof trpc.companion.list.query>
+  ReturnType<typeof trpc.agent.list.query>
 >[`agents`]
 
 type MineAgentList = Awaited<
-  ReturnType<typeof trpc.companion.listMine.query>
+  ReturnType<typeof trpc.agent.listMine.query>
 >[`agents`]
 
 function formatSeen(value: Date | string | null): string {
@@ -39,8 +39,8 @@ export function WorkspaceAgentsSection({
   const refresh = useCallback(async () => {
     try {
       const [result, mine] = await Promise.all([
-        trpc.companion.list.query({ workspaceId }),
-        trpc.companion.listMine.query(),
+        trpc.agent.list.query({ workspaceId }),
+        trpc.agent.listMine.query(),
       ])
       setAgents(result.agents)
       // Agents this account registered against a DIFFERENT workspace — the
@@ -73,7 +73,7 @@ export function WorkspaceAgentsSection({
     }
     setBusyId(agentId)
     try {
-      await trpc.companion.revoke.mutate({ agentId })
+      await trpc.agent.revoke.mutate({ agentId })
       await refresh()
     } finally {
       setBusyId(null)

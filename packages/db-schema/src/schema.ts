@@ -1,6 +1,5 @@
 import {
   bigint,
-  check,
   doublePrecision,
   index,
   integer,
@@ -24,14 +23,20 @@ import {
   commentBodySchema,
   issueDescriptionSchema,
   issueEventTypeSchema,
+  issueEventTypeValues,
   issuePrioritySchema,
   issuePriorityValues,
   issueStatusSchema,
   issueStatusValues,
+  prStateSchema,
+  prStateValues,
   publicWritePolicyValues,
   recurrenceUnitSchema,
   recurrenceUnitValues,
+  runModeSchema,
+  runModeValues,
   subscriberSourceSchema,
+  subscriberSourceValues,
   workspaceRoleSchema,
   workspaceRoleValues,
 } from "./domain"
@@ -50,14 +55,6 @@ const { createInsertSchema, createSelectSchema } = createSchemaFactory({
 export const issueStatusEnum = pgEnum(`issue_status`, issueStatusValues)
 
 export const issuePriorityEnum = pgEnum(`issue_priority`, issuePriorityValues)
-
-export const issueRelationTypeEnum = pgEnum(`issue_relation_type`, [
-  `blocks`,
-  `is_blocked_by`,
-  `relates_to`,
-  `duplicates`,
-  `is_duplicated_by`,
-])
 
 export const notificationTypeEnum = pgEnum(`notification_type`, [
   `issue_assigned`,
@@ -81,6 +78,20 @@ export const publicWritePolicyEnum = pgEnum(
 export const recurrenceUnitEnum = pgEnum(
   `recurrence_unit`,
   recurrenceUnitValues
+)
+
+export const prStateEnum = pgEnum(`pr_state`, prStateValues)
+
+export const runModeEnum = pgEnum(`run_mode`, runModeValues)
+
+export const issueEventTypeEnum = pgEnum(
+  `issue_event_type`,
+  issueEventTypeValues
+)
+
+export const subscriberSourceEnum = pgEnum(
+  `subscriber_source`,
+  subscriberSourceValues
 )
 
 // ---------------------------------------------------------------------------
@@ -151,8 +162,12 @@ export const workspaceInvites = pgTable(`workspace_invites`, {
   ...timestamps,
 })
 
-export const workspaceAgents = pgTable(
-  `workspace_agents`,
+// A desktop agent's runtime-credential binding for a workspace (renamed from
+// workspace_agents). One responsibility: tie an agent user to its OAuth client +
+// api key + last-seen heartbeat. The "agent is a member" fact lives in
+// workspace_members (role=agent); the legacy curl|bash setup-token flow is gone.
+export const agentRegistrations = pgTable(
+  `agent_registrations`,
   {
     id: uuidPk(),
     workspaceId: uuid(`workspace_id`)
@@ -162,21 +177,11 @@ export const workspaceAgents = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
     // The human owner who registered this agent (D2: an agent is a distinct
-    // actor owned by a human). Nullable during the cutover; tightened to
-    // NOT NULL once all agents have re-registered via OAuth.
-    ownerUserId: text(`owner_user_id`).references(() => users.id, {
-      onDelete: `cascade`,
-    }),
+    // actor owned by a human).
+    ownerUserId: text(`owner_user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
     name: varchar({ length: 255 }).notNull(),
-    // Legacy setup-token columns (the old curl|bash claimSetup flow). Kept
-    // nullable for backward inspection; no longer written by `companion.register`.
-    setupTokenHash: text(`setup_token_hash`),
-    setupTokenExpiresAt: timestamp(`setup_token_expires_at`, {
-      withTimezone: true,
-    }),
-    setupTokenConsumedAt: timestamp(`setup_token_consumed_at`, {
-      withTimezone: true,
-    }),
     apiKeyId: text(`api_key_id`).references(() => apikeys.id, {
       onDelete: `set null`,
     }),
@@ -188,11 +193,10 @@ export const workspaceAgents = pgTable(
   },
   (table) => [
     unique().on(table.workspaceId, table.userId),
-    index(`idx_workspace_agents_workspace`).on(table.workspaceId),
-    index(`idx_workspace_agents_user`).on(table.userId),
-    index(`idx_workspace_agents_owner`).on(table.ownerUserId),
-    index(`idx_workspace_agents_setup_token`).on(table.setupTokenHash),
-    index(`idx_workspace_agents_api_key`).on(table.apiKeyId),
+    index(`idx_agent_registrations_workspace`).on(table.workspaceId),
+    index(`idx_agent_registrations_user`).on(table.userId),
+    index(`idx_agent_registrations_owner`).on(table.ownerUserId),
+    index(`idx_agent_registrations_api_key`).on(table.apiKeyId),
   ]
 )
 
@@ -228,7 +232,8 @@ export const issues = pgTable(
     number: integer().notNull().default(0),
     identifier: varchar({ length: 20 }).notNull().default(``),
     title: varchar({ length: 500 }).notNull(),
-    description: jsonb(),
+    // Plain GFM markdown (was jsonb `{ text }`).
+    description: text(),
     status: issueStatusEnum().notNull().default(`backlog`),
     priority: issuePriorityEnum().notNull().default(`none`),
     assigneeId: text(`assignee_id`).references(() => users.id, {
@@ -252,36 +257,20 @@ export const issues = pgTable(
       withTimezone: true,
     }),
     googleCalendarLastSyncError: text(`google_calendar_last_sync_error`),
+    // The current agent plan lifecycle state — the lightweight badge every
+    // client renders. The plan/question TEXT and all run bookkeeping (revision,
+    // approval, session id, run mode, interactive claim) live in `agent_runs`.
     agentPlanState: varchar(`agent_plan_state`, { length: 32 }),
-    agentPlanRevision: integer(`agent_plan_revision`).notNull().default(0),
-    agentPlanApprovedAt: timestamp(`agent_plan_approved_at`, {
-      withTimezone: true,
-    }),
-    agentPlanApprovedBy: text(`agent_plan_approved_by`).references(
-      () => users.id,
-      { onDelete: `set null` }
-    ),
-    agentLastCommentSeenAt: timestamp(`agent_last_comment_seen_at`, {
-      withTimezone: true,
-    }),
-    // PR linkage (D5: one issue = one PR = one branch/worktree). Written by the
+    // PR linkage (D5: one issue = one PR = one branch/worktree). Kept on the
+    // issue row (PR is 1:1 with the issue) and synced to every client so the
+    // diff view + PR badge work without parsing comment bodies. Written by the
     // agent via `agentPlan.reportPr` / the `exponential_agent_report_pr` MCP
-    // tool, synced to every client so the diff view + PR badge work without
-    // parsing comment bodies. All nullable (no PR until the agent opens one).
+    // tool. All nullable (no PR until the agent opens one).
     prUrl: text(`pr_url`),
     prNumber: integer(`pr_number`),
-    prState: varchar(`pr_state`, { length: 16 }),
+    prState: prStateEnum(`pr_state`),
     branch: text(`branch`),
     prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
-    // Interactive-run bookkeeping (D4). `agentSessionId` is the claude session
-    // to `--continue`; `agentRunMode` is background|interactive;
-    // `agentInteractiveClaimedAt` marks that a desktop interactive session owns
-    // the issue, which suppresses the automatic background code re-entry.
-    agentSessionId: text(`agent_session_id`),
-    agentRunMode: varchar(`agent_run_mode`, { length: 16 }),
-    agentInteractiveClaimedAt: timestamp(`agent_interactive_claimed_at`, {
-      withTimezone: true,
-    }),
     ...timestamps,
   },
   (table) => [
@@ -322,22 +311,6 @@ export const issueLabels = pgTable(
   ]
 )
 
-export const issueRelations = pgTable(
-  `issue_relations`,
-  {
-    id: uuidPk(),
-    issueId: uuid(`issue_id`)
-      .notNull()
-      .references(() => issues.id, { onDelete: `cascade` }),
-    relatedIssueId: uuid(`related_issue_id`)
-      .notNull()
-      .references(() => issues.id, { onDelete: `cascade` }),
-    type: issueRelationTypeEnum().notNull(),
-    ...timestamps,
-  },
-  (table) => [unique().on(table.issueId, table.relatedIssueId, table.type)]
-)
-
 export const comments = pgTable(
   `comments`,
   {
@@ -351,36 +324,65 @@ export const comments = pgTable(
     authorId: text(`author_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    body: jsonb().notNull(),
-    kind: varchar({ length: 16 }).notNull().default(`regular`),
-    answeredAt: timestamp(`answered_at`, { withTimezone: true }),
+    // Plain GFM markdown (was jsonb `{ text }`).
+    body: text().notNull(),
     editedAt: timestamp(`edited_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
     index(`idx_comments_issue`).on(table.issueId),
     index(`idx_comments_workspace`).on(table.workspaceId),
-    // Only human (`regular`) comments exist now — the agent plan/question
-    // lifecycle lives in `issue_agent_state`. (Migration 0012 deletes any legacy
-    // `plan`/`question` rows before this constraint is added.)
-    check(`comments_kind_regular`, sql`${table.kind} = 'regular'`),
   ]
 )
 
-// Agent plan/question TEXT for an issue. Server-only — deliberately NOT an
-// Electric shape, so large plan bodies don't sync to mobile and force a
-// domain-contract bump. The lightweight `issues.agent_plan_state` (already
-// synced) is what every client renders; the web Plan Panel fetches this text
-// via tRPC (issues.getAgentState). One row per issue.
-export const issueAgentState = pgTable(`issue_agent_state`, {
-  issueId: uuid(`issue_id`)
-    .primaryKey()
-    .references(() => issues.id, { onDelete: `cascade` }),
-  planText: jsonb(`plan_text`),
-  question: jsonb(`question`),
-  questionAskedAt: timestamp(`question_asked_at`, { withTimezone: true }),
-  ...timestamps,
-})
+// The current agent run for an issue (one row per issue): the plan/question
+// TEXT plus all run bookkeeping that used to be smeared across the hot `issues`
+// row. SYNCED as an Electric shape (incl. planText/question — it is one small
+// row per issue you're already viewing), so clients render the Plan Panel
+// straight from sync instead of a tRPC round-trip. `workspace_id` is
+// denormalized from issue→project by populate_issue_child_workspace_id so the
+// shape filter stays workspace-scoped (stable, no 409 churn).
+export const agentRuns = pgTable(
+  `agent_runs`,
+  {
+    issueId: uuid(`issue_id`)
+      .primaryKey()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    planText: jsonb(`plan_text`),
+    question: jsonb(`question`),
+    questionAskedAt: timestamp(`question_asked_at`, { withTimezone: true }),
+    // Bumped on each plan submission so the agent can detect "the server has the
+    // version I just submitted" without racing.
+    planRevision: integer(`plan_revision`).notNull().default(0),
+    approvedAt: timestamp(`approved_at`, { withTimezone: true }),
+    approvedBy: text(`approved_by`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    // Watermark of the latest comment the agent has accounted for (so a fresh
+    // plan submission isn't mistaken for "new discussion" → re-plan loop).
+    lastCommentSeenAt: timestamp(`last_comment_seen_at`, { withTimezone: true }),
+    // Interactive-run bookkeeping (D4). `sessionId` is the claude session to
+    // `--continue`; `runMode` is background|interactive; `interactiveClaimedAt`
+    // (+ `interactiveClaimedExpiresAt`, which bounds the claim so it can't be
+    // held forever) marks a desktop interactive session owning the issue.
+    sessionId: text(`session_id`),
+    runMode: runModeEnum(`run_mode`),
+    interactiveClaimedAt: timestamp(`interactive_claimed_at`, {
+      withTimezone: true,
+    }),
+    interactiveClaimedExpiresAt: timestamp(`interactive_claimed_expires_at`, {
+      withTimezone: true,
+    }),
+    // Last terminal error reported by the agent (also emitted as an activity
+    // event); surfaces the Retry affordance.
+    lastError: text(`last_error`),
+    ...timestamps,
+  },
+  (table) => [index(`idx_agent_runs_workspace`).on(table.workspaceId)]
+)
 
 export const attachments = pgTable(
   `attachments`,
@@ -492,7 +494,7 @@ export const issueSubscribers = pgTable(
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
-    source: varchar({ length: 16 }).notNull(),
+    source: subscriberSourceEnum().notNull(),
     unsubscribed: boolean().notNull().default(false),
     ...timestamps,
   },
@@ -520,7 +522,7 @@ export const issueEvents = pgTable(
     actorUserId: text(`actor_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
-    type: varchar({ length: 32 }).notNull(),
+    type: issueEventTypeEnum().notNull(),
     payload: jsonb(),
     ...timestamps,
   },
@@ -553,7 +555,8 @@ export const selectWorkspaceInviteSchema = createSelectSchema(
     role: workspaceRoleSchema,
   }
 )
-export const selectWorkspaceAgentSchema = createSelectSchema(workspaceAgents)
+export const selectAgentRegistrationSchema =
+  createSelectSchema(agentRegistrations)
 
 export const selectProjectSchema = createSelectSchema(projects)
 export const createProjectSchema = createInsertSchema(projects).omit({
@@ -567,6 +570,7 @@ export const selectIssueSchema = createSelectSchema(issues, {
   priority: issuePrioritySchema,
   status: issueStatusSchema,
   recurrenceUnit: recurrenceUnitSchema.nullable(),
+  prState: prStateSchema.nullable(),
 })
 export const createIssueSchema = createInsertSchema(issues).omit({
   id: true,
@@ -608,6 +612,15 @@ export const selectIssueEventSchema = createSelectSchema(issueEvents, {
   type: issueEventTypeSchema,
 })
 
+// agent_runs.plan_text / question stay jsonb `{ text }` (server-only authored
+// content, not part of the markdown-string interchange contract).
+const jsonbTextSchema = z.object({ text: z.string() })
+export const selectAgentRunSchema = createSelectSchema(agentRuns, {
+  planText: jsonbTextSchema.nullable(),
+  question: jsonbTextSchema.nullable(),
+  runMode: runModeSchema.nullable(),
+})
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -615,7 +628,7 @@ export const selectIssueEventSchema = createSelectSchema(issueEvents, {
 export type Workspace = InferSelectModel<typeof workspaces>
 export type WorkspaceMember = InferSelectModel<typeof workspaceMembers>
 export type WorkspaceInvite = InferSelectModel<typeof workspaceInvites>
-export type WorkspaceAgent = InferSelectModel<typeof workspaceAgents>
+export type AgentRegistration = InferSelectModel<typeof agentRegistrations>
 export type Project = InferSelectModel<typeof projects>
 export type Issue = InferSelectModel<typeof issues>
 export type Label = InferSelectModel<typeof labels>
@@ -627,3 +640,4 @@ export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
+export type AgentRun = InferSelectModel<typeof agentRuns>

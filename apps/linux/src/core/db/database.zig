@@ -423,6 +423,8 @@ pub const Database = struct {
         recurrence_unit: [:0]const u8, // "" when not recurring
         agent_plan_state: [:0]const u8, // "" / drafting / awaiting_answer / awaiting_approval / approved
         agent_plan_approver: [:0]const u8, // display name of who approved ("" when none)
+        plan_text: [:0]const u8, // agent plan markdown from synced agent_runs ("" when none)
+        question: [:0]const u8, // agent question markdown from synced agent_runs ("" when none)
         description: [:0]const u8, // markdown text extracted from the jsonb {text}
         pr_url: [:0]const u8, // the agent's PR ("" when none) — drives the Changes button
         pr_state: [:0]const u8, // open/closed/merged/draft ("" when none)
@@ -436,10 +438,12 @@ pub const Database = struct {
                 "COALESCE(i.due_date,''), COALESCE(i.assignee_id,''), COALESCE(u.name, u.email, ''), " ++
                 "COALESCE(i.recurrence_interval, 0), COALESCE(i.recurrence_unit, ''), " ++
                 "COALESCE(i.agent_plan_state, ''), COALESCE(ap.name, ap.email, ''), i.description, " ++
-                "COALESCE(i.pr_url, ''), COALESCE(i.pr_state, '') " ++
+                "COALESCE(i.pr_url, ''), COALESCE(i.pr_state, ''), " ++
+                "COALESCE(ar.plan_text, ''), COALESCE(ar.question, '') " ++
                 "FROM issues i JOIN projects p ON p.id = i.project_id " ++
                 "LEFT JOIN users u ON u.id = i.assignee_id " ++
-                "LEFT JOIN users ap ON ap.id = i.agent_plan_approved_by WHERE i.id = ?;",
+                "LEFT JOIN agent_runs ar ON ar.issue_id = i.id " ++
+                "LEFT JOIN users ap ON ap.id = ar.approved_by WHERE i.id = ?;",
         );
         defer stmt.finalize();
         try stmt.bindText(1, id);
@@ -458,6 +462,8 @@ pub const Database = struct {
                 .recurrence_unit = try arena.dupeZ(u8, stmt.columnText(10)),
                 .agent_plan_state = try arena.dupeZ(u8, stmt.columnText(11)),
                 .agent_plan_approver = try arena.dupeZ(u8, stmt.columnText(12)),
+                .plan_text = try extractJsonText(arena, stmt.columnText(16)),
+                .question = try extractJsonText(arena, stmt.columnText(17)),
                 .description = try extractJsonText(arena, stmt.columnText(13)),
                 .pr_url = try arena.dupeZ(u8, stmt.columnText(14)),
                 .pr_state = try arena.dupeZ(u8, stmt.columnText(15)),

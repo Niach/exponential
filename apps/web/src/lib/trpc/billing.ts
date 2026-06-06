@@ -8,11 +8,12 @@ import {
   type PlanTier,
 } from "@/lib/billing"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
+import { resolveWorkspaceAccess } from "@/lib/workspace-membership"
 
 export const billingRouter = router({
   workspacePlan: authedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       if (!isCloudInstance()) {
         return {
           plan: `unlimited` as PlanTier,
@@ -26,6 +27,9 @@ export const billingRouter = router({
           usage: { members: 0, projects: 0, storageMb: 0 },
         }
       }
+
+      // Only someone who can read the workspace may see its plan/usage.
+      await resolveWorkspaceAccess(ctx.session.user.id, input.workspaceId)
 
       const [planData, usage] = await Promise.all([
         getWorkspacePlan(input.workspaceId),

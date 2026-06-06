@@ -8,7 +8,8 @@
 //! This module has no external dependencies so it builds + tests offline.
 
 /// Stop revising a plan after this many unapproved revisions (runaway guard).
-pub const PLAN_REVISION_CAP: i64 = 8;
+/// Single source of truth: packages/domain-contract/contract.json (agentPipeline).
+pub const PLAN_REVISION_CAP: i64 = crate::domain_contract::AGENT_PIPELINE_PLAN_REVISION_CAP;
 
 pub const CODE_SYSTEM_PROMPT: &str = "You are an autonomous coding agent working on an issue tracked in Exponential.
 

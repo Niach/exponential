@@ -4,7 +4,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateLabelInput
-import com.exponential.app.data.api.IssueDescription
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
@@ -179,7 +178,7 @@ class IssueDetailViewModel @Inject constructor(
         runCatching {
             issuesApi.update(
                 accountId,
-                UpdateIssueInput(id = issueId, description = IssueDescription(text))
+                UpdateIssueInput(id = issueId, description = text)
             )
         }
     }

@@ -84,9 +84,7 @@ describe(`cloneIssueForRecurrence`, () => {
 
     const result = await cloneIssueForRecurrence(tx as never, {
       ...baseParams,
-      sourceDescription: {
-        text: `Before\n\n![a photo](/api/attachments/${OLD_ATTACHMENT_ID})\n\nAfter`,
-      },
+      sourceDescription: `Before\n\n![a photo](/api/attachments/${OLD_ATTACHMENT_ID})\n\nAfter`,
     })
 
     // The clone issue was inserted with a fresh, explicit id.
@@ -112,7 +110,7 @@ describe(`cloneIssueForRecurrence`, () => {
     expect(cloned.url).toBe(`/api/attachments/${cloned.id as string}`)
 
     // The clone's description references the NEW attachment, not the source's.
-    const clonedText = (insertedIssues[0].description as { text: string }).text
+    const clonedText = insertedIssues[0].description as string
     expect(clonedText).toContain(`/api/attachments/${cloned.id as string}`)
     expect(clonedText).not.toContain(OLD_ATTACHMENT_ID)
     expect(clonedText).toContain(`Before`)
@@ -145,9 +143,7 @@ describe(`cloneIssueForRecurrence`, () => {
 
     const result = await cloneIssueForRecurrence(tx as never, {
       ...baseParams,
-      sourceDescription: {
-        text: `![kept](/api/attachments/${presentId})\n\n![gone](/api/attachments/${missingId})`,
-      },
+      sourceDescription: `![kept](/api/attachments/${presentId})\n\n![gone](/api/attachments/${missingId})`,
     })
 
     // Only the present attachment is cloned.
@@ -155,7 +151,7 @@ describe(`cloneIssueForRecurrence`, () => {
     const cloned = insertedAttachments[0]
     expect(result.attachmentCopies).toHaveLength(1)
 
-    const clonedText = (insertedIssues[0].description as { text: string }).text
+    const clonedText = insertedIssues[0].description as string
     // Present image rewritten to the clone's new attachment.
     expect(clonedText).toContain(`/api/attachments/${cloned.id as string}`)
     // Missing image stripped entirely — no dangling source reference survives.
@@ -168,14 +164,12 @@ describe(`cloneIssueForRecurrence`, () => {
 
     const result = await cloneIssueForRecurrence(tx as never, {
       ...baseParams,
-      sourceDescription: { text: `Just text, no images.` },
+      sourceDescription: `Just text, no images.`,
     })
 
     expect(insertedAttachments).toHaveLength(0)
     expect(result.attachmentCopies).toEqual([])
-    expect((insertedIssues[0].description as { text: string }).text).toBe(
-      `Just text, no images.`
-    )
+    expect(insertedIssues[0].description as string).toBe(`Just text, no images.`)
   })
 
   it(`leaves the clone description empty when the source has none`, async () => {

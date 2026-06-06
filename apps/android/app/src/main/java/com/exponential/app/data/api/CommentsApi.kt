@@ -6,18 +6,15 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class CommentBody(val text: String)
-
-@Serializable
 data class CreateCommentInput(
     @SerialName("issueId") val issueId: String,
-    val body: CommentBody,
+    val body: String,
 )
 
 @Serializable
 data class UpdateCommentInput(
     val id: String,
-    val body: CommentBody,
+    val body: String,
 )
 
 @Serializable
@@ -30,7 +27,7 @@ class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.mutationUnit(
             accountId,
             path = "comments.create",
-            input = CreateCommentInput(issueId, CommentBody(text)),
+            input = CreateCommentInput(issueId, text),
             inputSerializer = CreateCommentInput.serializer(),
         )
     }
@@ -39,7 +36,7 @@ class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.mutationUnit(
             accountId,
             path = "comments.update",
-            input = UpdateCommentInput(id, CommentBody(text)),
+            input = UpdateCommentInput(id, text),
             inputSerializer = UpdateCommentInput.serializer(),
         )
     }

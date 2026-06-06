@@ -210,7 +210,14 @@ fn run_interactive(ctx: &Ctx, issue_id: &str, continuing: bool) -> Result<(), St
     let req = agent_run::build_claude_interactive_run(&claim.worktree_path, &mcp_path, &system_prompt, &user_prompt, continue_session);
 
     let result = agent_run::request_run_for_issue(&issue.id, req, |r| (ctx.emit)(r));
-    if let Some(sid) = result.session_id {
+    // Interactive runs launch claude without `--print`, so the host has no
+    // machine-readable output and submits session_id=None. Recover the id from
+    // claude's on-disk session log for this worktree so a later --continue
+    // (approve-and-continue) resumes the same session instead of starting fresh.
+    let session_id = result
+        .session_id
+        .or_else(|| crate::session::find_latest_session_id(&claim.worktree_path));
+    if let Some(sid) = session_id {
         ctx.patch(&issue.id, &IssuePatch { claude_session_id: Some(sid), ..Default::default() });
     }
     // The continue run is the end of the interactive flow — release ownership so
@@ -293,7 +300,7 @@ fn produce_plan_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle:
     let cfg = &ctx.config;
     let _ = mcp::mark_agent_plan_started(&cfg.base_url, &cfg.api_key, &issue.id, cfg.timeout_s);
 
-    let result = agent_run::request_run_for_issue(&issue.id, req, |r| (ctx.emit)(r));
+    let result = agent_run::run_headless_for_issue(&issue.id, &req, agent_run::HEADLESS_RUN_TIMEOUT_S);
     let parsed = parse_driver_output(&result.final_text);
 
     match parsed.kind {
@@ -350,7 +357,7 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
             let mcp_path = format!("{}/.mcp.json", claim.worktree_path);
             agent_run::build_claude_run(&claim.worktree_path, "code", &mcp_path, CODE_SYSTEM_PROMPT, &prompt)
         };
-        let result = agent_run::request_run_for_issue(&issue.id, req, |r| (ctx.emit)(r));
+        let result = agent_run::run_headless_for_issue(&issue.id, &req, agent_run::HEADLESS_RUN_TIMEOUT_S);
         if result.exit_code == 0 {
             ok = true;
             break;

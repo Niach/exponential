@@ -63,11 +63,9 @@ export function IssueTimeline({
   const [draft, setDraft] = useState(``)
   const [submitting, setSubmitting] = useState(false)
 
-  // Human conversation only: agent plan/question comments are rendered in the
-  // Plan Panel, so hide them here (legacy rows + dual-write rows alike).
-  const list = ((comments ?? []) as Comment[]).filter(
-    (c) => c.kind === `regular`
-  )
+  // Human conversation only (the agent plan/question lifecycle is rendered in
+  // the Plan Panel, and those no longer live in comments).
+  const list = (comments ?? []) as Comment[]
 
   const assignee = issue.assigneeId ? userMap.get(issue.assigneeId) : undefined
   const agentAssigned =
@@ -109,7 +107,7 @@ export function IssueTimeline({
     try {
       await trpc.comments.create.mutate({
         issueId: issue.id,
-        body: { text: trimmed },
+        body: trimmed,
       })
       setDraft(``)
     } finally {
@@ -120,7 +118,7 @@ export function IssueTimeline({
   const handleEditSave = async (commentId: string, nextText: string) => {
     await trpc.comments.update.mutate({
       id: commentId,
-      body: { text: nextText },
+      body: nextText,
     })
     setEditingCommentId(null)
   }

@@ -290,4 +290,24 @@ const schema_sql =
     \\);
     \\CREATE INDEX IF NOT EXISTS idx_issue_events_issue ON issue_events(issue_id);
     \\CREATE INDEX IF NOT EXISTS idx_issue_events_workspace ON issue_events(workspace_id);
+    \\
+    \\CREATE TABLE IF NOT EXISTS agent_runs (
+    \\  issue_id TEXT PRIMARY KEY,
+    \\  workspace_id TEXT NOT NULL,
+    \\  plan_text TEXT,
+    \\  question TEXT,
+    \\  question_asked_at TEXT,
+    \\  plan_revision INTEGER NOT NULL DEFAULT 0,
+    \\  approved_at TEXT,
+    \\  approved_by TEXT,
+    \\  last_comment_seen_at TEXT,
+    \\  session_id TEXT,
+    \\  run_mode TEXT,
+    \\  interactive_claimed_at TEXT,
+    \\  interactive_claimed_expires_at TEXT,
+    \\  last_error TEXT,
+    \\  created_at TEXT NOT NULL,
+    \\  updated_at TEXT NOT NULL
+    \\);
+    \\CREATE INDEX IF NOT EXISTS idx_agent_runs_workspace ON agent_runs(workspace_id);
 ;

@@ -299,31 +299,6 @@ export async function assertNotPublicWorkspace(
   }
 }
 
-// Resolves whether the user can read/use a workspace. Returns:
-// - { kind: 'member', workspace, member } when the user is a member
-// - { kind: 'public', workspace } when the workspace is public and user is authed
-// - throws FORBIDDEN/NOT_FOUND otherwise
-export async function resolveWorkspaceAccess(
-  userId: string,
-  workspaceId: string
-) {
-  const workspace = await getWorkspaceById(workspaceId)
-  if (!workspace) {
-    throw new TRPCError({ code: `NOT_FOUND`, message: `Workspace not found` })
-  }
-  const member = await getWorkspaceMember(userId, workspaceId)
-  if (member) {
-    return { kind: `member` as const, workspace, member }
-  }
-  if (workspace.isPublic) {
-    return { kind: `public` as const, workspace }
-  }
-  throw new TRPCError({
-    code: `FORBIDDEN`,
-    message: `Not a member of this workspace`,
-  })
-}
-
 // A "moderator" is a workspace member or an instance admin. In public
 // workspaces moderators retain full edit/set rights on issue fields
 // (status/priority/assignee/dueDate); non-moderators are restricted to

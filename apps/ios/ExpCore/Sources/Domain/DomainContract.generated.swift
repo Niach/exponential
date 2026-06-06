@@ -18,6 +18,7 @@ public enum DomainContract {
     public static let runModeValues: [String] = ["background", "interactive"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "plan_ready", "agent_error", "agent_started", "agent_question", "agent_answer"]
+    public static let moderationRestrictedFields: [String] = ["status", "priority", "assigneeId", "dueDate", "dueTime", "endTime", "recurrenceInterval", "recurrenceUnit", "archivedAt"]
     public static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
 
     public static let workspaceRoleOwner: String = "owner"

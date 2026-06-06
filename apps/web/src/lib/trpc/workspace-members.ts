@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { workspaceAgents, workspaceMembers } from "@/db/schema"
+import { agentRegistrations, workspaceMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import {
@@ -104,11 +104,11 @@ export const workspaceMembersRouter = router({
 
         const [agent] = await ctx.db
           .select()
-          .from(workspaceAgents)
+          .from(agentRegistrations)
           .where(
             and(
-              eq(workspaceAgents.workspaceId, target.workspaceId),
-              eq(workspaceAgents.userId, target.userId)
+              eq(agentRegistrations.workspaceId, target.workspaceId),
+              eq(agentRegistrations.userId, target.userId)
             )
           )
           .limit(1)

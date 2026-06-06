@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   AlertTriangle,
@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import type { Issue, IssueEvent } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
-import { issueEventCollection } from "@/lib/collections"
+import { agentRunCollection, issueEventCollection } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -28,14 +28,9 @@ export const AGENT_EVENT_TYPES = new Set([
   `agent_error`,
 ])
 
-type AgentStateData = {
-  planText: string | null
-  question: string | null
-}
-
-// First-class panel for the agent plan/question lifecycle, replacing the
-// plan/question comment rows. State is driven by the synced `issue` columns;
-// the plan/question TEXT is fetched via tRPC (server-only, not in Electric).
+// First-class panel for the agent plan/question lifecycle. The state badge is
+// the synced `issue.agentPlanState`; the plan/question TEXT + revision/approval
+// come from the synced `agent_runs` shape — no tRPC round-trip.
 export function AgentPlanPanel({
   issue,
   canApprovePlan,
@@ -44,7 +39,6 @@ export function AgentPlanPanel({
   canApprovePlan: boolean
 }) {
   const state = issue.agentPlanState
-  const [data, setData] = useState<AgentStateData | null>(null)
   const [busy, setBusy] = useState<
     null | `approve` | `request_changes` | `answer` | `retry`
   >(null)
@@ -59,35 +53,24 @@ export function AgentPlanPanel({
     [issue.id]
   )
 
+  // Plan/question text + revision/approval, straight from the synced shape.
+  const { data: runs } = useLiveQuery(
+    (query) =>
+      query
+        .from({ r: agentRunCollection })
+        .where(({ r }) => eq(r.issueId, issue.id)),
+    [issue.id]
+  )
+  const agentRun = runs?.[0]
+  const planText = agentRun?.planText?.text ?? null
+  const question = agentRun?.question?.text ?? null
+  const revision = agentRun?.planRevision ?? 0
+
   const agentEvents = ((events ?? []) as IssueEvent[]).filter((e) =>
     AGENT_EVENT_TYPES.has(e.type)
   )
   const latestAgentEvent = agentEvents.at(-1)
   const latestIsError = latestAgentEvent?.type === `agent_error`
-
-  // Fetch plan/question text whenever the relevant synced state/revision moves.
-  useEffect(() => {
-    if (
-      state !== `awaiting_approval` &&
-      state !== `awaiting_answer` &&
-      state !== `approved`
-    ) {
-      setData(null)
-      return
-    }
-    let cancelled = false
-    void trpc.agentPlan.getState
-      .query({ issueId: issue.id })
-      .then((r) => {
-        if (!cancelled) setData({ planText: r.planText, question: r.question })
-      })
-      .catch(() => {
-        if (!cancelled) setData(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [issue.id, state, issue.agentPlanRevision])
 
   // No agent involvement → render nothing.
   if (state == null && !latestIsError) return null
@@ -118,12 +101,10 @@ export function AgentPlanPanel({
       <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
         <Sparkles className="size-3.5 text-indigo-300" />
         <span className="font-medium text-foreground">Agent plan</span>
-        {issue.agentPlanRevision > 0 && (
-          <span className="text-muted-foreground">
-            rev {issue.agentPlanRevision}
-          </span>
+        {revision > 0 && (
+          <span className="text-muted-foreground">rev {revision}</span>
         )}
-        {state === `approved` && issue.agentPlanApprovedAt && (
+        {state === `approved` && agentRun?.approvedAt && (
           <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-green-500/15 px-1.5 py-0.5 text-[10px] font-medium text-green-200">
             <Check className="size-2.5" />
             Approved
@@ -146,9 +127,9 @@ export function AgentPlanPanel({
               <span className="font-medium">The agent has a question</span>
             </div>
             <div className="text-sm text-foreground">
-              {data?.question ? (
+              {question ? (
                 <MarkdownEditor
-                  markdown={data.question}
+                  markdown={question}
                   editable={false}
                   onChange={() => {}}
                 />
@@ -196,9 +177,9 @@ export function AgentPlanPanel({
         {(state === `awaiting_approval` || state === `approved`) && (
           <div className="space-y-2">
             <div className="text-sm text-foreground">
-              {data?.planText ? (
+              {planText ? (
                 <MarkdownEditor
-                  markdown={data.planText}
+                  markdown={planText}
                   editable={false}
                   onChange={() => {}}
                 />

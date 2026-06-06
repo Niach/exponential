@@ -12,7 +12,7 @@ data class CreateIssueInput(
     val title: String,
     val status: String? = null,
     val priority: String? = null,
-    val description: IssueDescription? = null,
+    val description: String? = null,
     @SerialName("assigneeId") val assigneeId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
     @SerialName("dueTime") val dueTime: String? = null,
@@ -27,7 +27,7 @@ data class UpdateIssueInput(
     val title: String? = null,
     val status: String? = null,
     val priority: String? = null,
-    val description: IssueDescription? = null,
+    val description: String? = null,
     @SerialName("assigneeId") val assigneeId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
     @SerialName("dueTime") val dueTime: String? = null,
@@ -42,9 +42,6 @@ data class UpdateIssueInput(
 
 @Serializable
 data class DeleteIssueInput(val id: String)
-
-@Serializable
-data class IssueDescription(val text: String)
 
 @Serializable
 data class IssueResult(val issue: IssueEntity)

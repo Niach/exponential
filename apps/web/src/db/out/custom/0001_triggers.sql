@@ -20,7 +20,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON notifications FOR E
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON push_subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_members FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_invites FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_agents FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agent_registrations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 2. Auto-generate issue number and identifier per project
 CREATE OR REPLACE FUNCTION generate_issue_number()
@@ -114,4 +114,14 @@ CREATE OR REPLACE TRIGGER populate_issue_subscriber_workspace_id
 
 CREATE OR REPLACE TRIGGER populate_issue_event_workspace_id
   BEFORE INSERT ON issue_events
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_workspace_id();
+
+-- 7. agent_runs (the per-issue agent run: plan/question text + bookkeeping,
+--    extracted off the issues row). updated_at + workspace_id denormalized from
+--    issue→project via the shared populate_issue_child_workspace_id, so its
+--    Electric shape filter stays workspace-scoped and stable.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agent_runs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE OR REPLACE TRIGGER populate_agent_run_workspace_id
+  BEFORE INSERT ON agent_runs
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_workspace_id();

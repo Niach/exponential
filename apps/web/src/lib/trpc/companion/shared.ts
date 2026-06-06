@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
-import { workspaceAgents } from "@/db/schema"
+import { agentRegistrations } from "@/db/schema"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
 
 export function baseUrlFromRequest(request: Request): string {
@@ -21,8 +21,8 @@ export async function loadOwnedAgent(
 ) {
   const [agent] = await db
     .select()
-    .from(workspaceAgents)
-    .where(eq(workspaceAgents.id, agentId))
+    .from(agentRegistrations)
+    .where(eq(agentRegistrations.id, agentId))
     .limit(1)
 
   if (!agent) {
@@ -40,8 +40,8 @@ export async function loadAgentForSessionUser(
 ) {
   const [agent] = await db
     .select()
-    .from(workspaceAgents)
-    .where(eq(workspaceAgents.userId, userId))
+    .from(agentRegistrations)
+    .where(eq(agentRegistrations.userId, userId))
     .limit(1)
 
   if (!agent) {

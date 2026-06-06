@@ -121,9 +121,7 @@ export function IssueDetailView({
     const saveTask = async () => {
       await trpc.issues.update.mutate({
         id: issue.id,
-        description: normalizedDescription
-          ? { text: normalizedDescription }
-          : null,
+        description: normalizedDescription ? normalizedDescription : null,
       })
       lastSavedDescriptionRef.current = normalizedDescription
     }

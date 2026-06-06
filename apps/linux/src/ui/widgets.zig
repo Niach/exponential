@@ -111,6 +111,68 @@ pub fn applyCss() void {
         \\  min-height: 20px;
         \\  font-size: 0.72em;
         \\}
+        // --- Control geometry: match the web (shadcn) sizing so GTK stops
+        //     rendering libadwaita's oversized default controls. Loaded at
+        //     PRIORITY_APPLICATION, these element rules beat Adwaita's defaults
+        //     while its more-specific `.linked`/windowcontrols rules still win.
+        //     Web tokens: button h-9 (36px) px-4 radius-8 text-sm; input h-9. ---
+        \\button {
+        \\  min-height: 22px;
+        \\  padding: 5px 12px;
+        \\  border-radius: 8px;
+        \\  font-size: 14px;
+        \\  font-weight: 500;
+        \\}
+        \\button.flat {
+        \\  background: none;
+        \\  box-shadow: none;
+        \\  border-color: transparent;
+        \\}
+        \\button.flat:hover { background-color: alpha(currentColor, 0.08); }
+        \\button.suggested-action {
+        \\  background-color: @accent_bg_color;
+        \\  color: @accent_fg_color;
+        \\  box-shadow: none;
+        \\}
+        \\button.suggested-action:hover { background-color: shade(@accent_bg_color, 1.08); }
+        \\button.destructive-action {
+        \\  background-color: @destructive_bg_color;
+        \\  color: @destructive_fg_color;
+        \\  box-shadow: none;
+        \\}
+        \\button.destructive-action:hover { background-color: shade(@destructive_bg_color, 1.08); }
+        \\.exp-pill { border-radius: 9999px; padding: 4px 14px; }
+        // Text inputs: web h-9 with a hairline border + accent focus ring.
+        \\entry, spinbutton, spinbutton > text {
+        \\  min-height: 22px;
+        \\  padding: 5px 10px;
+        \\  border-radius: 8px;
+        \\  font-size: 14px;
+        \\  background-color: alpha(currentColor, 0.04);
+        \\  border: 1px solid @exp_border;
+        \\  box-shadow: none;
+        \\}
+        \\entry:focus-within, spinbutton:focus-within {
+        \\  border-color: @accent_color;
+        \\  box-shadow: none;
+        \\}
+        // Dropdowns / combo triggers inherit the same compact button shape.
+        \\dropdown > button, combobox > box > button.combo {
+        \\  min-height: 22px;
+        \\  padding: 5px 10px;
+        \\  border-radius: 8px;
+        \\}
+        // Popovers read as the card surface (zinc #262626, 10px radius).
+        \\popover > contents {
+        \\  border-radius: 10px;
+        \\  padding: 6px;
+        \\}
+        // Denser list rows (web list items are h-8 with 8px padding).
+        \\list > row {
+        \\  min-height: 28px;
+        \\  border-radius: 6px;
+        \\}
+        \\.card { border-radius: 10px; }
     );
     const display = gtk.gdk_display_get_default();
     if (display != null)

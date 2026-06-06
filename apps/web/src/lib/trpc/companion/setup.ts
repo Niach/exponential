@@ -8,7 +8,7 @@ import {
   githubInstallations,
   issues,
   projects,
-  workspaceAgents,
+  agentRegistrations,
   workspaceMembers,
   workspaces,
 } from "@/db/schema"
@@ -24,20 +24,20 @@ export const setupProcedures = {
 
       const rows = await ctx.db
         .select({
-          id: workspaceAgents.id,
-          workspaceId: workspaceAgents.workspaceId,
-          userId: workspaceAgents.userId,
-          ownerUserId: workspaceAgents.ownerUserId,
-          name: workspaceAgents.name,
-          lastSeenAt: workspaceAgents.lastSeenAt,
-          createdAt: workspaceAgents.createdAt,
-          updatedAt: workspaceAgents.updatedAt,
+          id: agentRegistrations.id,
+          workspaceId: agentRegistrations.workspaceId,
+          userId: agentRegistrations.userId,
+          ownerUserId: agentRegistrations.ownerUserId,
+          name: agentRegistrations.name,
+          lastSeenAt: agentRegistrations.lastSeenAt,
+          createdAt: agentRegistrations.createdAt,
+          updatedAt: agentRegistrations.updatedAt,
           email: users.email,
           ownerName: users.name,
         })
-        .from(workspaceAgents)
-        .innerJoin(users, eq(users.id, workspaceAgents.userId))
-        .where(eq(workspaceAgents.workspaceId, input.workspaceId))
+        .from(agentRegistrations)
+        .innerJoin(users, eq(users.id, agentRegistrations.userId))
+        .where(eq(agentRegistrations.workspaceId, input.workspaceId))
 
       return { agents: rows }
     }),
@@ -57,13 +57,13 @@ export const setupProcedures = {
           ctx.db
             .select({
               count: sql<number>`count(*)::int`,
-              seen: sql<number>`count(${workspaceAgents.lastSeenAt})::int`,
+              seen: sql<number>`count(${agentRegistrations.lastSeenAt})::int`,
             })
-            .from(workspaceAgents)
+            .from(agentRegistrations)
             .where(
               and(
-                eq(workspaceAgents.workspaceId, input.workspaceId),
-                eq(workspaceAgents.ownerUserId, userId)
+                eq(agentRegistrations.workspaceId, input.workspaceId),
+                eq(agentRegistrations.ownerUserId, userId)
               )
             ),
         ctx.db
@@ -148,15 +148,15 @@ export const setupProcedures = {
       // re-registering the same machine shouldn't stack duplicate agents.
       const [existingAgent] = await ctx.db
         .select({
-          id: workspaceAgents.id,
-          userId: workspaceAgents.userId,
-          name: workspaceAgents.name,
+          id: agentRegistrations.id,
+          userId: agentRegistrations.userId,
+          name: agentRegistrations.name,
         })
-        .from(workspaceAgents)
+        .from(agentRegistrations)
         .where(
           and(
-            eq(workspaceAgents.ownerUserId, ownerUserId),
-            eq(workspaceAgents.workspaceId, input.workspaceId)
+            eq(agentRegistrations.ownerUserId, ownerUserId),
+            eq(agentRegistrations.workspaceId, input.workspaceId)
           )
         )
         .limit(1)
@@ -179,9 +179,9 @@ export const setupProcedures = {
               })
               .onConflictDoNothing()
             await tx
-              .update(workspaceAgents)
+              .update(agentRegistrations)
               .set({ oauthClientId: credential.clientId, updatedAt: now })
-              .where(eq(workspaceAgents.id, existingAgent.id))
+              .where(eq(agentRegistrations.id, existingAgent.id))
             return {
               agent: {
                 id: existingAgent.id,
@@ -222,7 +222,7 @@ export const setupProcedures = {
             })
 
             const [agent] = await tx
-              .insert(workspaceAgents)
+              .insert(agentRegistrations)
               .values({
                 workspaceId: input.workspaceId,
                 userId: agentUserId,
@@ -280,17 +280,17 @@ export const setupProcedures = {
   listMine: authedProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db
       .select({
-        id: workspaceAgents.id,
-        name: workspaceAgents.name,
-        workspaceId: workspaceAgents.workspaceId,
-        lastSeenAt: workspaceAgents.lastSeenAt,
+        id: agentRegistrations.id,
+        name: agentRegistrations.name,
+        workspaceId: agentRegistrations.workspaceId,
+        lastSeenAt: agentRegistrations.lastSeenAt,
         workspaceName: workspaces.name,
         workspaceSlug: workspaces.slug,
         workspaceIsPublic: workspaces.isPublic,
       })
-      .from(workspaceAgents)
-      .innerJoin(workspaces, eq(workspaces.id, workspaceAgents.workspaceId))
-      .where(eq(workspaceAgents.ownerUserId, ctx.session.user.id))
+      .from(agentRegistrations)
+      .innerJoin(workspaces, eq(workspaces.id, agentRegistrations.workspaceId))
+      .where(eq(agentRegistrations.ownerUserId, ctx.session.user.id))
 
     return { agents: rows }
   }),

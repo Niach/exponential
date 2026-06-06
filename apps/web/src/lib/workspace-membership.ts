@@ -21,18 +21,20 @@ export {
   getAttachmentWorkspaceContext,
   getWorkspaceById,
   assertNotPublicWorkspace,
-  resolveWorkspaceAccess,
   isWorkspaceModerator,
 } from "@/lib/auth/membership"
 
+// Canonical authorization predicates (capability/action-driven). These replace
+// the old per-action assertCan* helpers.
 export {
-  assertCanApprovePlan,
-  assertCanCreateIssueInProject,
-  assertCanMutateIssue,
-  assertCanCommentInWorkspace,
-  assertCanMutateWorkspaceResources,
+  resolveWorkspaceAccess,
+  assertIssueAccess,
   assertIssueLabelWorkspaceMatch,
-} from "@/lib/auth/policies"
+  MODERATION_RESTRICTED_FIELDS,
+  isModerationRestricted,
+  applyModerationRestrictions,
+} from "@/lib/auth/access"
+export type { WorkspaceCapability, IssueAction } from "@/lib/auth/access"
 
 export {
   sqlStringLiteral,

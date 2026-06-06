@@ -63,7 +63,7 @@ pub const Heartbeat = struct {
 
 fn worker(self: *Heartbeat) void {
     while (!self.stop_flag.load(.acquire)) {
-        if (trpc.call(self.gpa, self.base_url, "companion.heartbeat", null, self.api_key, 15)) |*resp| {
+        if (trpc.call(self.gpa, self.base_url, "agent.heartbeat", null, self.api_key, 15)) |*resp| {
             var r = resp.*;
             r.deinit();
         } else |_| {}

@@ -1792,27 +1792,10 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
         }
     }
 
-    // Plan/question TEXT (server-only `issue_agent_state`). Fetched synchronously
-    // because the detail builds only on user actions (open / edit), never on the
-    // sync tick (doRefresh re-renders the list, not the open detail).
-    var plan_text: []const u8 = "";
-    var question_text: []const u8 = "";
-    const ps = issue.agent_plan_state;
-    if (std.mem.eql(u8, ps, "awaiting_approval") or std.mem.eql(u8, ps, "awaiting_answer") or std.mem.eql(u8, ps, "approved")) {
-        if (state.instance) |inst| {
-            const input = std.fmt.allocPrint(a, "{{\"issueId\":\"{s}\"}}", .{id}) catch "";
-            var resp = trpc.queryInput(state.gpa, inst, "agentPlan.getState", input, state.token, 20) catch null;
-            if (resp) |*r| {
-                defer r.deinit();
-                if (r.data()) |d| {
-                    if (trpc.asObject(d)) |obj| {
-                        if (trpc.objString(obj, "planText")) |p| plan_text = a.dupe(u8, p) catch "";
-                        if (trpc.objString(obj, "question")) |q| question_text = a.dupe(u8, q) catch "";
-                    }
-                }
-            }
-        }
-    }
+    // Plan/question TEXT now comes from the synced `agent_runs` shape (read in
+    // getIssue) — no blocking agentPlan.getState round-trip on detail open.
+    const plan_text: []const u8 = issue.plan_text;
+    const question_text: []const u8 = issue.question;
 
     // First-class agent plan panel (above the human thread).
     if (agentPlanPanel(state, a, id, issue.agent_plan_state, issue.agent_plan_approver, plan_text, question_text, latest_is_error)) |panel| {
@@ -1971,7 +1954,7 @@ fn onDescBlur(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const text = ctx.editor.getText(a) catch return;
     if (std.mem.eql(u8, text, ctx.desc_original)) return;
 
-    const json = std.json.Stringify.valueAlloc(a, .{ .id = ctx.issue_id, .description = .{ .text = text } }, .{}) catch return;
+    const json = std.json.Stringify.valueAlloc(a, .{ .id = ctx.issue_id, .description = text }, .{}) catch return;
     mutate.fire(state.gpa, state.instance.?, state.token, "issues.update", json);
     if (state.gpa.dupe(u8, text)) |d| {
         state.gpa.free(ctx.desc_original);
@@ -2951,8 +2934,7 @@ fn onCommentSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 
     const json = std.json.Stringify.valueAlloc(a, .{
         .issueId = ctx.issue_id,
-        .body = .{ .text = text },
-        .kind = "regular",
+        .body = text,
     }, .{}) catch return;
     // Post async; optimistically show it only while this issue's detail is still
     // on screen (the composer and comments_box share that subtree's lifetime, so
@@ -3497,7 +3479,7 @@ fn onCreateSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
             .dueDate = ctx.due_value,
             .recurrenceInterval = rec_interval,
             .recurrenceUnit = rec_unit,
-            .description = .{ .text = desc },
+            .description = desc,
         }, .{})
     else
         std.json.Stringify.valueAlloc(a, .{
@@ -3509,7 +3491,7 @@ fn onCreateSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
             .dueDate = ctx.due_value,
             .recurrenceInterval = rec_interval,
             .recurrenceUnit = rec_unit,
-            .description = .{ .text = desc },
+            .description = desc,
             .labelIds = selectedLabelIds(ctx, a),
         }, .{});
     const json = encoded catch {
