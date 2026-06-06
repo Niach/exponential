@@ -6,18 +6,18 @@ import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.parseIsoDateOrNull
 import java.time.LocalDate
 
-// Semantic status / priority colors ported from iOS GlassTheme.swift so the
-// issue list & detail are color-scannable and match the iOS look. iOS uses
-// SwiftUI semantic colors; these are their closest fixed equivalents tuned for
-// the zinc dark theme. The biggest single visual gap on Android was that every
-// status/priority icon was tinted one muted zinc-400 — this restores the color.
+// Semantic status / priority colors. The fixed values live in the shared
+// packages/design-tokens/tokens.json (generated into DesignTokens.Semantic), so
+// iOS/Android/Linux stop each carrying their own copy. The biggest single visual
+// gap on Android was that every status/priority icon was tinted one muted
+// zinc-400 — these restore the color.
 
-private val Neutral = Color(0xFFA1A1AA) // zinc-400
-private val Yellow = Color(0xFFFACC15)
-private val Green = Color(0xFF22C55E)
-private val Red = Color(0xFFEF4444)
-private val Orange = Color(0xFFF97316)
-private val Blue = Color(0xFF3B82F6)
+private val Neutral = DesignTokens.Semantic.Neutral
+private val Yellow = DesignTokens.Semantic.Yellow
+private val Green = DesignTokens.Semantic.Green
+private val Red = DesignTokens.Semantic.Red
+private val Orange = DesignTokens.Semantic.Orange
+private val Blue = DesignTokens.Semantic.Blue
 
 fun statusColor(status: IssueStatus): Color = when (status) {
     IssueStatus.Backlog -> Neutral
@@ -54,8 +54,8 @@ fun dueDateColor(dueDate: String?): Color {
  * hardcoded hex previously duplicated across IssueDetailScreen and CommentThread.
  */
 object PlanColors {
-    val Drafting = Color(0xFFEAB308)
-    val AwaitingAnswer = Color(0xFFB388F5)
-    val AwaitingApproval = Color(0xFF60A5FA)
-    val Approved = Color(0xFF34D399)
+    val Drafting = DesignTokens.Semantic.PlanDrafting
+    val AwaitingAnswer = DesignTokens.Semantic.PlanAwaitingAnswer
+    val AwaitingApproval = DesignTokens.Semantic.PlanAwaitingApproval
+    val Approved = DesignTokens.Semantic.PlanApproved
 }

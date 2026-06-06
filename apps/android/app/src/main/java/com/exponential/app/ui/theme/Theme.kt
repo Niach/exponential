@@ -13,55 +13,57 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Dark-only, by design — matches iOS and web. The previous DarkColors only
-// defined a handful of roles, leaving Material 3 components to fall back to
-// their library defaults (a muted purple); this maps the full role set
-// against the web's zinc OKLCH palette so every M3 surface lands on the
-// right tone without further per-component overrides.
+// Dark-only, by design — matches iOS and web. Maps the full Material 3 role set
+// onto the shared palette (DesignTokens.Palette, generated from the web OKLCH
+// theme in packages/design-tokens) so every M3 surface lands on the right tone
+// without per-component overrides. The few roles with no web equivalent — the
+// intermediate surface-container tiers, the opaque outline, and the error
+// container tints — stay as literals (Material-3-specific interpolations) and
+// are commented as such.
 private val ZincDarkColors = darkColorScheme(
-    primary = Color(0xFFFAFAFA),
-    onPrimary = Color(0xFF18181B),
-    primaryContainer = Color(0xFF27272A),
-    onPrimaryContainer = Color(0xFFFAFAFA),
-    inversePrimary = Color(0xFF18181B),
+    primary = DesignTokens.Palette.Primary,
+    onPrimary = DesignTokens.Palette.PrimaryForeground,
+    primaryContainer = DesignTokens.Palette.Secondary,
+    onPrimaryContainer = DesignTokens.Palette.Foreground,
+    inversePrimary = DesignTokens.Palette.PrimaryForeground,
 
-    secondary = Color(0xFFA1A1AA),
-    onSecondary = Color(0xFF18181B),
-    secondaryContainer = Color(0xFF27272A),
-    onSecondaryContainer = Color(0xFFE4E4E7),
+    secondary = DesignTokens.Palette.MutedForeground,
+    onSecondary = DesignTokens.Palette.Background,
+    secondaryContainer = DesignTokens.Palette.Secondary,
+    onSecondaryContainer = DesignTokens.Palette.Foreground,
 
-    tertiary = Color(0xFFD4D4D8),
-    onTertiary = Color(0xFF18181B),
-    tertiaryContainer = Color(0xFF27272A),
-    onTertiaryContainer = Color(0xFFE4E4E7),
+    tertiary = Color(0xFFD4D4D8), // zinc-300; no web role — kept as a literal
+    onTertiary = DesignTokens.Palette.Background,
+    tertiaryContainer = DesignTokens.Palette.Secondary,
+    onTertiaryContainer = DesignTokens.Palette.Foreground,
 
-    background = Color(0xFF09090B),
-    onBackground = Color(0xFFFAFAFA),
+    background = DesignTokens.Palette.Background,
+    onBackground = DesignTokens.Palette.Foreground,
 
-    surface = Color(0xFF09090B),
-    onSurface = Color(0xFFFAFAFA),
-    surfaceVariant = Color(0xFF18181B),
-    onSurfaceVariant = Color(0xFFA1A1AA),
-    surfaceTint = Color(0xFFFAFAFA),
-    inverseSurface = Color(0xFFFAFAFA),
-    inverseOnSurface = Color(0xFF18181B),
+    surface = DesignTokens.Palette.Background,
+    onSurface = DesignTokens.Palette.Foreground,
+    surfaceVariant = DesignTokens.Palette.Card,
+    onSurfaceVariant = DesignTokens.Palette.MutedForeground,
+    surfaceTint = DesignTokens.Palette.Foreground,
+    inverseSurface = DesignTokens.Palette.Foreground,
+    inverseOnSurface = DesignTokens.Palette.Background,
 
     // Material 3 tonal surface containers — used by NavigationBar, Card,
-    // BottomSheet, Dialog, FilterChip selected, etc. Without these mapped,
-    // those components silently draw on the wrong tone.
-    surfaceContainerLowest = Color(0xFF09090B),
+    // BottomSheet, Dialog, FilterChip selected, etc. The endpoints come from the
+    // shared palette; the two intermediate tiers are interpolations (no web role).
+    surfaceContainerLowest = DesignTokens.Palette.Background,
     surfaceContainerLow = Color(0xFF0F0F11),
-    surfaceContainer = Color(0xFF18181B),
+    surfaceContainer = DesignTokens.Palette.Card,
     surfaceContainerHigh = Color(0xFF1F1F22),
-    surfaceContainerHighest = Color(0xFF27272A),
+    surfaceContainerHighest = DesignTokens.Palette.Secondary,
 
-    outline = Color(0xFF3F3F46),
-    outlineVariant = Color(0xFF27272A),
+    outline = Color(0xFF3F3F46), // zinc-700; web border is white/10%, too faint for M3 outlines
+    outlineVariant = DesignTokens.Palette.Secondary,
 
-    error = Color(0xFFF43F5E),
-    onError = Color(0xFFFAFAFA),
-    errorContainer = Color(0xFF7F1D1D),
-    onErrorContainer = Color(0xFFFECDD3),
+    error = DesignTokens.Palette.Destructive,
+    onError = DesignTokens.Palette.Foreground,
+    errorContainer = Color(0xFF7F1D1D), // red-900; no web role
+    onErrorContainer = Color(0xFFFECDD3), // rose-200; no web role
 
     scrim = Color(0xFF000000),
 )
