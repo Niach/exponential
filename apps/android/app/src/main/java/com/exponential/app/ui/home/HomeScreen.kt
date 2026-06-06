@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -28,6 +31,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,6 +65,14 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+
+    // Create-workspace / create-project sheets. The non-null value carries the
+    // account (and workspace) context the new entity belongs to.
+    var createWorkspaceFor by remember { mutableStateOf<String?>(null) }
+    var createProjectFor by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { viewModel.bootstrap() }
 
@@ -93,9 +109,59 @@ fun HomeScreen(
                         val sameServer = viewModel.onProjectTap(accountId, projectId)
                         if (sameServer) onOpenProject(accountId, projectId)
                     },
+                    onNewWorkspace = { accountId ->
+                        createError = null
+                        createWorkspaceFor = accountId
+                    },
+                    onNewProject = { accountId, workspaceId ->
+                        createError = null
+                        createProjectFor = accountId to workspaceId
+                    },
                 )
             }
         }
+    }
+
+    createWorkspaceFor?.let { accountId ->
+        CreateWorkspaceSheet(
+            isCreating = creating,
+            error = createError,
+            onDismiss = { createWorkspaceFor = null; createError = null },
+            onCreate = { name ->
+                scope.launch {
+                    creating = true
+                    val err = viewModel.createWorkspace(accountId, name)
+                    creating = false
+                    if (err == null) {
+                        createWorkspaceFor = null
+                        createError = null
+                    } else {
+                        createError = err
+                    }
+                }
+            },
+        )
+    }
+
+    createProjectFor?.let { (accountId, workspaceId) ->
+        CreateProjectSheet(
+            isCreating = creating,
+            error = createError,
+            onDismiss = { createProjectFor = null; createError = null },
+            onCreate = { name, prefix, color ->
+                scope.launch {
+                    creating = true
+                    val err = viewModel.createProject(accountId, workspaceId, name, prefix, color)
+                    creating = false
+                    if (err == null) {
+                        createProjectFor = null
+                        createError = null
+                    } else {
+                        createError = err
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -103,6 +169,8 @@ fun HomeScreen(
 private fun ProjectTree(
     groups: List<ServerProjectGroup>,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
+    onNewWorkspace: (accountId: String) -> Unit,
+    onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -110,7 +178,12 @@ private fun ProjectTree(
         modifier = Modifier.fillMaxWidth(),
     ) {
         items(groups, key = { it.accountId }) { group ->
-            ServerSection(group = group, onOpenProject = onOpenProject)
+            ServerSection(
+                group = group,
+                onOpenProject = onOpenProject,
+                onNewWorkspace = onNewWorkspace,
+                onNewProject = onNewProject,
+            )
         }
     }
 }
@@ -119,20 +192,32 @@ private fun ProjectTree(
 private fun ServerSection(
     group: ServerProjectGroup,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
+    onNewWorkspace: (accountId: String) -> Unit,
+    onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(modifier = Modifier.padding(horizontal = 4.dp)) {
-            Text(
-                group.hostname,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (!group.userEmail.isNullOrBlank()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    group.userEmail,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    group.hostname,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
+                if (!group.userEmail.isNullOrBlank()) {
+                    Text(
+                        group.userEmail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+            }
+            TextButton(onClick = { onNewWorkspace(group.accountId) }) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Workspace")
             }
         }
         group.workspaceBlocks.forEach { block ->
@@ -140,6 +225,7 @@ private fun ServerSection(
                 accountId = group.accountId,
                 block = block,
                 onOpenProject = onOpenProject,
+                onNewProject = onNewProject,
             )
         }
     }
@@ -150,6 +236,7 @@ private fun WorkspaceBlockView(
     accountId: String,
     block: WorkspaceBlock,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
+    onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
@@ -169,6 +256,16 @@ private fun WorkspaceBlockView(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
+            IconButton(
+                onClick = { onNewProject(accountId, block.workspace.id) },
+                modifier = Modifier.size(28.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "New project",
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
         block.projects.forEach { project ->
             key(project.id) {

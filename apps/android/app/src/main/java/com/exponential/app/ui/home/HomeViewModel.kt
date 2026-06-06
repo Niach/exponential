@@ -3,6 +3,9 @@ package com.exponential.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
+import com.exponential.app.data.api.CreateProjectInput
+import com.exponential.app.data.api.CreateWorkspaceInput
+import com.exponential.app.data.api.ProjectsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
@@ -50,6 +53,7 @@ data class HomeState(
 class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val workspacesApi: WorkspacesApi,
+    private val projectsApi: ProjectsApi,
     private val holder: DatabaseHolder,
     private val selection: WorkspaceSelection,
     private val multiAccountWorkspaces: MultiAccountWorkspaceRepository,
@@ -150,4 +154,38 @@ class HomeViewModel @Inject constructor(
             false
         }
     }
+
+    // Create a workspace on the given account's server. Returns an error message
+    // on failure, or null on success — Electric sync then surfaces the new row in
+    // the Home tree (no manual upsert, so this stays correct across accounts).
+    suspend fun createWorkspace(accountId: String, name: String): String? =
+        try {
+            workspacesApi.create(accountId, CreateWorkspaceInput(name.trim()))
+            null
+        } catch (error: Throwable) {
+            error.message ?: "Failed to create workspace"
+        }
+
+    // Create a project in the given workspace on the given account's server.
+    suspend fun createProject(
+        accountId: String,
+        workspaceId: String,
+        name: String,
+        prefix: String,
+        color: String,
+    ): String? =
+        try {
+            projectsApi.create(
+                accountId,
+                CreateProjectInput(
+                    workspaceId = workspaceId,
+                    name = name.trim(),
+                    prefix = prefix.trim().uppercase(),
+                    color = color,
+                ),
+            )
+            null
+        } catch (error: Throwable) {
+            error.message ?: "Failed to create project"
+        }
 }
