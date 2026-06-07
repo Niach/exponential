@@ -1740,6 +1740,250 @@ fn showInbox(state: *AppState) void {
     gtk.adw_navigation_view_push(nav, page);
 }
 
+// --- PR inline diff (issues.prFiles query → async fetch → rendered patches) ---
+
+const DiffFile = struct {
+    filename: [:0]u8,
+    status: [:0]u8,
+    additions: i64,
+    deletions: i64,
+    patch: ?[:0]u8,
+};
+
+const PrDiffJob = struct {
+    gpa: std.mem.Allocator,
+    instance: []u8,
+    token: ?[]u8,
+    issue_id: []u8,
+    content: gtk.Object, // refed; populated on completion
+    files: []DiffFile = &.{},
+    err: ?[]u8 = null,
+};
+
+fn prDiffInt(v: ?std.json.Value) i64 {
+    return switch (v orelse return 0) {
+        .integer => |i| i,
+        .float => |f| @intFromFloat(f),
+        else => 0,
+    };
+}
+
+fn onChangesClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
+    showPrDiff(ctx.state, ctx.issue_id);
+}
+
+/// Push a "Changes" subpage and fetch the PR diff off the main thread.
+fn showPrDiff(state: *AppState, issue_id: []const u8) void {
+    const nav = state.content_nav orelse return;
+    const inst = state.instance orelse return;
+
+    const toolbar = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    // Open-on-GitHub button (re-query the issue locally for its pr_url).
+    if (state.db) |*d| {
+        var arena = std.heap.ArenaAllocator.init(state.gpa);
+        defer arena.deinit();
+        if (d.getIssue(arena.allocator(), issue_id) catch null) |iss| {
+            if (iss.pr_url.len > 0) {
+                const open_btn = gtk.gtk_button_new_with_label("Open on GitHub");
+                gtk.gtk_widget_add_css_class(open_btn, "flat");
+                if (makeOpenUrlCtx(state, iss.pr_url)) |octx| {
+                    gtk.g_object_set_data_full(open_btn, "exp-ctx", @ptrCast(octx), @ptrCast(&freeOpenUrlCtx));
+                    _ = gtk.g_signal_connect_data(open_btn, "clicked", @ptrCast(&onOpenUrl), octx, null, 0);
+                }
+                gtk.adw_header_bar_pack_end(header, open_btn);
+            }
+        }
+    }
+    gtk.adw_toolbar_view_add_top_bar(toolbar, header);
+
+    const content = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 8);
+    gtk.gtk_widget_set_margin_start(content, 12);
+    gtk.gtk_widget_set_margin_end(content, 12);
+    gtk.gtk_widget_set_margin_top(content, 8);
+    gtk.gtk_widget_set_margin_bottom(content, 8);
+    const loading = gtk.gtk_label_new("Loading changes…");
+    gtk.gtk_widget_add_css_class(loading, "dim-label");
+    gtk.gtk_widget_set_margin_top(loading, 24);
+    gtk.gtk_box_append(content, loading);
+
+    const scrolled = gtk.gtk_scrolled_window_new();
+    gtk.gtk_widget_set_vexpand(scrolled, 1);
+    gtk.gtk_scrolled_window_set_child(scrolled, content);
+    gtk.adw_toolbar_view_set_content(toolbar, scrolled);
+
+    const page = gtk.adw_navigation_page_new(toolbar, "Changes");
+    gtk.adw_navigation_view_push(nav, page);
+
+    const job = state.gpa.create(PrDiffJob) catch return;
+    job.* = .{
+        .gpa = state.gpa,
+        .instance = state.gpa.dupe(u8, inst) catch {
+            state.gpa.destroy(job);
+            return;
+        },
+        .token = if (state.token) |t| (state.gpa.dupe(u8, t) catch null) else null,
+        .issue_id = state.gpa.dupe(u8, issue_id) catch {
+            state.gpa.free(job.instance);
+            state.gpa.destroy(job);
+            return;
+        },
+        .content = content,
+    };
+    _ = gtk.g_object_ref(content);
+    const th = std.Thread.spawn(.{}, prDiffWorker, .{job}) catch {
+        prDiffWorker(job); // fallback: inline (still posts via g_idle)
+        return;
+    };
+    th.detach();
+}
+
+fn prDiffWorker(job: *PrDiffJob) void {
+    const gpa = job.gpa;
+    defer _ = gtk.g_idle_add(@ptrCast(&onPrDiffDone), job);
+
+    const input = std.fmt.allocPrint(gpa, "{{\"issueId\":\"{s}\"}}", .{job.issue_id}) catch {
+        job.err = gpa.dupe(u8, "Out of memory") catch null;
+        return;
+    };
+    defer gpa.free(input);
+    var resp = trpc.queryInput(gpa, job.instance, "issues.prFiles", input, job.token, 120) catch {
+        job.err = gpa.dupe(u8, "Failed to load changes") catch null;
+        return;
+    };
+    defer resp.deinit();
+    if (!resp.ok()) {
+        const m = resp.errorMessage() orelse "Failed to load changes";
+        job.err = gpa.dupe(u8, m) catch null;
+        return;
+    }
+    const dv = resp.data() orelse return;
+    var obj = trpc.asObject(dv) orelse return;
+    if (obj.get("json")) |inner| {
+        if (trpc.asObject(inner)) |inner_obj| obj = inner_obj;
+    }
+    const files_v = obj.get("files") orelse return;
+    const arr = switch (files_v) {
+        .array => |arr_| arr_,
+        else => return,
+    };
+    var list: std.ArrayList(DiffFile) = .empty;
+    for (arr.items) |fv| {
+        const fo = trpc.asObject(fv) orelse continue;
+        const filename = trpc.objString(fo, "filename") orelse continue;
+        const status = trpc.objString(fo, "status") orelse "modified";
+        const patch = trpc.objString(fo, "patch");
+        list.append(gpa, .{
+            .filename = gpa.dupeZ(u8, filename) catch continue,
+            .status = gpa.dupeZ(u8, status) catch continue,
+            .additions = prDiffInt(fo.get("additions")),
+            .deletions = prDiffInt(fo.get("deletions")),
+            .patch = if (patch) |p| (gpa.dupeZ(u8, p) catch null) else null,
+        }) catch {};
+    }
+    job.files = list.toOwnedSlice(gpa) catch &.{};
+}
+
+fn onPrDiffDone(data: gtk.gpointer) callconv(.c) c_int {
+    const job: *PrDiffJob = @ptrCast(@alignCast(data));
+    const gpa = job.gpa;
+    while (gtk.gtk_widget_get_first_child(job.content)) |child| {
+        gtk.gtk_box_remove(job.content, child);
+    }
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    if (job.err) |e| {
+        const lbl = gtk.gtk_label_new(null);
+        if (std.fmt.allocPrintSentinel(a, "Couldn't load changes: {s}", .{e}, 0)) |t| {
+            gtk.gtk_label_set_text(lbl, t.ptr);
+        } else |_| {}
+        gtk.gtk_widget_add_css_class(lbl, "error");
+        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+        gtk.gtk_label_set_wrap(lbl, 1);
+        gtk.gtk_box_append(job.content, lbl);
+    } else if (job.files.len == 0) {
+        const lbl = gtk.gtk_label_new("No changed files.");
+        gtk.gtk_widget_add_css_class(lbl, "dim-label");
+        gtk.gtk_box_append(job.content, lbl);
+    } else {
+        for (job.files) |f| gtk.gtk_box_append(job.content, diffFileWidget(a, f));
+    }
+
+    gtk.g_object_unref(job.content);
+    for (job.files) |f| {
+        gpa.free(f.filename);
+        gpa.free(f.status);
+        if (f.patch) |p| gpa.free(p);
+    }
+    if (job.files.len > 0) gpa.free(job.files);
+    gpa.free(job.instance);
+    gpa.free(job.issue_id);
+    if (job.token) |t| gpa.free(t);
+    if (job.err) |e| gpa.free(e);
+    gpa.destroy(job);
+    return 0; // G_SOURCE_REMOVE
+}
+
+fn diffFileWidget(a: std.mem.Allocator, f: DiffFile) gtk.Object {
+    const card = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
+    gtk.gtk_widget_add_css_class(card, "card");
+
+    const hdr = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_set_margin_start(hdr, 8);
+    gtk.gtk_widget_set_margin_end(hdr, 8);
+    gtk.gtk_widget_set_margin_top(hdr, 6);
+    gtk.gtk_widget_set_margin_bottom(hdr, 6);
+    const name = gtk.gtk_label_new(f.filename.ptr);
+    gtk.gtk_widget_add_css_class(name, "diff-line");
+    gtk.gtk_widget_set_halign(name, gtk.ALIGN_START);
+    gtk.gtk_widget_set_hexpand(name, 1);
+    gtk.gtk_label_set_ellipsize(name, gtk.ELLIPSIZE_END);
+    gtk.gtk_box_append(hdr, name);
+    const counts = gtk.gtk_label_new(null);
+    if (std.fmt.allocPrintSentinel(a, "+{d} -{d}", .{ f.additions, f.deletions }, 0)) |t| {
+        gtk.gtk_label_set_text(counts, t.ptr);
+    } else |_| {}
+    gtk.gtk_widget_add_css_class(counts, "diff-line");
+    gtk.gtk_box_append(hdr, counts);
+    gtk.gtk_box_append(card, hdr);
+
+    if (f.patch) |patch| {
+        const lines = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
+        gtk.gtk_widget_set_margin_start(lines, 8);
+        gtk.gtk_widget_set_margin_bottom(lines, 6);
+        var it = std.mem.splitScalar(u8, patch, '\n');
+        while (it.next()) |line| {
+            const ll = gtk.gtk_label_new(null);
+            if (std.fmt.allocPrintSentinel(a, "{s}", .{if (line.len == 0) " " else line}, 0)) |t| {
+                gtk.gtk_label_set_text(ll, t.ptr);
+            } else |_| {}
+            gtk.gtk_widget_add_css_class(ll, "diff-line");
+            if (line.len > 0) {
+                if (line[0] == '+') {
+                    gtk.gtk_widget_add_css_class(ll, "diff-add");
+                } else if (line[0] == '-') {
+                    gtk.gtk_widget_add_css_class(ll, "diff-del");
+                } else if (std.mem.startsWith(u8, line, "@@")) {
+                    gtk.gtk_widget_add_css_class(ll, "diff-hunk");
+                }
+            }
+            gtk.gtk_widget_set_halign(ll, gtk.ALIGN_START);
+            gtk.gtk_box_append(lines, ll);
+        }
+        gtk.gtk_box_append(card, lines);
+    } else {
+        const lbl = gtk.gtk_label_new(if (std.mem.eql(u8, f.status, "renamed")) "Renamed." else "No textual diff (binary or too large).");
+        gtk.gtk_widget_add_css_class(lbl, "dim-label");
+        gtk.gtk_widget_set_margin_start(lbl, 8);
+        gtk.gtk_widget_set_margin_bottom(lbl, 6);
+        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+        gtk.gtk_box_append(card, lbl);
+    }
+    return card;
+}
+
 fn onIssueActivated(_: gtk.Object, row: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const state: *AppState = @ptrCast(@alignCast(data));
     if (row == null) return;
@@ -1819,15 +2063,15 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
         }
     }
 
-    // "Changes" — open the agent's PR (the diff) in the browser. Shown only when
-    // the issue has a synced PR.
+    // "Changes" — the agent's PR diff, rendered inline (the page also offers
+    // Open on GitHub). Shown only when the issue has a synced PR.
     if (issue.pr_url.len > 0) {
         const changes_btn = gtk.gtk_button_new_with_label("Changes");
         gtk.gtk_widget_add_css_class(changes_btn, "flat");
-        gtk.gtk_widget_set_tooltip_text(changes_btn, "View the agent's pull request");
-        if (makeOpenUrlCtx(state, issue.pr_url)) |ctx| {
-            gtk.g_object_set_data_full(changes_btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeOpenUrlCtx));
-            _ = gtk.g_signal_connect_data(changes_btn, "clicked", @ptrCast(&onOpenUrl), ctx, null, 0);
+        gtk.gtk_widget_set_tooltip_text(changes_btn, "View the pull request diff");
+        if (makeIssueActionCtx(state, id)) |ctx| {
+            gtk.g_object_set_data_full(changes_btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeIssueActionCtx));
+            _ = gtk.g_signal_connect_data(changes_btn, "clicked", @ptrCast(&onChangesClicked), ctx, null, 0);
         }
         gtk.adw_header_bar_pack_end(detail_header, changes_btn);
     }

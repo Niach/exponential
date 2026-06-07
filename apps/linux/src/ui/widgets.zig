@@ -173,6 +173,11 @@ pub fn applyCss() void {
         \\  border-radius: 6px;
         \\}
         \\.card { border-radius: 10px; }
+        // PR diff lines: monospace; +/-/@@ colored like the web DiffView.
+        \\.diff-line { font-family: monospace; font-size: 0.78rem; }
+        \\.diff-add { color: #6ee7b7; }
+        \\.diff-del { color: #fda4af; }
+        \\.diff-hunk { color: #a5b4fc; }
     );
     const display = gtk.gdk_display_get_default();
     if (display != null)
