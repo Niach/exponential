@@ -5,6 +5,7 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/marketing/package.json apps/marketing/package.json
 COPY apps/push-relay/package.json apps/push-relay/package.json
 COPY packages/db-schema/package.json packages/db-schema/package.json
+COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/domain-contract/package.json packages/domain-contract/package.json
 COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json

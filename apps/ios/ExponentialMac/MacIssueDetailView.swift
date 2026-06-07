@@ -835,6 +835,7 @@ struct MacIssueDetailView: View {
             VStack(alignment: .trailing, spacing: 6) {
                 MacMarkdownEditor(
                     model: composerEditor,
+                    placeholder: "Write a comment…",
                     baseURL: model.baseURL,
                     accountId: model.accountId,
                     httpClient: model.httpClient,

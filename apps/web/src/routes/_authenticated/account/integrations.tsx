@@ -148,9 +148,13 @@ function AccountIntegrations() {
               <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
                 GOOGLE_CLIENT_ID
               </code>
-              and
+              ,
               <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
                 GOOGLE_CLIENT_SECRET
+              </code>
+              and
+              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+                GOOGLE_CALENDAR_ENABLED=true
               </code>
               to enable it.
             </div>
