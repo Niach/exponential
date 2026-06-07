@@ -532,6 +532,44 @@ pub const Database = struct {
         return rows.toOwnedSlice(arena);
     }
 
+    pub const NotificationRow = struct {
+        id: [:0]const u8,
+        issue_id: [:0]const u8, // "" when none
+        type: [:0]const u8,
+        title: [:0]const u8,
+        body: [:0]const u8, // "" when none
+        read: bool,
+        created_at: [:0]const u8,
+        issue_identifier: [:0]const u8, // joined, "" when the issue isn't synced/none
+    };
+
+    /// The signed-in user's notifications, newest first. The notifications
+    /// Electric shape is already per-user, so every synced row is the user's.
+    pub fn listNotifications(self: *Database, arena: std.mem.Allocator) ![]NotificationRow {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        var stmt = try self.conn.prepare(
+            "SELECT n.id, COALESCE(n.issue_id, ''), n.type, n.title, COALESCE(n.body, ''), " ++
+                "CASE WHEN n.read_at IS NULL THEN '' ELSE '1' END, n.created_at, COALESCE(i.identifier, '') " ++
+                "FROM notifications n LEFT JOIN issues i ON i.id = n.issue_id ORDER BY n.created_at DESC;",
+        );
+        defer stmt.finalize();
+        var rows: std.ArrayList(NotificationRow) = .empty;
+        while (try stmt.step()) {
+            try rows.append(arena, .{
+                .id = try arena.dupeZ(u8, stmt.columnText(0)),
+                .issue_id = try arena.dupeZ(u8, stmt.columnText(1)),
+                .type = try arena.dupeZ(u8, stmt.columnText(2)),
+                .title = try arena.dupeZ(u8, stmt.columnText(3)),
+                .body = try arena.dupeZ(u8, stmt.columnText(4)),
+                .read = stmt.columnText(5).len > 0,
+                .created_at = try arena.dupeZ(u8, stmt.columnText(6)),
+                .issue_identifier = try arena.dupeZ(u8, stmt.columnText(7)),
+            });
+        }
+        return rows.toOwnedSlice(arena);
+    }
+
     /// Projects for the sidebar (active first, archived hidden), optionally
     /// scoped to one workspace.
     pub fn listProjects(self: *Database, arena: std.mem.Allocator, workspace_id: ?[]const u8) ![]ProjectRow {

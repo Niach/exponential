@@ -723,6 +723,15 @@ fn buildTrackerUI(state: *AppState) void {
 
     // (Workspace settings now lives in the switcher popover, mirroring the web.)
 
+    // Inbox — the user's notifications (assignments, comments, mentions, agent).
+    const inbox_btn = gtk.gtk_button_new_with_label("\u{1F4E5} Inbox");
+    gtk.gtk_widget_add_css_class(inbox_btn, "flat");
+    gtk.gtk_widget_add_css_class(inbox_btn, "dim-label");
+    gtk.gtk_widget_set_halign(inbox_btn, gtk.ALIGN_START);
+    gtk.gtk_widget_set_margin_start(inbox_btn, 8);
+    _ = gtk.g_signal_connect_data(inbox_btn, "clicked", @ptrCast(&onInboxClicked), state, null, 0);
+    gtk.gtk_box_append(sidebar_box, inbox_btn);
+
     // Send feedback (opens the instance's /feedback page in the browser).
     const feedback_btn = gtk.gtk_button_new_with_label("\u{1F4E3} Send feedback");
     gtk.gtk_widget_add_css_class(feedback_btn, "flat");
@@ -1607,6 +1616,128 @@ fn onFeedbackClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     var buf: [512]u8 = undefined;
     const url = std.fmt.bufPrintZ(&buf, "{s}/feedback", .{base}) catch return;
     _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
+}
+
+fn onInboxClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    showInbox(@ptrCast(@alignCast(data)));
+}
+
+fn dateOnly(ts: []const u8) []const u8 {
+    return if (ts.len >= 10) ts[0..10] else ts;
+}
+
+/// A single notification row: a flat button (title bold when unread, optional
+/// body, issue identifier + date). Click marks it read + opens the issue.
+fn notifRow(a: std.mem.Allocator, state: *AppState, n: Database.NotificationRow) gtk.Object {
+    const btn = gtk.gtk_button_new();
+    gtk.gtk_widget_add_css_class(btn, "flat");
+    gtk.gtk_widget_set_halign(btn, gtk.ALIGN_FILL);
+
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 2);
+    gtk.gtk_widget_set_hexpand(row, 1);
+
+    const title = gtk.gtk_label_new(n.title.ptr);
+    gtk.gtk_widget_set_halign(title, gtk.ALIGN_START);
+    gtk.gtk_label_set_wrap(title, 1);
+    gtk.gtk_widget_add_css_class(title, if (n.read) "dim-label" else "heading");
+    gtk.gtk_box_append(row, title);
+
+    if (n.body.len > 0) {
+        const body = gtk.gtk_label_new(n.body.ptr);
+        gtk.gtk_widget_set_halign(body, gtk.ALIGN_START);
+        gtk.gtk_label_set_wrap(body, 1);
+        gtk.gtk_widget_add_css_class(body, "caption");
+        gtk.gtk_widget_add_css_class(body, "dim-label");
+        gtk.gtk_box_append(row, body);
+    }
+
+    const meta_text = if (n.issue_identifier.len > 0)
+        std.fmt.allocPrintSentinel(a, "{s} · {s}", .{ n.issue_identifier, dateOnly(n.created_at) }, 0) catch null
+    else
+        std.fmt.allocPrintSentinel(a, "{s}", .{dateOnly(n.created_at)}, 0) catch null;
+    if (meta_text) |mt| {
+        const meta = gtk.gtk_label_new(mt.ptr);
+        gtk.gtk_widget_set_halign(meta, gtk.ALIGN_START);
+        gtk.gtk_widget_add_css_class(meta, "caption");
+        gtk.gtk_widget_add_css_class(meta, "dim-label");
+        gtk.gtk_box_append(row, meta);
+    }
+
+    gtk.gtk_button_set_child(btn, row);
+    // Stash the ids for the click handler (GTK frees the dups on destroy).
+    gtk.g_object_set_data_full(btn, "exp-notif-id", @ptrCast(gtk.g_strdup(n.id.ptr)), @ptrCast(&gtk.g_free));
+    if (n.issue_id.len > 0) {
+        gtk.g_object_set_data_full(btn, "exp-notif-issue", @ptrCast(gtk.g_strdup(n.issue_id.ptr)), @ptrCast(&gtk.g_free));
+    }
+    _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onNotifClick), state, null, 0);
+    return btn;
+}
+
+fn onNotifClick(button: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    if (gtk.g_object_get_data(button, "exp-notif-id")) |id_c| {
+        if (state.instance) |inst| {
+            const id = std.mem.span(@as([*:0]const u8, @ptrCast(id_c)));
+            var buf: [256]u8 = undefined;
+            if (std.fmt.bufPrint(&buf, "{{\"id\":\"{s}\"}}", .{id})) |json| {
+                mutate.fire(state.gpa, inst, state.token, "notifications.markRead", json);
+            } else |_| {}
+        }
+    }
+    if (gtk.g_object_get_data(button, "exp-notif-issue")) |iss_c| {
+        showIssueDetail(state, std.mem.span(@as([*:0]const u8, @ptrCast(iss_c))));
+    }
+}
+
+fn onMarkAllRead(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const inst = state.instance orelse return;
+    mutate.fire(state.gpa, inst, state.token, "notifications.markAllRead", "{}");
+}
+
+/// Inbox subpage: the user's notifications (newest first) + Mark all read.
+fn showInbox(state: *AppState) void {
+    const nav = state.content_nav orelse return;
+    const db = if (state.db) |*d| d else return;
+
+    var arena = std.heap.ArenaAllocator.init(state.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const notifs = db.listNotifications(a) catch &[_]Database.NotificationRow{};
+
+    const toolbar = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    if (notifs.len > 0) {
+        const mark_all = gtk.gtk_button_new_with_label("Mark all read");
+        gtk.gtk_widget_add_css_class(mark_all, "flat");
+        _ = gtk.g_signal_connect_data(mark_all, "clicked", @ptrCast(&onMarkAllRead), state, null, 0);
+        gtk.adw_header_bar_pack_end(header, mark_all);
+    }
+    gtk.adw_toolbar_view_add_top_bar(toolbar, header);
+
+    const box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 2);
+    gtk.gtk_widget_set_margin_start(box, 12);
+    gtk.gtk_widget_set_margin_end(box, 12);
+    gtk.gtk_widget_set_margin_top(box, 8);
+    gtk.gtk_widget_set_margin_bottom(box, 8);
+
+    if (notifs.len == 0) {
+        const empty = gtk.gtk_label_new("You're all caught up.");
+        gtk.gtk_widget_add_css_class(empty, "dim-label");
+        gtk.gtk_widget_set_margin_top(empty, 24);
+        gtk.gtk_box_append(box, empty);
+    } else {
+        for (notifs) |n| gtk.gtk_box_append(box, notifRow(a, state, n));
+    }
+
+    const scrolled = gtk.gtk_scrolled_window_new();
+    gtk.gtk_widget_set_vexpand(scrolled, 1);
+    gtk.gtk_scrolled_window_set_child(scrolled, box);
+    gtk.adw_toolbar_view_set_content(toolbar, scrolled);
+
+    const page = gtk.adw_navigation_page_new(toolbar, "Inbox");
+    gtk.adw_navigation_view_push(nav, page);
 }
 
 fn onIssueActivated(_: gtk.Object, row: gtk.Object, data: gtk.gpointer) callconv(.c) void {
