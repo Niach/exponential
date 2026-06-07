@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.ProjectsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -78,6 +79,7 @@ class IssueListViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val issueImagesApi: IssueImagesApi,
+    private val projectsApi: ProjectsApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -372,4 +374,22 @@ class IssueListViewModel @Inject constructor(
         }
         return out
     }
+
+    // Link/unlink the project's GitHub repo (owner-gated server-side). Returns an
+    // error message or null; Electric sync surfaces the updated project row.
+    suspend fun linkRepo(repo: String): String? =
+        try {
+            projectsApi.linkGithubRepo(accountId, projectId, repo.trim())
+            null
+        } catch (error: Throwable) {
+            error.message ?: "Failed to link repository"
+        }
+
+    suspend fun unlinkRepo(): String? =
+        try {
+            projectsApi.unlinkGithubRepo(accountId, projectId)
+            null
+        } catch (error: Throwable) {
+            error.message ?: "Failed to unlink repository"
+        }
 }
