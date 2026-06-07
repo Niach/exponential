@@ -9,6 +9,12 @@ struct HomeView: View {
 
     @Environment(AppDependencies.self) private var deps
 
+    @State private var createProjectTarget: CreateProjectTarget?
+    @State private var createWorkspaceTarget: CreateWorkspaceTarget?
+    // A brand-new workspace has no projects (so Home hides it); after creating
+    // one we chain straight into first-project creation so it becomes visible.
+    @State private var pendingFirstProject: CreateProjectTarget?
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -24,13 +30,26 @@ struct HomeView: View {
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                 } else {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 12) {
                         Image(systemName: "tray")
                             .font(.title2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         Text("No projects yet")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        if let accountId = deps.auth.activeAccountId {
+                            Button {
+                                createWorkspaceTarget = CreateWorkspaceTarget(accountId: accountId)
+                            } label: {
+                                Label("New workspace", systemImage: "plus")
+                                    .font(.caption.weight(.medium))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .glassButton()
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
                     }
                 }
             } else {
@@ -56,6 +75,24 @@ struct HomeView: View {
                 settingsButton
             }
         }
+        .sheet(item: $createWorkspaceTarget, onDismiss: {
+            // Chain into first-project creation once the workspace sheet closes.
+            if let pending = pendingFirstProject {
+                pendingFirstProject = nil
+                createProjectTarget = pending
+            }
+        }) { target in
+            CreateWorkspaceSheet(accountId: target.accountId) { ws in
+                pendingFirstProject = CreateProjectTarget(accountId: target.accountId, workspaceId: ws.id)
+            }
+            .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(item: $createProjectTarget) { target in
+            CreateProjectSheet(accountId: target.accountId, workspaceId: target.workspaceId) { projectId in
+                onProjectTap(target.accountId, projectId)
+            }
+            .presentationBackground(.ultraThinMaterial)
+        }
     }
 
     private var inboxButton: some View {
@@ -67,15 +104,26 @@ struct HomeView: View {
     @ViewBuilder
     private func serverSection(_ group: ServerProjectGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(group.hostname)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                if let email = group.userEmail, !email.isEmpty {
-                    Text(email)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.hostname)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                    if let email = group.userEmail, !email.isEmpty {
+                        Text(email)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
                 }
+                Spacer()
+                Button {
+                    createWorkspaceTarget = CreateWorkspaceTarget(accountId: group.accountId)
+                } label: {
+                    Label("Workspace", systemImage: "plus")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 4)
 
@@ -97,6 +145,14 @@ struct HomeView: View {
                 Text("\(block.projects.count)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Button {
+                    createProjectTarget = CreateProjectTarget(accountId: accountId, workspaceId: block.workspace.id)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 4)
 
@@ -121,6 +177,17 @@ struct HomeView: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
         }
+    }
+
+    private struct CreateProjectTarget: Identifiable {
+        let accountId: String
+        let workspaceId: String
+        var id: String { "\(accountId)/\(workspaceId)" }
+    }
+
+    private struct CreateWorkspaceTarget: Identifiable {
+        let accountId: String
+        var id: String { accountId }
     }
 
     @ViewBuilder

@@ -141,21 +141,24 @@ public enum Accent {
 
 // MARK: - Status Colors
 
+// Semantic status/priority colors come from the shared design tokens
+// (packages/design-tokens) so web/iOS/Android/Linux stay in lockstep. The glass
+// materials are deliberately NOT tokenized.
 public enum StatusColor {
-    public static let backlog = Color.gray
+    public static let backlog = DesignTokens.Semantic.neutral
     /// Web's todo is `text-foreground` (near-white), not gray.
     public static let todo = Zinc._50
-    public static let inProgress = Color.yellow
-    public static let done = Color.green
-    public static let cancelled = Color.red
+    public static let inProgress = DesignTokens.Semantic.yellow
+    public static let done = DesignTokens.Semantic.green
+    public static let cancelled = DesignTokens.Semantic.red
 }
 
 // MARK: - Priority Colors
 
 public enum PriorityColor {
-    public static let none = Color.gray
-    public static let low = Color.blue
-    public static let medium = Color.yellow
-    public static let high = Color.orange
-    public static let urgent = Color.red
+    public static let none = DesignTokens.Semantic.neutral
+    public static let low = DesignTokens.Semantic.blue
+    public static let medium = DesignTokens.Semantic.yellow
+    public static let high = DesignTokens.Semantic.orange
+    public static let urgent = DesignTokens.Semantic.red
 }

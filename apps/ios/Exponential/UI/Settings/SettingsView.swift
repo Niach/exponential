@@ -22,9 +22,6 @@ struct SettingsView: View {
                     serversSection
                     workspacesSection
                     generalSection
-                    if deps.auth.isAdmin {
-                        adminSection
-                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -200,22 +197,6 @@ struct SettingsView: View {
     private func feedbackUrl() -> URL? {
         guard let baseUrl = deps.auth.instanceUrl else { return nil }
         return URL(string: "\(baseUrl)/w/feedback/projects/feedback")
-    }
-
-    private var adminSection: some View {
-        sectionStack(title: "Admin") {
-            VStack(spacing: 6) {
-                NavigationLink(value: AppRoute.adminUsers) {
-                    settingsRow(icon: "person.2", title: "Users")
-                }
-                .buttonStyle(.plain)
-
-                NavigationLink(value: AppRoute.adminWorkspaces) {
-                    settingsRow(icon: "rectangle.stack", title: "Workspaces")
-                }
-                .buttonStyle(.plain)
-            }
-        }
     }
 
     @ViewBuilder

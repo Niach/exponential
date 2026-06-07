@@ -18,6 +18,7 @@ struct MarkdownEditor: View {
     var baseURL: URL?
     var accountId: String = ""
     var httpClient: HTTPClient?
+    var mentionMembers: [MentionMember] = []
 
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
@@ -67,6 +68,10 @@ struct MarkdownEditor: View {
                 .padding(.bottom, 60)
             }
         }
+        .overlay(alignment: .top) {
+            if !model.mentionCandidates.isEmpty { mentionBar }
+        }
+        .onChange(of: mentionMembers) { _, newValue in model.mentionMembers = newValue }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { _, newItem in
             guard let newItem else { return }
@@ -87,7 +92,36 @@ struct MarkdownEditor: View {
         .onAppear {
             toolbar.onImagePick = { showPhotoPicker = true }
             toolbar.onInsertLink = { showLinkAlert = true }
+            model.mentionMembers = mentionMembers
         }
+    }
+
+    // @-mention autocomplete: a non-focus-stealing candidate bar. Tapping inserts
+    // the canonical `@email` token via the model (which keeps the text view first
+    // responder), so the keyboard never collapses.
+    private var mentionBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(model.mentionCandidates) { member in
+                    Button {
+                        model.applyMention(member)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(member.name).font(.caption.weight(.medium)).foregroundStyle(.white)
+                            Text(member.email).font(.caption2).foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.white.opacity(0.1), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+        }
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 8)
     }
 
     private func isSolePlaceholderBlock(_ id: UUID) -> Bool {

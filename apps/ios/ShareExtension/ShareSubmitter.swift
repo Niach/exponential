@@ -18,7 +18,7 @@ struct ShareSubmitter {
             CreateIssueInput(
                 projectId: projectId,
                 title: titleText.isEmpty ? "Shared" : titleText,
-                description: base.isEmpty ? nil : IssueDescription(text: base)
+                description: base.isEmpty ? nil : base
             )
         )
 
@@ -39,7 +39,7 @@ struct ShareSubmitter {
             let finalText = (base + imageMarkdown).trimmingCharacters(in: .whitespacesAndNewlines)
             try await issuesApi.update(
                 accountId: accountId,
-                UpdateIssueInput(id: createdId, description: IssueDescription(text: finalText))
+                UpdateIssueInput(id: createdId, description: finalText)
             )
         }
 

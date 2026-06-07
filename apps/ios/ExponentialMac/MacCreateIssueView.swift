@@ -105,7 +105,7 @@ struct MacCreateIssueView: View {
             Text("Description").font(.caption).foregroundStyle(.secondary)
             // Top-align so the toolbar sits directly under the label (the default
             // .center left an empty band above it), and grow from a compact height.
-            MacMarkdownEditor(model: editor, baseURL: baseURL, accountId: accountId, httpClient: deps.httpClient)
+            MacMarkdownEditor(model: editor, baseURL: baseURL, accountId: accountId, httpClient: deps.httpClient, mentionMembers: users.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) })
                 .frame(minHeight: 120, maxHeight: 320, alignment: .top)
 
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
@@ -173,7 +173,7 @@ struct MacCreateIssueView: View {
             status: status.rawValue,
             priority: priority.rawValue,
             assigneeId: assigneeId,
-            description: stripped.isEmpty ? nil : IssueDescription(text: stripped),
+            description: stripped.isEmpty ? nil : stripped,
             dueDate: dateStr,
             dueTime: dateStr == nil ? nil : dueTime,
             endTime: dateStr == nil ? nil : endTime,
@@ -198,7 +198,7 @@ struct MacCreateIssueView: View {
                 if allUploaded, !editor.hasUncommittedDrafts, finalMarkdown != stripped {
                     try await deps.issuesApi.update(
                         accountId: accountId,
-                        UpdateIssueInput(id: createdId, description: finalMarkdown.isEmpty ? nil : IssueDescription(text: finalMarkdown))
+                        UpdateIssueInput(id: createdId, description: finalMarkdown.isEmpty ? nil : finalMarkdown)
                     )
                 }
             }

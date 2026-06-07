@@ -11,8 +11,8 @@ let macAgentEventTypes: Set<String> = [
 ]
 
 /// The first-class agent panel on the issue detail (web/Linux parity). Drives the
-/// whole plan/question lifecycle off the synced `issue.agentPlanState`, fetching
-/// the plan/question TEXT via `agentPlan.getState` (server-only, not in Electric):
+/// whole plan/question lifecycle off the synced `issue.agentPlanState`; the
+/// plan/question TEXT comes from the synced `agent_runs` row (`model.agentRun`):
 ///
 /// - `drafting`/`planning` → "working on a plan…"
 /// - `awaiting_approval`   → plan markdown + Approve / Request changes (+ Approve
@@ -28,8 +28,6 @@ struct MacAgentPanel: View {
     let model: MacIssueDetailModel
     let issue: IssueEntity
 
-    @State private var planText: String?
-    @State private var questionText: String?
     @State private var answerDraft = ""
     @State private var busy: AgentAction?
     @State private var showDiff = false
@@ -38,6 +36,17 @@ struct MacAgentPanel: View {
 
     // Plan states where a run is actively executing (so "Cancel" makes sense).
     private static let busyStates: Set<String> = ["drafting", "planning", "coding", "approved"]
+
+    // Plan/question text come from the synced `agent_runs` row (jsonb {text});
+    // unwrap them the same way as a comment body.
+    private var planText: String? {
+        let t = getCommentBodyText(model.agentRun?.planText)
+        return t.isEmpty ? nil : t
+    }
+    private var questionText: String? {
+        let t = getCommentBodyText(model.agentRun?.question)
+        return t.isEmpty ? nil : t
+    }
 
     private var agentEvents: [IssueEventEntity] {
         model.issueEvents.filter { macAgentEventTypes.contains($0.type) }
@@ -55,9 +64,6 @@ struct MacAgentPanel: View {
     private var implementing: Bool {
         !finished && issue.agentPlanState == "approved" && issue.prState == nil && !latestIsError
     }
-
-    // Re-fetch the plan/question text whenever the synced state or revision moves.
-    private var fetchKey: String { "\(issue.agentPlanState ?? "none")-\(issue.agentPlanRevision)" }
 
     var body: some View {
         if issue.agentPlanState != nil || issue.prUrl != nil || latestIsError {
@@ -77,7 +83,6 @@ struct MacAgentPanel: View {
             }
             .padding(12)
             .glassSection()
-            .task(id: fetchKey) { await loadPlanState() }
         }
     }
 
@@ -88,7 +93,7 @@ struct MacAgentPanel: View {
             Image(systemName: "cpu").foregroundStyle(Accent.indigo)
             Text("Agent").font(.subheadline.weight(.semibold))
             statusChip
-            if issue.agentPlanState == "approved", issue.agentPlanApprovedAt != nil {
+            if issue.agentPlanState == "approved", model.agentRun?.approvedAt != nil {
                 approvedBadge
             }
             Spacer()
@@ -280,24 +285,6 @@ struct MacAgentPanel: View {
         .background(Color.red.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
-
-    // MARK: - Plan fetch
-
-    private func loadPlanState() async {
-        let state = issue.agentPlanState
-        guard state == "awaiting_approval" || state == "awaiting_answer" || state == "approved" else {
-            planText = nil
-            questionText = nil
-            return
-        }
-        do {
-            let r = try await deps.agentPlanApi.getState(accountId: model.accountId, issueId: issue.id)
-            planText = r.planText
-            questionText = r.question
-        } catch {
-            // Leave the existing values; the UI falls back to "Loading…".
-        }
-    }
 }
 
 /// A quiet, collapsible feed of agent lifecycle events (started, plan ready,
@@ -333,7 +320,7 @@ struct MacAgentActivityFeed: View {
                         ForEach(agentEvents) { event in
                             HStack(spacing: 8) {
                                 Circle().fill(Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
-                                Text("\(who(event)) \(macAgentEventVerb(event.type))")
+                                Text("\(who(event)) \(macEventPhrase(event, user: user, labelName: { _ in nil }))")
                                     .font(.caption).foregroundStyle(.secondary)
                                 Text(macRelativeDate(event.createdAt)).font(.caption2).foregroundStyle(.tertiary)
                                 Spacer()
@@ -355,8 +342,8 @@ struct MacAgentActivityFeed: View {
     }
 }
 
-/// Human-readable verb for an agent/issue event type. Shared by the activity
-/// feed and any inline event rows.
+/// Human-readable verb for an agent/issue event type (the generic fallback used
+/// when an event has no payload to render richly).
 func macAgentEventVerb(_ type: String) -> String {
     switch type {
     case "status_changed": return "changed the status"
@@ -371,6 +358,72 @@ func macAgentEventVerb(_ type: String) -> String {
     case "agent_question": return "asked a question"
     case "agent_answer": return "answered the agent"
     default: return type.replacingOccurrences(of: "_", with: " ")
+    }
+}
+
+/// Human label for an issue_status enum value.
+func macStatusLabel(_ s: String) -> String {
+    switch s {
+    case "backlog": return "Backlog"
+    case "todo": return "Todo"
+    case "in_progress": return "In Progress"
+    case "done": return "Done"
+    case "cancelled": return "Cancelled"
+    default: return s.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+/// Pull a string or integer scalar out of an issue_event's JSON payload.
+func macEventField(_ payload: String?, _ key: String) -> String? {
+    guard let payload, let data = payload.data(using: .utf8),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let value = obj[key], !(value is NSNull) else { return nil }
+    if let s = value as? String { return s.isEmpty ? nil : s }
+    if let i = value as? Int { return String(i) }
+    if let d = value as? Double { return String(Int(d)) }
+    return nil
+}
+
+/// A rich activity phrase from the event type + payload (status from→to, PR #N,
+/// assigned/unassigned, label name). Resolves names via the supplied closures;
+/// falls back to the generic verb for events without a payload. Mirrors the web
+/// activity timeline.
+func macEventPhrase(
+    _ event: IssueEventEntity,
+    user: (String?) -> UserEntity?,
+    labelName: (String) -> String?
+) -> String {
+    switch event.type {
+    case "status_changed":
+        guard let to = macEventField(event.payload, "to") else { return "changed the status" }
+        if let from = macEventField(event.payload, "from") {
+            return "changed status from \(macStatusLabel(from)) to \(macStatusLabel(to))"
+        }
+        return "changed status to \(macStatusLabel(to))"
+    case "assignee_changed":
+        guard let to = macEventField(event.payload, "to") else { return "unassigned this issue" }
+        if let name = user(to).map({ $0.name ?? $0.email }) {
+            return "assigned \(name)"
+        }
+        return "assigned this issue"
+    case "label_added":
+        if let id = macEventField(event.payload, "labelId"), let name = labelName(id) {
+            return "added label \(name)"
+        }
+        return "added a label"
+    case "label_removed":
+        if let id = macEventField(event.payload, "labelId"), let name = labelName(id) {
+            return "removed label \(name)"
+        }
+        return "removed a label"
+    case "pr_opened":
+        if let n = macEventField(event.payload, "prNumber") { return "opened PR #\(n)" }
+        return "opened a pull request"
+    case "pr_merged":
+        if let n = macEventField(event.payload, "prNumber") { return "merged PR #\(n)" }
+        return "merged the pull request"
+    default:
+        return macAgentEventVerb(event.type)
     }
 }
 

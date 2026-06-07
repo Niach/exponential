@@ -8,7 +8,7 @@ public struct CreateIssueInput: Encodable, Sendable {
     public var status: String?
     public var priority: String?
     public var assigneeId: String?
-    public var description: IssueDescription?
+    public var description: String?
     public var dueDate: String?
     public var dueTime: String?
     public var endTime: String?
@@ -22,7 +22,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         status: String? = nil,
         priority: String? = nil,
         assigneeId: String? = nil,
-        description: IssueDescription? = nil,
+        description: String? = nil,
         dueDate: String? = nil,
         dueTime: String? = nil,
         endTime: String? = nil,
@@ -51,7 +51,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
     public var status: String?
     public var priority: String?
     public var assigneeId: String?
-    public var description: IssueDescription?
+    public var description: String?
     public var dueDate: String?
     public var dueTime: String?
     public var endTime: String?
@@ -69,7 +69,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         status: String? = nil,
         priority: String? = nil,
         assigneeId: String? = nil,
-        description: IssueDescription? = nil,
+        description: String? = nil,
         dueDate: String? = nil,
         dueTime: String? = nil,
         endTime: String? = nil,
@@ -128,14 +128,6 @@ public struct DeleteIssueInput: Encodable, Sendable {
 
     public init(id: String) {
         self.id = id
-    }
-}
-
-public struct IssueDescription: Encodable, Sendable {
-    public let text: String
-
-    public init(text: String) {
-        self.text = text
     }
 }
 

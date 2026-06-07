@@ -60,7 +60,8 @@ struct CreateIssueSheet: View {
                             model: editor,
                             baseURL: instanceBaseURL,
                             accountId: accountId,
-                            httpClient: deps.httpClient
+                            httpClient: deps.httpClient,
+                            mentionMembers: users.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
                         )
 
                         // Metadata row
@@ -318,7 +319,7 @@ struct CreateIssueSheet: View {
             status: status.rawValue,
             priority: priority.rawValue,
             assigneeId: assigneeId,
-            description: stripped.isEmpty ? nil : IssueDescription(text: stripped),
+            description: stripped.isEmpty ? nil : stripped,
             dueDate: dateStr,
             dueTime: dateStr == nil ? nil : dueTime,
             endTime: dateStr == nil ? nil : endTime,
@@ -352,7 +353,7 @@ struct CreateIssueSheet: View {
                         accountId: accountId,
                         UpdateIssueInput(
                             id: createdId,
-                            description: finalMarkdown.isEmpty ? nil : IssueDescription(text: finalMarkdown)
+                            description: finalMarkdown.isEmpty ? nil : finalMarkdown
                         )
                     )
                 }

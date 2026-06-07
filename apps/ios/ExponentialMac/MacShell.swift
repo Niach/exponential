@@ -27,7 +27,6 @@ struct MacShell: View {
     @State private var issuePath: [IssueRef] = []
     @State private var settingsTarget: WorkspaceSettingsTarget?
     @State private var createProjectTarget: WorkspaceSettingsTarget?
-    @State private var showAdmin = false
     @State private var showIntegrations = false
     @State private var showCreateWorkspace = false
     @State private var showInbox = false
@@ -148,13 +147,6 @@ struct MacShell: View {
             MacWorkspaceSettingsView(target: target)
                 .environment(deps)
                 .preferredColorScheme(.dark)
-        }
-        .sheet(isPresented: $showAdmin) {
-            if let account = activeAccount {
-                MacAdminView(accountId: account.id)
-                    .environment(deps)
-                    .preferredColorScheme(.dark)
-            }
         }
         .sheet(isPresented: $showIntegrations) {
             if let account = activeAccount {
@@ -380,9 +372,6 @@ struct MacShell: View {
                 }
                 Spacer(minLength: 4)
                 Menu {
-                    if deps.auth.isAdmin {
-                        Button { showAdmin = true } label: { Label("Admin", systemImage: "shield") }
-                    }
                     Button { showIntegrations = true } label: {
                         Label("Integrations", systemImage: "puzzlepiece.extension")
                     }

@@ -94,7 +94,8 @@ struct IssueDetailView: View {
                             model: vm.editor,
                             baseURL: instanceBaseURL,
                             accountId: accountId,
-                            httpClient: deps.httpClient
+                            httpClient: deps.httpClient,
+                            mentionMembers: vm.mentionMembers
                         )
 
                         // Metadata
@@ -444,18 +445,18 @@ struct IssueDetailView: View {
     private func planStateLabel(issue: IssueEntity) -> PlanLabel? {
         switch issue.agentPlanState {
         case "drafting":
-            return PlanLabel(text: "Drafting", color: .orange, symbol: "pencil")
+            return PlanLabel(text: "Drafting", color: DesignTokens.Semantic.planDrafting, symbol: "pencil")
         case "awaiting_answer":
-            return PlanLabel(text: "Awaiting answer", color: .purple, symbol: "questionmark.circle")
+            return PlanLabel(text: "Awaiting answer", color: DesignTokens.Semantic.planAwaitingAnswer, symbol: "questionmark.circle")
         case "awaiting_approval":
-            return PlanLabel(text: "Awaiting approval", color: .blue, symbol: "hand.raised")
+            return PlanLabel(text: "Awaiting approval", color: DesignTokens.Semantic.planAwaitingApproval, symbol: "hand.raised")
         case "approved":
             // Hide once status moves to done/cancelled — the approval no
             // longer needs surfacing for finished work.
             if issue.status == "done" || issue.status == "cancelled" {
                 return nil
             }
-            return PlanLabel(text: "Approved", color: .green, symbol: "checkmark.circle")
+            return PlanLabel(text: "Approved", color: DesignTokens.Semantic.planApproved, symbol: "checkmark.circle")
         default:
             return nil
         }

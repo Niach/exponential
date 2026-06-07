@@ -163,19 +163,14 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let googleCalendarEventId: String?
     public let googleCalendarLastSyncedAt: String?
     public let googleCalendarLastSyncError: String?
+    // Agent run state lives in `agent_runs` (its own synced shape) as of Phase F;
+    // issues keeps only the summary `agentPlanState` + the PR summary columns.
     public let agentPlanState: String?
-    public let agentPlanRevision: Int
-    public let agentPlanApprovedAt: String?
-    public let agentPlanApprovedBy: String?
-    public let agentLastCommentSeenAt: String?
     public let prUrl: String?
     public let prNumber: Int?
     public let prState: String?
     public let branch: String?
     public let prMergedAt: String?
-    public let agentSessionId: String?
-    public let agentRunMode: String?
-    public let agentInteractiveClaimedAt: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -202,18 +197,11 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         googleCalendarLastSyncedAt: String?,
         googleCalendarLastSyncError: String?,
         agentPlanState: String?,
-        agentPlanRevision: Int,
-        agentPlanApprovedAt: String?,
-        agentPlanApprovedBy: String?,
-        agentLastCommentSeenAt: String?,
         prUrl: String?,
         prNumber: Int?,
         prState: String?,
         branch: String?,
         prMergedAt: String?,
-        agentSessionId: String?,
-        agentRunMode: String?,
-        agentInteractiveClaimedAt: String?,
         createdAt: String,
         updatedAt: String
     ) {
@@ -239,18 +227,11 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.googleCalendarLastSyncedAt = googleCalendarLastSyncedAt
         self.googleCalendarLastSyncError = googleCalendarLastSyncError
         self.agentPlanState = agentPlanState
-        self.agentPlanRevision = agentPlanRevision
-        self.agentPlanApprovedAt = agentPlanApprovedAt
-        self.agentPlanApprovedBy = agentPlanApprovedBy
-        self.agentLastCommentSeenAt = agentLastCommentSeenAt
         self.prUrl = prUrl
         self.prNumber = prNumber
         self.prState = prState
         self.branch = branch
         self.prMergedAt = prMergedAt
-        self.agentSessionId = agentSessionId
-        self.agentRunMode = agentRunMode
-        self.agentInteractiveClaimedAt = agentInteractiveClaimedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -272,17 +253,10 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case googleCalendarLastSyncedAt = "google_calendar_last_synced_at"
         case googleCalendarLastSyncError = "google_calendar_last_sync_error"
         case agentPlanState = "agent_plan_state"
-        case agentPlanRevision = "agent_plan_revision"
-        case agentPlanApprovedAt = "agent_plan_approved_at"
-        case agentPlanApprovedBy = "agent_plan_approved_by"
-        case agentLastCommentSeenAt = "agent_last_comment_seen_at"
         case prUrl = "pr_url"
         case prNumber = "pr_number"
         case prState = "pr_state"
         case prMergedAt = "pr_merged_at"
-        case agentSessionId = "agent_session_id"
-        case agentRunMode = "agent_run_mode"
-        case agentInteractiveClaimedAt = "agent_interactive_claimed_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -314,18 +288,11 @@ extension IssueEntity: Codable {
         googleCalendarLastSyncedAt = try container.decodeIfPresent(String.self, forKey: .googleCalendarLastSyncedAt)
         googleCalendarLastSyncError = try container.decodeIfPresent(String.self, forKey: .googleCalendarLastSyncError)
         agentPlanState = try container.decodeIfPresent(String.self, forKey: .agentPlanState)
-        agentPlanRevision = (try? container.decodeIfPresent(Int.self, forKey: .agentPlanRevision)) ?? 0
-        agentPlanApprovedAt = try container.decodeIfPresent(String.self, forKey: .agentPlanApprovedAt)
-        agentPlanApprovedBy = try container.decodeIfPresent(String.self, forKey: .agentPlanApprovedBy)
-        agentLastCommentSeenAt = try container.decodeIfPresent(String.self, forKey: .agentLastCommentSeenAt)
         prUrl = try container.decodeIfPresent(String.self, forKey: .prUrl)
         prNumber = try container.decodeIfPresent(Int.self, forKey: .prNumber)
         prState = try container.decodeIfPresent(String.self, forKey: .prState)
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
         prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
-        agentSessionId = try container.decodeIfPresent(String.self, forKey: .agentSessionId)
-        agentRunMode = try container.decodeIfPresent(String.self, forKey: .agentRunMode)
-        agentInteractiveClaimedAt = try container.decodeIfPresent(String.self, forKey: .agentInteractiveClaimedAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
 
@@ -343,6 +310,131 @@ extension IssueEntity: Codable {
         } else {
             description = nil
         }
+    }
+}
+
+// MARK: - AgentRun
+
+// The agent run state for an issue (one row per issue). Split out of `issues`
+// into its own synced shape in Phase F; mirrors packages/db-schema agentRuns.
+// `planText` and `question` are server-authored jsonb `{text}` — stored as the
+// raw stringified JSON and unwrapped lazily via getCommentBodyText() (the same
+// envelope as comments.body / issues.description legacy rows).
+public struct AgentRunEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "agent_runs"
+
+    public let issueId: String
+    public let workspaceId: String
+    public let planText: String?
+    public let question: String?
+    public let questionAskedAt: String?
+    public let planRevision: Int
+    public let approvedAt: String?
+    public let approvedBy: String?
+    public let lastCommentSeenAt: String?
+    public let sessionId: String?
+    public let runMode: String?
+    public let interactiveClaimedAt: String?
+    public let interactiveClaimedExpiresAt: String?
+    public let lastError: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public var id: String { issueId }
+
+    public init(
+        issueId: String,
+        workspaceId: String,
+        planText: String?,
+        question: String?,
+        questionAskedAt: String?,
+        planRevision: Int,
+        approvedAt: String?,
+        approvedBy: String?,
+        lastCommentSeenAt: String?,
+        sessionId: String?,
+        runMode: String?,
+        interactiveClaimedAt: String?,
+        interactiveClaimedExpiresAt: String?,
+        lastError: String?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.issueId = issueId
+        self.workspaceId = workspaceId
+        self.planText = planText
+        self.question = question
+        self.questionAskedAt = questionAskedAt
+        self.planRevision = planRevision
+        self.approvedAt = approvedAt
+        self.approvedBy = approvedBy
+        self.lastCommentSeenAt = lastCommentSeenAt
+        self.sessionId = sessionId
+        self.runMode = runMode
+        self.interactiveClaimedAt = interactiveClaimedAt
+        self.interactiveClaimedExpiresAt = interactiveClaimedExpiresAt
+        self.lastError = lastError
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case question
+        case issueId = "issue_id"
+        case workspaceId = "workspace_id"
+        case planText = "plan_text"
+        case questionAskedAt = "question_asked_at"
+        case planRevision = "plan_revision"
+        case approvedAt = "approved_at"
+        case approvedBy = "approved_by"
+        case lastCommentSeenAt = "last_comment_seen_at"
+        case sessionId = "session_id"
+        case runMode = "run_mode"
+        case interactiveClaimedAt = "interactive_claimed_at"
+        case interactiveClaimedExpiresAt = "interactive_claimed_expires_at"
+        case lastError = "last_error"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension AgentRunEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        issueId = try container.decode(String.self, forKey: .issueId)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        questionAskedAt = try container.decodeIfPresent(String.self, forKey: .questionAskedAt)
+        planRevision = (try? container.decodeIfPresent(Int.self, forKey: .planRevision)) ?? 0
+        approvedAt = try container.decodeIfPresent(String.self, forKey: .approvedAt)
+        approvedBy = try container.decodeIfPresent(String.self, forKey: .approvedBy)
+        lastCommentSeenAt = try container.decodeIfPresent(String.self, forKey: .lastCommentSeenAt)
+        sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        runMode = try container.decodeIfPresent(String.self, forKey: .runMode)
+        interactiveClaimedAt = try container.decodeIfPresent(String.self, forKey: .interactiveClaimedAt)
+        interactiveClaimedExpiresAt = try container.decodeIfPresent(String.self, forKey: .interactiveClaimedExpiresAt)
+        lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        updatedAt = try container.decode(String.self, forKey: .updatedAt)
+
+        // jsonb {text}: object, string, or null (same handling as CommentEntity.body)
+        planText = AgentRunEntity.decodeJsonbText(container, forKey: .planText)
+        question = AgentRunEntity.decodeJsonbText(container, forKey: .question)
+    }
+
+    private static func decodeJsonbText(
+        _ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+    ) -> String? {
+        guard container.contains(key) else { return nil }
+        if let stringValue = try? container.decode(String.self, forKey: key) {
+            return stringValue
+        }
+        if (try? container.decodeNil(forKey: key)) == true {
+            return nil
+        }
+        if let rawJSON = try? container.decode(AnyCodableValue.self, forKey: key) {
+            return rawJSON.jsonString
+        }
+        return nil
     }
 }
 

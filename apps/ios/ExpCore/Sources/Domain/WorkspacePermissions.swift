@@ -27,8 +27,9 @@ public struct WorkspacePermissions: Sendable {
         return false
     }
 
-    // Mirrors assertCanApprovePlan in apps/web/src/lib/workspace-membership.ts:
-    // only the issue creator or a workspace owner can approve agent plans.
+    // Mirrors assertIssueAccess(..., "approve_plan") in
+    // apps/web/src/lib/auth/access.ts: only the issue creator or a workspace
+    // owner can approve agent plans.
     public func canApprovePlan(creatorId: String?) -> Bool {
         guard isAuthed else { return false }
         if let creatorId, creatorId == currentUserId { return true }

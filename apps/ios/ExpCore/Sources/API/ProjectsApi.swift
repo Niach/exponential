@@ -30,6 +30,24 @@ public struct ProjectResultData: Decodable, Sendable {
     }
 }
 
+public struct LinkRepoInput: Encodable, Sendable {
+    public let projectId: String
+    public let repo: String
+
+    public init(projectId: String, repo: String) {
+        self.projectId = projectId
+        self.repo = repo
+    }
+}
+
+public struct UnlinkRepoInput: Encodable, Sendable {
+    public let projectId: String
+
+    public init(projectId: String) {
+        self.projectId = projectId
+    }
+}
+
 public final class ProjectsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -42,5 +60,24 @@ public final class ProjectsApi: Sendable {
     public func create(accountId: String, _ input: CreateProjectInput) async throws -> String {
         let result: ProjectResult = try await trpc.mutation(accountId: accountId, path: "projects.create", input: input)
         return result.project.id
+    }
+
+    /// Link a GitHub repo (`owner/name`) to a project. Owner-gated server-side
+    /// (`assertWorkspaceOwner`). Electric surfaces the updated `githubRepo`.
+    public func linkGithubRepo(accountId: String, projectId: String, repo: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "projects.linkGithubRepo",
+            input: LinkRepoInput(projectId: projectId, repo: repo)
+        )
+    }
+
+    /// Remove the GitHub repo link from a project. Owner-gated server-side.
+    public func unlinkGithubRepo(accountId: String, projectId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "projects.unlinkGithubRepo",
+            input: UnlinkRepoInput(projectId: projectId)
+        )
     }
 }

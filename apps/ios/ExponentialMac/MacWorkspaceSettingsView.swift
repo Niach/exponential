@@ -220,7 +220,7 @@ struct MacWorkspaceSettingsView: View {
     @State private var showDeleteConfirm = false
     @State private var showUnregisterConfirm = false
     // Agents this account registered against OTHER workspaces (the pre-fix orphan
-    // case) — surfaced with a Revoke action. Loaded from companion.listMine.
+    // case) — surfaced with a Revoke action. Loaded from agent.listMine.
     @State private var orphanAgents: [CompanionAgentSummary] = []
     @State private var revokingAgentId: String?
 

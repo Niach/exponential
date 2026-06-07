@@ -17,6 +17,7 @@ final class MacIssueDetailModel {
     var comments: [CommentEntity] = []
     var issueEvents: [IssueEventEntity] = []
     var attachments: [AttachmentEntity] = []
+    var agentRun: AgentRunEntity?
     var permissions: WorkspacePermissions?
     var workspaceId: String?
     var projectName: String?
@@ -61,6 +62,10 @@ final class MacIssueDetailModel {
     // Assignee picker segmentation: human members vs agent sub-users (is_agent).
     var peopleUsers: [UserEntity] { users.filter { !$0.isAgent } }
     var agentUsers: [UserEntity] { users.filter { $0.isAgent } }
+    // Non-agent members offered by the editors' @-mention autocomplete.
+    var mentionMembers: [MentionMember] {
+        peopleUsers.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+    }
 
     // MARK: - Observation
 
@@ -85,6 +90,9 @@ final class MacIssueDetailModel {
         let subObs = ValueObservation.tracking { db in
             try IssueSubscriberEntity.filter(Column("issue_id") == issueId).fetchAll(db)
         }
+        let agentRunObs = ValueObservation.tracking { db in
+            try AgentRunEntity.fetchOne(db, key: issueId)
+        }
 
         tasks.append(Task { @MainActor [weak self] in
             do { for try await row in issueObs.values(in: pool) { self?.applyIssue(row) } } catch {}
@@ -106,6 +114,9 @@ final class MacIssueDetailModel {
         })
         tasks.append(Task { @MainActor [weak self] in
             do { for try await rows in eventObs.values(in: pool) { self?.issueEvents = rows } } catch {}
+        })
+        tasks.append(Task { @MainActor [weak self] in
+            do { for try await row in agentRunObs.values(in: pool) { self?.agentRun = row } } catch {}
         })
         tasks.append(Task { @MainActor [weak self] in
             do {
@@ -193,7 +204,7 @@ final class MacIssueDetailModel {
         if markdown.isEmpty {
             input.explicitNulls.insert("description")
         } else {
-            input.description = IssueDescription(text: markdown)
+            input.description = markdown
         }
         await update(input)
         editor.markSaved(markdown)
@@ -391,7 +402,9 @@ struct MacIssueDetailView: View {
 
     @State private var model: MacIssueDetailModel?
     @State private var showDeleteConfirm = false
-    @State private var draftComment = ""
+    @State private var composerEditor = IssueEditorModel()
+    @State private var composerHasText = false
+    @State private var submittingComment = false
     @State private var showDuePicker = false
     @State private var showLabelPicker = false
     @State private var newLabelName = ""
@@ -771,7 +784,8 @@ struct MacIssueDetailView: View {
                 model: model.editor,
                 baseURL: model.baseURL,
                 accountId: model.accountId,
-                httpClient: model.httpClient
+                httpClient: model.httpClient,
+                mentionMembers: model.mentionMembers
             )
             // Grow with content (no fixed/max height) — the page ScrollView owns
             // scrolling, so the editor never gets its own nested scroll bar.
@@ -818,17 +832,56 @@ struct MacIssueDetailView: View {
                 case .event(let event): eventRow(event, model: model)
                 }
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Add a comment…", text: $draftComment, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...5)
-                Button {
-                    let text = draftComment
-                    draftComment = ""
-                    Task { await model.addComment(text) }
-                } label: { Image(systemName: "paperplane.fill") }
-                .disabled(draftComment.trimmingCharacters(in: .whitespaces).isEmpty)
+            VStack(alignment: .trailing, spacing: 6) {
+                MacMarkdownEditor(
+                    model: composerEditor,
+                    baseURL: model.baseURL,
+                    accountId: model.accountId,
+                    httpClient: model.httpClient,
+                    mentionMembers: model.mentionMembers
+                )
+                .frame(minHeight: 60, alignment: .top)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                )
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await submitComment(model) }
+                    } label: { Image(systemName: "paperplane.fill") }
+                        .buttonStyle(.borderedProminent).tint(Accent.indigo)
+                        .disabled(submittingComment || !composerHasText)
+                }
             }
+            .onAppear {
+                composerEditor.onEdit = { composerHasText = !composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            }
+        }
+    }
+
+    private func submitComment(_ model: MacIssueDetailModel) async {
+        submittingComment = true
+        defer { submittingComment = false }
+        let ok = await composerEditor.commitPendingImages(uploader: makeCommentUploader(model))
+        guard ok, !composerEditor.hasUncommittedDrafts else { return }
+        let md = composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !md.isEmpty else { return }
+        await model.addComment(md)
+        composerEditor = IssueEditorModel()
+        composerHasText = false
+        composerEditor.onEdit = { composerHasText = !composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private func makeCommentUploader(_ model: MacIssueDetailModel) -> @Sendable (PendingImage) async throws -> String {
+        let api = deps.issueImagesApi
+        let acc = model.accountId
+        let issueId = model.issueId
+        return { image in
+            let uploaded = try await api.upload(
+                accountId: acc, issueId: issueId,
+                data: image.data, filename: image.filename, contentType: image.contentType
+            )
+            return uploaded.url
         }
     }
 
@@ -916,7 +969,7 @@ struct MacIssueDetailView: View {
         let who = model.user(event.actorUserId).map { $0.name ?? $0.email } ?? "Someone"
         HStack(spacing: 8) {
             Circle().fill(Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
-            Text("\(who) \(macAgentEventVerb(event.type))")
+            Text("\(who) \(macEventPhrase(event, user: model.user, labelName: { id in model.labels.first { $0.id == id }?.name }))")
                 .font(.caption).foregroundStyle(.secondary)
             Text(macRelativeDate(event.createdAt)).font(.caption2).foregroundStyle(.tertiary)
             Spacer()

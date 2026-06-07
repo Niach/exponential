@@ -14,8 +14,8 @@ let agentEventTypes: Set<String> = [
 
 /// First-class panel for the agent plan/question lifecycle, replacing the
 /// plan/question comment rows (mirror of apps/web/src/components/agent-plan-panel.tsx).
-/// State is driven by the synced `issue` columns; the plan/question TEXT is
-/// fetched via `agentPlan.getState` (server-only, not in Electric).
+/// State is driven by the synced `issue.agentPlanState`; the plan/question TEXT,
+/// revision, and approval come from the synced `agent_runs` row.
 struct AgentPlanPanel: View {
     let issue: IssueEntity
     let canApprovePlan: Bool
@@ -23,12 +23,13 @@ struct AgentPlanPanel: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
 
-    @State private var planText: String?
-    @State private var questionText: String?
+    @State private var agentRun: AgentRunEntity?
     @State private var answer = ""
     @State private var busy: PanelAction?
     @State private var events: [IssueEventEntity] = []
     @State private var observationTask: Task<Void, Never>?
+    @State private var runObservationTask: Task<Void, Never>?
+    @State private var showDiff = false
 
     private enum PanelAction: Equatable { case approve, requestChanges, answer, retry }
 
@@ -40,24 +41,35 @@ struct AgentPlanPanel: View {
     private var implementing: Bool {
         !finished && issue.agentPlanState == "approved" && issue.prState == nil && !latestIsError
     }
-    // Re-fetch plan/question text whenever the synced state or revision moves.
-    private var fetchKey: String { "\(issue.agentPlanState ?? "none")-\(issue.agentPlanRevision)" }
+    // Plan/question text come from the synced `agent_runs` row (server-authored
+    // jsonb {text}); unwrap them the same way as a comment body.
+    private var planText: String? {
+        let t = getCommentBodyText(agentRun?.planText)
+        return t.isEmpty ? nil : t
+    }
+    private var questionText: String? {
+        let t = getCommentBodyText(agentRun?.question)
+        return t.isEmpty ? nil : t
+    }
 
     var body: some View {
         Group {
-            if issue.agentPlanState != nil || latestIsError {
+            if issue.agentPlanState != nil || latestIsError || issue.prUrl != nil {
                 VStack(alignment: .leading, spacing: 10) {
                     header
                     content
                     if latestIsError { errorBanner }
+                    prSection
                 }
                 .padding(12)
                 .glassSection()
             }
         }
-        .task(id: fetchKey) { await loadPlanState() }
         .onAppear { startObserving() }
-        .onDisappear { observationTask?.cancel() }
+        .onDisappear {
+            observationTask?.cancel()
+            runObservationTask?.cancel()
+        }
     }
 
     // MARK: - Header
@@ -66,12 +78,12 @@ struct AgentPlanPanel: View {
         HStack(spacing: 6) {
             Image(systemName: "sparkles").font(.caption).foregroundStyle(Color.accentColor)
             Text("Agent plan").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-            if issue.agentPlanRevision > 0 {
-                Text("rev \(issue.agentPlanRevision)")
+            if let revision = agentRun?.planRevision, revision > 0 {
+                Text("rev \(revision)")
                     .font(.caption2).foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             Spacer()
-            if issue.agentPlanState == "approved", issue.agentPlanApprovedAt != nil {
+            if issue.agentPlanState == "approved", agentRun?.approvedAt != nil {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill").font(.caption2)
                     Text("Approved").font(.caption2.weight(.medium))
@@ -186,6 +198,31 @@ struct AgentPlanPanel: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
+    // The PR (branch + link) and an inline diff disclosure, shown once the agent
+    // has opened a pull request. Mirrors the macOS panel's PR section.
+    @ViewBuilder
+    private var prSection: some View {
+        if let prUrl = issue.prUrl, let url = URL(string: prUrl) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let branch = issue.branch, !branch.isEmpty {
+                    Text(branch)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                Link(destination: url) {
+                    Label("View pull request", systemImage: "arrow.triangle.branch")
+                        .font(.caption.weight(.medium))
+                }
+                .tint(Accent.indigo)
+                DisclosureGroup("Changed files", isExpanded: $showDiff) {
+                    DiffView(issueId: issue.id).padding(.top, 6)
+                }
+                .font(.caption)
+                .tint(.white.opacity(TextOpacity.secondary))
+            }
+        }
+    }
+
     @ViewBuilder
     private var errorBanner: some View {
         HStack(spacing: 8) {
@@ -232,28 +269,15 @@ struct AgentPlanPanel: View {
         } catch {}
     }
 
-    // MARK: - Plan fetch + event observation
+    // MARK: - Event + agent-run observation
 
-    private func loadPlanState() async {
-        let state = issue.agentPlanState
-        guard state == "awaiting_approval" || state == "awaiting_answer" || state == "approved" else {
-            planText = nil
-            questionText = nil
-            return
-        }
-        do {
-            let r = try await deps.agentPlanApi.getState(accountId: accountId, issueId: issue.id)
-            planText = r.planText
-            questionText = r.question
-        } catch {
-            // Leave existing values; the UI falls back to "Loading…".
-        }
-    }
-
+    // Both the activity feed and the plan/question text are driven entirely by
+    // synced local rows now — no `agentPlan.getState` round-trip.
     private func startObserving() {
         observationTask?.cancel()
+        runObservationTask?.cancel()
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         observationTask = Task {
-            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
             let eventObs = ValueObservation.tracking { db in
                 try IssueEventEntity
                     .filter(Column("issue_id") == issue.id)
@@ -262,6 +286,14 @@ struct AgentPlanPanel: View {
             }
             do {
                 for try await rows in eventObs.values(in: pool) { self.events = rows }
+            } catch {}
+        }
+        runObservationTask = Task {
+            let runObs = ValueObservation.tracking { db in
+                try AgentRunEntity.fetchOne(db, key: issue.id)
+            }
+            do {
+                for try await row in runObs.values(in: pool) { self.agentRun = row }
             } catch {}
         }
     }
@@ -299,7 +331,7 @@ struct AgentActivityFeed: View {
                         ForEach(agentEvents) { event in
                             HStack(spacing: 8) {
                                 Circle().fill(.white.opacity(TextOpacity.tertiary)).frame(width: 6, height: 6)
-                                Text("\(who(event)) \(agentEventVerb(event.type))")
+                                Text("\(who(event)) \(eventPhrase(event, users: users, labels: nil))")
                                     .font(.caption).foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 Spacer()
                             }
@@ -320,7 +352,8 @@ struct AgentActivityFeed: View {
     }
 }
 
-/// Human-readable verb for an issue/agent event type.
+/// Human-readable verb for an issue/agent event type (the generic fallback used
+/// when an event has no payload to render richly).
 func agentEventVerb(_ type: String) -> String {
     switch type {
     case "status_changed": return "changed the status"
@@ -335,5 +368,72 @@ func agentEventVerb(_ type: String) -> String {
     case "agent_question": return "asked a question"
     case "agent_answer": return "answered the agent"
     default: return type.replacingOccurrences(of: "_", with: " ")
+    }
+}
+
+/// Human label for an issue_status enum value.
+func statusLabel(_ s: String) -> String {
+    switch s {
+    case "backlog": return "Backlog"
+    case "todo": return "Todo"
+    case "in_progress": return "In Progress"
+    case "done": return "Done"
+    case "cancelled": return "Cancelled"
+    default: return s.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+/// Pull a string or integer scalar out of an issue_event's JSON payload (stored
+/// as stringified JSON). Returns nil for missing/null/empty values.
+func eventField(_ payload: String?, _ key: String) -> String? {
+    guard let payload, let data = payload.data(using: .utf8),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let value = obj[key], !(value is NSNull) else { return nil }
+    if let s = value as? String { return s.isEmpty ? nil : s }
+    if let i = value as? Int { return String(i) }
+    if let d = value as? Double { return String(Int(d)) }
+    return nil
+}
+
+/// A rich activity phrase from the event type + payload (status from→to, PR #N,
+/// assigned/unassigned, label name). Resolves user/label names when the maps are
+/// supplied; falls back to the generic verb for events without a payload.
+/// Mirrors the web activity timeline (and the Linux `eventPhrase`).
+func eventPhrase(
+    _ event: IssueEventEntity,
+    users: [String: UserEntity],
+    labels: [String: LabelEntity]?
+) -> String {
+    switch event.type {
+    case "status_changed":
+        guard let to = eventField(event.payload, "to") else { return "changed the status" }
+        if let from = eventField(event.payload, "from") {
+            return "changed status from \(statusLabel(from)) to \(statusLabel(to))"
+        }
+        return "changed status to \(statusLabel(to))"
+    case "assignee_changed":
+        guard let to = eventField(event.payload, "to") else { return "unassigned this issue" }
+        if let name = users[to].map({ $0.name ?? $0.email }) {
+            return "assigned \(name)"
+        }
+        return "assigned this issue"
+    case "label_added":
+        if let id = eventField(event.payload, "labelId"), let name = labels?[id]?.name {
+            return "added label \(name)"
+        }
+        return "added a label"
+    case "label_removed":
+        if let id = eventField(event.payload, "labelId"), let name = labels?[id]?.name {
+            return "removed label \(name)"
+        }
+        return "removed a label"
+    case "pr_opened":
+        if let n = eventField(event.payload, "prNumber") { return "opened PR #\(n)" }
+        return "opened a pull request"
+    case "pr_merged":
+        if let n = eventField(event.payload, "prNumber") { return "merged PR #\(n)" }
+        return "merged the pull request"
+    default:
+        return agentEventVerb(event.type)
     }
 }

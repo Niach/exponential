@@ -20,11 +20,11 @@ final class AppDependencies: @unchecked Sendable {
     let issuesApi: IssuesApi
     let labelsApi: LabelsApi
     let workspacesApi: WorkspacesApi
+    let projectsApi: ProjectsApi
     let workspaceMembersApi: WorkspaceMembersApi
     let workspaceInvitesApi: WorkspaceInvitesApi
     let pushTokensApi: PushTokensApi
     let integrationsApi: IntegrationsApi
-    let adminApi: AdminApi
     let issueImagesApi: IssueImagesApi
     let commentsApi: CommentsApi
     let agentPlanApi: AgentPlanApi
@@ -83,11 +83,11 @@ final class AppDependencies: @unchecked Sendable {
         self.issuesApi = IssuesApi(trpc: trpc)
         self.labelsApi = LabelsApi(trpc: trpc)
         self.workspacesApi = WorkspacesApi(trpc: trpc)
+        self.projectsApi = ProjectsApi(trpc: trpc)
         self.workspaceMembersApi = WorkspaceMembersApi(trpc: trpc)
         self.workspaceInvitesApi = WorkspaceInvitesApi(trpc: trpc)
         self.pushTokensApi = PushTokensApi(trpc: trpc)
         self.integrationsApi = IntegrationsApi(trpc: trpc)
-        self.adminApi = AdminApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
         self.commentsApi = CommentsApi(trpc: trpc)
         self.agentPlanApi = AgentPlanApi(trpc: trpc)

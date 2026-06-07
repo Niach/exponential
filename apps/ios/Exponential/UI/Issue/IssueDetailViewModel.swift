@@ -9,6 +9,11 @@ final class IssueDetailViewModel {
     var labels: [LabelEntity] = []
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
+
+    // Non-agent members offered by the editor's @-mention autocomplete.
+    var mentionMembers: [MentionMember] {
+        users.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+    }
     var editingTitle: String = ""
     /// Single source of truth for the description editor (blocks + pending images).
     let editor = IssueEditorModel()
@@ -177,7 +182,7 @@ final class IssueDetailViewModel {
         if markdown.isEmpty {
             input.explicitNulls.insert("description")
         } else {
-            input.description = IssueDescription(text: markdown)
+            input.description = markdown
         }
         await update(input)
         editor.markSaved(markdown)

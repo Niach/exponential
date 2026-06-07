@@ -20,15 +20,38 @@ final class IssueListViewModel {
     private let projectId: String
     private let db: DatabaseManager
     private let issuesApi: IssuesApi
+    private let projectsApi: ProjectsApi
     private let auth: AuthRepository
     private var observationTask: Task<Void, Never>?
 
-    init(accountId: String, projectId: String, db: DatabaseManager, issuesApi: IssuesApi, auth: AuthRepository) {
+    init(accountId: String, projectId: String, db: DatabaseManager, issuesApi: IssuesApi, projectsApi: ProjectsApi, auth: AuthRepository) {
         self.accountId = accountId
         self.projectId = projectId
         self.db = db
         self.issuesApi = issuesApi
+        self.projectsApi = projectsApi
         self.auth = auth
+    }
+
+    /// Link a GitHub repo (`owner/name`) to this project. Owner-gated server-side.
+    /// Returns nil on success, or an error message to surface in the dialog.
+    /// Electric refreshes `project.githubRepo` — no local mutation needed.
+    func linkRepo(_ repo: String) async -> String? {
+        do {
+            try await projectsApi.linkGithubRepo(accountId: accountId, projectId: projectId, repo: repo)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func unlinkRepo() async -> String? {
+        do {
+            try await projectsApi.unlinkGithubRepo(accountId: accountId, projectId: projectId)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     func startObserving() {

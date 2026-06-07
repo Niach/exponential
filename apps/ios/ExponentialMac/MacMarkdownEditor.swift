@@ -635,6 +635,7 @@ struct MacMarkdownEditor: View {
     var baseURL: URL?
     var accountId = ""
     var httpClient: HTTPClient?
+    var mentionMembers: [MentionMember] = []
 
     @State private var controller = MacEditorToolbarController()
     @State private var showLinkPrompt = false
@@ -643,6 +644,7 @@ struct MacMarkdownEditor: View {
     var body: some View {
         VStack(spacing: 6) {
             MacMarkdownToolbarView(controller: controller)
+            if !model.mentionCandidates.isEmpty { mentionBar }
             // No inner ScrollView: each block self-sizes, so the editor grows with
             // its content and the surrounding page scroll handles overflow (one
             // scroll for the whole issue, not a nested editor scroll).
@@ -677,7 +679,9 @@ struct MacMarkdownEditor: View {
         .onAppear {
             controller.onPickImage = { pickImage() }
             controller.onInsertLink = { linkText = ""; showLinkPrompt = true }
+            model.mentionMembers = mentionMembers
         }
+        .onChange(of: mentionMembers) { _, newValue in model.mentionMembers = newValue }
         .sheet(isPresented: $showLinkPrompt) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Add Link").font(.headline)
@@ -692,6 +696,30 @@ struct MacMarkdownEditor: View {
             }
             .padding(20)
         }
+    }
+
+    // @-mention candidate bar. Tapping inserts the canonical `@email` token via
+    // the shared model (which keeps the text view first responder).
+    private var mentionBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(model.mentionCandidates) { member in
+                    Button {
+                        model.applyMention(member)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(member.name).font(.caption.weight(.medium))
+                            Text(member.email).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .frame(maxHeight: 44)
     }
 
     private func isSolePlaceholder(_ id: UUID) -> Bool {

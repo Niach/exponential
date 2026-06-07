@@ -131,7 +131,7 @@ final class MacAgentService {
         do {
             // One human-session-authorized call → the agent sub-identity + a
             // refreshable OAuth credential (no setup token, no public claim).
-            let res = try await trpc(base: base, path: "companion.register",
+            let res = try await trpc(base: base, path: "agent.register",
                                      input: ["workspaceId": workspaceId, "name": name], bearer: token)
             guard let res,
                   let cred = res["credential"] as? [String: Any],
@@ -173,7 +173,7 @@ final class MacAgentService {
         // Best-effort server uninstall; always remove locally (the user wants the
         // agent gone on this Mac even if the token was already revoked server-side).
         do {
-            _ = try await trpc(base: id.instanceUrl, path: "companion.uninstallSelf", input: nil, bearer: id.apiKey)
+            _ = try await trpc(base: id.instanceUrl, path: "agent.uninstallSelf", input: nil, bearer: id.apiKey)
         } catch {
             lastError = "Removed locally; the server uninstall failed: \(error.localizedDescription)"
         }
@@ -203,7 +203,7 @@ final class MacAgentService {
         Task { @MainActor in
             defer { startingCores.remove(id.workspaceId) }
             // agent-core fetches a fresh per-repo GitHub App installation token from
-            // the server (companion.repoToken) just before clone/push, so the host
+            // the server (agent.repoToken) just before clone/push, so the host
             // no longer feeds a token.
             let dir = MacAgentStore.dir().path
             for sub in ["repos", "worktrees"] {
@@ -244,7 +244,7 @@ final class MacAgentService {
                 // means we don't need a deinit, which can't touch main-actor state.
                 guard let self else { return }
                 do {
-                    _ = try await self.trpc(base: base, path: "companion.heartbeat", input: nil, bearer: key)
+                    _ = try await self.trpc(base: base, path: "agent.heartbeat", input: nil, bearer: key)
                     self.online.insert(wid)
                 } catch {
                     self.online.remove(wid)

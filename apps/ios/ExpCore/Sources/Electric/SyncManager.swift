@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "at.exponential", category: "SyncManager"
 // Web uses @electric-sql/client; iOS and Android implement the same wire
 // format by hand. See packages/electric-protocol/README.md for the contract.
 //
-// Multi-account: each signed-in account runs its own set of 13 shape Tasks in
+// Multi-account: each signed-in account runs its own set of 14 shape Tasks in
 // parallel, each writing to that account's per-account SQLite pool. There is
 // no global active account here — sign-out on one account just cancels its
 // pipeline without affecting any others.
@@ -117,7 +117,7 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Per-account shape launch
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
-        logger.info("Launching live shape sync (13 shapes) for account \(accountId, privacy: .public)")
+        logger.info("Launching live shape sync (14 shapes) for account \(accountId, privacy: .public)")
 
         let auth = self.auth
         // Per-account credential providers: read the specific account's URL +
@@ -182,6 +182,10 @@ public final class SyncManager: @unchecked Sendable {
         tasks.append(makeShapeTask(
             name: "issue-subscribers", path: "/api/shapes/issue-subscribers", table: "issue_subscribers",
             type: IssueSubscriberEntity.self, pool: pool, baseUrl: baseUrl, token: token
+        ))
+        tasks.append(makeShapeTask(
+            name: "agent-runs", path: "/api/shapes/agent-runs", table: "agent_runs",
+            type: AgentRunEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
 
         lock.withLock { pipelines[accountId] = tasks }

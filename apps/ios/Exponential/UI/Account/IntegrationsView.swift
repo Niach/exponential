@@ -4,6 +4,7 @@ import SwiftUI
 struct IntegrationsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.scenePhase) private var scenePhase
     @State private var googleConnected = false
     @State private var googleConnectedAt: String?
     @State private var loading = true
@@ -83,9 +84,28 @@ struct IntegrationsView: View {
                                 .buttonStyle(.plain)
                             }
                         } else {
-                            Text("Not connected")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            // Connecting needs Better Auth's linkSocial (calendar
+                            // scope), which has no native bridge — open the web
+                            // settings page (matches macOS); the status refreshes
+                            // when the app returns to the foreground.
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Not connected")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                Button {
+                                    if let base = deps.auth.instanceBaseURL(forAccountId: accountId) {
+                                        Platform.open(base.appending(path: "account/integrations"))
+                                    }
+                                } label: {
+                                    Text("Connect…")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                }
+                                .glassButton()
+                                .buttonStyle(.plain)
+                            }
                         }
 
                         if let error {
@@ -104,6 +124,10 @@ struct IntegrationsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task { await loadStatus() }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-check after returning from the web connect flow.
+            if newPhase == .active { Task { await loadStatus() } }
+        }
     }
 
     private func loadStatus() async {

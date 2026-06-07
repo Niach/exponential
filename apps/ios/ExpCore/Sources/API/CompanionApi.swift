@@ -32,7 +32,7 @@ public final class CompanionApi: Sendable {
     public func listMine(accountId: String) async throws -> [CompanionAgentSummary] {
         let result: ListMineResult = try await trpc.query(
             accountId: accountId,
-            path: "companion.listMine"
+            path: "agent.listMine"
         )
         return result.agents
     }
@@ -42,7 +42,7 @@ public final class CompanionApi: Sendable {
     public func revoke(accountId: String, agentId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
-            path: "companion.revoke",
+            path: "agent.revoke",
             input: AgentIdInput(agentId: agentId)
         )
     }

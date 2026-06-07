@@ -1,18 +1,12 @@
 import Foundation
 
-public struct CommentBody: Encodable, Sendable {
-    public let text: String
-
-    public init(text: String) {
-        self.text = text
-    }
-}
-
+// Comment bodies are plain GFM markdown strings (the server stores them in a
+// `text` column; the legacy jsonb `{text}` envelope was dropped in Phase F).
 public struct CreateCommentInput: Encodable, Sendable {
     public let issueId: String
-    public let body: CommentBody
+    public let body: String
 
-    public init(issueId: String, body: CommentBody) {
+    public init(issueId: String, body: String) {
         self.issueId = issueId
         self.body = body
     }
@@ -20,9 +14,9 @@ public struct CreateCommentInput: Encodable, Sendable {
 
 public struct UpdateCommentInput: Encodable, Sendable {
     public let id: String
-    public let body: CommentBody
+    public let body: String
 
-    public init(id: String, body: CommentBody) {
+    public init(id: String, body: String) {
         self.id = id
         self.body = body
     }
@@ -52,7 +46,7 @@ public final class CommentsApi: Sendable {
         let _: EmptyResult = try await trpc.mutation(
             accountId: accountId,
             path: "comments.create",
-            input: CreateCommentInput(issueId: issueId, body: CommentBody(text: text))
+            input: CreateCommentInput(issueId: issueId, body: text)
         )
     }
 
@@ -60,7 +54,7 @@ public final class CommentsApi: Sendable {
         let _: EmptyResult = try await trpc.mutation(
             accountId: accountId,
             path: "comments.update",
-            input: UpdateCommentInput(id: id, body: CommentBody(text: text))
+            input: UpdateCommentInput(id: id, body: text)
         )
     }
 

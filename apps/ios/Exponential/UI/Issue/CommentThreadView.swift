@@ -23,7 +23,9 @@ struct CommentThreadView: View {
     @State private var comments: [CommentEntity] = []
     @State private var events: [IssueEventEntity] = []
     @State private var users: [String: UserEntity] = [:]
-    @State private var draft: String = ""
+    @State private var labels: [String: LabelEntity] = [:]
+    @State private var composerEditor = IssueEditorModel()
+    @State private var composerHasText = false
     @State private var submitting = false
     @State private var editingCommentId: String?
     @State private var observationTask: Task<Void, Never>?
@@ -81,18 +83,21 @@ struct CommentThreadView: View {
 
             AgentActivityFeed(events: events, users: users)
 
-            // Plain-text composer for now. The rich-markdown composer lands
-            // in a follow-up so the draft body shape can be coordinated with
-            // the web/Android readers.
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Write a comment…", text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.04))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(.white)
+            // Rich block-markdown composer (parity with the description editor):
+            // reuses MarkdownEditor + IssueEditorModel; images route through the
+            // issue image-upload path on submit.
+            VStack(alignment: .trailing, spacing: 6) {
+                MarkdownEditor(
+                    model: composerEditor,
+                    placeholder: "Write a comment…",
+                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                    accountId: accountId,
+                    httpClient: deps.httpClient,
+                    mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+                )
+                .frame(minHeight: 44, maxHeight: 140)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 Button {
                     Task { await submit() }
@@ -102,11 +107,14 @@ struct CommentThreadView: View {
                         .background(.blue, in: RoundedRectangle(cornerRadius: 8))
                         .foregroundStyle(.white)
                 }
-                .disabled(submitting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(submitting || !composerHasText)
             }
         }
         .padding(.vertical, 8)
-        .onAppear { startObserving() }
+        .onAppear {
+            startObserving()
+            composerEditor.onEdit = { composerHasText = !composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
         .onDisappear { observationTask?.cancel() }
     }
 
@@ -133,14 +141,37 @@ struct CommentThreadView: View {
     }
 
     private func submit() async {
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
         submitting = true
         defer { submitting = false }
+        // All-or-nothing image commit before deriving markdown (mirrors the
+        // description save path).
+        let ok = await composerEditor.commitPendingImages(uploader: makeCommentImageUploader())
+        guard ok, !composerEditor.hasUncommittedDrafts else { return }
+        let md = composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !md.isEmpty else { return }
         do {
-            try await deps.commentsApi.create(accountId: accountId, issueId: issue.id, text: trimmed)
-            draft = ""
+            try await deps.commentsApi.create(accountId: accountId, issueId: issue.id, text: md)
+            resetComposer()
         } catch {}
+    }
+
+    private func makeCommentImageUploader() -> @Sendable (PendingImage) async throws -> String {
+        let api = deps.issueImagesApi
+        let acc = accountId
+        let issueId = issue.id
+        return { image in
+            let uploaded = try await api.upload(
+                accountId: acc, issueId: issueId,
+                data: image.data, filename: image.filename, contentType: image.contentType
+            )
+            return uploaded.url
+        }
+    }
+
+    private func resetComposer() {
+        composerEditor = IssueEditorModel()
+        composerHasText = false
+        composerEditor.onEdit = { composerHasText = !composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     private func startObserving() {
@@ -169,6 +200,15 @@ struct CommentThreadView: View {
                 }
             }
 
+            let labelObs = ValueObservation.tracking { db in
+                try LabelEntity.fetchAll(db)
+            }
+            Task {
+                for try await rows in labelObs.values(in: pool) {
+                    self.labels = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            }
+
             let eventObs = ValueObservation.tracking { db in
                 try IssueEventEntity
                     .filter(Column("issue_id") == issue.id)
@@ -192,7 +232,7 @@ struct CommentThreadView: View {
             Circle()
                 .fill(.white.opacity(TextOpacity.tertiary))
                 .frame(width: 6, height: 6)
-            Text("\(who) \(agentEventVerb(event.type))")
+            Text("\(who) \(eventPhrase(event, users: users, labels: labels))")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer()

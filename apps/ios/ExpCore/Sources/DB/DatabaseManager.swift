@@ -80,10 +80,14 @@ public final class DatabaseManager: @unchecked Sendable {
     private static func removeLegacyFile(for accountId: String) {
         let fm = FileManager.default
         guard let parent = try? fileURL(for: accountId).deletingLastPathComponent() else { return }
-        let legacyBase = "exponential-\(accountId).sqlite"
-        for suffix in ["", "-wal", "-shm"] {
-            let target = parent.appendingPathComponent(legacyBase + suffix)
-            try? fm.removeItem(at: target)
+        // Purge every superseded file-name generation: the pre-v2 singular-name
+        // file and the v2 file (replaced by -v3 in Phase F).
+        let legacyBases = ["exponential-\(accountId).sqlite", "exponential-\(accountId)-v2.sqlite"]
+        for legacyBase in legacyBases {
+            for suffix in ["", "-wal", "-shm"] {
+                let target = parent.appendingPathComponent(legacyBase + suffix)
+                try? fm.removeItem(at: target)
+            }
         }
     }
 
@@ -97,11 +101,12 @@ public final class DatabaseManager: @unchecked Sendable {
         )
         let dbDir = appSupportDir.appendingPathComponent("Exponential", isDirectory: true)
         try fm.createDirectory(at: dbDir, withIntermediateDirectories: true)
-        // `-v2` suffix marks the post-consolidation file naming. Bumping the
-        // suffix is how we force a wipe-and-resync on every existing device when
-        // the local schema is fundamentally reshaped (table renames, dropped
-        // columns).
-        return dbDir.appendingPathComponent("exponential-\(accountId)-v2.sqlite")
+        // The `-vN` suffix marks the canonical file naming. Bumping the suffix is
+        // how we force a wipe-and-resync on every existing device when the local
+        // schema is fundamentally reshaped (table renames, dropped columns).
+        // `-v3` (Phase F): the stale agent_* columns were dropped from `issues`
+        // and the `agent_runs` table was added.
+        return dbDir.appendingPathComponent("exponential-\(accountId)-v3.sqlite")
     }
 
     private static func runMigrations(on dbPool: DatabasePool) throws {
@@ -166,11 +171,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("google_calendar_event_id", .text)
                 t.column("google_calendar_last_synced_at", .text)
                 t.column("google_calendar_last_sync_error", .text)
+                // agent_plan_state stays on issues (summary); the rest of the
+                // agent run state moved to agent_runs (its own shape) in Phase F.
                 t.column("agent_plan_state", .text)
-                t.column("agent_plan_revision", .integer).notNull().defaults(to: 0)
-                t.column("agent_plan_approved_at", .text)
-                t.column("agent_plan_approved_by", .text)
-                t.column("agent_last_comment_seen_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -271,9 +274,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.add(column: "pr_state", .text)
                 t.add(column: "branch", .text)
                 t.add(column: "pr_merged_at", .text)
-                t.add(column: "agent_session_id", .text)
-                t.add(column: "agent_run_mode", .text)
-                t.add(column: "agent_interactive_claimed_at", .text)
             }
 
             try db.create(table: "notifications", ifNotExists: true) { t in
@@ -325,6 +325,32 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // Phase F: agent run state split out of `issues` into its own synced
+        // shape. One row per issue (PK issue_id). plan_text/question are jsonb
+        // {text} stored as text; the stale agent_* columns were removed from the
+        // `issues` schema above (the DB file suffix was bumped to force a clean
+        // wipe-and-resync, the project's convention for dropped columns).
+        migrator.registerMigration("v5_agent_runs") { db in
+            try db.create(table: "agent_runs", ifNotExists: true) { t in
+                t.primaryKey("issue_id", .text)
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("plan_text", .text)
+                t.column("question", .text)
+                t.column("question_asked_at", .text)
+                t.column("plan_revision", .integer).notNull().defaults(to: 0)
+                t.column("approved_at", .text)
+                t.column("approved_by", .text)
+                t.column("last_comment_seen_at", .text)
+                t.column("session_id", .text)
+                t.column("run_mode", .text)
+                t.column("interactive_claimed_at", .text)
+                t.column("interactive_claimed_expires_at", .text)
+                t.column("last_error", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 
@@ -332,6 +358,7 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
+            try db.execute(sql: "DELETE FROM agent_runs")
             try db.execute(sql: "DELETE FROM notifications")
             try db.execute(sql: "DELETE FROM issue_events")
             try db.execute(sql: "DELETE FROM issue_subscribers")
