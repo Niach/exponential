@@ -9,11 +9,8 @@ import Foundation
 public struct CompanionAgentSummary: Decodable, Sendable, Identifiable {
     public let id: String
     public let name: String
-    public let workspaceId: String
+    public let deviceId: String
     public let lastSeenAt: String?
-    public let workspaceName: String
-    public let workspaceSlug: String
-    public let workspaceIsPublic: Bool
 }
 
 private struct ListMineResult: Decodable { let agents: [CompanionAgentSummary] }

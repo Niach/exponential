@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
-import { eq } from "drizzle-orm"
-import { agentRegistrations } from "@/db/schema"
+import { and, eq, inArray } from "drizzle-orm"
+import { agentRegistrations, workspaceMembers } from "@/db/schema"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
 
 export function baseUrlFromRequest(request: Request): string {
@@ -26,11 +26,48 @@ export async function loadOwnedAgent(
     .limit(1)
 
   if (!agent) {
-    throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
   }
 
-  await assertOwner(ownerUserId, agent.workspaceId)
+  // A device is account-level: only its human owner may manage it.
+  if (agent.ownerUserId !== ownerUserId) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: `Not your device` })
+  }
   return agent
+}
+
+// A desktop device is a member (role=agent) of every workspace its owner
+// belongs to, so it is assignable to any issue the owner could be. Insert the
+// device's agent user into all such workspaces (idempotent — safe to re-run on
+// every auto-register/launch, which is how the device catches up on workspaces
+// the owner joined since last time). Returns the workspace count.
+export async function fanOutDeviceMembership(
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  db: typeof import("@/db/connection").db,
+  ownerUserId: string,
+  agentUserId: string
+): Promise<number> {
+  const rows = await db
+    .select({ workspaceId: workspaceMembers.workspaceId })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.userId, ownerUserId),
+        inArray(workspaceMembers.role, [`owner`, `member`])
+      )
+    )
+  if (rows.length === 0) return 0
+  await db
+    .insert(workspaceMembers)
+    .values(
+      rows.map((r) => ({
+        workspaceId: r.workspaceId,
+        userId: agentUserId,
+        role: `agent` as const,
+      }))
+    )
+    .onConflictDoNothing()
+  return rows.length
 }
 
 export async function loadAgentForSessionUser(

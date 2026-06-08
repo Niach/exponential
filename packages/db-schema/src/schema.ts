@@ -163,37 +163,39 @@ export const workspaceInvites = pgTable(`workspace_invites`, {
 })
 
 // A desktop agent's runtime-credential binding for a workspace (renamed from
-// workspace_agents). One responsibility: tie an agent user to its OAuth client +
-// api key + last-seen heartbeat. The "agent is a member" fact lives in
-// workspace_members (role=agent); the legacy curl|bash setup-token flow is gone.
+// workspace_agents). A row is one **desktop device** (a Mac/PC the owner runs
+// the app on), keyed by a stable hardware id. It ties the device's synthetic
+// agent user to its expk_ API key + last-seen heartbeat. The device is
+// ACCOUNT-level, not workspace-scoped: the "agent is a member" fact lives in
+// workspace_members (role=agent), fanned out across every workspace the owner
+// belongs to so the device is assignable to any issue the owner could be.
 export const agentRegistrations = pgTable(
   `agent_registrations`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`)
-      .notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }),
+    // Stable per-machine id (macOS IOPlatformUUID / Linux /etc/machine-id) so
+    // re-launch and re-install are idempotent — one device per (owner, hardware).
+    deviceId: text(`device_id`).notNull(),
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    // The human owner who registered this agent (D2: an agent is a distinct
-    // actor owned by a human).
+    // The human owner who registered this device (an agent is a distinct actor
+    // owned by a human).
     ownerUserId: text(`owner_user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
     name: varchar({ length: 255 }).notNull(),
+    // The device's runtime credential: a single long-lived expk_ API key
+    // (apikeys row, hashed at rest). Sent as `Authorization: Bearer expk_…`.
     apiKeyId: text(`api_key_id`).references(() => apikeys.id, {
       onDelete: `set null`,
     }),
-    // The per-agent OAuth client (oauth_applications.client_id) whose
-    // access/refresh token pair is the agent's runtime credential.
-    oauthClientId: text(`oauth_client_id`),
     lastSeenAt: timestamp(`last_seen_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
-    unique().on(table.workspaceId, table.userId),
-    index(`idx_agent_registrations_workspace`).on(table.workspaceId),
+    unique().on(table.ownerUserId, table.deviceId),
+    index(`idx_agent_registrations_device`).on(table.deviceId),
     index(`idx_agent_registrations_user`).on(table.userId),
     index(`idx_agent_registrations_owner`).on(table.ownerUserId),
     index(`idx_agent_registrations_api_key`).on(table.apiKeyId),

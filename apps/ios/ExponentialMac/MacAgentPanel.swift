@@ -57,8 +57,7 @@ struct MacAgentPanel: View {
         model.permissions?.canApprovePlan(creatorId: issue.creatorId) ?? false
     }
     private var canRunInteractive: Bool {
-        guard let wid = model.workspaceId else { return false }
-        return deps.agentService.canRunInteractive(workspaceId: wid)
+        deps.agentService.canRunInteractive(accountId: model.accountId)
     }
     private var finished: Bool { issue.status == "done" || issue.status == "cancelled" }
     private var implementing: Bool {
@@ -97,10 +96,10 @@ struct MacAgentPanel: View {
                 approvedBadge
             }
             Spacer()
-            if let wid = model.workspaceId, canRunInteractive,
+            if canRunInteractive,
                let state = issue.agentPlanState, Self.busyStates.contains(state) {
                 Button(role: .destructive) {
-                    deps.agentService.cancelIssue(workspaceId: wid, issueId: issue.id)
+                    deps.agentService.cancelIssue(accountId: model.accountId, issueId: issue.id)
                 } label: {
                     Label("Cancel", systemImage: "stop.circle")
                 }
@@ -235,11 +234,11 @@ struct MacAgentPanel: View {
                         Label("Request changes", systemImage: "pencil")
                     }
                     .disabled(busy != nil)
-                    if canRunInteractive, let wid = model.workspaceId {
+                    if canRunInteractive {
                         Button {
                             Task { @MainActor in
                                 busy = .approveContinue
-                                await model.approveAndContinue(workspaceId: wid)
+                                await model.approveAndContinue()
                                 busy = nil
                             }
                         } label: {

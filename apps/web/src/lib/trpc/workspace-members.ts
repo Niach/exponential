@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { agentRegistrations, workspaceMembers } from "@/db/schema"
+import { workspaceMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import {
@@ -8,7 +8,6 @@ import {
   assertNotPublicWorkspace,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
-import { revokeWorkspaceAgent } from "@/lib/companion-agents"
 
 /** Member management is allowed for a workspace owner OR a global admin. */
 async function assertCanManageMembers(userId: string, workspaceId: string) {
@@ -102,24 +101,13 @@ export const workspaceMembersRouter = router({
       if (target.role === `agent`) {
         await assertCanManageMembers(ctx.session.user.id, target.workspaceId)
 
-        const [agent] = await ctx.db
-          .select()
-          .from(agentRegistrations)
-          .where(
-            and(
-              eq(agentRegistrations.workspaceId, target.workspaceId),
-              eq(agentRegistrations.userId, target.userId)
-            )
-          )
-          .limit(1)
-
-        if (agent) {
-          await revokeWorkspaceAgent(ctx.db, agent)
-        } else {
-          await ctx.db
-            .delete(workspaceMembers)
-            .where(eq(workspaceMembers.id, input.memberId))
-        }
+        // A desktop device is account-level and a member of every workspace its
+        // owner belongs to. Removing it here just drops it from THIS workspace
+        // (to fully revoke the device, the owner uses the Desktop devices list).
+        // Note: an active device re-fans-out on its next launch.
+        await ctx.db
+          .delete(workspaceMembers)
+          .where(eq(workspaceMembers.id, input.memberId))
 
         return { ok: true }
       }

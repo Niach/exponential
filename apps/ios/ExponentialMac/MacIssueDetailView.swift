@@ -374,10 +374,10 @@ final class MacIssueDetailModel {
     /// Approve the plan with the human session, THEN resume the interactive session
     /// to implement it. Order is load-bearing — the agent credential can't approve;
     /// the host approves (human session), then only resumes the session.
-    func approveAndContinue(workspaceId: String) async {
+    func approveAndContinue() async {
         guard let issue else { return }
         await approvePlan()
-        deps.agentService.approveInteractive(workspaceId: workspaceId, issueId: issue.id)
+        deps.agentService.approveInteractive(accountId: accountId, issueId: issue.id)
     }
 
     func toggleSubscribe() async {
@@ -485,12 +485,10 @@ struct MacIssueDetailView: View {
                 }
                 .help(model.isSubscribed ? "Unsubscribe from this issue" : "Subscribe to this issue")
             }
-            if deps.agentService.canRunInteractive(workspaceId: model.workspaceId ?? "") {
+            if deps.agentService.canRunInteractive(accountId: model.accountId) {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        if let wid = model.workspaceId {
-                            deps.agentService.requestInteractive(workspaceId: wid, issueId: issue.id)
-                        }
+                        deps.agentService.requestInteractive(accountId: model.accountId, issueId: issue.id)
                     } label: {
                         Label("AI", systemImage: "sparkles")
                     }

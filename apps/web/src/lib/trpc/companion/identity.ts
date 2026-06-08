@@ -2,7 +2,7 @@ import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { authedProcedure } from "@/lib/trpc"
-import { projects } from "@/db/schema"
+import { projects, workspaceMembers } from "@/db/schema"
 import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import { loadAgentForSessionUser } from "./shared"
 
@@ -19,12 +19,18 @@ export const identityProcedures = {
     )
     .mutation(async ({ ctx, input }) => {
       const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
+      // The device is a member of many workspaces; allow the repo if it backs a
+      // project in any of them.
       const [hit] = await ctx.db
         .select({ id: projects.id })
         .from(projects)
+        .innerJoin(
+          workspaceMembers,
+          eq(workspaceMembers.workspaceId, projects.workspaceId)
+        )
         .where(
           and(
-            eq(projects.workspaceId, agent.workspaceId),
+            eq(workspaceMembers.userId, agent.userId),
             eq(projects.githubRepo, input.repo)
           )
         )
@@ -32,7 +38,7 @@ export const identityProcedures = {
       if (!hit) {
         throw new TRPCError({
           code: `FORBIDDEN`,
-          message: `Repo ${input.repo} is not in this agent's workspace`,
+          message: `Repo ${input.repo} is not in any of this device's workspaces`,
         })
       }
       const token = await resolveRepoInstallationToken(input.repo)

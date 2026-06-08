@@ -1,25 +1,24 @@
 import AppKit
 import ExpCore
 import Foundation
+import IOKit
 
-/// Locally-stored desktop-agent identity for one workspace (mirrors the Linux
-/// `identity_store` agent-{workspaceId}.json). `apiKey` holds the OAuth access
-/// token (a valid bearer for every agent call); the refresh fields rotate it.
-struct MacAgentIdentity: Codable, Sendable {
+/// Locally-stored desktop-device identity for one signed-in account. A device is
+/// ACCOUNT-level — the server fans it out as an `agent` member of every workspace
+/// the owner belongs to, so a single core watches assigned issues across them
+/// all. `apiKey` is a long-lived `expk_` key used as the bearer for the
+/// agent-core and the heartbeat (no OAuth refresh).
+struct MacDeviceIdentity: Codable, Sendable {
     let instanceUrl: String
+    let accountId: String
+    let deviceId: String
     let apiKey: String
-    var refreshToken: String?
-    var tokenEndpoint: String?
-    var oauthClientId: String?
     let agentId: String
     let agentUserId: String
-    let agentName: String
-    let workspaceId: String
-    let workspaceSlug: String
-    let workspaceName: String
+    let name: String
 }
 
-enum MacAgentStore {
+enum MacDeviceStore {
     static func dir() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Exponential", isDirectory: true)
@@ -27,31 +26,55 @@ enum MacAgentStore {
         return base
     }
 
-    private static func path(_ workspaceId: String) -> URL {
-        dir().appendingPathComponent("agent-\(workspaceId).json")
+    private static func path(_ accountId: String) -> URL {
+        dir().appendingPathComponent("device-\(accountId).json")
     }
 
-    static func save(_ id: MacAgentIdentity) {
+    static func save(_ id: MacDeviceIdentity) {
         guard let data = try? JSONEncoder().encode(id) else { return }
-        let url = path(id.workspaceId)
+        let url = path(id.accountId)
         try? data.write(to: url)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    static func load(workspaceId: String) -> MacAgentIdentity? {
-        guard let data = try? Data(contentsOf: path(workspaceId)) else { return nil }
-        return try? JSONDecoder().decode(MacAgentIdentity.self, from: data)
+    static func load(accountId: String) -> MacDeviceIdentity? {
+        guard let data = try? Data(contentsOf: path(accountId)) else { return nil }
+        return try? JSONDecoder().decode(MacDeviceIdentity.self, from: data)
     }
 
-    static func delete(workspaceId: String) { try? FileManager.default.removeItem(at: path(workspaceId)) }
+    static func delete(accountId: String) { try? FileManager.default.removeItem(at: path(accountId)) }
 
-    static func all() -> [MacAgentIdentity] {
+    static func all() -> [MacDeviceIdentity] {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir().path) else { return [] }
-        return names.filter { $0.hasPrefix("agent-") && $0.hasSuffix(".json") }.compactMap { name in
+        return names.filter { $0.hasPrefix("device-") && $0.hasSuffix(".json") }.compactMap { name in
             (try? Data(contentsOf: dir().appendingPathComponent(name))).flatMap {
-                try? JSONDecoder().decode(MacAgentIdentity.self, from: $0)
+                try? JSONDecoder().decode(MacDeviceIdentity.self, from: $0)
             }
         }
+    }
+
+    /// Stable per-machine id: the macOS hardware UUID (IOPlatformUUID), which
+    /// survives re-launch / reinstall so the server treats this Mac as one
+    /// device. Falls back to a persisted random UUID if IOKit is unavailable.
+    static func hardwareDeviceId() -> String {
+        let service = IOServiceGetMatchingService(
+            kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        if service != 0 {
+            defer { IOObjectRelease(service) }
+            if let cf = IORegistryEntryCreateCFProperty(
+                service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0
+            )?.takeRetainedValue() as? String, !cf.isEmpty {
+                return cf
+            }
+        }
+        let fallback = dir().appendingPathComponent("device-id.txt")
+        if let s = try? String(contentsOf: fallback, encoding: .utf8),
+           !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let id = UUID().uuidString
+        try? id.write(to: fallback, atomically: true, encoding: .utf8)
+        return id
     }
 }
 
@@ -61,6 +84,7 @@ final class MacAgentService {
     private let auth: AuthRepository
     private let integrationsApi: IntegrationsApi
     private let terminalDock: MacTerminalDock
+    // Keyed by accountId — a device is one registration per signed-in account.
     private(set) var registered: Set<String> = []
     private(set) var online: Set<String> = []
     var busy = false
@@ -68,8 +92,8 @@ final class MacAgentService {
 
     private var heartbeats: [String: Task<Void, Never>] = [:]
     private var cores: [String: MacAgentCore] = [:]
-    // Workspaces whose core is mid-creation (the GitHub-token fetch is async), so
-    // a racing init/register can't create two cores for one workspace.
+    // Accounts whose core is mid-creation (the setup is async), so a racing
+    // init/register can't create two cores for one account.
     private var startingCores: Set<String> = []
 
     init(auth: AuthRepository, integrationsApi: IntegrationsApi, terminalDock: MacTerminalDock) {
@@ -79,133 +103,148 @@ final class MacAgentService {
         // Interactive agent runs mount into the shared bottom dock; headless runs
         // use the per-run window. The runner is a singleton, so point it here once.
         MacAgentTerminalRunner.shared.dock = terminalDock
-        for id in MacAgentStore.all() {
-            registered.insert(id.workspaceId)
+        // Auto-register every signed-in account on launch (idempotent). Falls
+        // back to any stored device identity if the server is unreachable.
+        Task { @MainActor in await self.autoRegisterAll() }
+    }
+
+    // MARK: - Interactive sessions (desktop "AI" / "Approve & continue here")
+
+    /// Can this account run an interactive agent session right now? (a device
+    /// core is created + registered). Gates the AI / approve-continue / cancel UI.
+    func canRunInteractive(accountId: String) -> Bool {
+        cores[accountId] != nil && registered.contains(accountId)
+    }
+
+    /// Start an interactive plan session for an issue (the "AI" button). The core
+    /// emits a `run_request` with interactive:true that mounts in the dock.
+    func requestInteractive(accountId: String, issueId: String) {
+        cores[accountId]?.requestInteractive(issueId: issueId)
+    }
+
+    /// Resume an interactive session after the plan was approved. "Approve &
+    /// continue here".
+    func approveInteractive(accountId: String, issueId: String) {
+        cores[accountId]?.approveInteractive(issueId: issueId)
+    }
+
+    /// Cancel the run in flight for an issue (the "Cancel" button).
+    func cancelIssue(accountId: String, issueId: String) {
+        cores[accountId]?.cancelIssue(issueId: issueId)
+    }
+
+    static var defaultDeviceName: String { ProcessInfo.processInfo.hostName }
+
+    func isRegistered(accountId: String) -> Bool { registered.contains(accountId) }
+    func isOnline(accountId: String) -> Bool { online.contains(accountId) }
+    func identity(accountId: String) -> MacDeviceIdentity? { MacDeviceStore.load(accountId: accountId) }
+
+    // MARK: - Register (auto, on launch) / unregister
+
+    /// Register this Mac as a device for every signed-in account, then start its
+    /// core + heartbeat. Where registration fails (e.g. offline) but a device
+    /// identity is already stored, fall back to it so the agent keeps running.
+    func autoRegisterAll() async {
+        for account in auth.accounts {
+            await register(accountId: account.id)
+        }
+        for id in MacDeviceStore.all() where cores[id.accountId] == nil {
+            registered.insert(id.accountId)
             startHeartbeat(id)
             startAgent(id)
         }
     }
 
-    // MARK: - Interactive sessions (desktop "AI" / "Approve & continue here")
-
-    /// Can this workspace run an interactive agent session right now? (core
-    /// created + registered). Gates the AI / approve-continue / cancel buttons.
-    func canRunInteractive(workspaceId: String) -> Bool {
-        cores[workspaceId] != nil && registered.contains(workspaceId)
-    }
-
-    /// Start an interactive plan session for an issue (the "AI" button). The core
-    /// emits a `run_request` with interactive:true that mounts in the dock.
-    func requestInteractive(workspaceId: String, issueId: String) {
-        cores[workspaceId]?.requestInteractive(issueId: issueId)
-    }
-
-    /// Resume an interactive session after the plan was approved (the human
-    /// already approved via agentPlan.approvePlan). "Approve & continue here".
-    func approveInteractive(workspaceId: String, issueId: String) {
-        cores[workspaceId]?.approveInteractive(issueId: issueId)
-    }
-
-    /// Cancel the run in flight for an issue (the "Cancel" button).
-    func cancelIssue(workspaceId: String, issueId: String) {
-        cores[workspaceId]?.cancelIssue(issueId: issueId)
-    }
-
-    static var defaultAgentName: String { "\(ProcessInfo.processInfo.hostName)" }
-
-    func isRegistered(_ workspaceId: String) -> Bool { registered.contains(workspaceId) }
-    func isOnline(_ workspaceId: String) -> Bool { online.contains(workspaceId) }
-    func identity(_ workspaceId: String) -> MacAgentIdentity? { MacAgentStore.load(workspaceId: workspaceId) }
-
-    // MARK: - Register / unregister
-
-    func register(accountId: String, workspaceId: String, name: String) async {
+    /// One human-session-authorized call registers this device account-wide: the
+    /// server mints a fresh expk_ key, fans the device into every workspace the
+    /// owner belongs to, and returns the key. Idempotent per machine.
+    func register(accountId: String, name: String? = nil) async {
         guard let account = auth.accounts.first(where: { $0.id == accountId }),
               let token = account.token else {
-            lastError = "Not signed in"; return
+            return // not signed in — nothing to do
         }
         let base = account.instanceUrl
-        busy = true
-        lastError = nil
-        defer { busy = false }
+        let deviceId = MacDeviceStore.hardwareDeviceId()
+        let deviceName = name ?? Self.defaultDeviceName
         do {
-            // One human-session-authorized call → the agent sub-identity + a
-            // refreshable OAuth credential (no setup token, no public claim).
-            let res = try await trpc(base: base, path: "agent.register",
-                                     input: ["workspaceId": workspaceId, "name": name], bearer: token)
+            let res = try await trpc(
+                base: base, path: "agent.register",
+                input: ["deviceId": deviceId, "name": deviceName], bearer: token)
             guard let res,
-                  let cred = res["credential"] as? [String: Any],
-                  let accessToken = cred["accessToken"] as? String,
+                  let apiKey = res["apiKey"] as? String,
                   let agent = res["agent"] as? [String: Any],
                   let agentId = agent["id"] as? String,
-                  let agentUserId = agent["userId"] as? String,
-                  let ws = res["workspace"] as? [String: Any],
-                  let wsId = ws["id"] as? String else {
-                lastError = "Registration failed"; return
+                  let agentUserId = agent["userId"] as? String else {
+                lastError = "Device registration failed"; return
             }
-            let identity = MacAgentIdentity(
+            let identity = MacDeviceIdentity(
                 instanceUrl: base,
-                apiKey: accessToken,
-                refreshToken: cred["refreshToken"] as? String,
-                tokenEndpoint: cred["tokenEndpoint"] as? String,
-                oauthClientId: cred["clientId"] as? String,
+                accountId: accountId,
+                deviceId: deviceId,
+                apiKey: apiKey,
                 agentId: agentId,
                 agentUserId: agentUserId,
-                agentName: (agent["name"] as? String) ?? name,
-                workspaceId: wsId,
-                workspaceSlug: (ws["slug"] as? String) ?? "",
-                workspaceName: (ws["name"] as? String) ?? ""
+                name: (agent["name"] as? String) ?? deviceName
             )
-            MacAgentStore.save(identity)
-            registered.insert(wsId)
+            MacDeviceStore.save(identity)
+            registered.insert(accountId)
+            lastError = nil
+            // Restart core + heartbeat with the freshly-rotated key.
+            stopCore(accountId)
             startHeartbeat(identity)
             startAgent(identity)
+        } catch let AgentError.http(code, _) where code == 401 {
+            // Stale/expired human session — the device key can't be minted. Tell
+            // the user plainly instead of surfacing a raw 401 body.
+            lastError = "Your session expired — sign out and back in to register this Mac."
         } catch {
             lastError = error.localizedDescription
         }
     }
 
-    func unregister(workspaceId: String) async {
-        guard let id = MacAgentStore.load(workspaceId: workspaceId) else { return }
+    func unregister(accountId: String) async {
+        guard let id = MacDeviceStore.load(accountId: accountId) else { return }
         busy = true
         lastError = nil
         defer { busy = false }
-        // Best-effort server uninstall; always remove locally (the user wants the
-        // agent gone on this Mac even if the token was already revoked server-side).
+        // Best-effort server revoke; always remove locally so this Mac stops
+        // pinging under a dead credential even if the key was already revoked.
         do {
             _ = try await trpc(base: id.instanceUrl, path: "agent.uninstallSelf", input: nil, bearer: id.apiKey)
         } catch {
             lastError = "Removed locally; the server uninstall failed: \(error.localizedDescription)"
         }
-        forgetLocal(workspaceId: workspaceId)
+        forgetLocal(accountId: accountId)
     }
 
-    /// Local-only teardown for a workspace's agent: stop the heartbeat, shut the
-    /// core down, drop the stored identity. Used both by `unregister` (after the
-    /// best-effort server uninstall) and after revoking an orphan agent the
-    /// server already removed (so this Mac stops pinging under a dead credential).
-    func forgetLocal(workspaceId: String) {
-        stopHeartbeat(workspaceId)
-        cores[workspaceId]?.shutdown()
-        cores[workspaceId] = nil
-        MacAgentStore.delete(workspaceId: workspaceId)
-        registered.remove(workspaceId)
-        online.remove(workspaceId)
+    /// Local-only teardown for an account's device: stop the heartbeat, shut the
+    /// core down, drop the stored identity.
+    func forgetLocal(accountId: String) {
+        stopHeartbeat(accountId)
+        stopCore(accountId)
+        MacDeviceStore.delete(accountId: accountId)
+        registered.remove(accountId)
+        online.remove(accountId)
+    }
+
+    private func stopCore(_ accountId: String) {
+        cores[accountId]?.shutdown()
+        cores[accountId] = nil
     }
 
     // MARK: - Agent loop (Rust agent-core)
 
-    /// Create + start the agent-core for this workspace (watches assigned issues,
+    /// Create + start the device's agent-core (watches assigned issues across all
+    /// of the owner's workspaces via the account-wide assigned-issues shape,
     /// emits run_request → MacAgentCore runs the CLI). v1 runs only while the app
     /// is open. No-op if already running or the dylib failed to create the core.
-    private func startAgent(_ id: MacAgentIdentity) {
-        guard cores[id.workspaceId] == nil, startingCores.insert(id.workspaceId).inserted else { return }
+    private func startAgent(_ id: MacDeviceIdentity) {
+        guard cores[id.accountId] == nil, startingCores.insert(id.accountId).inserted else { return }
         Task { @MainActor in
-            defer { startingCores.remove(id.workspaceId) }
-            // agent-core fetches a fresh per-repo GitHub App installation token from
-            // the server (agent.repoToken) just before clone/push, so the host
-            // no longer feeds a token.
-            let dir = MacAgentStore.dir().path
+            defer { startingCores.remove(id.accountId) }
+            // agent-core fetches a fresh per-repo GitHub App installation token
+            // from the server (agent.repoToken) just before clone/push.
+            let dir = MacDeviceStore.dir().path
             for sub in ["repos", "worktrees"] {
                 try? FileManager.default.createDirectory(atPath: "\(dir)/\(sub)", withIntermediateDirectories: true)
             }
@@ -218,7 +257,7 @@ final class MacAgentService {
                 "worktreesRoot": "\(dir)/worktrees",
                 "branchPrefix": "agent",
                 "driver": "claude",
-                "dbPath": "\(dir)/agent-state-\(id.workspaceId).sqlite",
+                "dbPath": "\(dir)/agent-state-\(id.accountId).sqlite",
                 "maxConcurrent": 2,
                 "timeoutS": 30,
             ]
@@ -228,35 +267,34 @@ final class MacAgentService {
                 lastError = "Failed to start the agent core"
                 return
             }
-            cores[id.workspaceId] = core
+            cores[id.accountId] = core
         }
     }
 
-    // MARK: - Heartbeat (30s, under the agent's expk_ key)
+    // MARK: - Heartbeat (30s, under the device's expk_ key)
 
-    private func startHeartbeat(_ id: MacAgentIdentity) {
-        heartbeats[id.workspaceId]?.cancel()
-        let base = id.instanceUrl, key = id.apiKey, wid = id.workspaceId
-        heartbeats[wid] = Task { @MainActor [weak self] in
+    private func startHeartbeat(_ id: MacDeviceIdentity) {
+        heartbeats[id.accountId]?.cancel()
+        let base = id.instanceUrl, key = id.apiKey, aid = id.accountId
+        heartbeats[aid] = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 // Self-terminate if the service is gone (it weakly captures self,
-                // so the loop would otherwise spin forever as a no-op) — this also
-                // means we don't need a deinit, which can't touch main-actor state.
+                // so the loop would otherwise spin forever as a no-op).
                 guard let self else { return }
                 do {
                     _ = try await self.trpc(base: base, path: "agent.heartbeat", input: nil, bearer: key)
-                    self.online.insert(wid)
+                    self.online.insert(aid)
                 } catch {
-                    self.online.remove(wid)
+                    self.online.remove(aid)
                 }
                 try? await Task.sleep(for: .seconds(30))
             }
         }
     }
 
-    private func stopHeartbeat(_ workspaceId: String) {
-        heartbeats[workspaceId]?.cancel()
-        heartbeats[workspaceId] = nil
+    private func stopHeartbeat(_ accountId: String) {
+        heartbeats[accountId]?.cancel()
+        heartbeats[accountId] = nil
     }
 
     // MARK: - Raw tRPC (bare-input POST, custom bearer)

@@ -280,7 +280,7 @@ final class MacAgentTerminalRunner {
             return
         }
 
-        let runsDir = MacAgentStore.dir().appendingPathComponent("agent-runs")
+        let runsDir = MacDeviceStore.dir().appendingPathComponent("agent-runs")
         try? FileManager.default.createDirectory(at: runsDir, withIntermediateDirectories: true)
         let promptPath = runsDir.appendingPathComponent("\(runId).prompt").path
         let scriptPath = runsDir.appendingPathComponent("\(runId).sh").path

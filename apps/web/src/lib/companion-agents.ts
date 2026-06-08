@@ -1,65 +1,41 @@
-import { and, eq, inArray } from "drizzle-orm"
-import { apikeys, oauthApplications } from "@/db/auth-schema"
-import {
-  issues,
-  projects,
-  agentRegistrations,
-  workspaceMembers,
-} from "@/db/schema"
+import { eq } from "drizzle-orm"
+import { apikeys } from "@/db/auth-schema"
+import { issues, agentRegistrations, workspaceMembers } from "@/db/schema"
 
-interface WorkspaceAgentRecord {
+interface DeviceAgentRecord {
   id: string
-  workspaceId: string
   userId: string
   apiKeyId: string | null
-  oauthClientId: string | null
 }
 
-export async function revokeWorkspaceAgent(
+// Revoke a desktop device (account-level): kill its API key(s), unassign every
+// issue it holds across all workspaces, drop all of its agent memberships, and
+// delete the registration row. The synthetic agent user is intentionally KEPT
+// so its past comments / PR activity stay attributed; re-registering the same
+// machine mints a fresh device + key.
+export async function revokeDeviceAgent(
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
   db: typeof import("@/db/connection").db,
-  agent: WorkspaceAgentRecord
+  agent: DeviceAgentRecord
 ) {
-  const projectRows = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.workspaceId, agent.workspaceId))
-
   await db.transaction(async (tx) => {
-    // Legacy expk_ key (pre-OAuth agents).
-    if (agent.apiKeyId) {
-      await tx.delete(apikeys).where(eq(apikeys.id, agent.apiKeyId))
-    }
-    // The OAuth client; its access/refresh tokens cascade-delete with it.
-    if (agent.oauthClientId) {
-      await tx
-        .delete(oauthApplications)
-        .where(eq(oauthApplications.clientId, agent.oauthClientId))
-    }
+    // All expk_ keys minted for this device's agent user (key id may be stale
+    // after a rotation, so match by reference too).
+    await tx.delete(apikeys).where(eq(apikeys.referenceId, agent.userId))
 
-    if (projectRows.length > 0) {
-      await tx
-        .update(issues)
-        .set({ assigneeId: null })
-        .where(
-          and(
-            inArray(
-              issues.projectId,
-              projectRows.map((project) => project.id)
-            ),
-            eq(issues.assigneeId, agent.userId)
-          )
-        )
-    }
+    // Unassign every issue this device holds, in any workspace.
+    await tx
+      .update(issues)
+      .set({ assigneeId: null })
+      .where(eq(issues.assigneeId, agent.userId))
 
+    // Remove the device from every workspace it fanned out into.
     await tx
       .delete(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, agent.workspaceId),
-          eq(workspaceMembers.userId, agent.userId)
-        )
-      )
-    await tx.delete(agentRegistrations).where(eq(agentRegistrations.id, agent.id))
+      .where(eq(workspaceMembers.userId, agent.userId))
+
+    await tx
+      .delete(agentRegistrations)
+      .where(eq(agentRegistrations.id, agent.id))
   })
 }

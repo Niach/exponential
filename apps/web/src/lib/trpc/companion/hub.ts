@@ -2,7 +2,7 @@ import { z } from "zod"
 import { and, asc, eq, gt, isNull } from "drizzle-orm"
 import { authedProcedure } from "@/lib/trpc"
 import { issues, agentRegistrations } from "@/db/schema"
-import { revokeWorkspaceAgent } from "@/lib/companion-agents"
+import { revokeDeviceAgent } from "@/lib/companion-agents"
 import { loadAgentForSessionUser } from "./shared"
 
 export const hubProcedures = {
@@ -100,7 +100,7 @@ export const hubProcedures = {
 
   uninstallSelf: authedProcedure.mutation(async ({ ctx }) => {
     const agent = await loadAgentForSessionUser(ctx.db, ctx.session.user.id)
-    await revokeWorkspaceAgent(ctx.db, agent)
+    await revokeDeviceAgent(ctx.db, agent)
     return { ok: true }
   }),
 }
