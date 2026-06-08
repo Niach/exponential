@@ -14,12 +14,11 @@ pub const Heartbeat = struct {
     gpa: std.mem.Allocator,
     base_url: []u8,
     api_key: []u8,
-    workspace_id: []u8,
     stop_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     /// Allocate + start the loop. The returned pointer is owned by the worker
     /// thread, which frees it after `stop()`. Returns null on OOM / spawn failure.
-    pub fn spawn(gpa: std.mem.Allocator, base_url: []const u8, api_key: []const u8, workspace_id: []const u8) ?*Heartbeat {
+    pub fn spawn(gpa: std.mem.Allocator, base_url: []const u8, api_key: []const u8) ?*Heartbeat {
         const self = gpa.create(Heartbeat) catch return null;
         self.gpa = gpa;
         self.stop_flag = std.atomic.Value(bool).init(false);
@@ -29,12 +28,6 @@ pub const Heartbeat = struct {
         };
         self.api_key = gpa.dupe(u8, api_key) catch {
             gpa.free(self.base_url);
-            gpa.destroy(self);
-            return null;
-        };
-        self.workspace_id = gpa.dupe(u8, workspace_id) catch {
-            gpa.free(self.base_url);
-            gpa.free(self.api_key);
             gpa.destroy(self);
             return null;
         };
@@ -56,7 +49,6 @@ pub const Heartbeat = struct {
         const gpa = self.gpa;
         gpa.free(self.base_url);
         gpa.free(self.api_key);
-        gpa.free(self.workspace_id);
         gpa.destroy(self);
     }
 };

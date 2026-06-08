@@ -217,8 +217,8 @@ fn rebuild(ctx: *Ctx) void {
 
     // --- Desktop agent ---
     gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Desktop agent"));
-    if (identity_store.existsFor(ctx.gpa, ctx.ws_id)) {
-        const agent_name = identity_store.readField(ctx.gpa, ctx.ws_id, "agentName");
+    if (identity_store.exists(ctx.gpa)) {
+        const agent_name = identity_store.readField(ctx.gpa, "agentName");
         defer if (agent_name) |n| ctx.gpa.free(n);
         const lbl = gtk.gtk_label_new(null);
         var buf: [256]u8 = undefined;
@@ -618,7 +618,12 @@ fn setAgentStatus(ctx: *Ctx, msg: []const u8) void {
 fn onRegister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *Ctx = @ptrCast(@alignCast(data));
     setAgentStatus(ctx, "Registering…");
-    var oc = registration.registerMachine(ctx.gpa, ctx.instance, ctx.token, ctx.ws_id, "Desktop agent", 30) catch {
+    const did = registration.deviceId(ctx.gpa) catch {
+        setAgentStatus(ctx, "Request failed.");
+        return;
+    };
+    defer ctx.gpa.free(did);
+    var oc = registration.registerDevice(ctx.gpa, ctx.instance, ctx.token, did, "Desktop", 30) catch {
         setAgentStatus(ctx, "Request failed.");
         return;
     };
@@ -696,11 +701,11 @@ fn onUnregConfirm(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 }
 
 fn doUnregister(ctx: *Ctx) void {
-    if (identity_store.readField(ctx.gpa, ctx.ws_id, "apiKey")) |key| {
+    if (identity_store.readField(ctx.gpa, "apiKey")) |key| {
         defer ctx.gpa.free(key);
         _ = registration.uninstall(ctx.gpa, ctx.instance, key, 30);
     }
-    identity_store.delete(ctx.gpa, ctx.ws_id);
+    identity_store.delete(ctx.gpa);
 }
 
 /// GitHub is connected in the web app now — open Account → Integrations in the

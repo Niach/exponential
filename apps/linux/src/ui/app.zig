@@ -26,6 +26,7 @@ const ServerAccount = @import("../core/auth/server_account.zig").ServerAccount;
 const Database = @import("../core/db/database.zig").Database;
 const sync = @import("../core/electric/sync_manager.zig");
 const identity_store = @import("../core/agent/identity_store.zig");
+const registration = @import("../core/agent/registration.zig");
 const agent_manager = @import("../core/agent/agent_manager.zig");
 const terminal_dock = @import("terminal_dock.zig");
 const Heartbeat = @import("../core/agent/heartbeat.zig").Heartbeat;
@@ -74,10 +75,9 @@ const AppState = struct {
     switcher_area: gtk.Object = null, // sidebar slot holding the workspace switcher
     switcher_popover: gtk.Object = null, // the switcher's dropdown popover (for popdown)
     repo_banner: gtk.Object = null, // GitHub repo banner above the list (hidden when none)
-    heartbeat: ?*Heartbeat = null, // desktop-agent online ping for heartbeat_ws
-    heartbeat_ws: ?[]u8 = null, // gpa-owned; which workspace the heartbeat serves
+    heartbeat: ?*Heartbeat = null, // device-agent online ping (account-level)
     agent_core: ?*agent_manager.Manager = null, // the Rust agent loop, when registered
-    agent_core_ws: ?[]u8 = null, // gpa-owned; which workspace the agent serves
+    device_register_attempted: bool = false, // auto-register runs once per signed-in session
 
     // filter bar
     active_tab: format.Tab = .all,
@@ -600,12 +600,9 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.search_text = null;
     if (state.heartbeat) |hb| hb.stop();
     state.heartbeat = null;
-    if (state.heartbeat_ws) |p| state.gpa.free(p);
-    state.heartbeat_ws = null;
     if (state.agent_core) |m| agent_manager.stop(m);
     state.agent_core = null;
-    if (state.agent_core_ws) |p| state.gpa.free(p);
-    state.agent_core_ws = null;
+    state.device_register_attempted = false;
     // The dock's GTK widgets die with the window content; free our struct (the
     // agent core was stopped just above, so it won't touch the dock anymore).
     if (state.term_dock) |d| state.gpa.destroy(d);
@@ -1186,6 +1183,7 @@ fn matchesLabelFilter(state: *AppState, chips: []const Database.LabelChip) bool 
 /// workspace set changes (so selecting a project isn't disrupted by updates).
 fn doRefresh(state: *AppState) void {
     ensureActiveWorkspace(state);
+    reconcileDeviceRegistration(state);
     reconcileHeartbeat(state);
     reconcileAgent(state);
     refreshIssues(state);
@@ -1200,75 +1198,94 @@ fn doRefresh(state: *AppState) void {
     }
 }
 
-/// Start/stop the desktop-agent heartbeat so it matches whether the ACTIVE
-/// workspace has a stored agent identity on this machine. Called each refresh.
+/// Auto-register this machine as a desktop device once per signed-in session.
+/// Account-level: the server mints one expk_ key and fans the device into every
+/// workspace the owner belongs to, so a single core covers them all. Runs a
+/// single blocking call on the first refresh after sign-in (mirrors the manual
+/// register button); retried on the next sign-in if it fails.
+fn reconcileDeviceRegistration(state: *AppState) void {
+    if (state.device_register_attempted) return;
+    const instance = state.instance orelse return;
+    const token = state.token orelse return;
+    state.device_register_attempted = true;
+    if (identity_store.exists(state.gpa)) return;
+
+    const did = registration.deviceId(state.gpa) catch return;
+    defer state.gpa.free(did);
+    const name = hostName(state.gpa) orelse return;
+    defer state.gpa.free(name);
+
+    var oc = registration.registerDevice(state.gpa, instance, token, did, name, 20) catch return;
+    switch (oc) {
+        .failure => |m| state.gpa.free(m),
+        .success => |*id| {
+            defer id.deinit();
+            if (identity_store.save(state.gpa, id)) |p| state.gpa.free(p) else |_| {}
+        },
+    }
+}
+
+/// This machine's display name, from /etc/hostname (caller frees), or null on
+/// allocation failure.
+fn hostName(gpa: std.mem.Allocator) ?[]u8 {
+    if (storage.readFileAlloc(gpa, "/etc/hostname")) |bytes| {
+        defer gpa.free(bytes);
+        const trimmed = std.mem.trim(u8, bytes, " \t\r\n");
+        if (trimmed.len > 0) return gpa.dupe(u8, trimmed) catch null;
+    }
+    return gpa.dupe(u8, "This PC") catch null;
+}
+
+/// Start/stop the device-agent heartbeat to match whether this machine has a
+/// stored device identity. Account-level (not per active workspace). Called each
+/// refresh.
 fn reconcileHeartbeat(state: *AppState) void {
-    const want: ?[]const u8 = if (state.active_workspace_id) |ws|
-        (if (identity_store.existsFor(state.gpa, ws)) ws else null)
-    else
-        null;
+    const want = identity_store.exists(state.gpa);
+    const have = state.heartbeat != null;
+    if (want == have) return;
 
-    const have = state.heartbeat_ws;
-    const same = (want == null and have == null) or
-        (want != null and have != null and std.mem.eql(u8, want.?, have.?));
-    if (same) return;
-
-    // Tear down any running heartbeat (worker frees itself).
     if (state.heartbeat) |hb| {
         hb.stop();
         state.heartbeat = null;
     }
-    if (state.heartbeat_ws) |p| state.gpa.free(p);
-    state.heartbeat_ws = null;
-
-    // Start one for the desired workspace, if registered.
-    if (want) |ws| {
+    if (want) {
         const instance = state.instance orelse return;
-        const key = identity_store.readField(state.gpa, ws, "apiKey") orelse return;
+        const key = identity_store.readField(state.gpa, "apiKey") orelse return;
         defer state.gpa.free(key);
-        state.heartbeat = Heartbeat.spawn(state.gpa, instance, key, ws);
-        if (state.heartbeat != null) state.heartbeat_ws = state.gpa.dupe(u8, ws) catch null;
+        state.heartbeat = Heartbeat.spawn(state.gpa, instance, key);
     }
 }
 
-/// Start/stop the Rust agent-core loop to match whether the active workspace has
-/// a stored agent identity. Built from the identity (api key + agent user id),
-/// the GitHub token, and per-machine repo/worktree/db paths. Called each refresh.
+/// Start/stop the Rust agent-core loop to match whether this machine has a
+/// stored device identity. One core per device — the assigned-issues shape is
+/// account-wide, so it watches issues assigned to this device across all the
+/// owner's workspaces. Called each refresh.
 fn reconcileAgent(state: *AppState) void {
-    const want: ?[]const u8 = if (state.active_workspace_id) |ws|
-        (if (identity_store.existsFor(state.gpa, ws)) ws else null)
-    else
-        null;
-
-    const have = state.agent_core_ws;
-    const same = (want == null and have == null) or
-        (want != null and have != null and std.mem.eql(u8, want.?, have.?));
-    if (same) return;
+    const want = identity_store.exists(state.gpa);
+    const have = state.agent_core != null;
+    if (want == have) return;
 
     if (state.agent_core) |m| {
         agent_manager.stop(m);
         state.agent_core = null;
     }
-    if (state.agent_core_ws) |p| state.gpa.free(p);
-    state.agent_core_ws = null;
-
-    const ws = want orelse return;
+    if (!want) return;
     const instance = state.instance orelse return;
 
     var arena = std.heap.ArenaAllocator.init(state.gpa);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const api_key = identity_store.readField(a, ws, "apiKey") orelse return;
-    const agent_uid = identity_store.readField(a, ws, "agentUserId") orelse return;
+    const api_key = identity_store.readField(a, "apiKey") orelse return;
+    const agent_uid = identity_store.readField(a, "agentUserId") orelse return;
     // agent-core fetches a fresh per-repo GitHub App installation token from the
-    // server (companion.repoToken) just before clone/push, so the host no longer
+    // server (agent.repoToken) just before clone/push, so the host no longer
     // feeds a token. Left empty (the agent self-fetches).
     const github = "";
     const dir = storage.configDir(a) catch return;
     const repos_root = std.fmt.allocPrint(a, "{s}/repos", .{dir}) catch return;
     const worktrees_root = std.fmt.allocPrint(a, "{s}/worktrees", .{dir}) catch return;
-    const db_path = std.fmt.allocPrint(a, "{s}/agent-state-{s}.sqlite", .{ dir, ws }) catch return;
+    const db_path = std.fmt.allocPrint(a, "{s}/agent-state.sqlite", .{dir}) catch return;
 
     const json = std.json.Stringify.valueAlloc(a, .{
         .baseUrl = instance,
@@ -1284,9 +1301,8 @@ fn reconcileAgent(state: *AppState) void {
         .timeoutS = 30,
     }, .{}) catch return;
 
-    state.agent_core = agent_manager.start(state.gpa, json, ws);
+    state.agent_core = agent_manager.start(state.gpa, json, "device");
     if (state.agent_core) |m| {
-        state.agent_core_ws = state.gpa.dupe(u8, ws) catch null;
         // Route agent runs into the IDE-style terminal dock.
         if (state.term_dock) |d| agent_manager.setDock(m, @ptrCast(d), terminal_dock.mountForManager);
     }

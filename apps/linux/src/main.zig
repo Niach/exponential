@@ -118,19 +118,22 @@ fn login(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
     );
 }
 
-/// Register this machine as a desktop agent and persist the identity.
+/// Register this machine as a desktop device and persist the identity.
 fn register(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
-    if (args.len < 3) {
-        std.debug.print("usage: exponential register <baseUrl> <sessionToken> <workspaceId>\n", .{});
+    if (args.len < 2) {
+        std.debug.print("usage: exponential register <baseUrl> <sessionToken> [deviceName]\n", .{});
         return;
     }
-    var outcome = try registration.registerMachine(gpa, args[0], args[1], args[2], "Desktop agent", 30);
+    const name = if (args.len >= 3) args[2] else "Desktop";
+    const did = try registration.deviceId(gpa);
+    defer gpa.free(did);
+    var outcome = try registration.registerDevice(gpa, args[0], args[1], did, name, 30);
     switch (outcome) {
         .success => |*id| {
             defer id.deinit();
             std.debug.print(
-                "registered: agent={s} ({s}) workspace={s} ({s}) apiKey={s}…\n",
-                .{ id.agent_name, id.agent_user_id, id.workspace_name, id.workspace_slug, previewSecret(id.api_key) },
+                "registered: agent={s} ({s}) device={s} apiKey={s}…\n",
+                .{ id.agent_name, id.agent_user_id, id.device_id, previewSecret(id.api_key) },
             );
             if (identity_store.save(gpa, id)) |path| {
                 defer gpa.free(path);
