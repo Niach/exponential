@@ -22,7 +22,8 @@ export async function mintAgentApiKey(args: {
 }): Promise<AgentApiKey> {
   const apiKey = await auth.api.createApiKey({
     body: {
-      name: `Device: ${args.deviceName}`,
+      // Keep well under the plugin's name cap regardless of hostname length.
+      name: `Device: ${args.deviceName}`.slice(0, 180),
       userId: args.agentUserId,
       expiresIn: null,
       rateLimitEnabled: false,

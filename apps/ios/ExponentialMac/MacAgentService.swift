@@ -103,9 +103,9 @@ final class MacAgentService {
         // Interactive agent runs mount into the shared bottom dock; headless runs
         // use the per-run window. The runner is a singleton, so point it here once.
         MacAgentTerminalRunner.shared.dock = terminalDock
-        // Auto-register every signed-in account on launch (idempotent). Falls
-        // back to any stored device identity if the server is unreachable.
-        Task { @MainActor in await self.autoRegisterAll() }
+        // Registration is kicked off by the auth gate (MacRootView) once an
+        // account is actually signed in — at init time, right after a fresh
+        // launch, there may be no account yet. See autoRegisterAll().
     }
 
     // MARK: - Interactive sessions (desktop "AI" / "Approve & continue here")

@@ -225,6 +225,10 @@ export const auth = betterAuth({
       defaultPrefix: `expk_`,
       enableMetadata: true,
       enableSessionForAPIKeys: true,
+      // Default cap is 32, but device keys are named `Device: <hostname>` and a
+      // hostname like "macbook-pro-von-danny.local" blows past that → register
+      // would 500 on createApiKey. Give the name field generous room.
+      maximumNameLength: 200,
       keyExpiration: { defaultExpiresIn: null },
       // Per-key rate limiting is off by default for service tokens — the
       // companion daemon long-polls /api/shapes/* and would blow through
