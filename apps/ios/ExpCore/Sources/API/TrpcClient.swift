@@ -3,11 +3,6 @@ import Foundation
 public final class TrpcClient: Sendable {
     private let httpClient: HTTPClient
     private let auth: AuthRepository
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.keyDecodingStrategy = .convertFromSnakeCase
-        return d
-    }()
 
     public init(httpClient: HTTPClient, auth: AuthRepository) {
         self.httpClient = httpClient

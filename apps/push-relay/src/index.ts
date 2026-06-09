@@ -81,10 +81,16 @@ setInterval(() => {
   }
 }, RATE_LIMIT_WINDOW_MS).unref?.()
 
+// Loose IPv4/IPv6 shape check — anything else falls back to a shared bucket so
+// forged X-Forwarded-For values can't mint unlimited fresh rate-limit buckets.
+const IP_RE = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]+)$/
+
 function clientIp(headers: Headers, fallback = `unknown`): string {
   const forwarded = headers.get(`x-forwarded-for`)
-  if (forwarded) return forwarded.split(`,`)[0]!.trim()
-  return headers.get(`x-real-ip`) ?? fallback
+  const candidate =
+    forwarded?.split(`,`)[0]!.trim() || headers.get(`x-real-ip`)?.trim()
+  if (candidate && IP_RE.test(candidate)) return candidate
+  return fallback
 }
 
 // ── Dead-token error codes per Firebase docs ──────────────────────────────────
@@ -185,7 +191,9 @@ app.post(`/send`, async (c) => {
     if (code && DEAD_CODES.has(code)) {
       invalidTokens.push(tokens[i])
     } else {
-      console.error(`[push-relay] send error token=${tokens[i]}`, res.error)
+      console.error(
+        `[push-relay] send error token=${tokens[i]?.slice(0, 12)}… code=${res.error?.code ?? `unknown`}`
+      )
     }
   })
 
