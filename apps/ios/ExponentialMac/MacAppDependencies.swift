@@ -33,6 +33,7 @@ final class MacAppDependencies: @unchecked Sendable {
     let subscriptionsApi: SubscriptionsApi
     let terminalDock: MacTerminalDock
     let agentService: MacAgentService
+    let toastCenter: MacToastCenter
 
     init() {
         let keychain = KeychainStore()
@@ -87,11 +88,19 @@ final class MacAppDependencies: @unchecked Sendable {
         // and MacAgentService (mounts interactive runs into it).
         let terminalDock = MainActor.assumeIsolated { MacTerminalDock() }
         self.terminalDock = terminalDock
+        let toastCenter = MainActor.assumeIsolated { MacToastCenter() }
+        self.toastCenter = toastCenter
         // @State initializes this composition root on the main actor, so it's safe
         // to construct the MainActor-isolated agent service here (it starts
         // heartbeats for any already-registered workspaces).
         self.agentService = MainActor.assumeIsolated {
-            MacAgentService(auth: auth, integrationsApi: integrationsApi, terminalDock: terminalDock)
+            MacAgentService(
+                auth: auth,
+                integrationsApi: integrationsApi,
+                terminalDock: terminalDock,
+                runMonitor: MacAgentRunMonitor(),
+                toasts: toastCenter
+            )
         }
 
         // Start sync — it observes auth state and launches one shape pipeline set

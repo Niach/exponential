@@ -11,16 +11,24 @@ import Foundation
 final class MacAgentCore: @unchecked Sendable {
     private let core: OpaquePointer
     private let onLog: (@Sendable (String) -> Void)?
+    /// Fire-and-forget host events from the core (run_started / run_finished /
+    /// run_cancelled / agent_error), already parsed; delivered on the MAIN queue.
+    private let onEvent: (@MainActor ([String: Any]) -> Void)?
     private var ctxToken: Unmanaged<MacAgentCore>?
     // Serializes `core` use (submitRunResult) against shutdown's free, so a run
     // that completes after unregister can't call into a freed core pointer.
     private let lock = NSLock()
     private var hasShutdown = false
 
-    init?(configJson: String, onLog: (@Sendable (String) -> Void)? = nil) {
+    init?(
+        configJson: String,
+        onLog: (@Sendable (String) -> Void)? = nil,
+        onEvent: (@MainActor ([String: Any]) -> Void)? = nil
+    ) {
         guard let core = configJson.withCString({ agent_core_create($0) }) else { return nil }
         self.core = core
         self.onLog = onLog
+        self.onEvent = onEvent
         self.ctxToken = nil
 
         let token = Unmanaged.passRetained(self)
@@ -83,7 +91,15 @@ final class MacAgentCore: @unchecked Sendable {
         guard let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
-        guard type == "run_request" else {
+        switch type {
+        case "run_request":
+            break // handled below
+        case "run_started", "run_finished", "run_cancelled", "agent_error":
+            if let onEvent {
+                DispatchQueue.main.async { MainActor.assumeIsolated { onEvent(obj) } }
+            }
+            return
+        default:
             onLog?(json)
             return
         }
@@ -97,6 +113,7 @@ final class MacAgentCore: @unchecked Sendable {
         let cwd = obj["cwd"] as? String
         let system = (obj["systemPrompt"] as? String) ?? ""
         let user = (obj["userPrompt"] as? String) ?? ""
+        let identifier = (obj["issueIdentifier"] as? String) ?? ""
         let prompt = "\(system)\n\n<user_issue>\n\(user)\n</user_issue>"
         // Interactive runs mount in the collapsible dock and run WITHOUT output
         // capture (the user watches/steers; the plan is delivered via MCP). Headless
@@ -104,7 +121,8 @@ final class MacAgentCore: @unchecked Sendable {
         let interactive = (obj["interactive"] as? Bool) ?? false
         DispatchQueue.main.async { [self] in
             MacAgentTerminalRunner.shared.run(
-                runId: runId, program: program, argv: argv, env: env, cwd: cwd, prompt: prompt, interactive: interactive
+                runId: runId, program: program, argv: argv, env: env, cwd: cwd, prompt: prompt,
+                interactive: interactive, issueIdentifier: identifier
             ) { [self] code, text in
                 submitRunResult(runId: runId, exitCode: code, finalText: text)
             }

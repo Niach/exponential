@@ -13,6 +13,9 @@ final class MacTerminalDock {
     var isExpanded = true
     var dockHeight: CGFloat = 280
     private(set) var title = ""
+    /// The run currently mounted, so a core `run_cancelled` event can tear down
+    /// exactly the matching terminal.
+    private(set) var currentRunId: String?
     /// The owned terminal view. Retained here so the ghostty surface (which holds
     /// an unretained userdata pointer back to it) always outlives its surface.
     private(set) var terminalView: MacGhosttyTerminalView?
@@ -30,13 +33,14 @@ final class MacTerminalDock {
         title: String,
         onDone: @escaping (Int32, String) -> Void
     ) {
-        // A previous run shouldn't still be mounted (the dispatcher serializes per
-        // workspace), but if one is, tear it down first.
+        // A previous run shouldn't still be mounted (the core runs one interactive
+        // session at a time with maxConcurrent 1), but if one is, tear it down first.
         if isMounted { close() }
         self.title = title
         self.onDone = onDone
         self.submitted = false
         self.terminalView = view
+        self.currentRunId = runId
         // The CLI exited → submit the result (the terminal lingers via
         // wait_after_command so the user can read the output until they close it).
         view.onCommandFinished = { [weak self] code in self?.submit(Int32(code)) }
@@ -64,6 +68,7 @@ final class MacTerminalDock {
         terminalView?.destroySurface()
         terminalView = nil
         title = ""
+        currentRunId = nil
         isMounted = false
     }
 

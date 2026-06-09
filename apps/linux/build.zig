@@ -52,6 +52,24 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+
+    // --- compile check (no linking) ---
+    // Type-checks the FULL app, UI included, without linking GTK/libghostty/
+    // agent-core — the GTK + ghostty bindings are hand-declared externs, so
+    // compilation needs no Linux headers. This is the gate a macOS dev runs to
+    // verify Linux changes "to the link boundary": `zig build check`.
+    const check_obj = b.addObject(.{
+        .name = "exponential-check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    linkCore(check_obj.root_module, build_options);
+    const check_step = b.step("check", "Type-check the full app without linking (runs on macOS)");
+    check_step.dependOn(&check_obj.step);
 }
 
 /// Core C deps: SQLite store + libcurl networking.

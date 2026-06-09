@@ -84,6 +84,9 @@ final class MacAgentService {
     private let auth: AuthRepository
     private let integrationsApi: IntegrationsApi
     private let terminalDock: MacTerminalDock
+    /// Live "which issues have a run in flight" view, fed by core host events.
+    let runMonitor: MacAgentRunMonitor
+    private let toasts: MacToastCenter
     // Keyed by accountId — a device is one registration per signed-in account.
     private(set) var registered: Set<String> = []
     private(set) var online: Set<String> = []
@@ -96,16 +99,70 @@ final class MacAgentService {
     // init/register can't create two cores for one account.
     private var startingCores: Set<String> = []
 
-    init(auth: AuthRepository, integrationsApi: IntegrationsApi, terminalDock: MacTerminalDock) {
+    init(
+        auth: AuthRepository,
+        integrationsApi: IntegrationsApi,
+        terminalDock: MacTerminalDock,
+        runMonitor: MacAgentRunMonitor,
+        toasts: MacToastCenter
+    ) {
         self.auth = auth
         self.integrationsApi = integrationsApi
         self.terminalDock = terminalDock
+        self.runMonitor = runMonitor
+        self.toasts = toasts
         // Interactive agent runs mount into the shared bottom dock; headless runs
         // use the per-run window. The runner is a singleton, so point it here once.
         MacAgentTerminalRunner.shared.dock = terminalDock
         // Registration is kicked off by the auth gate (MacRootView) once an
         // account is actually signed in — at init time, right after a fresh
         // launch, there may be no account yet. See autoRegisterAll().
+    }
+
+    // MARK: - Core host events (run lifecycle UX)
+
+    /// Fire-and-forget events from the core (already on the main actor): keep the
+    /// run monitor current, surface toasts, and tear terminals down on cancel.
+    private func handleCoreEvent(_ event: [String: Any]) {
+        let type = (event["type"] as? String) ?? ""
+        let issueId = (event["issueId"] as? String) ?? ""
+        let identifier = (event["issueIdentifier"] as? String) ?? ""
+        let runId = (event["runId"] as? String) ?? ""
+        switch type {
+        case "run_started":
+            runMonitor.runStarted(issueId: issueId, runId: runId)
+            let mode = (event["mode"] as? String) == "code" ? "implementing" : "planning"
+            let name = identifier.isEmpty ? "an issue" : identifier
+            toasts.show("Agent started \(mode) \(name) — watch it in the terminal.")
+        case "run_finished":
+            runMonitor.runEnded(issueId: issueId)
+            let outcome = (event["outcome"] as? String) ?? ""
+            if outcome == "failed" {
+                toasts.show("The agent run failed — see the issue's agent panel.", style: .error)
+            }
+        case "run_cancelled":
+            runMonitor.runEnded(issueId: issueId)
+            if !runId.isEmpty {
+                MacAgentTerminalRunner.shared.terminate(runId: runId)
+            }
+            toasts.show("Agent run cancelled.")
+        case "agent_error":
+            let message = (event["message"] as? String) ?? "The agent hit an error."
+            toasts.show(message, style: .error, duration: .seconds(8))
+        default:
+            break
+        }
+    }
+
+    /// Tear everything down for app quit: cancel heartbeats and shut every core
+    /// down (which cancels in-flight runs and kills CLI children) so no orphaned
+    /// `claude` processes survive the app.
+    func shutdownAll() {
+        for (id, _) in heartbeats { heartbeats[id]?.cancel() }
+        heartbeats.removeAll()
+        for (_, core) in cores { core.shutdown() }
+        cores.removeAll()
+        runMonitor.reset()
     }
 
     // MARK: - Interactive sessions (desktop "AI" / "Approve & continue here")
@@ -230,6 +287,10 @@ final class MacAgentService {
     private func stopCore(_ accountId: String) {
         cores[accountId]?.shutdown()
         cores[accountId] = nil
+        // shutdown() detaches the event callback before cancelling runs, so their
+        // run_finished events never arrive — clear the monitor instead of leaving
+        // phantom "running" issues. (It repopulates on the next run_started.)
+        runMonitor.reset()
     }
 
     // MARK: - Agent loop (Rust agent-core)
@@ -258,12 +319,19 @@ final class MacAgentService {
                 "branchPrefix": "agent",
                 "driver": "claude",
                 "dbPath": "\(dir)/agent-state-\(id.accountId).sqlite",
-                "maxConcurrent": 2,
+                // ONE run at a time: the dock hosts a single interactive terminal,
+                // so a second concurrent session would clobber it.
+                "maxConcurrent": 1,
                 "timeoutS": 30,
+                "runTimeoutS": 1800,
+                // Plan/code stages run as live sessions in the embedded terminal.
+                "interactive": true,
             ]
             guard let data = try? JSONSerialization.data(withJSONObject: config),
                   let json = String(data: data, encoding: .utf8),
-                  let core = MacAgentCore(configJson: json) else {
+                  let core = MacAgentCore(configJson: json, onEvent: { [weak self] event in
+                      self?.handleCoreEvent(event)
+                  }) else {
                 lastError = "Failed to start the agent core"
                 return
             }

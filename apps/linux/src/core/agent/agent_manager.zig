@@ -28,12 +28,30 @@ pub const Manager = struct {
     // of a throwaway window. Opaque so this module needn't import the UI types.
     dock: ?*anyopaque = null,
     mount_fn: ?*const fn (dock: *anyopaque, term: gtk.Object, title: [*:0]const u8) void = null,
+    unmount_fn: ?*const fn (dock: *anyopaque, term: gtk.Object) void = null,
+    // Live terminals keyed by run_id (owned keys), so a core `run_cancelled`
+    // event can tear down exactly the matching terminal (killing the CLI child).
+    // Touched ONLY on the GTK main thread.
+    runs: std.StringHashMapUnmanaged(RunHandle) = .empty,
+};
+
+/// What we need to tear a live run's terminal down: its window (when not
+/// docked) and the terminal widget (when docked).
+const RunHandle = struct {
+    window: gtk.Object,
+    term: gtk.Object,
 };
 
 /// Point this manager's agent runs at the UI terminal dock (called after start).
-pub fn setDock(mgr: *Manager, dock: ?*anyopaque, mount_fn: ?*const fn (dock: *anyopaque, term: gtk.Object, title: [*:0]const u8) void) void {
+pub fn setDock(
+    mgr: *Manager,
+    dock: ?*anyopaque,
+    mount_fn: ?*const fn (dock: *anyopaque, term: gtk.Object, title: [*:0]const u8) void,
+    unmount_fn: ?*const fn (dock: *anyopaque, term: gtk.Object) void,
+) void {
     mgr.dock = dock;
     mgr.mount_fn = mount_fn;
+    mgr.unmount_fn = unmount_fn;
 }
 
 /// Create + start the core for `workspace_id` with the given config JSON.
@@ -62,6 +80,9 @@ pub fn start(gpa: std.mem.Allocator, config_json: []const u8, workspace_id: []co
 pub fn stop(mgr: *Manager) void {
     _ = ffi.agent_core_stop(mgr.core);
     ffi.agent_core_free(mgr.core);
+    var it = mgr.runs.keyIterator();
+    while (it.next()) |k| mgr.gpa.free(k.*);
+    mgr.runs.deinit(mgr.gpa);
     mgr.gpa.free(mgr.workspace_id);
     mgr.gpa.destroy(mgr);
 }
@@ -104,12 +125,54 @@ fn onEvent(ctx: ?*anyopaque, json_ptr: [*c]const u8, len: usize) callconv(.c) vo
     const typ = objStr(obj, "type") orelse return;
     if (std.mem.eql(u8, typ, "run_request")) {
         handleRunRequest(mgr, obj);
+    } else if (std.mem.eql(u8, typ, "run_cancelled")) {
+        // Tear down the matching terminal (kills the CLI child). Marshal to the
+        // GTK main loop — the registry and all widget work live there.
+        const run_id = objStr(obj, "runId") orelse return;
+        const msg = mgr.gpa.create(CancelMsg) catch return;
+        msg.* = .{ .mgr = mgr, .run_id = mgr.gpa.dupe(u8, run_id) catch {
+            mgr.gpa.destroy(msg);
+            return;
+        } };
+        _ = gtk.g_idle_add(cancelOnMain, msg);
+    } else if (std.mem.eql(u8, typ, "run_started") or std.mem.eql(u8, typ, "run_finished") or std.mem.eql(u8, typ, "agent_error")) {
+        // Run-lifecycle UX (toasts) is deferred on Linux — log to stderr for now.
+        const issue = objStr(obj, "issueIdentifier") orelse (objStr(obj, "issueId") orelse "?");
+        const extra = objStr(obj, "outcome") orelse (objStr(obj, "message") orelse "");
+        std.debug.print("[agent-core] {s} issue={s} {s}\n", .{ typ, issue, extra });
     } else if (std.mem.eql(u8, typ, "log")) {
         // Surface core logs to stderr (safe off the GTK thread — no GTK calls).
         const level = objStr(obj, "level") orelse "info";
         const msg = objStr(obj, "message") orelse "";
         std.debug.print("[agent-core] {s}: {s}\n", .{ level, msg });
     }
+}
+
+/// A cancel marshaled from the core thread to the GTK main loop.
+const CancelMsg = struct {
+    mgr: *Manager,
+    run_id: []u8,
+};
+
+/// GTK main thread: destroy the cancelled run's terminal. The core has already
+/// resolved the run with its cancel sentinel, so the (possible) duplicate
+/// submit from the exit handler is a harmless no-op.
+fn cancelOnMain(data: gtk.gpointer) callconv(.c) c_int {
+    const msg: *CancelMsg = @ptrCast(@alignCast(data orelse return 0));
+    const mgr = msg.mgr;
+    defer {
+        mgr.gpa.free(msg.run_id);
+        mgr.gpa.destroy(msg);
+    }
+    if (mgr.runs.fetchRemove(msg.run_id)) |entry| {
+        mgr.gpa.free(entry.key);
+        if (entry.value.window) |win| {
+            gtk.gtk_window_destroy(win);
+        } else if (mgr.dock != null and mgr.unmount_fn != null) {
+            mgr.unmount_fn.?(mgr.dock.?, entry.value.term);
+        }
+    }
+    return 0; // G_SOURCE_REMOVE
 }
 
 // -------------------------------------------------------------------------
@@ -277,6 +340,11 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
         ctx.window = win;
     }
 
+    // Register the live terminal so a core `run_cancelled` can tear it down.
+    if (gpa.dupe(u8, pending.run_id)) |key| {
+        mgr.runs.put(gpa, key, .{ .window = ctx.window, .term = term }) catch gpa.free(key);
+    } else |_| {}
+
     return 0; // G_SOURCE_REMOVE — fire once
 }
 
@@ -332,10 +400,12 @@ fn shquoteTo(a: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8), t: []const 
 fn onRunExit(ctx_ptr: ?*anyopaque, action_exit_code: i32) void {
     const ctx: *RunCtx = @ptrCast(@alignCast(ctx_ptr orelse return));
     // The host only runs interactive sessions now: the plan/code is delivered via
-    // MCP (no stdout capture) and the claude session id is recovered in-core from
-    // its logs, so just submit an empty result to unblock the pipeline thread.
-    // The terminal window stays open so the user can inspect the session.
+    // MCP (no stdout capture) and the core pins the claude session id itself, so
+    // just submit an empty result to unblock the pipeline thread. The terminal
+    // window stays open so the user can inspect the session.
     _ = ffi.agent_core_submit_run_result(ctx.mgr.core, ctx.run_id.ptr, @intCast(action_exit_code), "", null);
+    // The run is over — drop it from the cancel registry (GTK main thread).
+    if (ctx.mgr.runs.fetchRemove(ctx.run_id)) |entry| ctx.mgr.gpa.free(entry.key);
     storage.deleteFile(ctx.prompt_path);
     storage.deleteFile(ctx.script_path);
     freeCtx(ctx);

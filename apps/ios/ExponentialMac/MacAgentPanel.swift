@@ -31,11 +31,9 @@ struct MacAgentPanel: View {
     @State private var answerDraft = ""
     @State private var busy: AgentAction?
     @State private var showDiff = false
+    @State private var showRepoGuidance = false
 
     private enum AgentAction: Equatable { case approve, requestChanges, approveContinue, answer, retry }
-
-    // Plan states where a run is actively executing (so "Cancel" makes sense).
-    private static let busyStates: Set<String> = ["drafting", "planning", "coding", "approved"]
 
     // Plan/question text come from the synced `agent_runs` row (jsonb {text});
     // unwrap them the same way as a comment body.
@@ -58,6 +56,17 @@ struct MacAgentPanel: View {
     }
     private var canRunInteractive: Bool {
         deps.agentService.canRunInteractive(accountId: model.accountId)
+    }
+    /// A run is live for this issue right now (core run_started/finished events).
+    private var runInFlight: Bool {
+        deps.agentService.runMonitor.isRunning(issueId: issue.id)
+    }
+    /// Assigned to THIS Mac's agent user → the dispatcher owns the lifecycle:
+    /// plain Approve resumes the session via the approval event. "Approve &
+    /// continue here" is only for issues the dispatcher won't pick up.
+    private var assignedToThisAgent: Bool {
+        guard let assignee = issue.assigneeId, !assignee.isEmpty else { return false }
+        return assignee == deps.agentService.identity(accountId: model.accountId)?.agentUserId
     }
     private var finished: Bool { issue.status == "done" || issue.status == "cancelled" }
     private var implementing: Bool {
@@ -96,8 +105,7 @@ struct MacAgentPanel: View {
                 approvedBadge
             }
             Spacer()
-            if canRunInteractive,
-               let state = issue.agentPlanState, Self.busyStates.contains(state) {
+            if canRunInteractive, runInFlight {
                 Button(role: .destructive) {
                     deps.agentService.cancelIssue(accountId: model.accountId, issueId: issue.id)
                 } label: {
@@ -234,7 +242,11 @@ struct MacAgentPanel: View {
                         Label("Request changes", systemImage: "pencil")
                     }
                     .disabled(busy != nil)
-                    if canRunInteractive {
+                    // Assigned issues resume through the dispatcher on the plain
+                    // Approve (the approval event re-enters the pipeline, which
+                    // resumes the same session interactively) — offering a second
+                    // continue path would double-run.
+                    if canRunInteractive, !assignedToThisAgent {
                         Button {
                             Task { @MainActor in
                                 busy = .approveContinue
@@ -260,29 +272,74 @@ struct MacAgentPanel: View {
         }
     }
 
+    // The synced agent_runs.lastError carries the agent's real error text.
+    private var errorText: String {
+        if let e = model.agentRun?.lastError, !e.isEmpty { return e }
+        return "The agent hit an error."
+    }
+    /// Repo/GitHub setup problems get actionable guidance instead of a bare retry
+    /// (matches the core's repo_not_linked / repo_token_unavailable messages).
+    private var isRepoSetupError: Bool {
+        let e = errorText.lowercased()
+        return e.contains("github repo") || e.contains("github app")
+    }
+
     @ViewBuilder
     private var errorBanner: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-            Text("The agent hit an error.").font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            if canApprove {
-                Button {
-                    Task { @MainActor in
-                        busy = .retry
-                        await model.retry()
-                        busy = nil
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                Text(errorText)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Spacer()
+                if canApprove, !isRepoSetupError {
+                    Button {
+                        Task { @MainActor in
+                            busy = .retry
+                            await model.retry()
+                            busy = nil
+                        }
+                    } label: {
+                        if busy == .retry { Text("Retrying…") } else { Text("Retry") }
                     }
-                } label: {
-                    if busy == .retry { Text("Retrying…") } else { Text("Retry") }
+                    .controlSize(.small)
+                    .disabled(busy != nil)
                 }
-                .controlSize(.small)
-                .disabled(busy != nil)
+            }
+            if isRepoSetupError {
+                HStack(spacing: 8) {
+                    Button("Link a repo…") { showRepoGuidance = true }
+                        .controlSize(.small)
+                    if canApprove {
+                        Button {
+                            Task { @MainActor in
+                                busy = .retry
+                                await model.retry()
+                                busy = nil
+                            }
+                        } label: {
+                            if busy == .retry { Text("Retrying…") } else { Text("Retry") }
+                        }
+                        .controlSize(.small)
+                        .disabled(busy != nil)
+                    }
+                }
             }
         }
         .padding(8)
         .background(Color.red.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .popover(isPresented: $showRepoGuidance) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Connect GitHub for this project").font(.headline)
+                Text("1. Install the Exponential GitHub App on the repo (web app → Account → Integrations).\n2. Link the repo to this project in Workspace Settings → Projects.\n3. Re-assign the issue (or press Retry) to run the agent again.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(width: 380)
+        }
     }
 }
 

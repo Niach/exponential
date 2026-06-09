@@ -1,9 +1,22 @@
+import AppKit
 import ExpCore
 import ExpUI
 import SwiftUI
 
+/// Quit teardown: shut every agent core down (cancelling in-flight runs and
+/// killing CLI children) so no orphaned `claude` processes survive the app.
+final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor static var onTerminate: (() -> Void)?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // applicationWillTerminate is delivered on the main thread.
+        MainActor.assumeIsolated { Self.onTerminate?() }
+    }
+}
+
 @main
 struct ExponentialMacApp: App {
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var deps = MacAppDependencies()
 
     var body: some Scene {
@@ -12,6 +25,10 @@ struct ExponentialMacApp: App {
                 .environment(deps)
                 .preferredColorScheme(.dark)
                 .frame(minWidth: 900, minHeight: 600)
+                .onAppear {
+                    let deps = deps
+                    MacAppDelegate.onTerminate = { deps.agentService.shutdownAll() }
+                }
         }
         .commands {
             SidebarCommands()

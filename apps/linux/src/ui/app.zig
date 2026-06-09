@@ -1297,14 +1297,19 @@ fn reconcileAgent(state: *AppState) void {
         .branchPrefix = "agent",
         .driver = "claude",
         .dbPath = db_path,
-        .maxConcurrent = 2,
+        // ONE run at a time: the dock hosts a single interactive terminal, so a
+        // second concurrent session would clobber it.
+        .maxConcurrent = 1,
         .timeoutS = 30,
+        .runTimeoutS = 1800,
+        // Plan/code stages run as live sessions in the embedded terminal.
+        .interactive = true,
     }, .{}) catch return;
 
     state.agent_core = agent_manager.start(state.gpa, json, "device");
     if (state.agent_core) |m| {
         // Route agent runs into the IDE-style terminal dock.
-        if (state.term_dock) |d| agent_manager.setDock(m, @ptrCast(d), terminal_dock.mountForManager);
+        if (state.term_dock) |d| agent_manager.setDock(m, @ptrCast(d), terminal_dock.mountForManager, terminal_dock.unmountForManager);
     }
 }
 

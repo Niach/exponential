@@ -73,6 +73,10 @@ struct MacShell: View {
             splitView
             terminalDockView
         }
+        .overlay(alignment: .bottom) {
+            MacToastOverlay(center: deps.toastCenter)
+                .padding(.bottom, deps.terminalDock.isMounted && deps.terminalDock.isExpanded ? deps.terminalDock.dockHeight + 30 : 0)
+        }
     }
 
     private var splitView: some View {

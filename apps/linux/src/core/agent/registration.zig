@@ -107,8 +107,9 @@ pub fn deviceId(gpa: std.mem.Allocator) ![]u8 {
         const trimmed = std.mem.trim(u8, bytes, " \t\r\n");
         if (trimmed.len > 0) return try gpa.dupe(u8, trimmed);
     }
+    // Zig 0.16 moved std.crypto.random behind the std.Io interface.
     var raw: [16]u8 = undefined;
-    std.crypto.random.bytes(&raw);
+    std.Io.Threaded.global_single_threaded.io().random(&raw);
     const hex = std.fmt.bytesToHex(raw, .lower);
     const id = try gpa.dupe(u8, &hex);
     storage.writeSecret(fpath, id) catch {};

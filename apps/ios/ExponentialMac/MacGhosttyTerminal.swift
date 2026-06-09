@@ -268,6 +268,7 @@ final class MacAgentTerminalRunner {
         cwd: String?,
         prompt: String,
         interactive: Bool = false,
+        issueIdentifier: String = "",
         onDone: @escaping @Sendable (Int32, String) -> Void
     ) {
         guard MacGhosttyApp.shared.app != nil else {
@@ -296,10 +297,11 @@ final class MacAgentTerminalRunner {
         let command = "/usr/bin/env bash \(Self.shquote(scriptPath))"
 
         let view = MacGhosttyTerminalView(command: command, cwd: cwd)
+        let title = issueIdentifier.isEmpty ? "Agent — \(program)" : "Agent — \(issueIdentifier)"
 
         // Interactive: mount in the dock (it owns the run lifecycle + empty submit).
         if interactive, let dock {
-            dock.mountRun(runId: runId, view: view, title: "Agent — \(program)") { code, text in
+            dock.mountRun(runId: runId, view: view, title: title) { code, text in
                 onDone(code, text)
                 for p in [promptPath, scriptPath] { try? FileManager.default.removeItem(atPath: p) }
             }
@@ -319,7 +321,7 @@ final class MacAgentTerminalRunner {
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered, defer: false
         )
-        win.title = "Agent run — \(program)"
+        win.title = title
         win.isReleasedWhenClosed = false
         win.contentView = view
         win.delegate = session
@@ -328,6 +330,18 @@ final class MacAgentTerminalRunner {
         win.makeFirstResponder(view)
         sessions[runId] = session
         windows[runId] = win
+    }
+
+    /// Tear down the terminal hosting `runId` (the core cancelled the run).
+    /// Destroying the surface kills the CLI child; the duplicate `-1` submit from
+    /// the dock/session close path is harmless — the core's channel is already
+    /// resolved with the cancel sentinel.
+    func terminate(runId: String) {
+        if let dock, dock.currentRunId == runId {
+            dock.close()
+            return
+        }
+        windows[runId]?.close() // windowWillClose finishes + frees the session
     }
 
     // MARK: - Wrapper script (mirrors agent_manager.zig)

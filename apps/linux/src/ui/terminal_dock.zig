@@ -109,3 +109,14 @@ pub fn mountForManager(dock: *anyopaque, term: gtk.Object, title: [*:0]const u8)
     const self: *TerminalDock = @ptrCast(@alignCast(dock));
     self.mountTerminal(term, title);
 }
+
+/// C-style hook for cancel teardown: unmount a SPECIFIC terminal (no-op if a
+/// newer run already replaced it). Removing the widget drops the ghostty
+/// surface, which kills the CLI child.
+pub fn unmountForManager(dock: *anyopaque, term: gtk.Object) void {
+    const self: *TerminalDock = @ptrCast(@alignCast(dock));
+    if (self.current_term != term) return;
+    gtk.gtk_box_remove(self.term_slot, term);
+    self.current_term = null;
+    self.collapse();
+}

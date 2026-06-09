@@ -89,35 +89,48 @@ void  agent_core_string_free(char *s);
 // callback: void (*)(void *ctx, const char *event_json, size_t len)  // borrowed, copy it
 ```
 
-**`config_json` (camelCase — the actual `CoreConfigDto`, the header comment is
-slightly stale):**
+**`config_json` (camelCase — `CoreConfigDto` in `ffi.rs` is ground truth):**
 `baseUrl`, `apiKey` (the agent `expk_` key), `botUserId`, `githubToken`,
 `reposRoot`, `worktreesRoot`, `branchPrefix` (default `"agent"`), `driver`
-(default `"claude"`), `dbPath`, `maxConcurrent` (default 2), `timeoutS` (default 30).
+(default `"claude"`), `dbPath`, `maxConcurrent` (default 2; desktops use **1** —
+the single-slot terminal dock), `timeoutS` (default 30), `runTimeoutS` (default
+1800 — headless wall-clock cap), `interactive` (default **true** — route the
+claude plan/code stages through the host terminal as live sessions).
 
-**Outbound event JSON** (`{"type": "...", ...}`): the one that matters is
-`run_request`:
+**Outbound event JSON** (`{"type": "...", ...}`): `run_request` demands a
+response; the rest are fire-and-forget UI signals:
 ```json
-{ "type":"run_request", "runId":"run-N", "cwd":"…", "mode":"plan|code",
-  "program":"claude|codex", "argv":["…"], "env":{"K":"V"},
-  "mcpConfigPath":"…", "systemPrompt":"…", "userPrompt":"…" }
+{ "type":"run_request", "runId":"run-N", "issueId":"…", "issueIdentifier":"EXP-1",
+  "cwd":"…", "mode":"plan|code", "program":"claude|codex", "argv":["…"],
+  "env":{"K":"V"}, "mcpConfigPath":"…", "systemPrompt":"…", "userPrompt":"…",
+  "interactive":true, "continueSessionId":null }
 ```
-Other event types (`log`, etc.) can be surfaced in the UI; only `run_request`
-requires a response.
+Plus `run_started` / `run_finished {exitCode, outcome}` / `run_cancelled` (tear
+the matching terminal down — destroying the surface kills the CLI child) /
+`agent_error {code, message}` (stable codes: `repo_not_linked`,
+`repo_token_unavailable`, `plan_not_submitted`, `no_commits`, …) / `log`.
 
-**The run handshake** (this is the heart of M7 on each platform):
-1. Core emits `run_request`; the pipeline thread **blocks** in `request_run`.
-2. Host (on its UI thread) launches the CLI **in a visible terminal** with
-   `program` + `argv` + the combined prompt + `env` + `cwd`, and captures stdout.
-3. On child exit, host calls `agent_core_submit_run_result(core, runId, exitCode, finalText)`
-   → unblocks the pipeline thread.
+**The run handshake** (interactive sessions; **headless runs execute IN-CORE
+and never reach the host**):
+1. Core emits `run_request` (interactive:true); the pipeline thread **blocks**
+   in `request_run`.
+2. Host (on its UI thread) launches the CLI **in the embedded terminal** with
+   `program` + `argv` + the combined prompt + `env` + `cwd` — NO output capture;
+   the user watches, types, and steers the live session. The plan is delivered
+   out-of-band via the MCP plan-submit tool; the core verifies it through
+   `mcp.get_issue` after exit. For code sessions the CORE checks for commits,
+   pushes the branch, and opens the PR itself.
+3. On child exit, host calls
+   `agent_core_submit_run_result(core, runId, exitCode, "", NULL)`
+   → unblocks the pipeline thread. (Session identity is pinned by the core via
+   `--session-id`/`--resume`; hosts pass NULL.)
 
 **Reference implementation to mirror:** `apps/linux/src/core/agent/agent_manager.zig`
 (marshals the request to the UI thread, writes a per-run bash wrapper
-`<program> <argv…> "$(cat promptfile)" 2>&1 | tee outfile; echo ${PIPESTATUS[0]} > codefile`,
-runs it in the embedded terminal, polls for exit, reads the files, submits). The
-prompt goes via a **file** (not the command string) and the real exit code comes
-from **PIPESTATUS** — see the `project_libghostty_embed` memory for why.
+`<program> <argv…> "$(cat promptfile)"`, runs it in the embedded terminal /
+dock, submits the exit code on child exit, and handles `run_cancelled` by
+destroying the matching terminal). The prompt goes via a **file** (not the
+command string) — see the `project_libghostty_embed` memory for why.
 
 > Note: Linux does `claimSetup` / device-login / `uninstall` in Zig directly
 > (`registration.zig`, `github_auth.zig`) rather than via the C functions. macOS

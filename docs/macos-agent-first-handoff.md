@@ -114,14 +114,17 @@ has the state chip — extend it (or add a sibling) to:
 ### 6. Deferred desktop-runtime UX (applies to macOS + Linux)
 These need a running desktop to test (couldn't do from Linux CI):
 - **Online/offline status indicator** for the agent (heartbeat success/failure,
-  debounced ~10s so jitter doesn't flash offline).
-- **Run-start toast** when the agent begins a run.
-- **Structured `repo_token_unavailable` run error** surfaced clearly ("This
-  issue's project isn't linked to a connected GitHub repo — connect GitHub and
-  link a repo, then reassign"), with a jump to the GitHub-connect step. The
-  agent-core side reports needs_human via the `agent_error` event already.
+  debounced ~10s so jitter doesn't flash offline). — still open.
+- ~~**Run-start toast** when the agent begins a run.~~ **DONE on macOS
+  (2026-06-09)**: the core emits `run_started`/`run_finished`/`run_cancelled`/
+  `agent_error` host events; `MacToastCenter` + `MacAgentRunMonitor` render
+  toasts and the live Cancel affordance. Linux logs the events (toasts open).
+- ~~**Structured `repo_token_unavailable` run error**~~ **DONE on macOS
+  (2026-06-09)**: needs_human reasons are stable codes (`repo_not_linked`,
+  `repo_token_unavailable`); `MacAgentPanel` shows the synced
+  `agent_runs.lastError` text plus a "Link a repo…" guidance popover.
 - A dedicated guided **agent-setup assistant** (register → connect GitHub →
-  assign an issue), reading `companion.setupStatus`.
+  assign an issue), reading `companion.setupStatus`. — still open (optional).
 
 ---
 
