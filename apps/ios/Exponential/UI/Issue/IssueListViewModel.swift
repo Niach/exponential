@@ -140,9 +140,47 @@ final class IssueListViewModel {
         return users.first { $0.id == id }
     }
 
+    /// Labels belonging to this project's workspace (the pool holds every
+    /// synced workspace's labels).
+    var workspaceLabels: [LabelEntity] {
+        guard let workspaceId = project?.workspaceId else { return [] }
+        return labels.filter { $0.workspaceId == workspaceId }
+    }
+
     func setTab(_ tab: FilterTab) {
         activeTab = tab
         filters.statuses = tab.statuses
+    }
+
+    func toggleStatus(_ status: IssueStatus) {
+        if filters.statuses.contains(status) {
+            filters.statuses.remove(status)
+        } else {
+            filters.statuses.insert(status)
+        }
+        // Keep the tab pills in sync when a manual status mix matches a preset.
+        activeTab = deriveTab(from: filters.statuses)
+    }
+
+    func togglePriority(_ priority: IssuePriority) {
+        if filters.priorities.contains(priority) {
+            filters.priorities.remove(priority)
+        } else {
+            filters.priorities.insert(priority)
+        }
+    }
+
+    func toggleLabel(_ labelId: String) {
+        if filters.labelIds.contains(labelId) {
+            filters.labelIds.remove(labelId)
+        } else {
+            filters.labelIds.insert(labelId)
+        }
+    }
+
+    func clearFilters() {
+        filters = IssueFilters()
+        activeTab = .all
     }
 
     func toggleStatusCollapsed(_ status: IssueStatus) {

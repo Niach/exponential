@@ -30,6 +30,7 @@ final class AppDependencies: @unchecked Sendable {
     let agentPlanApi: AgentPlanApi
     let notificationsApi: NotificationsApi
     let subscriptionsApi: SubscriptionsApi
+    let onboardingApi: OnboardingApi
 
     // Push
     let pushTokenManager: PushTokenManager
@@ -93,6 +94,7 @@ final class AppDependencies: @unchecked Sendable {
         self.agentPlanApi = AgentPlanApi(trpc: trpc)
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
+        self.onboardingApi = OnboardingApi(trpc: trpc)
 
         // Push notifications
         let pushTokenManager = PushTokenManager(pushTokensApi: pushTokensApi, auth: auth)

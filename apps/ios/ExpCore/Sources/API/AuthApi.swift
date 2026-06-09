@@ -36,12 +36,16 @@ public struct AuthUser: Codable, Sendable {
     public let email: String
     public let name: String?
     public let isAdmin: Bool?
+    // better-auth additionalField (type date, input:false) — returned on
+    // session reads as an ISO string or null, exactly like the web gate.
+    public let onboardingCompletedAt: String?
 
-    public init(id: String, email: String, name: String? = nil, isAdmin: Bool? = nil) {
+    public init(id: String, email: String, name: String? = nil, isAdmin: Bool? = nil, onboardingCompletedAt: String? = nil) {
         self.id = id
         self.email = email
         self.name = name
         self.isAdmin = isAdmin
+        self.onboardingCompletedAt = onboardingCompletedAt
     }
 }
 
@@ -109,12 +113,17 @@ public final class AuthApi: Sendable {
     }
 
     public func fetchSession(accountId: String) async -> AuthUser? {
-        guard let baseUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl,
-              let url = URL(string: "\(baseUrl)/api/auth/get-session") else {
-            return nil
-        }
+        guard let account = auth.accounts.first(where: { $0.id == accountId }) else { return nil }
+        return await fetchSession(instanceUrl: account.instanceUrl, token: account.token)
+    }
+
+    // Core session read. Takes instanceUrl + token explicitly so a login flow
+    // can capture session fields (incl. onboardingCompletedAt) BEFORE persisting
+    // the token, avoiding any window where the account looks "not onboarded".
+    public func fetchSession(instanceUrl: String, token: String?) async -> AuthUser? {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/get-session") else { return nil }
         do {
-            let (data, response) = try await httpClient.get(url, accountId: accountId)
+            let (data, response) = try await httpClient.get(url, bearerToken: token)
             guard (200...299).contains(response.statusCode) else { return nil }
             let session = try JSONDecoder().decode(SessionResponse.self, from: data)
             return session.user

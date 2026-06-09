@@ -38,6 +38,9 @@ interface ProjectDao {
     @Query("SELECT * FROM projects WHERE workspace_id = :workspaceId AND slug = :slug LIMIT 1")
     fun observeBySlug(workspaceId: String, slug: String): Flow<ProjectEntity?>
 
+    @Query("SELECT * FROM projects WHERE id = :id AND archived_at IS NULL LIMIT 1")
+    suspend fun getActiveById(id: String): ProjectEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: ProjectEntity)
 
@@ -203,6 +206,9 @@ interface WorkspaceInviteDao {
 interface NotificationDao {
     @Query("SELECT * FROM notifications WHERE user_id = :userId ORDER BY created_at DESC")
     fun observeByUser(userId: String): Flow<List<NotificationEntity>>
+
+    @Query("SELECT COUNT(*) FROM notifications WHERE user_id = :userId AND read_at IS NULL")
+    fun observeUnreadCount(userId: String): Flow<Int>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: NotificationEntity)

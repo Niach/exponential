@@ -43,6 +43,21 @@ public final class HTTPClient: Sendable {
         try await perform(request(url, accountId: accountId, method: "POST", body: body))
     }
 
+    // GET with an explicit bearer token — used by AuthApi.fetchSession during
+    // login, before the token is persisted to the account store.
+    public func get(_ url: URL, bearerToken: String?) async throws -> (Data, HTTPURLResponse) {
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        if let bearerToken {
+            req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await session.data(for: req)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw HTTPError.invalidResponse
+        }
+        return (data, httpResponse)
+    }
+
     // Unauthenticated GET — used by AuthApi.fetchAuthConfig before any
     // account exists.
     public func getUnauthenticated(_ url: URL) async throws -> (Data, HTTPURLResponse) {

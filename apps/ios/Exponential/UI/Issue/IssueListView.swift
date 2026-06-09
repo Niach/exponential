@@ -9,7 +9,7 @@ struct IssueListView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var viewModel: IssueListViewModel?
-    @State private var showCreateSheet = false
+    @State private var showFilterSheet = false
     @State private var searchText = ""
 
     var body: some View {
@@ -27,19 +27,12 @@ struct IssueListView: View {
         }
         .navigationTitle(viewModel?.project?.name ?? "Issues")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showCreateSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                        .foregroundStyle(.white)
-                }
+        .sheet(isPresented: $showFilterSheet) {
+            if let vm = viewModel {
+                IssueFilterSheet(vm: vm)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackground(.ultraThinMaterial)
             }
-        }
-        .sheet(isPresented: $showCreateSheet) {
-            CreateIssueSheet(projectId: projectId, onCreated: {})
-                .presentationBackground(.ultraThinMaterial)
         }
         .onAppear {
             if viewModel == nil {
@@ -67,6 +60,12 @@ struct IssueListView: View {
             filterBar(vm)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+
+            if !vm.filters.isEmpty {
+                activeFilterPills(vm)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            }
 
             List {
                 ForEach(IssueStatus.displayOrder, id: \.self) { status in
@@ -141,44 +140,125 @@ struct IssueListView: View {
 
     @ViewBuilder
     private func filterBar(_ vm: IssueListViewModel) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(FilterTab.allCases) { tab in
-                    Button {
-                        vm.setTab(tab)
-                    } label: {
-                        Text(tab.label)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white.opacity(vm.activeTab == tab ? 1.0 : TextOpacity.secondary))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                    }
-                    .glassButton(isActive: vm.activeTab == tab)
-                }
-
-                if !vm.filters.isEmpty {
-                    Divider()
-                        .frame(height: 20)
-                        .tint(.white.opacity(0.1))
-
-                    Button {
-                        vm.filters = IssueFilters()
-                        vm.activeTab = .all
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Clear")
-                                .font(.caption)
-                            Image(systemName: "xmark")
-                                .font(.caption2)
+        HStack(spacing: 8) {
+            // Filter sheet trigger with active-count badge (Android parity).
+            Button {
+                showFilterSheet = true
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(vm.filters.isEmpty ? TextOpacity.secondary : 1.0))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .overlay(alignment: .topTrailing) {
+                        if vm.filters.count > 0 {
+                            Text("\(vm.filters.count)")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(minWidth: 15, minHeight: 15)
+                                .background(Accent.indigo, in: Circle())
+                                .offset(x: 4, y: -4)
                         }
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
                     }
-                    .glassButton()
+            }
+            .glassButton(isActive: !vm.filters.isEmpty)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(FilterTab.allCases) { tab in
+                        Button {
+                            vm.setTab(tab)
+                        } label: {
+                            Text(tab.label)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white.opacity(vm.activeTab == tab ? 1.0 : TextOpacity.secondary))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                        }
+                        .glassButton(isActive: vm.activeTab == tab)
+                    }
+
+                    if !vm.filters.isEmpty {
+                        Divider()
+                            .frame(height: 20)
+                            .tint(.white.opacity(0.1))
+
+                        Button {
+                            vm.clearFilters()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("Clear")
+                                    .font(.caption)
+                                Image(systemName: "xmark")
+                                    .font(.caption2)
+                            }
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                        }
+                        .glassButton()
+                    }
                 }
             }
         }
+    }
+
+    /// Removable pills for every active filter (web/Android parity).
+    @ViewBuilder
+    private func activeFilterPills(_ vm: IssueListViewModel) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(IssueStatus.displayOrder.filter { vm.filters.statuses.contains($0) }, id: \.self) { status in
+                    filterPill(icon: status.sfSymbol, iconColor: status.color, text: status.label) {
+                        vm.toggleStatus(status)
+                    }
+                }
+                ForEach(IssuePriority.displayOrder.filter { vm.filters.priorities.contains($0) }, id: \.self) { priority in
+                    filterPill(icon: priority.sfSymbol, iconColor: priority.color, text: priority.label) {
+                        vm.togglePriority(priority)
+                    }
+                }
+                ForEach(vm.workspaceLabels.filter { vm.filters.labelIds.contains($0.id) }, id: \.id) { label in
+                    filterPill(dotColor: Color(hex: label.color) ?? .gray, text: label.name) {
+                        vm.toggleLabel(label.id)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func filterPill(
+        icon: String? = nil,
+        iconColor: Color = .white,
+        dotColor: Color? = nil,
+        text: String,
+        onRemove: @escaping () -> Void
+    ) -> some View {
+        Button(action: onRemove) {
+            HStack(spacing: 5) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.caption2)
+                        .foregroundStyle(iconColor)
+                }
+                if let dotColor {
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 7, height: 7)
+                }
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+        }
+        .glassButton()
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

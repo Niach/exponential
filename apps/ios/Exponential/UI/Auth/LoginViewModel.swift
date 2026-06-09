@@ -66,12 +66,30 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         let result = await authApi.signInWithPassword(instanceUrl: instanceUrl, email: email, password: password)
         switch result {
         case let .success(token, user):
-            auth.setToken(token, email: user.email, name: user.name, userId: user.id, isAdmin: user.isAdmin ?? false)
+            await applyLogin(token: token, user: user)
             loading = false
         case let .failure(message):
             error = message
             loading = false
         }
+    }
+
+    // Fetch the session (incl. onboardingCompletedAt) with the new token BEFORE
+    // persisting it, so the onboarding flag lands together with the token and
+    // the nav gate never sees a returning user as "not onboarded". Falls back
+    // to the sign-in fields if the session fetch fails.
+    private func applyLogin(token: String, user: AuthUser?) async {
+        guard let instanceUrl = auth.instanceUrl else { return }
+        let session = await authApi.fetchSession(instanceUrl: instanceUrl, token: token)
+        auth.setToken(
+            token,
+            email: session?.email ?? user?.email,
+            name: session?.name ?? user?.name,
+            userId: session?.id ?? user?.id,
+            isAdmin: session?.isAdmin ?? user?.isAdmin ?? false,
+            onboardingCompletedAt: session?.onboardingCompletedAt,
+            onboardingKnown: session != nil
+        )
     }
 
     // MARK: - OAuth
@@ -95,13 +113,7 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     }
 
     func handleOAuthToken(_ token: String) async {
-        auth.setToken(token, email: nil)
-        if let instanceUrl = auth.instanceUrl {
-            let accountId = ServerAccount.makeId(for: instanceUrl)
-            if let user = await authApi.fetchSession(accountId: accountId) {
-                auth.setToken(token, email: user.email, name: user.name, userId: user.id, isAdmin: user.isAdmin ?? false)
-            }
-        }
+        await applyLogin(token: token, user: nil)
     }
 
     func goBack() {

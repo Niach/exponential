@@ -23,7 +23,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -60,16 +59,15 @@ import com.exponential.app.ui.theme.TextEmphasis
 fun HomeScreen(
     onOpenProject: (accountId: String, projectId: String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenInbox: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    // Create-workspace / create-project sheets. The non-null value carries the
-    // account (and workspace) context the new entity belongs to.
-    var createWorkspaceFor by remember { mutableStateOf<String?>(null) }
+    // Create-project sheet. The non-null value carries the account + workspace
+    // the new project belongs to. (Workspace creation lives on the web app —
+    // mobile only creates projects.)
     var createProjectFor by remember { mutableStateOf<Pair<String, String>?>(null) }
     var creating by remember { mutableStateOf(false) }
     var createError by remember { mutableStateOf<String?>(null) }
@@ -81,12 +79,9 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Projects") },
-                // iOS Home shows only a gear; account sign-out lives per-server
-                // in Settings → server detail.
+                // Only the gear up top — the inbox lives in the global bottom
+                // bar; account sign-out lives per-server in Settings.
                 actions = {
-                    IconButton(onClick = onOpenInbox) {
-                        Icon(Icons.Filled.Inbox, contentDescription = "Inbox")
-                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
@@ -112,10 +107,6 @@ fun HomeScreen(
                         viewModel.onProjectTap(accountId)
                         onOpenProject(accountId, projectId)
                     },
-                    onNewWorkspace = { accountId ->
-                        createError = null
-                        createWorkspaceFor = accountId
-                    },
                     onNewProject = { accountId, workspaceId ->
                         createError = null
                         createProjectFor = accountId to workspaceId
@@ -123,27 +114,6 @@ fun HomeScreen(
                 )
             }
         }
-    }
-
-    createWorkspaceFor?.let { accountId ->
-        CreateWorkspaceSheet(
-            isCreating = creating,
-            error = createError,
-            onDismiss = { createWorkspaceFor = null; createError = null },
-            onCreate = { name ->
-                scope.launch {
-                    creating = true
-                    val err = viewModel.createWorkspace(accountId, name)
-                    creating = false
-                    if (err == null) {
-                        createWorkspaceFor = null
-                        createError = null
-                    } else {
-                        createError = err
-                    }
-                }
-            },
-        )
     }
 
     createProjectFor?.let { (accountId, workspaceId) ->
@@ -172,7 +142,6 @@ fun HomeScreen(
 private fun ProjectTree(
     groups: List<ServerProjectGroup>,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
-    onNewWorkspace: (accountId: String) -> Unit,
     onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     LazyColumn(
@@ -184,7 +153,6 @@ private fun ProjectTree(
             ServerSection(
                 group = group,
                 onOpenProject = onOpenProject,
-                onNewWorkspace = onNewWorkspace,
                 onNewProject = onNewProject,
             )
         }
@@ -195,7 +163,6 @@ private fun ProjectTree(
 private fun ServerSection(
     group: ServerProjectGroup,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
-    onNewWorkspace: (accountId: String) -> Unit,
     onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -216,11 +183,6 @@ private fun ServerSection(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 }
-            }
-            TextButton(onClick = { onNewWorkspace(group.accountId) }) {
-                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Workspace")
             }
         }
         group.workspaceBlocks.forEach { block ->

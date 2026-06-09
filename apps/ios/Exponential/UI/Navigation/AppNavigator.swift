@@ -27,6 +27,13 @@ struct AppNavigator: View {
             } else if deps.auth.accounts.allSatisfy({ $0.token == nil }) {
                 // Every account is signed out — show login for the most recent.
                 LoginView()
+            } else if deps.auth.isAuthenticated, deps.auth.needsOnboarding {
+                // First-run wizard (web onboarding parity): the session read at
+                // login explicitly reported no onboardingCompletedAt. Gated on
+                // the server flag — never inferred from synced workspaces, so a
+                // membership in the public feedback workspace doesn't skip it.
+                OnboardingView()
+                    .id(deps.auth.activeAccountId ?? "none")
             } else {
                 MainNavigator()
                     .id(deps.auth.activeAccountId ?? "none")
@@ -67,11 +74,20 @@ struct AppNavigator: View {
 
 struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
-    @State private var path = NavigationPath()
+    // Typed path (not NavigationPath) so the tab bar can inspect the top route.
+    @State private var path: [AppRoute] = []
     @State private var workspaceState = WorkspaceState()
     @State private var projectLoader: MultiAccountProjectLoader?
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
+    @State private var unreadCount = 0
+    @State private var composeTarget: ComposeTarget?
+
+    private struct ComposeTarget: Identifiable {
+        let accountId: String
+        let projectId: String
+        var id: String { "\(accountId)/\(projectId)" }
+    }
 
     var body: some View {
         ZStack {
@@ -121,14 +137,66 @@ struct MainNavigator: View {
         }
         // Drain links that arrived before this navigator mounted (cold launch).
         .task {
+            var deepLinked = false
             if let issueId = deps.deepLinkBus.consume() {
                 path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: issueId))
+                deepLinked = true
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
+                deepLinked = true
+            }
+            if !deepLinked {
+                await openLastProjectIfAvailable()
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsTabBar {
+                MobileTabBar(
+                    homeActive: path.isEmpty,
+                    inboxActive: isOnInbox,
+                    unreadCount: unreadCount,
+                    showsCompose: resolvedComposeTarget != nil,
+                    onHome: { path = [] },
+                    onInbox: { if !isOnInbox { path = [.inbox] } },
+                    onCompose: { composeTarget = resolvedComposeTarget }
+                )
+            }
+        }
+        .sheet(item: $composeTarget) { target in
+            CreateIssueSheet(projectId: target.projectId, onCreated: {})
+                .environment(\.accountId, target.accountId)
+                .presentationBackground(.ultraThinMaterial)
+        }
+    }
+
+    // MARK: - Tab bar
+
+    /// The bar floats only over the top-level surfaces (Home, Inbox, project
+    /// lists); detail and settings screens get the full height back.
+    private var showsTabBar: Bool {
+        guard let top = path.last else { return true }
+        if case .inbox = top { return true }
+        if case .project = top { return true }
+        return false
+    }
+
+    private var isOnInbox: Bool {
+        if case .inbox = path.last { return true }
+        return false
+    }
+
+    /// Compose targets the project being viewed, else the last-opened project.
+    private var resolvedComposeTarget: ComposeTarget? {
+        if case let .project(accountId, id)? = path.last {
+            return ComposeTarget(accountId: accountId, projectId: id)
+        }
+        if let last = SharedProjectMirror.readLastUsed(),
+           deps.auth.accounts.contains(where: { $0.id == last.accountId && $0.token != nil }) {
+            return ComposeTarget(accountId: last.accountId, projectId: last.projectId)
+        }
+        return nil
     }
 
     /// Thin status banner when live sync is degraded (offline / expired session).
@@ -218,13 +286,50 @@ struct MainNavigator: View {
                 }
             } catch {}
         }
-        observationTasks = [wsTask, projTask]
+        // Unread notifications drive the tab bar's inbox dot.
+        let notifObs = ValueObservation.tracking { db in
+            try NotificationEntity.fetchAll(db)
+        }
+        let notifTask = Task { @MainActor in
+            do {
+                for try await notifications in notifObs.values(in: pool) {
+                    unreadCount = notifications.filter { $0.readAt == nil }.count
+                }
+            } catch {}
+        }
+        observationTasks = [wsTask, projTask, notifTask]
     }
 
     private func handleProjectTap(accountId: String, projectId: String) {
-        // Remember the opened project so the Share Extension defaults its picker to it.
+        // Remember the opened project so the Share Extension defaults its picker
+        // to it and a fresh launch can land back in it.
         SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
         path.append(AppRoute.project(accountId: accountId, id: projectId))
+    }
+
+    // Fresh starts land in the last-opened project, with Home left beneath in
+    // the navigation stack. One-shot per process so account switches (which
+    // remount MainNavigator via .id) don't re-trigger it; deep links win. The
+    // stored project must belong to a signed-in account and still exist locally
+    // un-archived — otherwise the launch falls back to Home.
+    @MainActor private static var didAutoOpenLastProject = false
+
+    @MainActor
+    private func openLastProjectIfAvailable() async {
+        guard !MainNavigator.didAutoOpenLastProject else { return }
+        MainNavigator.didAutoOpenLastProject = true
+        guard path.isEmpty,
+              let last = SharedProjectMirror.readLastUsed(),
+              let account = deps.auth.accounts.first(where: { $0.id == last.accountId }),
+              account.token != nil,
+              let pool = try? deps.db.pool(forAccountId: last.accountId)
+        else { return }
+        let projectId = last.projectId
+        let project = try? await pool.read { db in
+            try ProjectEntity.fetchAll(db).first { $0.id == projectId }
+        }
+        guard let project, project.archivedAt == nil else { return }
+        path.append(AppRoute.project(accountId: last.accountId, id: projectId))
     }
 
     private func stopObserving() {

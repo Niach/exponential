@@ -68,7 +68,15 @@ public final class AccountStore: @unchecked Sendable {
     }
 
     /// Updates the token + user info on the active account.
-    public func updateActiveToken(token: String, email: String?, name: String?, userId: String?, isAdmin: Bool) {
+    public func updateActiveToken(
+        token: String,
+        email: String?,
+        name: String?,
+        userId: String?,
+        isAdmin: Bool,
+        onboardingCompletedAt: String? = nil,
+        onboardingKnown: Bool? = nil
+    ) {
         lock.lock()
         defer { lock.unlock() }
         guard let id = cachedActiveId, let idx = cached.firstIndex(where: { $0.id == id }) else { return }
@@ -77,7 +85,20 @@ public final class AccountStore: @unchecked Sendable {
         cached[idx].userName = name
         cached[idx].userId = userId
         cached[idx].isAdmin = isAdmin
+        cached[idx].onboardingCompletedAt = onboardingCompletedAt
+        cached[idx].onboardingKnown = onboardingKnown
         cached[idx].lastUsedAt = Date()
+        persistLocked()
+    }
+
+    /// Marks an account onboarded (after onboarding.complete succeeds) so the
+    /// nav gate stops showing the wizard without waiting for a session re-read.
+    public func setOnboardingCompleted(id: String, completedAtIso: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let idx = cached.firstIndex(where: { $0.id == id }) else { return }
+        cached[idx].onboardingCompletedAt = completedAtIso
+        cached[idx].onboardingKnown = true
         persistLocked()
     }
 

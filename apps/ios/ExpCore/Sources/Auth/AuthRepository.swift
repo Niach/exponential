@@ -13,6 +13,7 @@ public final class AuthRepository: @unchecked Sendable {
     public private(set) var userName: String?
     public private(set) var userId: String?
     public private(set) var isAdmin: Bool
+    public private(set) var needsOnboarding: Bool
 
     public var isAuthenticated: Bool { token != nil }
     public var hasInstance: Bool { instanceUrl != nil }
@@ -28,6 +29,7 @@ public final class AuthRepository: @unchecked Sendable {
         self.userName = active?.userName
         self.userId = active?.userId
         self.isAdmin = active?.isAdmin ?? false
+        self.needsOnboarding = active?.needsOnboarding ?? false
     }
 
     // MARK: - Instance URL
@@ -56,8 +58,36 @@ public final class AuthRepository: @unchecked Sendable {
 
     // MARK: - Token
 
-    public func setToken(_ token: String, email: String?, name: String? = nil, userId: String? = nil, isAdmin: Bool = false) {
-        accountStore.updateActiveToken(token: token, email: email, name: name, userId: userId, isAdmin: isAdmin)
+    public func setToken(
+        _ token: String,
+        email: String?,
+        name: String? = nil,
+        userId: String? = nil,
+        isAdmin: Bool = false,
+        onboardingCompletedAt: String? = nil,
+        onboardingKnown: Bool = false
+    ) {
+        // Preserve a previously-captured onboarding flag so a transient session
+        // fetch failure on re-login doesn't downgrade a returning user back to
+        // the onboarding wizard.
+        let prior = accountStore.activeAccount
+        accountStore.updateActiveToken(
+            token: token,
+            email: email,
+            name: name,
+            userId: userId,
+            isAdmin: isAdmin,
+            onboardingCompletedAt: onboardingCompletedAt ?? prior?.onboardingCompletedAt,
+            onboardingKnown: (onboardingKnown || prior?.onboardingKnown == true) ? true : nil
+        )
+        republish()
+    }
+
+    /// Marks the active account onboarded (after onboarding.complete succeeds)
+    /// so the nav gate stops showing the wizard.
+    public func markOnboardingCompleted(_ completedAtIso: String) {
+        guard let id = accountStore.activeAccountId else { return }
+        accountStore.setOnboardingCompleted(id: id, completedAtIso: completedAtIso)
         republish()
     }
 
@@ -85,6 +115,7 @@ public final class AuthRepository: @unchecked Sendable {
         userName = active?.userName
         userId = active?.userId
         isAdmin = active?.isAdmin ?? false
+        needsOnboarding = active?.needsOnboarding ?? false
     }
 
     private func normalizeBaseUrl(_ input: String) -> String {

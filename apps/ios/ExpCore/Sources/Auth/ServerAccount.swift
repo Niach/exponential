@@ -9,6 +9,16 @@ public struct ServerAccount: Codable, Identifiable, Equatable, Hashable, Sendabl
     public var userName: String?
     public var userId: String?
     public var isAdmin: Bool
+    // ISO timestamp the user finished onboarding, or nil if they haven't. Read
+    // from the better-auth session at login (the same source the web app gates
+    // on) and persisted so the onboarding gate resolves synchronously at startup.
+    public var onboardingCompletedAt: String?
+    // True once onboardingCompletedAt was actually read from the server. Optional
+    // (not Bool) so accounts persisted by builds before the onboarding field
+    // existed still decode — they come back nil and are treated as already
+    // onboarded; only a session read that explicitly reported "not completed"
+    // should start the wizard.
+    public var onboardingKnown: Bool?
     public var lastUsedAt: Date
 
     public init(
@@ -19,6 +29,8 @@ public struct ServerAccount: Codable, Identifiable, Equatable, Hashable, Sendabl
         userName: String?,
         userId: String?,
         isAdmin: Bool,
+        onboardingCompletedAt: String? = nil,
+        onboardingKnown: Bool? = nil,
         lastUsedAt: Date
     ) {
         self.id = id
@@ -28,7 +40,15 @@ public struct ServerAccount: Codable, Identifiable, Equatable, Hashable, Sendabl
         self.userName = userName
         self.userId = userId
         self.isAdmin = isAdmin
+        self.onboardingCompletedAt = onboardingCompletedAt
+        self.onboardingKnown = onboardingKnown
         self.lastUsedAt = lastUsedAt
+    }
+
+    // The nav gate: show the first-run wizard only when the server told us
+    // onboarding isn't done. Legacy accounts (onboardingKnown == nil) never bounce.
+    public var needsOnboarding: Bool {
+        onboardingKnown == true && onboardingCompletedAt == nil
     }
 
     public static func makeId(for instanceUrl: String) -> String {

@@ -2,19 +2,28 @@ package com.exponential.app.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.exponential.app.AppConstants
 import com.exponential.app.AppViewModel
@@ -22,6 +31,7 @@ import com.exponential.app.ExponentialApp
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.ui.auth.LoginScreen
+import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.home.HomeScreen
 import com.exponential.app.ui.inbox.InboxScreen
 import com.exponential.app.ui.instance.InstanceScreen
@@ -129,11 +139,15 @@ fun AppNavHost() {
             // (accountDatabaseFlow + flatMapLatest), so an account switch
             // re-scopes every live screen in place — no key(activeAccountId)
             // rebuild, no pending-handoff flags.
+            val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
                 cloudAlreadyAdded = cloudAlreadyAdded,
                 activeAccountId = state.activeAccountId,
                 needsOnboarding = needsOnboarding,
+                pendingDeepLink = pendingTarget != null,
+                unreadCount = unreadCount,
+                resolveLastProjectId = viewModel::lastOpenedProjectId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
             )
         }
@@ -176,6 +190,9 @@ private fun AuthenticatedNav(
     cloudAlreadyAdded: Boolean,
     activeAccountId: String?,
     needsOnboarding: Boolean,
+    pendingDeepLink: Boolean,
+    unreadCount: Int,
+    resolveLastProjectId: suspend () -> String?,
     onSetInstanceUrl: (String) -> Unit,
 ) {
     val workspaceSelection = applicationWorkspaceSelection()
@@ -193,6 +210,35 @@ private fun AuthenticatedNav(
         }
     }
 
+    // Fresh starts land in the last-opened project, with home left beneath in
+    // the back stack. One-shot: rememberSaveable survives recomposition AND
+    // process recreation (where the restored back stack already is the right
+    // place). A pending deep link's navigation wins, and the onboarding wizard
+    // keeps its shot for after onDone (a brand-new user resolves to null).
+    var autoOpenedLastProject by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(needsOnboarding) {
+        if (autoOpenedLastProject || needsOnboarding) return@LaunchedEffect
+        autoOpenedLastProject = true
+        if (pendingDeepLink) return@LaunchedEffect
+        val projectId = resolveLastProjectId() ?: return@LaunchedEffect
+        navController.navigate("project/$projectId") { launchSingleTop = true }
+    }
+
+    // Linear-style floating bottom bar over the top-level routes only; detail
+    // and settings screens get the full height back. Compose targets the
+    // project being viewed, else the (validated) last-opened project.
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    val barVisible = !needsOnboarding &&
+        currentRoute in setOf("home", "inbox", "project/{projectId}")
+    val fallbackProjectId by produceState<String?>(initialValue = null, activeAccountId) {
+        value = resolveLastProjectId()
+    }
+    val composeProjectId =
+        if (currentRoute == "project/{projectId}") backStackEntry?.arguments?.getString("projectId")
+        else fallbackProjectId
+
+    Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = if (needsOnboarding) "onboarding" else "home",
@@ -213,7 +259,6 @@ private fun AuthenticatedNav(
             HomeScreen(
                 onOpenProject = { _, projectId -> navController.navigate("project/$projectId") },
                 onOpenSettings = { navController.navigate("settings") },
-                onOpenInbox = { navController.navigate("inbox") },
             )
         }
         composable("inbox") {
@@ -326,6 +371,29 @@ private fun AuthenticatedNav(
                 },
             )
         }
+    }
+
+    if (barVisible) {
+        BottomNavBar(
+            homeActive = currentRoute == "home",
+            inboxActive = currentRoute == "inbox",
+            unreadCount = unreadCount,
+            showCompose = composeProjectId != null,
+            onHome = { navController.popBackStack("home", inclusive = false) },
+            onInbox = {
+                if (currentRoute != "inbox") {
+                    navController.navigate("inbox") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                }
+            },
+            onCompose = {
+                composeProjectId?.let { navController.navigate("project/$it/new") }
+            },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
     }
 }
 
