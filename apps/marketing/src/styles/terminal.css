@@ -1,47 +1,12 @@
 /* ─── Terminal-native visual system (phosphor) ─── */
 
-/* ── Atmosphere (replaces the old hero grid) ── */
+/* ── Atmosphere — a single, very quiet glow ── */
 .hero-atmos {
   position: absolute;
   inset: 0;
   pointer-events: none;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse 60% 42% at 50% 8%, oklch(0.62 0.18 280 / 0.1), transparent 70%),
-    radial-gradient(ellipse 50% 38% at 50% 78%, oklch(0.8 0.19 150 / 0.05), transparent 70%);
-}
-
-.hero-atmos::before {
-  content: "";
-  position: absolute;
-  inset: -8px 0 0;
-  background: repeating-linear-gradient(
-    to bottom,
-    oklch(1 0 0 / 0.016) 0 1px,
-    transparent 1px 3px
-  );
-  mask-image: radial-gradient(ellipse 75% 65% at 50% 35%, #000 0%, transparent 85%);
-  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 35%, #000 0%, transparent 85%);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .hero-atmos::before {
-    animation: scan-drift 9s linear infinite;
-  }
-}
-
-.hero-atmos::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  opacity: 0.025;
-  mix-blend-mode: overlay;
-}
-
-@keyframes scan-drift {
-  from { transform: translateY(0); }
-  to { transform: translateY(3px); }
+  background: radial-gradient(ellipse 55% 40% at 50% 0%, oklch(0.62 0.18 280 / 0.07), transparent 70%);
 }
 
 /* ── Keyframes ── */
@@ -206,16 +171,6 @@
 }
 
 /* ── Hero (command deck layout) ── */
-.hero .hero-content {
-  max-width: 1020px;
-}
-
-.hero h1.hero-title {
-  font-size: clamp(30px, 4vw, 54px);
-  line-height: 1.12;
-  text-wrap: balance;
-}
-
 .hero-kicker {
   font-family: var(--font-mono);
   font-size: 12.5px;

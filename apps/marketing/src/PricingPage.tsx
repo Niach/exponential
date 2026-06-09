@@ -17,14 +17,10 @@ export function PricingPage() {
           initial="hidden"
           animate="visible"
         >
-          <motion.span className="hero-kicker" variants={heroChild}>
-            pricing --flat
-          </motion.span>
           <motion.h1 className="hero-title" variants={heroChild}>
             Per workspace. Per year.
             <br />
-            <span className="mono-accent">Not per seat.</span>
-            <span className="caret" aria-hidden />
+            <em>Not per seat.</em>
           </motion.h1>
           <motion.p className="hero-sub" variants={heroChild}>
             Your tracker shouldn&apos;t bill you for hiring. One flat price per
@@ -54,7 +50,7 @@ export function PricingPage() {
         }}
       >
         <motion.div className="shell" {...sectionReveal}>
-          <span className="section-eyebrow">diff exponential linear</span>
+          <span className="section-eyebrow">Comparison</span>
           <h2 className="section-title">How it compares to Linear.</h2>
           <p className="section-sub">
             Linear is a great tracker. But it bills per seat, runs only in

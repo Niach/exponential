@@ -221,18 +221,12 @@ h1.hero-title {
 /* ─── Section eyebrow ─── */
 .section-eyebrow {
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  color: var(--phosphor);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
   margin-bottom: 14px;
   display: block;
-  text-shadow: 0 0 16px var(--phosphor-glow);
-}
-
-.section-eyebrow::before {
-  content: "$ ";
-  color: var(--fg-dim);
-  text-shadow: none;
 }
 
 /* ─── Sections ─── */

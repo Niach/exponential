@@ -5,8 +5,12 @@ import {
   Circle,
   CircleCheck,
   CircleDashed,
+  CircleUserRound,
   CircleX,
+  Inbox,
+  Megaphone,
   Minus,
+  Search,
   SignalHigh,
   SignalLow,
   SignalMedium,
@@ -19,7 +23,6 @@ import {
   IcChevSwap,
   IcFilter,
   IcPlus,
-  IcSidebar,
 } from "./icons"
 import { CreateIssueDialog } from "./CreateIssueDialog"
 import { IssueDetailPanel } from "./IssueDetailPanel"
@@ -43,11 +46,11 @@ const PRIORITY: Record<
   PriorityKey,
   { label: string; icon: LucideIcon; color: string }
 > = {
-  none: { label: `No priority`, icon: Minus, color: `oklch(0.708 0 0)` },
+  none: { label: `No priority`, icon: Minus, color: `oklch(0.5 0 0)` },
   urgent: { label: `Urgent`, icon: AlertTriangle, color: `oklch(0.637 0.237 25.33)` },
-  high: { label: `High`, icon: SignalHigh, color: `oklch(0.705 0.213 47.6)` },
-  medium: { label: `Medium`, icon: SignalMedium, color: `oklch(0.795 0.184 86.05)` },
-  low: { label: `Low`, icon: SignalLow, color: `oklch(0.623 0.214 259.85)` },
+  high: { label: `High`, icon: SignalHigh, color: `oklch(0.78 0 0)` },
+  medium: { label: `Medium`, icon: SignalMedium, color: `oklch(0.7 0 0)` },
+  low: { label: `Low`, icon: SignalLow, color: `oklch(0.58 0 0)` },
 }
 
 function StatusIcon({ kind, size = 14 }: { kind: StatusKey; size?: number }) {
@@ -71,7 +74,12 @@ type Issue = {
   priority: PriorityKey
   labels?: IssueLabel[]
   due?: string
+  assignee?: string
 }
+
+const BUG: IssueLabel = { name: `Bug`, color: `#ef4444` }
+const FEATURE: IssueLabel = { name: `Feature`, color: `#8b5cf6` }
+const DESIGN: IssueLabel = { name: `Design`, color: `#f59e0b` }
 
 const PROJECTS: Record<string, { name: string; color: string; prefix: string; issues: Issue[] }> = {
   exponential: {
@@ -79,28 +87,15 @@ const PROJECTS: Record<string, { name: string; color: string; prefix: string; is
     color: `oklch(0.62 0.18 280)`,
     prefix: `EXP`,
     issues: [
-      { id: `ex24`, ident: `EXP-24`, title: `Email digest of stale issues`, status: `todo`, priority: `urgent`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }], due: `May 2` },
-      { id: `ex23`, ident: `EXP-23`, title: `Bulk-edit selected issues`, status: `todo`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-      { id: `ex22`, ident: `EXP-22`, title: `Drag to reorder within a status group`, status: `todo`, priority: `high`, labels: [{ name: `polish`, color: `oklch(0.72 0.16 280)` }, { name: `ux`, color: `oklch(0.72 0.16 245)` }] },
-      { id: `ex21`, ident: `EXP-21`, title: `Issue templates per project`, status: `todo`, priority: `medium`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-      { id: `ex20`, ident: `EXP-20`, title: `Markdown shortcuts in description editor`, status: `todo`, priority: `low`, labels: [{ name: `editor`, color: `oklch(0.72 0.16 280)` }] },
-      { id: `ex19`, ident: `EXP-19`, title: `GitHub PR linking via commit message`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.7 0.04 245)` }] },
-      { id: `ex18`, ident: `EXP-18`, title: `Webhook events for issue mutations`, status: `todo`, priority: `low`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }] },
-      { id: `ex17`, ident: `EXP-17`, title: `Slack notifications for assigned issues`, status: `todo`, priority: `low`, labels: [{ name: `integration`, color: `oklch(0.72 0.18 145)` }] },
-      { id: `ex15`, ident: `EXP-15`, title: `Webhook signing key rotation`, status: `in_progress`, priority: `medium`, labels: [{ name: `api`, color: `oklch(0.7 0.15 320)` }] },
-      { id: `ex13`, ident: `EXP-13`, title: `Mention users in issue descriptions`, status: `done`, priority: `high`, labels: [{ name: `editor`, color: `oklch(0.72 0.18 145)` }] },
-    ],
-  },
-  marketing: {
-    name: `Marketing site`,
-    color: `oklch(0.7 0.16 145)`,
-    prefix: `MKT`,
-    issues: [
-      { id: `mk5`, ident: `MKT-5`, title: `Redesign landing page hero section`, status: `in_progress`, priority: `urgent`, labels: [{ name: `design`, color: `oklch(0.72 0.16 280)` }] },
-      { id: `mk4`, ident: `MKT-4`, title: `Add interactive product demos`, status: `in_progress`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-      { id: `mk3`, ident: `MKT-3`, title: `Write documentation for self-hosting`, status: `todo`, priority: `high`, labels: [{ name: `docs`, color: `oklch(0.7 0.04 245)` }] },
-      { id: `mk2`, ident: `MKT-2`, title: `SEO meta tags and Open Graph images`, status: `todo`, priority: `medium`, labels: [{ name: `seo`, color: `oklch(0.72 0.16 60)` }] },
-      { id: `mk1`, ident: `MKT-1`, title: `Set up analytics and conversion tracking`, status: `backlog`, priority: `low`, labels: [{ name: `infra`, color: `oklch(0.7 0.04 245)` }] },
+      { id: `exp2`, ident: `EXP-2`, title: `Fix duplicate push notifications on mention`, status: `in_progress`, priority: `urgent`, labels: [BUG], due: `Jun 11`, assignee: `D` },
+      { id: `exp1`, ident: `EXP-1`, title: `Stream agent output to the plan panel`, status: `in_progress`, priority: `high`, labels: [FEATURE], assignee: `D` },
+      { id: `exp3`, ident: `EXP-3`, title: `Attachment previews lose aspect ratio on Android`, status: `todo`, priority: `medium`, labels: [BUG], due: `Jun 16` },
+      { id: `exp5`, ident: `EXP-5`, title: `Polish empty states for the notifications inbox`, status: `todo`, priority: `medium`, labels: [DESIGN], assignee: `D` },
+      { id: `exp4`, ident: `EXP-4`, title: `Add keyboard shortcut for cycling issue status`, status: `todo`, priority: `low`, labels: [FEATURE] },
+      { id: `exp9`, ident: `EXP-9`, title: `Webhook events for issue mutations`, status: `todo`, priority: `low`, labels: [FEATURE] },
+      { id: `exp7`, ident: `EXP-7`, title: `Refresh workspace invite email template`, status: `backlog`, priority: `low`, labels: [DESIGN] },
+      { id: `exp6`, ident: `EXP-6`, title: `Recurring issues: support monthly on last weekday`, status: `backlog`, priority: `none` },
+      { id: `exp8`, ident: `EXP-8`, title: `Rate-limit workspace invite creation`, status: `done`, priority: `high`, assignee: `D`, due: `Jun 8` },
     ],
   },
   mobile: {
@@ -108,12 +103,12 @@ const PROJECTS: Record<string, { name: string; color: string; prefix: string; is
     color: `oklch(0.72 0.16 60)`,
     prefix: `MOB`,
     issues: [
-      { id: `mo6`, ident: `MOB-6`, title: `Push notification deep links`, status: `in_progress`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-      { id: `mo5`, ident: `MOB-5`, title: `Offline queue for issue mutations`, status: `todo`, priority: `urgent`, labels: [{ name: `sync`, color: `oklch(0.72 0.16 280)` }] },
-      { id: `mo4`, ident: `MOB-4`, title: `Multi-server account switching`, status: `todo`, priority: `high`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-      { id: `mo3`, ident: `MOB-3`, title: `Label color picker in create dialog`, status: `todo`, priority: `medium`, labels: [{ name: `ux`, color: `oklch(0.72 0.16 245)` }] },
-      { id: `mo2`, ident: `MOB-2`, title: `Attachment previews in issue detail`, status: `done`, priority: `medium`, labels: [{ name: `feature`, color: `oklch(0.72 0.18 145)` }] },
-      { id: `mo1`, ident: `MOB-1`, title: `Android Compose navigation transitions`, status: `done`, priority: `low`, labels: [{ name: `polish`, color: `oklch(0.72 0.16 280)` }] },
+      { id: `mo6`, ident: `MOB-6`, title: `Push notification deep links`, status: `in_progress`, priority: `high`, labels: [FEATURE], assignee: `D` },
+      { id: `mo5`, ident: `MOB-5`, title: `Offline queue for issue mutations`, status: `todo`, priority: `urgent`, labels: [BUG], due: `Jun 13` },
+      { id: `mo4`, ident: `MOB-4`, title: `Multi-server account switching`, status: `todo`, priority: `high`, labels: [FEATURE] },
+      { id: `mo3`, ident: `MOB-3`, title: `Label color picker in create dialog`, status: `todo`, priority: `medium`, labels: [DESIGN] },
+      { id: `mo2`, ident: `MOB-2`, title: `Attachment previews in issue detail`, status: `done`, priority: `medium`, labels: [FEATURE], assignee: `D` },
+      { id: `mo1`, ident: `MOB-1`, title: `Android Compose navigation transitions`, status: `done`, priority: `low`, labels: [DESIGN] },
     ],
   },
 }
@@ -185,32 +180,32 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
       tick++
       const m = tick % 4
       if (m === 1) {
-        setCursor({ visible: true, label: `danny`, id: `ex23` })
+        setCursor({ visible: true, label: `danny`, id: `exp3` })
         setTimeout(() => {
           setIssues((xs) =>
-            xs.map((i) => (i.id === `ex23` ? { ...i, status: `in_progress` } : i))
+            xs.map((i) => (i.id === `exp3` ? { ...i, status: `in_progress` } : i))
           )
-          setFlashId(`ex23`)
+          setFlashId(`exp3`)
           setTimeout(() => setFlashId(null), 1100)
         }, 700)
         setTimeout(() => setCursor((c) => ({ ...c, visible: false })), 1700)
       } else if (m === 2) {
-        setCursor({ visible: true, label: `niach`, id: `ex24` })
+        setCursor({ visible: true, label: `alex`, id: `exp9` })
         setTimeout(() => {
           setIssues((xs) =>
-            xs.map((i) => (i.id === `ex24` ? { ...i, status: `in_progress` } : i))
+            xs.map((i) => (i.id === `exp9` ? { ...i, status: `in_progress` } : i))
           )
-          setFlashId(`ex24`)
+          setFlashId(`exp9`)
           setTimeout(() => setFlashId(null), 1100)
         }, 700)
         setTimeout(() => setCursor((c) => ({ ...c, visible: false })), 1700)
       } else if (m === 3) {
-        setCursor({ visible: true, label: `danny`, id: `ex19` })
+        setCursor({ visible: true, label: `danny`, id: `exp1` })
         setTimeout(() => {
           setIssues((xs) =>
-            xs.map((i) => (i.id === `ex19` ? { ...i, status: `done` } : i))
+            xs.map((i) => (i.id === `exp1` ? { ...i, status: `done` } : i))
           )
-          setFlashId(`ex19`)
+          setFlashId(`exp1`)
           setTimeout(() => setFlashId(null), 1100)
         }, 700)
         setTimeout(() => setCursor((c) => ({ ...c, visible: false })), 1700)
@@ -243,8 +238,19 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
       <aside className="ex-sidebar">
         <div className="ex-ws">
           <span className="ex-ws-avatar">A</span>
-          <span className="ex-ws-name">Acme &middot; Workspace</span>
+          <span className="ex-ws-name">Acme</span>
           <IcChevSwap size={12} />
+        </div>
+
+        <div className="ex-nav">
+          <div className="ex-nav-item">
+            <Search size={15} strokeWidth={1.8} />
+            <span>Search</span>
+          </div>
+          <div className="ex-nav-item">
+            <Inbox size={15} strokeWidth={1.8} />
+            <span>Inbox</span>
+          </div>
         </div>
 
         <div className="ex-side-section">
@@ -269,10 +275,16 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
           })}
         </div>
 
-        <div className="ex-side-user">
-          <span className="ex-user-avatar">D</span>
-          <span className="ex-user-mail">danny@acme.io</span>
-          <IcChevSwap size={11} />
+        <div className="ex-side-foot">
+          <div className="ex-nav-item">
+            <Megaphone size={14} strokeWidth={1.8} />
+            <span>Send feedback</span>
+          </div>
+          <div className="ex-side-user">
+            <span className="ex-user-avatar">D</span>
+            <span className="ex-user-mail">danny@acme.io</span>
+            <IcChevSwap size={11} />
+          </div>
         </div>
       </aside>
 
@@ -302,12 +314,6 @@ export function ProductBoard({ animate = true }: { animate?: boolean }) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
           >
-            <div className="ex-titlebar">
-              <button className="ex-icon-btn" aria-label="Toggle sidebar">
-                <IcSidebar size={15} />
-              </button>
-            </div>
-
             <div className="ex-header">
               <h1 className="ex-h1">Issues</h1>
               <div className="ex-header-right">
@@ -394,7 +400,7 @@ function Group({
 }) {
   return (
     <>
-      <div className="ex-group">
+      <div className={`ex-group is-${kind}`}>
         <IcChevDown size={12} style={{ color: `var(--ex-fg-dim)` }} />
         <StatusIcon kind={kind} />
         <span className="ex-group-title">{title}</span>
@@ -431,7 +437,13 @@ function Group({
               </span>
             ))}
           </span>
-          <span className="ex-assignee" title="Danny">D</span>
+          {iss.assignee ? (
+            <span className="ex-assignee" title="Danny">{iss.assignee}</span>
+          ) : (
+            <span className="ex-assignee is-empty">
+              <CircleUserRound size={16} strokeWidth={1.5} />
+            </span>
+          )}
           <span className={`ex-due ${iss.due ? `` : `is-empty`}`}>
             <IcCal size={12} />
             {iss.due && <span>{iss.due}</span>}
