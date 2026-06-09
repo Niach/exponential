@@ -102,8 +102,24 @@ pub fn worktree_claim(
     let branch = format!("{branch_prefix}/{}-{}", identifier.to_lowercase(), slugify(slug));
 
     if std::path::Path::new(&worktree_path).exists() {
-        let _ = run_git(&["worktree", "remove", "--force", &worktree_path], Some(repo_path));
-        let _ = std::fs::remove_dir_all(&worktree_path);
+        // A dirty tree means uncommitted work (possibly the user's manual edits
+        // in an interactive session). Never destroy it — rename it aside so the
+        // claim still proceeds with a clean tree.
+        let dirty = run_git(&["status", "--porcelain"], Some(&worktree_path))
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        if dirty {
+            let epoch = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let stale = format!("{worktree_path}-stale-{epoch}");
+            let _ = std::fs::rename(&worktree_path, &stale);
+            let _ = run_git(&["worktree", "prune"], Some(repo_path));
+        } else {
+            let _ = run_git(&["worktree", "remove", "--force", &worktree_path], Some(repo_path));
+            let _ = std::fs::remove_dir_all(&worktree_path);
+        }
     }
     run_git(&["fetch", "origin", default_branch], Some(repo_path))?;
     // -B (force-create/reset) so a lingering branch from a prior run is fine.
@@ -136,6 +152,19 @@ pub fn worktree_reuse(
         });
     }
     worktree_claim(worktrees_root, branch_prefix, repo_path, default_branch, identifier, slug)
+}
+
+/// Whether the worktree's branch has any commits beyond `origin/{default}` —
+/// i.e. an agent code session actually produced something to push.
+pub fn branch_has_commits(worktree_path: &str, default_branch: &str) -> bool {
+    run_git(
+        &["rev-list", "--count", &format!("origin/{default_branch}..HEAD")],
+        Some(worktree_path),
+    )
+    .ok()
+    .and_then(|s| s.trim().parse::<u64>().ok())
+    .map(|n| n > 0)
+    .unwrap_or(false)
 }
 
 /// Remove a worktree + its branch — only when the branch carries the agent

@@ -206,6 +206,17 @@ impl State {
         Ok(())
     }
 
+    /// Startup sweep: no interactive session can survive an app restart (the
+    /// host terminal dies with the process), so any `interactive_owned` flag
+    /// found at boot is stale by construction. Clearing them here means a crash
+    /// mid-session can never permanently block an issue's background pipeline.
+    pub fn clear_interactive_owned_all(&self) -> rusqlite::Result<usize> {
+        self.conn.execute(
+            "UPDATE issues SET interactive_owned = 0, updated_at = ?1 WHERE interactive_owned != 0",
+            params![now_ms()],
+        )
+    }
+
     pub fn bump_attempts(&self, id: &str) -> rusqlite::Result<i64> {
         self.conn.execute(
             "UPDATE issues SET attempts = attempts + 1, updated_at = ?1 WHERE id = ?2",

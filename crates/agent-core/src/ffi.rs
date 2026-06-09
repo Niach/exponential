@@ -6,9 +6,9 @@
 //! background thread — the host is responsible for marshalling onto its UI thread
 //! (DispatchQueue.main on macOS, g_idle_add on GTK).
 
-use crate::agent_run::{self, RunRequest};
+use crate::agent_run;
 use crate::dispatcher::Dispatcher;
-use crate::run_pipeline::{self, Config, Emit};
+use crate::run_pipeline::{self, Config, Emit, HostEvent};
 use crate::state::State;
 use crate::{electric, pr_poll};
 use serde::Deserialize;
@@ -48,11 +48,21 @@ struct CoreConfigDto {
     max_concurrent: usize,
     #[serde(default = "default_timeout")]
     timeout_s: u64,
+    /// Wall-clock cap for headless runs (seconds). Interactive sessions are
+    /// untimed (the user owns them).
+    #[serde(default = "default_run_timeout")]
+    run_timeout_s: u64,
+    /// Route the claude driver's plan/code stages through the host terminal as
+    /// live interactive sessions (the launch default).
+    #[serde(default = "default_true")]
+    interactive: bool,
 }
 fn default_prefix() -> String { "agent".into() }
 fn default_driver() -> String { "claude".into() }
 fn default_concurrency() -> usize { 2 }
 fn default_timeout() -> u64 { 30 }
+fn default_run_timeout() -> u64 { agent_run::HEADLESS_RUN_TIMEOUT_S }
+fn default_true() -> bool { true }
 
 /// Live loop handles, set on start, torn down on stop.
 struct Runtime {
@@ -124,6 +134,8 @@ pub extern "C" fn agent_core_create(config_json: *const c_char) -> *mut AgentCor
                 branch_prefix: dto.branch_prefix,
                 driver: dto.driver,
                 timeout_s: dto.timeout_s,
+                run_timeout_s: dto.run_timeout_s,
+                interactive: dto.interactive,
             };
             (Some(Arc::new(cfg)), dto.db_path, dto.max_concurrent.max(1))
         }
@@ -172,7 +184,13 @@ pub extern "C" fn agent_core_start(core: *mut AgentCore) -> c_int {
         return OK; // nothing to run, but not a hard error
     };
     let state = match State::open(&core.db_path) {
-        Ok(s) => Arc::new(Mutex::new(s)),
+        Ok(s) => {
+            // Startup sweep: no interactive session survives a restart, so any
+            // lingering interactive_owned flag is stale and would block the
+            // issue's background pipeline forever.
+            let _ = s.clear_interactive_owned_all();
+            Arc::new(Mutex::new(s))
+        }
         Err(e) => {
             emit(&core.callback, &format!(r#"{{"type":"log","level":"error","message":"state open failed: {e}"}}"#));
             return ERR_CONFIG;
@@ -181,23 +199,48 @@ pub extern "C" fn agent_core_start(core: *mut AgentCore) -> c_int {
 
     let stop = Arc::new(AtomicBool::new(false));
 
-    // Run-request emitter: serialise the request and hand it to the host, which
-    // runs the CLI and calls back via agent_core_submit_run_result.
+    // Host-event emitter: serialise core events for the host. `run_request`
+    // demands a response (agent_core_submit_run_result); the rest are
+    // fire-and-forget UI signals (toasts / run indicators / terminal teardown).
     let slot = core.callback.clone();
-    let emit_cb: Emit = Arc::new(move |r: &RunRequest| {
-        let env: serde_json::Map<String, serde_json::Value> =
-            r.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-        let v = json!({
-            "type": "run_request",
-            "runId": r.run_id, "cwd": r.cwd, "mode": r.mode,
-            "program": r.program, "argv": r.argv, "env": env,
-            "mcpConfigPath": r.mcp_config_path,
-            "systemPrompt": r.system_prompt, "userPrompt": r.user_prompt,
-            // Interactive: the host launches the CLI in the visible terminal with
-            // NO output capture (no tee/PIPESTATUS); the plan is delivered via MCP.
-            "interactive": r.interactive,
-            "continueSessionId": r.continue_session_id,
-        });
+    let emit_cb: Emit = Arc::new(move |ev: &HostEvent| {
+        let v = match ev {
+            HostEvent::RunRequest(r) => {
+                let env: serde_json::Map<String, serde_json::Value> =
+                    r.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+                json!({
+                    "type": "run_request",
+                    "runId": r.run_id,
+                    "issueId": r.issue_id, "issueIdentifier": r.issue_identifier,
+                    "cwd": r.cwd, "mode": r.mode,
+                    "program": r.program, "argv": r.argv, "env": env,
+                    "mcpConfigPath": r.mcp_config_path,
+                    "systemPrompt": r.system_prompt, "userPrompt": r.user_prompt,
+                    // Interactive: the host launches the CLI in the visible terminal
+                    // with NO output capture; the plan is delivered via MCP.
+                    "interactive": r.interactive,
+                    "continueSessionId": r.continue_session_id,
+                })
+            }
+            HostEvent::RunStarted { issue_id, issue_identifier, run_id, mode } => json!({
+                "type": "run_started",
+                "issueId": issue_id, "issueIdentifier": issue_identifier,
+                "runId": run_id, "mode": mode,
+            }),
+            HostEvent::RunFinished { issue_id, run_id, exit_code, outcome } => json!({
+                "type": "run_finished",
+                "issueId": issue_id, "runId": run_id,
+                "exitCode": exit_code, "outcome": outcome,
+            }),
+            HostEvent::RunCancelled { issue_id, run_id } => json!({
+                "type": "run_cancelled",
+                "issueId": issue_id, "runId": run_id,
+            }),
+            HostEvent::AgentError { issue_id, code, message } => json!({
+                "type": "agent_error",
+                "issueId": issue_id, "code": code, "message": message,
+            }),
+        };
         emit(&slot, &v.to_string());
     });
 
@@ -311,26 +354,33 @@ pub extern "C" fn agent_core_submit_run_result(
 
 #[no_mangle]
 pub extern "C" fn agent_core_cancel_run(core: *mut AgentCore, run_id: *const c_char) -> c_int {
-    if unsafe { core.as_ref() }.is_none() {
+    let Some(core) = (unsafe { core.as_ref() }) else {
         return ERR_INVALID_HANDLE;
-    }
+    };
     if let Some(id) = unsafe { cstr_to_string(run_id) } {
-        agent_run::cancel(&id);
+        if agent_run::cancel(&id) {
+            emit(&core.callback, &json!({"type": "run_cancelled", "issueId": null, "runId": id}).to_string());
+        }
     }
     OK
 }
 
 /// Host-triggered: cancel the run currently in flight for an issue (the desktop
 /// "Cancel" button). The host knows the issue id, not the run_id; the core maps
-/// it and drops the run's channel, unblocking the parked pipeline thread so the
-/// issue stops running. No-op if nothing is in flight for that issue.
+/// it and resolves the run with the cancel sentinel, unblocking the parked
+/// pipeline thread so the issue lands in `cancelled` (retryable). Emits a
+/// `run_cancelled` event so the host tears down the matching terminal (killing
+/// the CLI child). No-op if nothing is in flight for that issue.
 #[no_mangle]
 pub extern "C" fn agent_core_cancel_issue(core: *mut AgentCore, issue_id: *const c_char) -> c_int {
-    if unsafe { core.as_ref() }.is_none() {
+    let Some(core) = (unsafe { core.as_ref() }) else {
         return ERR_INVALID_HANDLE;
-    }
+    };
     if let Some(id) = unsafe { cstr_to_string(issue_id) } {
-        agent_run::cancel_issue(&id);
+        let run_id = agent_run::run_for_issue(&id);
+        if agent_run::cancel_issue(&id) {
+            emit(&core.callback, &json!({"type": "run_cancelled", "issueId": id, "runId": run_id}).to_string());
+        }
     }
     OK
 }

@@ -15,12 +15,21 @@ use std::time::{Duration, Instant};
 
 /// Generous wall-clock cap for an in-core headless run (plan/code stages take
 /// minutes, so this is deliberately large — it's a runaway guard, not the short
-/// HTTP `Config::timeout_s`). The legacy host path had no timeout at all.
+/// HTTP `Config::timeout_s`). The default for `CoreConfigDto.runTimeoutS`.
 pub const HEADLESS_RUN_TIMEOUT_S: u64 = 30 * 60;
+
+/// Exit code the core reports when a run was cancelled by the user (the
+/// desktop Cancel button / app shutdown), as opposed to a CLI failure. Mirrors
+/// the 128+SIGINT convention but negative so no real CLI exit collides.
+pub const EXIT_CANCELLED: i32 = -130;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunRequest {
     pub run_id: String,
+    // The issue this run works on, so the host can label terminals/toasts
+    // without tracking run→issue itself.
+    pub issue_id: String,
+    pub issue_identifier: String,
     pub cwd: String,
     pub mode: String, // "plan" | "code"
     pub program: String,
@@ -129,8 +138,10 @@ pub fn submit_result(run_id: &str, exit_code: i32, final_text: String, session_i
     }
 }
 
-/// Cancel one run: kill its in-core headless child (if any) AND drop its host
-/// channel (if any). Returns true if either was found.
+/// Cancel one run: kill its in-core headless child (if any) AND resolve its
+/// host channel (if any) with the `EXIT_CANCELLED` sentinel, so the parked
+/// pipeline waiter can tell a user cancel apart from a CLI failure. Returns
+/// true if either was found.
 pub fn cancel(run_id: &str) -> bool {
     let proc = procs().lock().unwrap().remove(run_id);
     let killed = if let Some(child) = proc {
@@ -139,7 +150,24 @@ pub fn cancel(run_id: &str) -> bool {
     } else {
         false
     };
-    registry().lock().unwrap().remove(run_id).is_some() || killed
+    let tx = registry().lock().unwrap().remove(run_id);
+    match tx {
+        Some(tx) => {
+            let _ = tx.send(RunResult {
+                exit_code: EXIT_CANCELLED,
+                final_text: "cancelled by user".into(),
+                session_id: None,
+            });
+            true
+        }
+        None => killed,
+    }
+}
+
+/// The run_id currently in flight for an issue, if any (lets the FFI layer
+/// emit a `run_cancelled` event carrying both ids).
+pub fn run_for_issue(issue_id: &str) -> Option<String> {
+    issue_runs().lock().unwrap().get(issue_id).cloned()
 }
 
 /// Cancel the run currently in flight for an issue (the desktop "Cancel" button).
@@ -154,16 +182,41 @@ pub fn cancel_issue(issue_id: &str) -> bool {
     }
 }
 
-/// Drop all pending run channels + kill all in-core children — unblocks every
-/// parked `request_run` caller and stops every headless run (used on shutdown so
-/// pipeline threads don't hang).
+/// Resolve all pending run channels with the cancel sentinel + kill all in-core
+/// children — unblocks every parked `request_run` caller and stops every
+/// headless run (used on shutdown so pipeline threads don't hang, without
+/// reporting spurious "failed" errors for runs that were merely interrupted).
 pub fn cancel_all() {
-    registry().lock().unwrap().clear();
+    let txs: Vec<_> = registry().lock().unwrap().drain().map(|(_, tx)| tx).collect();
+    for tx in txs {
+        let _ = tx.send(RunResult {
+            exit_code: EXIT_CANCELLED,
+            final_text: "cancelled (shutdown)".into(),
+            session_id: None,
+        });
+    }
     issue_runs().lock().unwrap().clear();
     let drained: Vec<_> = procs().lock().unwrap().drain().map(|(_, c)| c).collect();
     for child in drained {
         kill_child_group(&child);
     }
+}
+
+/// A fresh RFC-4122 v4 UUID for a claude `--session-id`, so the core knows the
+/// session identity BEFORE the run starts (deterministic `--resume` later)
+/// instead of scraping claude's on-disk logs afterwards. None if the platform
+/// has no /dev/urandom (the caller falls back to log recovery).
+pub fn new_session_uuid() -> Option<String> {
+    let mut buf = [0u8; 16];
+    let mut f = std::fs::File::open("/dev/urandom").ok()?;
+    f.read_exact(&mut buf).ok()?;
+    buf[6] = (buf[6] & 0x0f) | 0x40; // version 4
+    buf[8] = (buf[8] & 0x3f) | 0x80; // RFC 4122 variant
+    let h: Vec<String> = buf.iter().map(|b| format!("{b:02x}")).collect();
+    Some(format!(
+        "{}{}{}{}-{}{}-{}{}-{}{}-{}{}{}{}{}{}",
+        h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]
+    ))
 }
 
 /// Combined system+user prompt — matches the host wrapper's `buildPrompt` so the
@@ -235,6 +288,7 @@ pub fn run_headless(req: &RunRequest, timeout_s: u64) -> RunResult {
         // Cancelled? (cancel/cancel_all removed us from PROCS.)
         if !procs().lock().unwrap().contains_key(&req.run_id) {
             kill_child_group(&child);
+            exit_code = EXIT_CANCELLED;
             break;
         }
         match child.lock().unwrap().try_wait() {
@@ -286,6 +340,8 @@ pub fn build_claude_run(cwd: &str, mode: &str, mcp_config_path: &str, system_pro
     let permission_mode = if mode == "plan" { "plan" } else { "acceptEdits" };
     RunRequest {
         run_id: new_run_id(),
+        issue_id: String::new(),
+        issue_identifier: String::new(),
         cwd: cwd.to_string(),
         mode: mode.to_string(),
         program: "claude".to_string(),
@@ -306,34 +362,52 @@ pub fn build_claude_run(cwd: &str, mode: &str, mcp_config_path: &str, system_pro
 }
 
 /// Build an INTERACTIVE claude run: no `--print` (the user watches/steers it in
-/// the embedded terminal), `--dangerously-skip-permissions`, and the MCP config.
+/// the embedded terminal) and the MCP config. NO `--dangerously-skip-permissions`
+/// — the user is present at the terminal, so claude's own permission prompts are
+/// the point of "fully interactive" (and plan mode stays genuinely read-only).
 /// The plan/code is delivered out-of-band (the agent calls the Exponential MCP
-/// tools inside the session). Plan stage uses `--permission-mode plan`; the
-/// continue (code) stage uses `acceptEdits` + `--continue` to resume the same
-/// session in the reused worktree.
+/// tools inside the session).
+///
+/// Session identity: `resume_session_id` resumes a prior session (`--resume`);
+/// otherwise `new_session_id` pins a fresh session id (`--session-id`) so the
+/// core can deterministically resume it later. `mode == "code"` runs with
+/// `acceptEdits`; anything else plans read-only.
 pub fn build_claude_interactive_run(
     cwd: &str,
     mcp_config_path: &str,
     system_prompt: &str,
     user_prompt: &str,
-    continue_session_id: Option<&str>,
+    mode: &str,
+    resume_session_id: Option<&str>,
+    new_session_id: Option<&str>,
 ) -> RunRequest {
-    let continuing = continue_session_id.is_some();
-    let permission_mode = if continuing { "acceptEdits" } else { "plan" };
+    let permission_mode = if mode == "code" { "acceptEdits" } else { "plan" };
     let mut argv = vec![
-        "--dangerously-skip-permissions".into(),
         "--permission-mode".into(),
-        permission_mode.into(),
+        permission_mode.to_string(),
         "--mcp-config".into(),
         mcp_config_path.into(),
     ];
-    if continuing {
-        argv.push("--continue".into());
+    match (resume_session_id, new_session_id) {
+        (Some(sid), _) => {
+            argv.push("--resume".into());
+            argv.push(sid.into());
+        }
+        (None, Some(sid)) => {
+            argv.push("--session-id".into());
+            argv.push(sid.into());
+        }
+        // Legacy fallback (no known session, no urandom): resume the most
+        // recent session in this cwd for code; plan just starts fresh.
+        (None, None) if mode == "code" => argv.push("--continue".into()),
+        (None, None) => {}
     }
     RunRequest {
         run_id: new_run_id(),
+        issue_id: String::new(),
+        issue_identifier: String::new(),
         cwd: cwd.to_string(),
-        mode: if continuing { "code".into() } else { "plan".into() },
+        mode: mode.to_string(),
         program: "claude".to_string(),
         argv,
         env: vec![],
@@ -341,7 +415,7 @@ pub fn build_claude_interactive_run(
         system_prompt: system_prompt.to_string(),
         user_prompt: user_prompt.to_string(),
         interactive: true,
-        continue_session_id: continue_session_id.map(|s| s.to_string()),
+        continue_session_id: resume_session_id.map(|s| s.to_string()),
     }
 }
 
@@ -351,6 +425,8 @@ pub fn build_codex_run(cwd: &str, mode: &str, mcp_url: &str, token: &str, system
     let sandbox = if mode == "plan" { "read-only" } else { "workspace-write" };
     RunRequest {
         run_id: new_run_id(),
+        issue_id: String::new(),
+        issue_identifier: String::new(),
         cwd: cwd.to_string(),
         mode: mode.to_string(),
         program: "codex".to_string(),
@@ -372,10 +448,11 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    #[test]
-    fn request_run_blocks_until_submit() {
-        let req = RunRequest {
-            run_id: new_run_id(),
+    fn bare_req(run_id: String) -> RunRequest {
+        RunRequest {
+            run_id,
+            issue_id: String::new(),
+            issue_identifier: String::new(),
             cwd: "/tmp".into(),
             mode: "plan".into(),
             program: "claude".into(),
@@ -386,7 +463,12 @@ mod tests {
             user_prompt: String::new(),
             interactive: false,
             continue_session_id: None,
-        };
+        }
+    }
+
+    #[test]
+    fn request_run_blocks_until_submit() {
+        let req = bare_req(new_run_id());
         let id = req.run_id.clone();
         let result = request_run(req, |_r| {
             // Host runs the CLI asynchronously, then submits the result.
@@ -409,19 +491,7 @@ mod tests {
     #[test]
     fn cancel_issue_unblocks_the_runs_waiter() {
         let issue_id = format!("issue-{}", new_run_id());
-        let req = RunRequest {
-            run_id: new_run_id(),
-            cwd: "/tmp".into(),
-            mode: "plan".into(),
-            program: "claude".into(),
-            argv: vec![],
-            env: vec![],
-            mcp_config_path: None,
-            system_prompt: String::new(),
-            user_prompt: String::new(),
-            interactive: false,
-            continue_session_id: None,
-        };
+        let req = bare_req(new_run_id());
         let issue = issue_id.clone();
         let result = request_run_for_issue(&issue_id, req, |_r| {
             // The "cancel button": cancel by issue id while the run is parked.
@@ -431,8 +501,9 @@ mod tests {
                 assert!(cancel_issue(&issue));
             });
         });
-        // Cancelling drops the channel → the waiter gets the failure result.
-        assert_eq!(result.exit_code, -1);
+        // Cancelling resolves the waiter with the cancel sentinel — clearly
+        // distinguishable from a CLI failure.
+        assert_eq!(result.exit_code, EXIT_CANCELLED);
         // The mapping is cleared once the waiter unblocks.
         assert!(!cancel_issue(&issue_id));
     }
@@ -443,22 +514,44 @@ mod tests {
     }
 
     #[test]
-    fn interactive_builder_has_no_print_and_unsafe_plan_mode() {
-        let plan = build_claude_interactive_run("/w", "/w/.mcp.json", "sys", "user", None);
+    fn interactive_builder_is_safe_and_pins_session_identity() {
+        // Fresh plan session: read-only plan mode, NO skip-permissions (the user
+        // answers claude's prompts in the terminal), pinned --session-id.
+        let plan = build_claude_interactive_run("/w", "/w/.mcp.json", "sys", "user", "plan", None, Some("uuid-1"));
         assert!(plan.interactive);
         assert!(!plan.argv.iter().any(|a| a == "--print"));
-        assert!(plan.argv.iter().any(|a| a == "--dangerously-skip-permissions"));
+        assert!(!plan.argv.iter().any(|a| a == "--dangerously-skip-permissions"));
         let i = plan.argv.iter().position(|a| a == "--permission-mode").unwrap();
         assert_eq!(plan.argv[i + 1], "plan");
+        let s = plan.argv.iter().position(|a| a == "--session-id").unwrap();
+        assert_eq!(plan.argv[s + 1], "uuid-1");
         assert!(!plan.argv.iter().any(|a| a == "--continue"));
+        assert_eq!(plan.mode, "plan");
 
-        // Continuing (approve-and-continue) switches to acceptEdits + --continue.
-        let cont = build_claude_interactive_run("/w", "/w/.mcp.json", "sys", "user", Some("sess-1"));
+        // Code session resuming the plan session: acceptEdits + --resume <sid>.
+        let cont = build_claude_interactive_run("/w", "/w/.mcp.json", "sys", "user", "code", Some("sess-1"), None);
         let j = cont.argv.iter().position(|a| a == "--permission-mode").unwrap();
         assert_eq!(cont.argv[j + 1], "acceptEdits");
-        assert!(cont.argv.iter().any(|a| a == "--continue"));
+        let r = cont.argv.iter().position(|a| a == "--resume").unwrap();
+        assert_eq!(cont.argv[r + 1], "sess-1");
         assert_eq!(cont.continue_session_id.as_deref(), Some("sess-1"));
         assert_eq!(cont.mode, "code");
+
+        // Legacy fallback: code with no known session resumes the cwd's latest.
+        let legacy = build_claude_interactive_run("/w", "/w/.mcp.json", "sys", "user", "code", None, None);
+        assert!(legacy.argv.iter().any(|a| a == "--continue"));
+    }
+
+    #[test]
+    fn session_uuid_is_v4_shaped_and_unique() {
+        let a = new_session_uuid().expect("urandom available on unix");
+        let b = new_session_uuid().unwrap();
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 36);
+        let parts: Vec<&str> = a.split('-').collect();
+        assert_eq!(parts.len(), 5);
+        assert!(parts[2].starts_with('4'), "version nibble: {a}");
+        assert!(matches!(parts[3].as_bytes()[0], b'8' | b'9' | b'a' | b'b'), "variant: {a}");
     }
 
     #[test]
@@ -467,19 +560,10 @@ mod tests {
     }
 
     fn sh_req(script: &str) -> RunRequest {
-        RunRequest {
-            run_id: new_run_id(),
-            cwd: "/tmp".into(),
-            mode: "plan".into(),
-            program: "sh".into(),
-            argv: vec!["-c".into(), script.into()],
-            env: vec![],
-            mcp_config_path: None,
-            system_prompt: String::new(),
-            user_prompt: String::new(),
-            interactive: false,
-            continue_session_id: None,
-        }
+        let mut req = bare_req(new_run_id());
+        req.program = "sh".into();
+        req.argv = vec!["-c".into(), script.into()];
+        req
     }
 
     #[test]
@@ -503,7 +587,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         assert!(cancel_issue(&issue), "cancel_issue should find the in-flight run");
         let r = handle.join().unwrap();
-        assert_ne!(r.exit_code, 0, "a killed run must not report success");
+        assert_eq!(r.exit_code, EXIT_CANCELLED, "a killed run reports the cancel sentinel");
         // Mapping cleared once the run returns.
         assert!(!cancel_issue(&issue));
     }
@@ -550,7 +634,8 @@ mod tests {
         for mode in ["plan", "code"] {
             let claude = build_claude_run("/w", mode, "/w/.mcp.json", "s", "u");
             let codex = build_codex_run("/w", mode, "https://x.at/api/mcp", "expk_t", "s", "u");
-            for r in [&claude, &codex] {
+            let interactive = build_claude_interactive_run("/w", "/w/.mcp.json", "s", "u", mode, None, Some("sid"));
+            for r in [&claude, &codex, &interactive] {
                 let joined = r.argv.join(" ");
                 for bad in UNSAFE {
                     assert!(!joined.contains(bad), "{} emitted unsafe flag {bad} in {mode} mode", r.program);

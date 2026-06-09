@@ -27,11 +27,29 @@ extern "C" {
 typedef struct AgentCore AgentCore;
 
 /* Single outbound-event sink. `event_json` is a UTF-8 JSON object
- * {"type": "...", ...}; `len` is its byte length. Borrowed for the call only. */
+ * {"type": "...", ...}; `len` is its byte length. Borrowed for the call only.
+ *
+ * Event types:
+ *   run_request   — demands a response via agent_core_submit_run_result. Fields:
+ *                   runId, issueId, issueIdentifier, cwd, mode(plan|code),
+ *                   program, argv[], env{}, mcpConfigPath, systemPrompt,
+ *                   userPrompt, interactive(bool), continueSessionId(string|null).
+ *   run_started   — {issueId, issueIdentifier, runId, mode} (toast / indicator).
+ *   run_finished  — {issueId, runId, exitCode, outcome: ok|failed|cancelled}.
+ *   run_cancelled — {issueId(string|null), runId} → tear down the matching
+ *                   terminal (destroying the surface kills the CLI child).
+ *   agent_error   — {issueId, code, message}; stable codes include
+ *                   repo_not_linked, repo_token_unavailable, plan_not_submitted,
+ *                   no_commits, pipeline_failed, interactive_failed.
+ *   log           — {level, message}. */
 typedef void (*AgentCoreEventCallback)(void *ctx, const char *event_json, size_t len);
 
-/* Lifecycle. config_json carries baseUrl, workspaceId, agentId, botUserId(expk_),
- * githubOauthClientId, statePath, worktreeRoot, reposRoot, driver(claude|codex). */
+/* Lifecycle. config_json (camelCase, see CoreConfigDto in ffi.rs) carries:
+ * baseUrl, apiKey(expk_), botUserId, githubToken?, reposRoot, worktreesRoot,
+ * branchPrefix("agent"), driver(claude|codex), dbPath, maxConcurrent(2),
+ * timeoutS(30), runTimeoutS(1800, headless wall-clock cap), interactive(true —
+ * route the claude plan/code stages through the host terminal as live
+ * sessions; headless runs execute IN-CORE and never reach the host). */
 AgentCore *agent_core_create(const char *config_json);
 void agent_core_set_event_callback(AgentCore *core, void *ctx, AgentCoreEventCallback cb);
 int agent_core_start(AgentCore *core);
@@ -44,14 +62,13 @@ int agent_core_claim_setup(const char *base_url, const char *setup_token, char *
 int agent_core_github_device_login(AgentCore *core); /* emits github_device_prompt */
 int agent_core_uninstall(AgentCore *core);           /* companion.uninstallSelf */
 
-/* Agent-run bridge. The core emits a `run_request` event; the GUI launches
- * claude/codex inside its libghostty PTY and reports completion here.
+/* Agent-run bridge. For INTERACTIVE runs the core emits `run_request` and the
+ * GUI launches claude inside its libghostty PTY, reporting the exit here (the
+ * plan/code results are verified out-of-band — final_text may be empty).
+ * Headless runs execute in-core and never reach the host.
  *
- * The run_request JSON carries `interactive` (bool) and `continueSessionId`
- * (string|null): when interactive, the host runs the CLI WITHOUT output capture
- * (the plan is delivered out-of-band via MCP) and should surface the session id.
- * `session_id` is the CLI session (for a later --continue); pass NULL when
- * unknown / for headless runs. */
+ * `session_id` may be NULL: the core pins session identity itself via
+ * --session-id/--resume and only falls back to log recovery without it. */
 int agent_core_submit_run_result(AgentCore *core, const char *run_id, int exit_code,
                                  const char *final_text, const char *session_id);
 int agent_core_cancel_run(AgentCore *core, const char *run_id);
