@@ -51,6 +51,9 @@ class AuthRepository @Inject constructor(
         userId: String? = null,
         isAdmin: Boolean = false,
         onboardingCompletedAt: String? = null,
+        // Only true when onboardingCompletedAt was actually read from the server;
+        // false keeps the account out of the wizard (legacy / unknown).
+        onboardingKnown: Boolean = false,
     ) {
         accountStore.updateActiveToken(
             token = token,
@@ -59,6 +62,7 @@ class AuthRepository @Inject constructor(
             userId = userId,
             isAdmin = isAdmin,
             onboardingCompletedAt = onboardingCompletedAt,
+            onboardingKnown = onboardingKnown,
         )
         republish()
     }

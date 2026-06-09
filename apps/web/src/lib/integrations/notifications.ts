@@ -92,7 +92,8 @@ async function subscriberRecipients(
 // `notifications` has no unique key to ON CONFLICT on. Adding one would need a
 // migration (out of scope here), so the insert dedupes in-query instead:
 // INSERT … SELECT … WHERE NOT EXISTS an identical recent row (same recipient,
-// issue, type and title within a short window). RETURNING tells us which rows
+// issue, type, title and body within a short window). RETURNING tells us which
+// rows
 // actually landed, so the push fan-out skips deduped recipients too. Two
 // transactions racing in the same instant can still both pass the NOT EXISTS
 // check (it can't see uncommitted rows) — a unique partial index would close
@@ -123,7 +124,7 @@ async function deliver(args: {
       ${args.title},
       ${args.body},
       ${canPush ? now : null}::timestamptz
-    from unnest(${recipients}::text[]) as r(user_id)
+    from unnest(${sql.param(recipients)}::text[]) as r(user_id)
     where not exists (
       select 1
       from notifications existing
@@ -131,6 +132,7 @@ async function deliver(args: {
         and existing.issue_id = ${args.issue.id}::uuid
         and existing.type = ${args.type}::notification_type
         and existing.title = ${args.title}
+        and existing.body is not distinct from ${args.body}::text
         and existing.created_at > now() - interval '${sql.raw(NOTIFICATION_DEDUPE_WINDOW)}'
     )
     returning user_id

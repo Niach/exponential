@@ -47,12 +47,15 @@ export function EventRow({
       break
     case `assignee_changed`: {
       Icon = UserPlus
+      // `payload.to` can reference a user the viewer can't see (the users
+      // shape only exposes co-members) — that's still an assignment, not a
+      // removal.
       const to = payload.to ? userMap.get(String(payload.to)) : undefined
-      text = to ? (
+      text = payload.to ? (
         <>
           assigned{` `}
           <span className="font-medium text-foreground">
-            {to.name || to.email}
+            {to ? to.name || to.email : `someone`}
           </span>
         </>
       ) : (

@@ -40,7 +40,10 @@ typedef struct AgentCore AgentCore;
  *                   terminal (destroying the surface kills the CLI child).
  *   agent_error   — {issueId, code, message}; stable codes include
  *                   repo_not_linked, repo_token_unavailable, plan_not_submitted,
- *                   no_commits, pipeline_failed, interactive_failed.
+ *                   no_commits, pipeline_failed, interactive_failed, plus the
+ *                   informational rejections interactive_session_active /
+ *                   run_already_in_flight (a trigger was refused because a
+ *                   session/run is already live — nothing failed).
  *   log           — {level, message}. */
 typedef void (*AgentCoreEventCallback)(void *ctx, const char *event_json, size_t len);
 
@@ -82,6 +85,10 @@ int agent_core_cancel_issue(AgentCore *core, const char *issue_id);
 /* Host-triggered interactive sessions (desktop "AI" button / "Approve & continue
  * here"). Each returns immediately and runs on a worker thread; the host then
  * receives a `run_request` with interactive:true to launch in the terminal.
+ * At most ONE interactive session is live at a time (the dock holds one
+ * terminal): while one is mounted — host-triggered or dispatcher-driven — these
+ * calls are refused with an agent_error(interactive_session_active) event and
+ * emit no run_request (the mounted session is untouched).
  * `agent_core_approve_interactive` assumes the host already approved the plan
  * with the human's session — it only resumes the session to implement it. */
 int agent_core_request_interactive(AgentCore *core, const char *issue_id);

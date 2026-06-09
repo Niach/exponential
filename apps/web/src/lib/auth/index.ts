@@ -93,10 +93,22 @@ export const auth = betterAuth({
   emailVerification: {
     // Verification emails are sent but logging in is NOT blocked on them
     // (requireEmailVerification stays off) — low-friction launch posture.
-    // OAuth/OIDC users arrive pre-verified by their provider.
+    // OAuth/OIDC users arrive pre-verified by their provider. Privileged
+    // side effects ARE gated on verification: initial-admin promotion waits
+    // until the mailbox is proven (see maybePromoteNewUser).
     sendOnSignUp: emailEnabled,
     sendVerificationEmail: async ({ user, url }) => {
       await sendVerificationEmail({ to: user.email, url })
+    },
+    afterEmailVerification: async (user) => {
+      try {
+        await maybePromoteNewUser(user.id, user.email, true)
+      } catch (err) {
+        console.error(
+          `[auth] maybePromoteNewUser after verification failed for ${user.email}:`,
+          err
+        )
+      }
     },
   },
   session: {
@@ -183,7 +195,7 @@ export const auth = betterAuth({
       create: {
         after: async (user) => {
           try {
-            await maybePromoteNewUser(user.id, user.email)
+            await maybePromoteNewUser(user.id, user.email, user.emailVerified)
           } catch (err) {
             console.error(
               `[auth] maybePromoteNewUser failed for ${user.email}:`,

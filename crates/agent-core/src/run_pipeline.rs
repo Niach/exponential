@@ -13,11 +13,13 @@
 //! commits, pushes the branch, and opens the PR. Codex (`codex exec`) and
 //! `interactive: false` keep the fully headless in-core path.
 //!
-//! Not unit-tested here (it's the integration of already-tested parts + live
-//! I/O); the pure decision logic is covered in `pipeline.rs`.
+//! The I/O stages aren't unit-tested here (they're the integration of
+//! already-tested parts + live I/O); the pure decision logic is covered in
+//! `pipeline.rs`. The [`InteractiveSlot`] gate IS tested below (plus the
+//! dispatcher-vs-host contention test in `dispatcher.rs`).
 
 use crate::agent_run::{self, RunRequest, EXIT_CANCELLED};
-use crate::dispatcher::PipelineFn;
+use crate::dispatcher::{PipelineFn, PipelineOutcome};
 use crate::pipeline::{
     build_code_user_prompt, build_interactive_plan_user_prompt, build_plan_user_prompt,
     decide_stage, format_thread_for_prompt, latest_approved_plan_text, latest_plan_text,
@@ -76,6 +78,49 @@ pub type Emit = Arc<dyn Fn(&HostEvent) + Send + Sync>;
 /// structured guidance for (the human message may change; these must not).
 pub const ERROR_CODE_REPO_NOT_LINKED: &str = "repo_not_linked";
 pub const ERROR_CODE_REPO_TOKEN_UNAVAILABLE: &str = "repo_token_unavailable";
+/// Informational rejections (the issue's server state is untouched): a second
+/// interactive session was requested while one is mounted, or a trigger fired
+/// for an issue whose run is already in flight.
+pub const ERROR_CODE_INTERACTIVE_BUSY: &str = "interactive_session_active";
+pub const ERROR_CODE_RUN_IN_FLIGHT: &str = "run_already_in_flight";
+
+/// The single interactive-session slot. Both desktop hosts dock exactly ONE
+/// embedded terminal, so at most one interactive session may be mounted at a
+/// time — mounting a second would clobber the live one. Host-triggered
+/// sessions (AI button / approve-and-continue) and dispatcher-driven
+/// interactive runs all hold this slot for their full lifetime, claimed
+/// BEFORE any slow I/O (MCP fetch, clone) so two near-simultaneous triggers
+/// can't both reach the worktree.
+#[derive(Default)]
+pub struct InteractiveSlot {
+    /// The issue id of the session currently holding the slot.
+    owner: Mutex<Option<String>>,
+}
+
+impl InteractiveSlot {
+    /// Claim the slot for `issue_id`. Returns a guard that releases on drop
+    /// (every exit path, panics included); None if a session already holds it
+    /// — including a second press on the SAME issue (the double-press race).
+    pub fn try_claim(self: &Arc<Self>, issue_id: &str) -> Option<InteractiveSlotGuard> {
+        let mut owner = self.owner.lock().unwrap();
+        if owner.is_some() {
+            return None;
+        }
+        *owner = Some(issue_id.to_string());
+        Some(InteractiveSlotGuard { slot: Arc::clone(self) })
+    }
+}
+
+/// RAII release of the interactive slot — drop it when the session is over.
+pub struct InteractiveSlotGuard {
+    slot: Arc<InteractiveSlot>,
+}
+
+impl Drop for InteractiveSlotGuard {
+    fn drop(&mut self) {
+        *self.slot.owner.lock().unwrap() = None;
+    }
+}
 
 struct Ctx {
     config: Arc<Config>,
@@ -113,14 +158,26 @@ impl Ctx {
 }
 
 /// Build the dispatcher's pipeline closure.
-pub fn build_pipeline(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit) -> PipelineFn {
+pub fn build_pipeline(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit, slot: Arc<InteractiveSlot>) -> PipelineFn {
     Arc::new(move |issue: IssueRow| {
+        // Interactive stages mount the host's single terminal dock — hold the
+        // global slot for the whole run, claimed before any slow I/O. Busy
+        // (a host-triggered session is live) → requeue, don't fail the issue.
+        let _slot = if config.wants_interactive() {
+            match slot.try_claim(&issue.id) {
+                Some(guard) => Some(guard),
+                None => return PipelineOutcome::Retry,
+            }
+        } else {
+            None
+        };
         let ctx = Ctx { config: Arc::clone(&config), state: Arc::clone(&state), emit: Arc::clone(&emit) };
         if let Err(message) = run(&ctx, &issue) {
             ctx.set_status(&issue.id, "failed", Some(&message));
             let text = format!("Agent encountered an error: {}", &message[..message.len().min(1500)]);
             ctx.report_error(&issue.id, "pipeline_failed", &text);
         }
+        PipelineOutcome::Done
     })
 }
 
@@ -162,7 +219,10 @@ fn repo_token(cfg: &Config, repo: &str) -> String {
 /// Host-triggered interactive plan run (the desktop "AI" button — works on any
 /// issue, assigned or not). Launches `claude` interactively in the embedded
 /// terminal; the plan is delivered out-of-band via MCP (no stdout parsing).
-pub fn run_interactive_plan(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit, issue_id: &str) {
+/// `slot` is the already-claimed interactive slot (the FFI layer claims it
+/// before spawning this thread); held until the session fully settles.
+pub fn run_interactive_plan(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit, slot: InteractiveSlotGuard, issue_id: &str) {
+    let _slot = slot;
     let ctx = Ctx { config, state, emit };
     if let Err(message) = run_interactive(&ctx, issue_id, false) {
         ctx.set_status(issue_id, "failed", Some(&message));
@@ -175,7 +235,8 @@ pub fn run_interactive_plan(config: Arc<Config>, state: Arc<Mutex<State>>, emit:
 /// dispatcher on the approval event). The host has already approved the plan
 /// with the human's session; here we resume the same claude session in the
 /// reused worktree to implement it.
-pub fn run_interactive_continue(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit, issue_id: &str) {
+pub fn run_interactive_continue(config: Arc<Config>, state: Arc<Mutex<State>>, emit: Emit, slot: InteractiveSlotGuard, issue_id: &str) {
+    let _slot = slot;
     let ctx = Ctx { config, state, emit };
     if let Err(message) = run_interactive(&ctx, issue_id, true) {
         ctx.set_status(issue_id, "failed", Some(&message));
@@ -185,10 +246,16 @@ pub fn run_interactive_continue(config: Arc<Config>, state: Arc<Mutex<State>>, e
 
 fn run_interactive(ctx: &Ctx, issue_id: &str, continuing: bool) -> Result<(), String> {
     let cfg = &ctx.config;
-    // One live run per issue — refuse a second AI-button press while a session
-    // (or a dispatcher run) is in flight.
+    // One live run per issue — a second trigger while a run is in flight is a
+    // no-op (the run the user asked for IS running). Tell the host; no failure
+    // is recorded anywhere, and the live run is untouched.
     if agent_run::run_for_issue(issue_id).is_some() {
-        return Err("a run is already in flight for this issue".into());
+        ctx.emit_event(&HostEvent::AgentError {
+            issue_id,
+            code: ERROR_CODE_RUN_IN_FLIGHT,
+            message: "a run is already in flight for this issue",
+        });
+        return Ok(());
     }
     let detail = mcp::get_issue(&cfg.base_url, &cfg.api_key, issue_id, cfg.timeout_s)?
         .ok_or_else(|| "issue not found".to_string())?;
@@ -596,4 +663,35 @@ fn code_stage(ctx: &Ctx, issue: &IssueRow, detail: &IssueDetail, handle: &git::R
     // The server already recorded a pr_opened event; no comment needed.
     let _ = url;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_admits_one_session_at_a_time() {
+        let slot = Arc::new(InteractiveSlot::default());
+        let a = slot.try_claim("issue-a");
+        assert!(a.is_some());
+        // Host-vs-host: a second session (any issue) must not clobber the first.
+        assert!(slot.try_claim("issue-b").is_none());
+        // Same-issue double-press: the second press fails fast too.
+        assert!(slot.try_claim("issue-a").is_none());
+        // Released after the session ends — the next claim wins.
+        drop(a);
+        assert!(slot.try_claim("issue-b").is_some());
+    }
+
+    #[test]
+    fn slot_releases_when_the_session_panics() {
+        let slot = Arc::new(InteractiveSlot::default());
+        let claimed = Arc::clone(&slot);
+        let result = std::panic::catch_unwind(move || {
+            let _guard = claimed.try_claim("issue-a").unwrap();
+            panic!("session thread died");
+        });
+        assert!(result.is_err());
+        assert!(slot.try_claim("issue-b").is_some(), "guard must release on unwind");
+    }
 }

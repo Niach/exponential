@@ -179,6 +179,12 @@ const Term = struct {
     notified_exit: bool = false,
     on_exit: ?*const fn (ctx: ?*anyopaque, exit_code: i32) void = null,
     on_exit_ctx: ?*anyopaque = null,
+    // GLib timeout source ids (0 = inactive). The widget can be destroyed while
+    // the child is alive (cancel/sign-out teardown), so destroyTerm must remove
+    // any still-armed source or it fires on the freed Term. Each callback zeroes
+    // its id on the last fire so we never remove a dead source.
+    grace_source: c_uint = 0,
+    poll_source: c_uint = 0,
 
     // Owned, null-terminated config for deferred surface creation.
     cwd_z: ?[:0]u8 = null,
@@ -247,6 +253,25 @@ pub fn create(gpa: std.mem.Allocator, opts: Options) ?gtk.Object {
 fn destroyTerm(data: gtk.gpointer) callconv(.c) void {
     const term: *Term = @ptrCast(@alignCast(data orelse return));
     const gpa = term.gpa;
+    if (term.grace_source != 0) {
+        _ = gtk.g_source_remove(term.grace_source);
+        term.grace_source = 0;
+    }
+    if (term.poll_source != 0) {
+        _ = gtk.g_source_remove(term.poll_source);
+        term.poll_source = 0;
+    }
+    // A forced widget teardown (e.g. the user closed the run window) must still
+    // resolve the run, or its entry would dangle in the cancel registry and the
+    // core's pipeline thread would stay parked. Teardown paths that free the
+    // ctx themselves disarm the callback first (disarmExit), so this can't
+    // double-fire. -130 is the core's EXIT_CANCELLED sentinel: a teardown is
+    // an interruption, and must not take the failed path (error cards, or a
+    // half-done code session pushing a PR).
+    if (!term.notified_exit) {
+        term.notified_exit = true;
+        if (term.on_exit) |cb| cb(term.on_exit_ctx, -130);
+    }
     if (term.surface != null) {
         g.ghostty_surface_free(term.surface);
         term.surface = null;
@@ -372,19 +397,23 @@ fn createSurface(term: *Term) void {
     // Grace period: paint the background (not the half-initialized prompt) for
     // a beat, then enable real content. Avoids a flash of mispositioned text.
     gtk.gtk_gl_area_set_auto_render(term.area, 0);
-    _ = gtk.g_timeout_add(200, endGrace, term);
+    term.grace_source = gtk.g_timeout_add(200, endGrace, term);
 
     // Poll for child-process exit. ghostty doesn't emit a child-exited action
     // when wait_after_command is set, so we poll ghostty_surface_process_exited
     // (true once the child is gone; by then the run wrapper has flushed its
     // capture files) and fire on_exit once. The window stays open for inspection.
-    if (term.on_exit != null) _ = gtk.g_timeout_add(250, pollExit, term);
+    if (term.on_exit != null) term.poll_source = gtk.g_timeout_add(250, pollExit, term);
 }
 
 fn pollExit(data: gtk.gpointer) callconv(.c) c_int {
     const term: *Term = @ptrCast(@alignCast(data orelse return 0));
-    if (term.surface == null or term.notified_exit) return 0; // stop
+    if (term.surface == null or term.notified_exit) {
+        term.poll_source = 0;
+        return 0; // stop
+    }
     if (g.ghostty_surface_process_exited(term.surface)) {
+        term.poll_source = 0;
         term.notified_exit = true;
         if (term.on_exit) |cb| cb(term.on_exit_ctx, 0);
         return 0; // stop polling
@@ -394,10 +423,23 @@ fn pollExit(data: gtk.gpointer) callconv(.c) c_int {
 
 fn endGrace(data: gtk.gpointer) callconv(.c) c_int {
     const term: *Term = @ptrCast(@alignCast(data orelse return 0));
+    term.grace_source = 0;
     term.grace = false;
     gtk.gtk_gl_area_set_auto_render(term.area, 1);
     gtk.gtk_widget_queue_draw(term.area);
     return 0; // fire once
+}
+
+/// Disarm a terminal's exit callback before a forced teardown (cancel, core
+/// stop). The teardown path frees the callback ctx itself, so a late exit
+/// notification must never fire into it. Main thread only; safe to call on a
+/// widget whose Term data was already finalized (g_object_get_data → null).
+pub fn disarmExit(area: gtk.Object) void {
+    const data = gtk.g_object_get_data(area, "exp-term") orelse return;
+    const term: *Term = @ptrCast(@alignCast(data));
+    term.notified_exit = true;
+    term.on_exit = null;
+    term.on_exit_ctx = null;
 }
 
 // --- input forwarding ---

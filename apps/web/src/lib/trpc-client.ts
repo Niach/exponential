@@ -12,12 +12,11 @@ const ROUTER_NOUNS: Record<string, string> = {
   projects: `the project`,
   labels: `the label`,
   issueLabels: `the issue's labels`,
-  issueRelations: `the issue relation`,
   workspaces: `the workspace`,
   workspaceMembers: `the member`,
   workspaceInvites: `the invite`,
   notifications: `notifications`,
-  issueSubscriptions: `the subscription`,
+  subscriptions: `the subscription`,
 }
 
 const METHOD_VERBS: Record<string, string> = {

@@ -130,6 +130,12 @@ fun WorkspaceSettingsScreen(
 private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettingsViewModel) {
     var confirmDelete by remember { mutableStateOf(false) }
     var repoTarget by remember { mutableStateOf<ProjectEntity?>(null) }
+    // Repo connect/unlink is owner-only (the server enforces workspace-owner on
+    // linkGithubRepo/unlinkGithubRepo); everyone else sees the linked repo read-only.
+    val isOwner = state.currentUserId != null && state.members.any {
+        it.member.userId == state.currentUserId &&
+            it.member.role == DomainContract.workspaceRoleOwner
+    }
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -179,12 +185,26 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                         Spacer(Modifier.width(10.dp))
                         Text(project.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val repo = project.githubRepo?.takeIf { it.isNotBlank() }
-                        TextButton(onClick = { repoTarget = project }) {
-                            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp))
+                        if (isOwner) {
+                            TextButton(onClick = { repoTarget = project }) {
+                                Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    repo ?: "Connect",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 120.dp),
+                                )
+                            }
+                        } else if (repo != null) {
+                            val meta = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = meta)
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                repo ?: "Connect",
+                                repo,
                                 style = MaterialTheme.typography.labelMedium,
+                                color = meta,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.widthIn(max = 120.dp),

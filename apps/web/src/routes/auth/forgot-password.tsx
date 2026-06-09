@@ -23,12 +23,18 @@ function ForgotPasswordPage() {
     setIsLoading(true)
     setError(``)
     try {
-      await authClient.requestPasswordReset({
+      // The auth client reports failures via the returned `error`, not by
+      // throwing. The server answers unknown emails with the same success as
+      // known ones (no account enumeration), so an error here means the
+      // request itself failed (rate limit, outage) — worth surfacing.
+      const { error: requestError } = await authClient.requestPasswordReset({
         email,
         redirectTo: `${window.location.origin}/auth/reset-password`,
       })
-      // Always show the same confirmation — whether the email exists is none
-      // of the requester's business (no account enumeration).
+      if (requestError) {
+        setError(`Couldn't send the reset email. Try again in a moment.`)
+        return
+      }
       setSent(true)
     } catch {
       setError(`Couldn't send the reset email. Try again in a moment.`)

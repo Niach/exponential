@@ -106,14 +106,17 @@ class AuthApi @Inject constructor(
         // Preserve a previously-captured onboarding flag so a transient session
         // fetch failure on re-login doesn't downgrade a returning user back to the
         // onboarding wizard.
-        val prior = auth.accounts.value.firstOrNull { it.instanceUrl == baseUrl }?.onboardingCompletedAt
+        val prior = auth.accounts.value.firstOrNull { it.instanceUrl == baseUrl }
         val info = fetchSession(baseUrl, token)
         auth.setToken(
             token = token,
             email = info?.email ?: email,
             userId = info?.userId ?: userId,
             isAdmin = info?.isAdmin ?: isAdmin,
-            onboardingCompletedAt = info?.onboardingCompletedAt ?: prior,
+            onboardingCompletedAt = info?.onboardingCompletedAt ?: prior?.onboardingCompletedAt,
+            // Mark the flag authoritative only when the session read succeeded
+            // (or it already was); a failed fetch must not start the wizard.
+            onboardingKnown = info != null || prior?.onboardingKnown == true,
         )
     }
 

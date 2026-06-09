@@ -88,20 +88,24 @@ class CommentThreadViewModel @Inject constructor(
         issueIdFlow.value = issueId
     }
 
-    suspend fun createComment(text: String) {
-        val issueId = issueIdFlow.value ?: return
-        val accountId = auth.activeAccountId.value ?: return
+    // Returns true only when the comment was actually posted, so the composer
+    // keeps the draft (and any in-flight image work) when the send is declined
+    // (empty after sanitizing) or the request fails.
+    suspend fun createComment(text: String): Boolean {
+        val issueId = issueIdFlow.value ?: return false
+        val accountId = auth.activeAccountId.value ?: return false
         // Never persist `draft://` placeholders from in-flight/failed uploads.
         val sanitized = stripDraftImages(text).trim()
-        if (sanitized.isEmpty()) return
-        runCatching { commentsApi.create(accountId, issueId, sanitized) }
+        if (sanitized.isEmpty()) return false
+        return runCatching { commentsApi.create(accountId, issueId, sanitized) }.isSuccess
     }
 
-    suspend fun updateComment(id: String, text: String) {
-        val accountId = auth.activeAccountId.value ?: return
+    /** Returns true when the edit was saved — the editor stays open otherwise. */
+    suspend fun updateComment(id: String, text: String): Boolean {
+        val accountId = auth.activeAccountId.value ?: return false
         val sanitized = stripDraftImages(text).trim()
-        if (sanitized.isEmpty()) return
-        runCatching { commentsApi.update(accountId, id, sanitized) }
+        if (sanitized.isEmpty()) return false
+        return runCatching { commentsApi.update(accountId, id, sanitized) }.isSuccess
     }
 
     suspend fun deleteComment(id: String) {

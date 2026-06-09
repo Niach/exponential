@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
                 // Keep the prior onboarding flag if the session fetch fails so a
                 // returning user isn't bounced back into the wizard.
                 onboardingCompletedAt = session?.onboardingCompletedAt ?: account?.onboardingCompletedAt,
+                onboardingKnown = session != null || account?.onboardingKnown == true,
             )
         }
     }

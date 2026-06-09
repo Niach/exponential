@@ -1,8 +1,9 @@
-import { eq, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { projects, workspaceMembers, workspaces } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { invalidatePublicWorkspaceCache } from "@/lib/workspace-membership"
+import { emailEnabled } from "@/lib/email"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
@@ -93,10 +94,16 @@ async function promoteInitialAdmins() {
     .update(users)
     .set({ isAdmin: true, updatedAt: new Date() })
     .where(
-      sql`lower(${users.email}) IN (${sql.join(
-        emails.map((email) => sql`${email}`),
-        sql`, `
-      )})`
+      and(
+        sql`lower(${users.email}) IN (${sql.join(
+          emails.map((email) => sql`${email}`),
+          sql`, `
+        )})`,
+        // With open sign-up anyone can create a row for an admin email, so
+        // promotion must wait for proven mailbox ownership. Skip the gate when
+        // email flows are off (no way to ever verify on such instances).
+        emailEnabled ? eq(users.emailVerified, true) : undefined
+      )
     )
 }
 
@@ -143,11 +150,21 @@ export function bootstrapCloud(): Promise<void> {
   return bootstrapPromise
 }
 
-// Promote a single newly-created user if their email matches the admin list.
-// Used by Better Auth's user.create.after hook so first-sign-in promotion
-// doesn't need to wait for a server restart. Also adds the freshly-promoted
-// admin as an owner of every public workspace.
-export async function maybePromoteNewUser(userId: string, email: string) {
+// Promote a single user if their email matches the admin list. Used by Better
+// Auth's user.create.after hook (so first-sign-in promotion doesn't need to
+// wait for a server restart) and again from afterEmailVerification. Also adds
+// the freshly-promoted admin as an owner of every public workspace.
+//
+// When email flows are enabled, promotion requires a verified email: sign-up
+// is open on the cloud and does not prove mailbox ownership, so an attacker
+// could otherwise register an INITIAL_ADMIN_EMAILS address before its real
+// owner and walk away with a global-admin session.
+export async function maybePromoteNewUser(
+  userId: string,
+  email: string,
+  emailVerified: boolean
+) {
+  if (emailEnabled && !emailVerified) return
   const emails = parseAdminEmails()
   if (emails.length === 0) return
   if (!emails.includes(email.toLowerCase())) return

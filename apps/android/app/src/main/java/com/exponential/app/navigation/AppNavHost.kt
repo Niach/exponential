@@ -91,13 +91,14 @@ fun AppNavHost() {
     val needsAuth =
         state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
 
-    // Gate the authenticated graph on onboarding: a brand-new user (no
-    // onboardingCompletedAt on the active account, captured from the session at
-    // login) starts in the wizard. Persisted, so it resolves synchronously at
-    // startup; AuthenticatedNav re-routes to the wizard if an account switch
-    // lands on a not-yet-onboarded account.
+    // Gate the authenticated graph on onboarding: a brand-new user (the session
+    // read at login explicitly reported no onboardingCompletedAt) starts in the
+    // wizard. Persisted, so it resolves synchronously at startup; AuthenticatedNav
+    // re-routes to the wizard if an account switch lands on a not-yet-onboarded
+    // account. Accounts persisted before the flag existed never re-enter the
+    // wizard (ServerAccount.needsOnboarding requires onboardingKnown).
     val activeAccount = state.accounts.firstOrNull { it.id == state.activeAccountId }
-    val needsOnboarding = activeAccount?.onboardingCompletedAt == null
+    val needsOnboarding = activeAccount?.needsOnboarding == true
 
     AppBackground {
         // Every screen floats on AppBackground (a Box, not a Material Surface), so

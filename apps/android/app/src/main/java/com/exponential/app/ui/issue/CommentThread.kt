@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowCircleUp
@@ -26,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -37,6 +39,7 @@ import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.markdown.hasDraftImages
 import kotlinx.coroutines.launch
 
 // iOS comment palette (CommentRow.swift / CommentComposer.swift) — explicit white
@@ -125,8 +128,11 @@ fun CommentThread(
                             onCancelEdit = { editingId = null },
                             onSaveEdit = { text ->
                                 scope.launch {
-                                    viewModel.updateComment(comment.id, text)
-                                    editingId = null
+                                    // Keep the editor open on failure so the
+                                    // typed edit isn't silently discarded.
+                                    if (viewModel.updateComment(comment.id, text)) {
+                                        editingId = null
+                                    }
                                 }
                             },
                             onDelete = {
@@ -162,28 +168,44 @@ fun CommentThread(
                 minHeight = 40.dp,
                 mentionMembers = mentionMembers,
             )
+            // Send stays blocked while any embedded image is still a draft://
+            // placeholder (uploading, or failed — its tile shows Retry/remove);
+            // posting now would silently strip the image from the comment.
+            val hasPendingImages = remember(draft) { hasDraftImages(draft) }
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
             ) {
+                if (hasPendingImages) {
+                    Text(
+                        "Waiting for images…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CommentMeta,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 IconButton(
                     onClick = {
                         val trimmed = draft.trim()
                         if (trimmed.isEmpty()) return@IconButton
                         sending = true
                         scope.launch {
-                            viewModel.createComment(trimmed)
-                            draft = ""
+                            // Clear the composer only when the comment actually
+                            // posted; a declined/failed send keeps the draft.
+                            if (viewModel.createComment(trimmed)) draft = ""
                             sending = false
                         }
                     },
-                    enabled = !sending && draft.isNotBlank(),
+                    enabled = !sending && draft.isNotBlank() && !hasPendingImages,
                 ) {
                     Icon(
                         Icons.Filled.ArrowCircleUp,
                         contentDescription = "Send",
                         modifier = Modifier.size(30.dp),
-                        tint = if (draft.isBlank()) Color.White.copy(alpha = 0.3f) else CommentAccent,
+                        tint = if (draft.isBlank() || hasPendingImages) {
+                            Color.White.copy(alpha = 0.3f)
+                        } else CommentAccent,
                     )
                 }
             }

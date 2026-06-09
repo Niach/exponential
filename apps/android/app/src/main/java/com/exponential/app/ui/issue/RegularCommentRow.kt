@@ -37,6 +37,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.markdown.hasDraftImages
 
 // One human comment in the thread: avatar, author + time header, markdown body,
 // and (for the author/admins) an edit/delete overflow with an inline editor.
@@ -136,6 +137,9 @@ internal fun RegularCommentRow(
                             if (trimmed.isEmpty() || trimmed == bodyText) onCancelEdit()
                             else onSaveEdit(trimmed)
                         },
+                        // Same gate as the composer's Send: saving while an image
+                        // is still a draft:// placeholder would silently strip it.
+                        enabled = !hasDraftImages(draft),
                     ) { Text("Save") }
                     TextButton(onClick = onCancelEdit) { Text("Cancel") }
                 }

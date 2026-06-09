@@ -223,6 +223,7 @@ pub extern fn gtk_list_box_select_row(box: Object, row: Object) void;
 // GSourceFunc timer / idle — drive UI refreshes on the main loop. g_idle_add is
 // thread-safe, so sync threads use it to schedule a refresh.
 pub extern fn g_timeout_add(interval_ms: c_uint, function: ?*const fn (gpointer) callconv(.c) c_int, data: gpointer) c_uint;
+pub extern fn g_source_remove(tag: c_uint) c_int;
 
 pub extern fn gtk_label_set_text(label: Object, str: [*:0]const u8) void;
 // PangoEllipsizeMode.PANGO_ELLIPSIZE_END

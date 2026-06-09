@@ -68,6 +68,7 @@ class AccountStore @Inject constructor(
         userId: String?,
         isAdmin: Boolean,
         onboardingCompletedAt: String?,
+        onboardingKnown: Boolean,
     ) {
         synchronized(lock) {
             val id = _activeAccountId.value ?: return
@@ -81,6 +82,7 @@ class AccountStore @Inject constructor(
                         userId = userId,
                         isAdmin = isAdmin,
                         onboardingCompletedAt = onboardingCompletedAt,
+                        onboardingKnown = onboardingKnown,
                         lastUsedAt = now,
                     )
                 } else it
@@ -94,7 +96,7 @@ class AccountStore @Inject constructor(
     fun setOnboardingCompletedAt(id: String, value: String?) {
         synchronized(lock) {
             _accounts.value = _accounts.value.map {
-                if (it.id == id) it.copy(onboardingCompletedAt = value) else it
+                if (it.id == id) it.copy(onboardingCompletedAt = value, onboardingKnown = true) else it
             }
             persistLocked()
         }

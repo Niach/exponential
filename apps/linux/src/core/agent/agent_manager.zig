@@ -36,11 +36,19 @@ pub const Manager = struct {
 };
 
 /// What we need to tear a live run's terminal down: its window (when not
-/// docked) and the terminal widget (when docked).
+/// docked), the terminal widget (when docked), and the RunCtx its exit
+/// callback holds (so forced teardown can disarm + free it).
 const RunHandle = struct {
     window: gtk.Object,
     term: gtk.Object,
+    ctx: *RunCtx,
 };
+
+/// The single live Manager (one core per device). Messages marshaled to the
+/// main loop from core threads carry raw Manager pointers; main-thread
+/// handlers check against this so a message that raced a stop() is dropped
+/// instead of dereferencing the freed Manager.
+var g_live_mgr: ?*Manager = null;
 
 /// Point this manager's agent runs at the UI terminal dock (called after start).
 pub fn setDock(
@@ -74,15 +82,32 @@ pub fn start(gpa: std.mem.Allocator, config_json: []const u8, workspace_id: []co
     };
     ffi.agent_core_set_event_callback(core, @ptrCast(mgr), &onEvent);
     _ = ffi.agent_core_start(core);
+    g_live_mgr = mgr;
     return mgr;
 }
 
+/// GTK main thread only (the runs registry lives there).
 pub fn stop(mgr: *Manager) void {
+    if (g_live_mgr == mgr) g_live_mgr = null;
+    // Detach the event callback BEFORE stopping: the core doesn't join all its
+    // worker threads on stop, and the emit path keeps its own handle to the
+    // callback slot, so a late emit must not see the freed Manager.
+    ffi.agent_core_set_event_callback(mgr.core, null, null);
+    // Tear down live run terminals while the core is still alive: their exit
+    // callbacks retain this Manager (and the core) via RunCtx, so they must be
+    // disarmed and freed before either goes away. No result is submitted here:
+    // agent_core_stop's cancel_all resolves each parked pipeline thread with
+    // the EXIT_CANCELLED sentinel, so a run merely interrupted by sign-out
+    // ends as cancelled — not failed (which would post error cards or even
+    // push a half-done branch).
+    var it = mgr.runs.iterator();
+    while (it.next()) |entry| {
+        teardownRun(mgr, entry.value_ptr.*);
+        mgr.gpa.free(entry.key_ptr.*);
+    }
+    mgr.runs.deinit(mgr.gpa);
     _ = ffi.agent_core_stop(mgr.core);
     ffi.agent_core_free(mgr.core);
-    var it = mgr.runs.keyIterator();
-    while (it.next()) |k| mgr.gpa.free(k.*);
-    mgr.runs.deinit(mgr.gpa);
     mgr.gpa.free(mgr.workspace_id);
     mgr.gpa.destroy(mgr);
 }
@@ -130,7 +155,7 @@ fn onEvent(ctx: ?*anyopaque, json_ptr: [*c]const u8, len: usize) callconv(.c) vo
         // GTK main loop — the registry and all widget work live there.
         const run_id = objStr(obj, "runId") orelse return;
         const msg = mgr.gpa.create(CancelMsg) catch return;
-        msg.* = .{ .mgr = mgr, .run_id = mgr.gpa.dupe(u8, run_id) catch {
+        msg.* = .{ .gpa = mgr.gpa, .mgr = mgr, .run_id = mgr.gpa.dupe(u8, run_id) catch {
             mgr.gpa.destroy(msg);
             return;
         } };
@@ -148,31 +173,46 @@ fn onEvent(ctx: ?*anyopaque, json_ptr: [*c]const u8, len: usize) callconv(.c) vo
     }
 }
 
-/// A cancel marshaled from the core thread to the GTK main loop.
+/// A cancel marshaled from the core thread to the GTK main loop. Carries its
+/// own allocator so it can free itself even when `mgr` raced a stop().
 const CancelMsg = struct {
+    gpa: std.mem.Allocator,
     mgr: *Manager,
     run_id: []u8,
 };
 
-/// GTK main thread: destroy the cancelled run's terminal. The core has already
-/// resolved the run with its cancel sentinel, so the (possible) duplicate
-/// submit from the exit handler is a harmless no-op.
+/// GTK main thread: destroy the cancelled run's terminal and release its run
+/// state. The core has already resolved the run with its cancel sentinel, and
+/// teardown disarms the exit callback, so no duplicate submit can fire.
 fn cancelOnMain(data: gtk.gpointer) callconv(.c) c_int {
     const msg: *CancelMsg = @ptrCast(@alignCast(data orelse return 0));
-    const mgr = msg.mgr;
     defer {
-        mgr.gpa.free(msg.run_id);
-        mgr.gpa.destroy(msg);
+        msg.gpa.free(msg.run_id);
+        msg.gpa.destroy(msg);
     }
+    const mgr = msg.mgr;
+    if (g_live_mgr != mgr) return 0; // raced a stop(); the run died with it
     if (mgr.runs.fetchRemove(msg.run_id)) |entry| {
         mgr.gpa.free(entry.key);
-        if (entry.value.window) |win| {
-            gtk.gtk_window_destroy(win);
-        } else if (mgr.dock != null and mgr.unmount_fn != null) {
-            mgr.unmount_fn.?(mgr.dock.?, entry.value.term);
-        }
+        teardownRun(mgr, entry.value);
     }
     return 0; // G_SOURCE_REMOVE
+}
+
+/// GTK main thread: force-destroy a live run's terminal (killing the CLI
+/// child) and release its RunCtx + on-disk prompt/script. Disarms the exit
+/// callback FIRST so the widget teardown can't fire onRunExit into the
+/// just-freed ctx (or, on stop, into a dying core).
+fn teardownRun(mgr: *Manager, handle: RunHandle) void {
+    terminal.disarmExit(handle.term);
+    if (handle.window) |win| {
+        gtk.gtk_window_destroy(win);
+    } else if (mgr.dock != null and mgr.unmount_fn != null) {
+        mgr.unmount_fn.?(mgr.dock.?, handle.term);
+    }
+    storage.deleteFile(handle.ctx.prompt_path);
+    storage.deleteFile(handle.ctx.script_path);
+    freeCtx(handle.ctx);
 }
 
 // -------------------------------------------------------------------------
@@ -181,7 +221,9 @@ fn cancelOnMain(data: gtk.gpointer) callconv(.c) c_int {
 
 /// A run marshaled from the pipeline thread to the GTK main loop. Owns deep
 /// copies of everything (the source JSON is freed when onEvent returns).
+/// Carries its own allocator so it can free itself if `mgr` raced a stop().
 const PendingRun = struct {
+    gpa: std.mem.Allocator,
     mgr: *Manager,
     run_id: []u8,
     program: []u8,
@@ -216,6 +258,7 @@ fn handleRunRequest(mgr: *Manager, obj: std.json.ObjectMap) void {
 
     const pending = gpa.create(PendingRun) catch return;
     pending.* = .{
+        .gpa = gpa,
         .mgr = mgr,
         .run_id = gpa.dupe(u8, run_id) catch {
             gpa.destroy(pending);
@@ -271,9 +314,10 @@ fn buildPrompt(gpa: std.mem.Allocator, obj: std.json.ObjectMap) []u8 {
 /// embedded ghostty terminal, and show it in a window.
 fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
     const pending: *PendingRun = @ptrCast(@alignCast(data orelse return 0));
+    defer freePending(pending);
+    if (g_live_mgr != pending.mgr) return 0; // raced a stop(); the core is gone
     const mgr = pending.mgr;
     const gpa = mgr.gpa;
-    defer freePending(pending);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -340,10 +384,24 @@ fn startRunOnMain(data: gtk.gpointer) callconv(.c) c_int {
         ctx.window = win;
     }
 
-    // Register the live terminal so a core `run_cancelled` can tear it down.
-    if (gpa.dupe(u8, pending.run_id)) |key| {
-        mgr.runs.put(gpa, key, .{ .window = ctx.window, .term = term }) catch gpa.free(key);
-    } else |_| {}
+    // Register the live terminal so a core `run_cancelled` (or stop) can tear
+    // it down — and free the RunCtx its exit callback holds. An unregistered
+    // live run would be invisible to stop()'s teardown (its late exit a
+    // use-after-free on the dying core), so on registration failure tear the
+    // run down right away instead of running untracked.
+    const handle = RunHandle{ .window = ctx.window, .term = term, .ctx = ctx };
+    const registered = blk: {
+        const key = gpa.dupe(u8, pending.run_id) catch break :blk false;
+        mgr.runs.put(gpa, key, handle) catch {
+            gpa.free(key);
+            break :blk false;
+        };
+        break :blk true;
+    };
+    if (!registered) {
+        submitFailure(mgr, pending.run_id);
+        teardownRun(mgr, handle);
+    }
 
     return 0; // G_SOURCE_REMOVE — fire once
 }
@@ -425,7 +483,7 @@ fn failNow(pending: *PendingRun) c_int {
 }
 
 fn freePending(pending: *PendingRun) void {
-    const gpa = pending.mgr.gpa;
+    const gpa = pending.gpa;
     gpa.free(pending.run_id);
     if (pending.program.len > 0) gpa.free(pending.program);
     for (pending.argv.items) |s| gpa.free(s);

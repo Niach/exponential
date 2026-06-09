@@ -17,8 +17,18 @@ data class ServerAccount(
     // from the better-auth session at login (the same source the web app gates
     // on) and persisted so the onboarding gate resolves synchronously at startup.
     val onboardingCompletedAt: String? = null,
+    // True once onboardingCompletedAt was actually read from the server. Accounts
+    // persisted by builds before the onboarding field existed decode as false and
+    // must be treated as already onboarded — only a session read that explicitly
+    // reported "not completed" should start the wizard.
+    val onboardingKnown: Boolean = false,
     val lastUsedAt: Long = System.currentTimeMillis(),
 ) {
+    // The nav gate: show the first-run wizard only when the server told us
+    // onboarding isn't done. Legacy accounts (onboardingKnown=false) never bounce.
+    val needsOnboarding: Boolean
+        get() = onboardingKnown && onboardingCompletedAt == null
+
     val displayHost: String
         get() = runCatching { URI(instanceUrl).host }.getOrNull() ?: instanceUrl
 

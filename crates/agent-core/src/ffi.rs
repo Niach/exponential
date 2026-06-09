@@ -75,6 +75,10 @@ struct Runtime {
     config: Arc<Config>,
     state: Arc<Mutex<State>>,
     emit: run_pipeline::Emit,
+    // The single interactive-session slot (the host dock mounts exactly one
+    // terminal) — shared by the dispatcher pipeline and the host-triggered
+    // entry points so a second session can never clobber the mounted one.
+    interactive_slot: Arc<run_pipeline::InteractiveSlot>,
 }
 
 /// Matches `AgentCoreEventCallback` in the C header. `Option<..>` so a NULL
@@ -244,7 +248,8 @@ pub extern "C" fn agent_core_start(core: *mut AgentCore) -> c_int {
         emit(&slot, &v.to_string());
     });
 
-    let pipeline = run_pipeline::build_pipeline(Arc::clone(&config), Arc::clone(&state), emit_cb.clone());
+    let interactive_slot = Arc::new(run_pipeline::InteractiveSlot::default());
+    let pipeline = run_pipeline::build_pipeline(Arc::clone(&config), Arc::clone(&state), emit_cb.clone(), Arc::clone(&interactive_slot));
     let dispatcher = Dispatcher::start(Arc::clone(&state), core.max_concurrent, pipeline);
 
     // Electric assigned-issues loop → dispatcher.
@@ -267,6 +272,7 @@ pub extern "C" fn agent_core_start(core: *mut AgentCore) -> c_int {
         config: Arc::clone(&config),
         state: Arc::clone(&state),
         emit: emit_cb,
+        interactive_slot,
     });
     emit(&core.callback, r#"{"type":"log","level":"info","message":"agent loop started"}"#);
     OK
@@ -403,9 +409,19 @@ pub extern "C" fn agent_core_request_interactive(core: *mut AgentCore, issue_id:
         emit(&core.callback, r#"{"type":"log","level":"error","message":"request_interactive: runtime not started"}"#);
         return ERR_INVALID_HANDLE; // not started
     };
-    let (config, state, emit) = (Arc::clone(&rt.config), Arc::clone(&rt.state), rt.emit.clone());
+    let (config, state, emit, slot) = (Arc::clone(&rt.config), Arc::clone(&rt.state), rt.emit.clone(), Arc::clone(&rt.interactive_slot));
     drop(guard);
-    thread::spawn(move || run_pipeline::run_interactive_plan(config, state, emit, &issue_id));
+    // Claim the single interactive-session slot BEFORE spawning (and before any
+    // slow I/O): a busy dock fails fast instead of clobbering the live session.
+    let Some(slot_guard) = slot.try_claim(&issue_id) else {
+        (emit)(&HostEvent::AgentError {
+            issue_id: &issue_id,
+            code: run_pipeline::ERROR_CODE_INTERACTIVE_BUSY,
+            message: "another interactive session is active",
+        });
+        return OK;
+    };
+    thread::spawn(move || run_pipeline::run_interactive_plan(config, state, emit, slot_guard, &issue_id));
     OK
 }
 
@@ -425,9 +441,18 @@ pub extern "C" fn agent_core_approve_interactive(core: *mut AgentCore, issue_id:
     let Some(rt) = guard.as_ref() else {
         return ERR_INVALID_HANDLE;
     };
-    let (config, state, emit) = (Arc::clone(&rt.config), Arc::clone(&rt.state), rt.emit.clone());
+    let (config, state, emit, slot) = (Arc::clone(&rt.config), Arc::clone(&rt.state), rt.emit.clone(), Arc::clone(&rt.interactive_slot));
     drop(guard);
-    thread::spawn(move || run_pipeline::run_interactive_continue(config, state, emit, &issue_id));
+    // Same gate as request_interactive: never mount a second session.
+    let Some(slot_guard) = slot.try_claim(&issue_id) else {
+        (emit)(&HostEvent::AgentError {
+            issue_id: &issue_id,
+            code: run_pipeline::ERROR_CODE_INTERACTIVE_BUSY,
+            message: "another interactive session is active",
+        });
+        return OK;
+    };
+    thread::spawn(move || run_pipeline::run_interactive_continue(config, state, emit, slot_guard, &issue_id));
     OK
 }
 
@@ -480,5 +505,67 @@ mod tests {
         );
         // free(NULL) is a no-op.
         agent_core_free(std::ptr::null_mut());
+    }
+
+    static CAPTURED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    extern "C" fn capturing_cb(_ctx: *mut c_void, json: *const c_char, _len: usize) {
+        let s = unsafe { CStr::from_ptr(json) }.to_string_lossy().into_owned();
+        CAPTURED.lock().unwrap().push(s);
+    }
+
+    #[test]
+    fn second_interactive_request_fails_fast_without_clobbering() {
+        // A listener that accepts and holds connections keeps the first
+        // session parked in its slow I/O (mcp get_issue) — the exact window
+        // where a second press used to clobber it.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let mut held = Vec::new();
+            for s in listener.incoming() {
+                if let Ok(s) = s {
+                    held.push(s);
+                }
+            }
+        });
+
+        let cfg = json!({
+            "baseUrl": format!("http://{addr}"),
+            "apiKey": "expk_test",
+            "botUserId": "bot",
+            "reposRoot": "/tmp/agent-core-ffi-test/repos",
+            "worktreesRoot": "/tmp/agent-core-ffi-test/worktrees",
+            "dbPath": ":memory:",
+            "timeoutS": 5,
+        })
+        .to_string();
+        let c_cfg = CString::new(cfg).unwrap();
+        let core = agent_core_create(c_cfg.as_ptr());
+        agent_core_set_event_callback(core, std::ptr::null_mut(), Some(capturing_cb));
+        assert_eq!(agent_core_start(core), OK);
+
+        let a = CString::new("ffi-test-issue-a").unwrap();
+        let b = CString::new("ffi-test-issue-b").unwrap();
+        // First press claims the global slot synchronously, then parks in I/O.
+        assert_eq!(agent_core_request_interactive(core, a.as_ptr()), OK);
+        // Second press (another issue) fails fast: agent_error, no run mounted.
+        assert_eq!(agent_core_request_interactive(core, b.as_ptr()), OK);
+        // Same-issue double-press hits the same gate (approve path included).
+        assert_eq!(agent_core_approve_interactive(core, a.as_ptr()), OK);
+
+        let events = CAPTURED.lock().unwrap().clone();
+        let busy: Vec<&String> = events.iter().filter(|e| e.contains(r#""interactive_session_active""#)).collect();
+        assert_eq!(busy.len(), 2, "both rejected presses emit agent_error: {events:?}");
+        assert!(busy[0].contains("ffi-test-issue-b"));
+        assert!(busy[1].contains("ffi-test-issue-a"));
+        assert!(
+            !events.iter().any(|e| e.contains(r#""run_request""#)),
+            "no session may be mounted while the first one holds the slot: {events:?}"
+        );
+
+        // Deliberately leaked: agent_core_stop drains the PROCESS-GLOBAL run
+        // registry (agent_run::cancel_all), which would cancel the agent_run
+        // tests running in parallel. Teardown isn't under test here.
     }
 }
