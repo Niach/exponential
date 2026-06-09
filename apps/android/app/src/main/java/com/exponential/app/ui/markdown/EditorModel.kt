@@ -44,6 +44,14 @@ class EditorModel {
     // mark highlight, enable-on-selection) — parity with iOS updateState().
     private var selection by mutableStateOf<Pair<String, IntRange>?>(null)
 
+    // Inline marks queued to apply to the NEXT characters typed at a collapsed
+    // caret — the Compose analog of iOS `typingAttributes`. Anchored to a
+    // (rowId, caret) so any caret move or non-insertion edit drops the queue.
+    // Observable so the toolbar reflects the pending state in its active tint.
+    var pendingMarks by mutableStateOf<Set<InlineKind>>(emptySet())
+        private set
+    private var pendingAnchor: Pair<String, Int>? = null
+
     /** The row the toolbar should act on (focused, or last-selected). */
     val activeRowId: String? get() = focusedRowId ?: selection?.first
 
@@ -103,6 +111,14 @@ class EditorModel {
 
     fun updateSelection(rowId: String, range: IntRange) {
         selection = rowId to range
+        // Drop queued pending marks once the caret leaves the anchored collapsed
+        // position (moved, selected a range, or switched rows).
+        val anchor = pendingAnchor ?: return
+        val collapsedAt = if (range.first == range.last) rowId to range.first else null
+        if (collapsedAt != anchor) {
+            pendingMarks = emptySet()
+            pendingAnchor = null
+        }
     }
 
     fun consumeDesiredSelection(id: String): Int? {
@@ -121,9 +137,43 @@ class EditorModel {
         val row = rows[idx] as? EditorRow.Para ?: return
         if (row.text == newText) return
         val remapped = MarkRemap.remap(row.text, newText, row.marks)
-        rows = rows.toMutableList().also { it[idx] = row.copy(text = newText, marks = remapped) }
+        val finalMarks = applyPendingMarks(rowId, row.text, newText, caret, remapped)
+        rows = rows.toMutableList().also { it[idx] = row.copy(text = newText, marks = finalMarks) }
         selection = rowId to (caret..caret)
         notifyEdit()
+    }
+
+    /**
+     * If marks are queued (via [togglePendingMark]) and this edit is a pure
+     * single-run insertion at the anchored caret, wrap the inserted range with
+     * each queued kind and re-anchor so consecutive typing keeps inheriting.
+     * Any other edit (deletion, replace, paste, insert elsewhere) clears the
+     * queue. Returns the marks to store on the row.
+     */
+    private fun applyPendingMarks(
+        rowId: String,
+        oldText: String,
+        newText: String,
+        caret: Int,
+        remapped: List<com.exponential.app.ui.markdown.model.InlineMark>,
+    ): List<com.exponential.app.ui.markdown.model.InlineMark> {
+        if (pendingMarks.isEmpty()) return remapped
+        val anchor = pendingAnchor
+        val insLen = newText.length - oldText.length
+        val insStart = caret - insLen
+        val isPureInsertAtAnchor = anchor != null && anchor.first == rowId &&
+            anchor.second == insStart && insLen > 0 &&
+            insStart in 0..oldText.length && caret in insStart..newText.length &&
+            newText.removeRange(insStart, caret) == oldText
+        if (!isPureInsertAtAnchor) {
+            pendingMarks = emptySet()
+            pendingAnchor = null
+            return remapped
+        }
+        var out = remapped
+        for (kind in pendingMarks) out = MarkOps.addMark(out, insStart, caret, kind)
+        pendingAnchor = rowId to caret
+        return out
     }
 
     /** Enter: split the paragraph at [caret] (or list-continue / list-exit). */
@@ -286,6 +336,29 @@ class EditorModel {
         setFocused(rowId)
         notifyEdit()
     }
+
+    /**
+     * Queue (or unqueue) an inline mark to apply to the next characters typed at
+     * a collapsed caret — used by the toolbar when there is no selection, so Bold
+     * / Italic stay tappable and affect what you type next (iOS typingAttributes
+     * parity). With a real selection the toolbar uses [toggleMark] instead.
+     */
+    fun togglePendingMark(rowId: String, caret: Int, kind: InlineKind) {
+        if (pendingAnchor != rowId to caret) {
+            pendingMarks = emptySet()
+            pendingAnchor = rowId to caret
+        }
+        pendingMarks = pendingMarks.toMutableSet().apply { if (!add(kind)) remove(kind) }
+        // Re-assert focus + caret: the toolbar tap took OS focus off the field
+        // (clearing focusedRowId); without this the keyboard dismisses. Mirrors
+        // the rationale in [toggleMark]. The anchor is set above so this caret
+        // re-assert doesn't clear the queue we just built.
+        setFocused(rowId)
+        updateSelection(rowId, caret..caret)
+    }
+
+    fun pendingMarkActive(rowId: String, caret: Int, kind: InlineKind): Boolean =
+        pendingAnchor == rowId to caret && kind in pendingMarks
 
     /** Insert link display text at [at] and mark it (used when there is no selection). */
     fun insertLinkText(rowId: String, at: Int, text: String, url: String) {

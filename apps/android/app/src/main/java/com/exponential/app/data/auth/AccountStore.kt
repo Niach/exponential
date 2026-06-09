@@ -61,7 +61,14 @@ class AccountStore @Inject constructor(
         }
     }
 
-    fun updateActiveToken(token: String, email: String?, name: String?, userId: String?, isAdmin: Boolean) {
+    fun updateActiveToken(
+        token: String,
+        email: String?,
+        name: String?,
+        userId: String?,
+        isAdmin: Boolean,
+        onboardingCompletedAt: String?,
+    ) {
         synchronized(lock) {
             val id = _activeAccountId.value ?: return
             val now = System.currentTimeMillis()
@@ -73,9 +80,21 @@ class AccountStore @Inject constructor(
                         userName = name,
                         userId = userId,
                         isAdmin = isAdmin,
+                        onboardingCompletedAt = onboardingCompletedAt,
                         lastUsedAt = now,
                     )
                 } else it
+            }
+            persistLocked()
+        }
+    }
+
+    // Flip just the onboarding flag on a given account (after onboarding.complete),
+    // leaving the token/session fields intact.
+    fun setOnboardingCompletedAt(id: String, value: String?) {
+        synchronized(lock) {
+            _accounts.value = _accounts.value.map {
+                if (it.id == id) it.copy(onboardingCompletedAt = value) else it
             }
             persistLocked()
         }

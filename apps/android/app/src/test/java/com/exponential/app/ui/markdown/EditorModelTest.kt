@@ -106,4 +106,51 @@ class EditorModelTest {
         m.updatePara(row.id, "abc", 3)
         assertEquals(before, m.revision(row.id))
     }
+
+    // -- Pending inline marks (collapsed-caret bold/italic, iOS typingAttributes) --
+
+    @Test
+    fun pendingBoldAppliesToNextTypedChar() {
+        val m = model("ab")
+        val row = paras(m).first()
+        // Tap Bold with a collapsed caret at end → queued, not yet visible.
+        m.togglePendingMark(row.id, 2, InlineKind.Bold)
+        assertTrue(m.pendingMarkActive(row.id, 2, InlineKind.Bold))
+        // Type 'c' at the caret → it inherits the queued mark.
+        m.updatePara(row.id, "abc", 3)
+        assertEquals("ab**c**", m.currentMarkdown())
+    }
+
+    @Test
+    fun pendingBoldKeepsInheritingConsecutiveChars() {
+        val m = model("ab")
+        val row = paras(m).first()
+        m.togglePendingMark(row.id, 2, InlineKind.Bold)
+        m.updatePara(row.id, "abc", 3)
+        m.updatePara(row.id, "abcd", 4)
+        assertEquals("ab**cd**", m.currentMarkdown())
+    }
+
+    @Test
+    fun movingCaretClearsPendingMark() {
+        val m = model("ab")
+        val row = paras(m).first()
+        m.togglePendingMark(row.id, 2, InlineKind.Bold)
+        // Caret moves (no text change) → the queue drops.
+        m.updateSelection(row.id, 0..0)
+        assertTrue(!m.pendingMarkActive(row.id, 2, InlineKind.Bold))
+        m.updatePara(row.id, "xab", 1)
+        assertEquals("xab", m.currentMarkdown())
+    }
+
+    @Test
+    fun togglingPendingMarkTwiceCancels() {
+        val m = model("ab")
+        val row = paras(m).first()
+        m.togglePendingMark(row.id, 2, InlineKind.Bold)
+        m.togglePendingMark(row.id, 2, InlineKind.Bold)
+        assertTrue(!m.pendingMarkActive(row.id, 2, InlineKind.Bold))
+        m.updatePara(row.id, "abc", 3)
+        assertEquals("abc", m.currentMarkdown())
+    }
 }

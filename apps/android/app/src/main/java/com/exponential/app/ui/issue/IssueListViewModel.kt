@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.ProjectsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -79,7 +78,6 @@ class IssueListViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val issueImagesApi: IssueImagesApi,
-    private val projectsApi: ProjectsApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -284,7 +282,11 @@ class IssueListViewModel @Inject constructor(
     }
 
 
-    fun createIssue(
+    // Suspends until the issue (and any image upload/patch) is committed, then
+    // returns success. The caller awaits this before navigating away — the create
+    // screen has its own ViewModel scope, so a fire-and-forget launch would be
+    // cancelled the moment the screen pops, dropping the write.
+    suspend fun createIssueAwait(
         title: String,
         status: IssueStatus,
         priority: IssuePriority,
@@ -296,56 +298,56 @@ class IssueListViewModel @Inject constructor(
         recurrenceInterval: Int? = null,
         recurrenceUnit: String? = null,
         pendingImages: Map<String, android.net.Uri> = emptyMap(),
-    ) {
-        if (title.isBlank()) return
-        viewModelScope.launch {
-            _busy.value = true
-            _error.value = null
-            try {
-                val accountId = auth.activeAccountId.value ?: return@launch
-                val rawDescription = description?.takeIf { it.isNotBlank() }
-                val strippedDescription = rawDescription
-                    ?.let { removeMarkdownImagesByUrl(it, pendingImages.keys) }
-                    ?.takeIf { it.isNotBlank() }
+    ): Boolean {
+        if (title.isBlank()) return false
+        _busy.value = true
+        _error.value = null
+        return try {
+            val accountId = auth.activeAccountId.value ?: return false
+            val rawDescription = description?.takeIf { it.isNotBlank() }
+            val strippedDescription = rawDescription
+                ?.let { removeMarkdownImagesByUrl(it, pendingImages.keys) }
+                ?.takeIf { it.isNotBlank() }
 
-                val created = issuesApi.create(
-                    accountId,
-                    CreateIssueInput(
-                        projectId = projectId,
-                        title = title.trim(),
-                        status = status.wire,
-                        priority = priority.wire,
-                        description = strippedDescription,
-                        assigneeId = assigneeId,
-                        dueDate = dueDate,
-                        dueTime = dueTime,
-                        endTime = endTime,
-                        recurrenceInterval = recurrenceInterval,
-                        recurrenceUnit = recurrenceUnit,
-                    )
+            val created = issuesApi.create(
+                accountId,
+                CreateIssueInput(
+                    projectId = projectId,
+                    title = title.trim(),
+                    status = status.wire,
+                    priority = priority.wire,
+                    description = strippedDescription,
+                    assigneeId = assigneeId,
+                    dueDate = dueDate,
+                    dueTime = dueTime,
+                    endTime = endTime,
+                    recurrenceInterval = recurrenceInterval,
+                    recurrenceUnit = recurrenceUnit,
                 )
+            )
 
-                if (rawDescription != null && pendingImages.isNotEmpty()) {
-                    val urlByPlaceholder = uploadPendingImages(accountId, created.id, pendingImages)
-                    val finalDescription = replaceMarkdownImageUrls(
-                        markdown = removeMarkdownImagesByUrl(
-                            rawDescription,
-                            pendingImages.keys.minus(urlByPlaceholder.keys),
-                        ),
-                        replacements = urlByPlaceholder,
+            if (rawDescription != null && pendingImages.isNotEmpty()) {
+                val urlByPlaceholder = uploadPendingImages(accountId, created.id, pendingImages)
+                val finalDescription = replaceMarkdownImageUrls(
+                    markdown = removeMarkdownImagesByUrl(
+                        rawDescription,
+                        pendingImages.keys.minus(urlByPlaceholder.keys),
+                    ),
+                    replacements = urlByPlaceholder,
+                )
+                if (finalDescription != strippedDescription.orEmpty() && finalDescription.isNotBlank()) {
+                    issuesApi.update(
+                        accountId,
+                        UpdateIssueInput(id = created.id, description = finalDescription)
                     )
-                    if (finalDescription != strippedDescription.orEmpty() && finalDescription.isNotBlank()) {
-                        issuesApi.update(
-                            accountId,
-                            UpdateIssueInput(id = created.id, description = finalDescription)
-                        )
-                    }
                 }
-            } catch (error: Throwable) {
-                _error.value = error.message ?: "Failed to create issue"
-            } finally {
-                _busy.value = false
             }
+            true
+        } catch (error: Throwable) {
+            _error.value = error.message ?: "Failed to create issue"
+            false
+        } finally {
+            _busy.value = false
         }
     }
 
@@ -374,22 +376,4 @@ class IssueListViewModel @Inject constructor(
         }
         return out
     }
-
-    // Link/unlink the project's GitHub repo (owner-gated server-side). Returns an
-    // error message or null; Electric sync surfaces the updated project row.
-    suspend fun linkRepo(repo: String): String? =
-        try {
-            projectsApi.linkGithubRepo(accountId, projectId, repo.trim())
-            null
-        } catch (error: Throwable) {
-            error.message ?: "Failed to link repository"
-        }
-
-    suspend fun unlinkRepo(): String? =
-        try {
-            projectsApi.unlinkGithubRepo(accountId, projectId)
-            null
-        } catch (error: Throwable) {
-            error.message ?: "Failed to unlink repository"
-        }
 }

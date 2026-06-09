@@ -2,7 +2,10 @@ package com.exponential.app.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,6 +28,8 @@ import com.exponential.app.ui.inbox.InboxScreen
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.integrations.IntegrationsScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
+import com.exponential.app.ui.issue.CreateIssueScreen
+import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
@@ -87,7 +92,19 @@ fun AppNavHost() {
     val needsAuth =
         state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
 
+    // Gate the authenticated graph on onboarding: a brand-new user (no
+    // onboardingCompletedAt on the active account, captured from the session at
+    // login) starts in the wizard. Persisted, so it resolves synchronously at
+    // startup; the key(activeAccountId) rebuild re-evaluates it per account.
+    val activeAccount = state.accounts.firstOrNull { it.id == state.activeAccountId }
+    val needsOnboarding = activeAccount?.onboardingCompletedAt == null
+
     AppBackground {
+        // Every screen floats on AppBackground (a Box, not a Material Surface), so
+        // without this provider bare `Text`/`Icon` would inherit LocalContentColor's
+        // black default and render near-invisible on the dark gradient. Anchor the
+        // default to onSurface (light) app-wide; explicit colors still win.
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         if (needsAuth) {
             UnauthenticatedNav(
                 navController = navController,
@@ -116,9 +133,11 @@ fun AppNavHost() {
                     navController = navController,
                     cloudAlreadyAdded = cloudAlreadyAdded,
                     activeAccountId = state.activeAccountId,
+                    needsOnboarding = needsOnboarding,
                     onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
                 )
             }
+        }
         }
     }
 }
@@ -157,6 +176,7 @@ private fun AuthenticatedNav(
     navController: NavHostController,
     cloudAlreadyAdded: Boolean,
     activeAccountId: String?,
+    needsOnboarding: Boolean,
     onSetInstanceUrl: (String) -> Unit,
 ) {
     val workspaceSelection = applicationWorkspaceSelection()
@@ -183,13 +203,20 @@ private fun AuthenticatedNav(
 
     NavHost(
         navController = navController,
-        startDestination = "home",
+        startDestination = if (needsOnboarding) "onboarding" else "home",
         // iOS-style horizontal push/pop transitions.
         enterTransition = { slideIntoContainer(SlideDirection.Start, tween(280)) },
         exitTransition = { slideOutOfContainer(SlideDirection.Start, tween(280)) },
         popEnterTransition = { slideIntoContainer(SlideDirection.End, tween(280)) },
         popExitTransition = { slideOutOfContainer(SlideDirection.End, tween(280)) },
     ) {
+        composable("onboarding") {
+            OnboardingScreen(
+                onDone = {
+                    navController.navigate("home") { popUpTo("onboarding") { inclusive = true } }
+                },
+            )
+        }
         composable("home") {
             HomeScreen(
                 onOpenProject = { _, projectId -> navController.navigate("project/$projectId") },
@@ -251,9 +278,12 @@ private fun AuthenticatedNav(
         composable("share-pick") {
             ShareTargetPickerScreen(
                 onPicked = { projectId ->
+                    // Land on the project list, then push the prefilled create
+                    // screen on top so backing out returns to the list.
                     navController.navigate("project/$projectId") {
                         popUpTo("share-pick") { inclusive = true }
                     }
+                    navController.navigate("project/$projectId/new")
                 },
                 onCancel = {
                     // Drop the pending share so it doesn't prefill the next project opened.
@@ -264,17 +294,23 @@ private fun AuthenticatedNav(
         }
         composable("project/{projectId}") { entry ->
             val projectId = entry.arguments?.getString("projectId").orEmpty()
-            val pendingShare by workspaceSelection.pendingShare.collectAsState()
             // Remembering the opened project drives the share picker's default.
             LaunchedEffect(projectId) {
                 if (projectId.isNotBlank() && activeAccountId != null) {
                     workspaceSelection.rememberLastProject(activeAccountId, projectId)
                 }
             }
-            val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             IssueListScreen(
                 projectId = projectId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onBack = { navController.popBackStack() },
+                onCreateIssue = { navController.navigate("project/$projectId/new") },
+            )
+        }
+        composable("project/{projectId}/new") {
+            val pendingShare by workspaceSelection.pendingShare.collectAsState()
+            val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
+            CreateIssueScreen(
                 onBack = { navController.popBackStack() },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { workspaceSelection.consumePendingShare() },

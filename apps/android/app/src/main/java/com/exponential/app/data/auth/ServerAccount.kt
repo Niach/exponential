@@ -13,6 +13,10 @@ data class ServerAccount(
     val userName: String? = null,
     val userId: String? = null,
     val isAdmin: Boolean = false,
+    // ISO timestamp the user finished onboarding, or null if they haven't. Read
+    // from the better-auth session at login (the same source the web app gates
+    // on) and persisted so the onboarding gate resolves synchronously at startup.
+    val onboardingCompletedAt: String? = null,
     val lastUsedAt: Long = System.currentTimeMillis(),
 ) {
     val displayHost: String

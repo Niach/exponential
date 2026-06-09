@@ -5,7 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.data.api.CreateLabelInput
+import com.exponential.app.data.api.GithubReposResult
+import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.api.LabelsApi
+import com.exponential.app.data.api.ProjectsApi
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.UpdateWorkspaceInput
 import com.exponential.app.data.api.WorkspaceInvitesApi
@@ -58,6 +61,8 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val invitesApi: WorkspaceInvitesApi,
     private val labelsApi: LabelsApi,
     private val workspacesApi: WorkspacesApi,
+    private val projectsApi: ProjectsApi,
+    private val integrationsApi: IntegrationsApi,
 ) : ViewModel() {
 
     private val accountId = auth.activeAccountId.value ?: ""
@@ -203,6 +208,26 @@ class WorkspaceSettingsViewModel @Inject constructor(
     fun deleteProject(projectId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { workspacesApi.deleteProject(accountId, projectId) }
+            .onFailure { _transient.value = it.message }
+    }
+
+    // Repos the user's GitHub App is installed on (for the connect-repo picker).
+    suspend fun loadGithubRepos(): GithubReposResult {
+        val accountId = auth.activeAccountId.value ?: return GithubReposResult()
+        return integrationsApi.githubRepos(accountId)
+    }
+
+    // Link/unlink a project's repo (server enforces workspace-owner). Electric
+    // sync surfaces the updated project.githubRepo back into `state.projects`.
+    fun linkRepo(projectId: String, repo: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { projectsApi.linkGithubRepo(accountId, projectId, repo) }
+            .onFailure { _transient.value = it.message }
+    }
+
+    fun unlinkRepo(projectId: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { projectsApi.unlinkGithubRepo(accountId, projectId) }
             .onFailure { _transient.value = it.message }
     }
 

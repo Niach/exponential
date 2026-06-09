@@ -37,6 +37,10 @@ struct WorkspaceSettingsView: View {
                     // Projects section
                     WorkspaceProjectsSection(
                         projects: projects.filter { $0.archivedAt == nil },
+                        accountId: accountId,
+                        projectsApi: deps.projectsApi,
+                        integrationsApi: deps.integrationsApi,
+                        installBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                         onDelete: { project in deleteProjectTarget = project }
                     )
 

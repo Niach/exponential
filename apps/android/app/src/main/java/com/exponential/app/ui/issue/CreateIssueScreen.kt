@@ -1,0 +1,412 @@
+package com.exponential.app.ui.issue
+
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.domain.issueStatusOrder
+import com.exponential.app.domain.priorityIcon
+import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.components.PriorityIcon
+import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.formatDueDate
+import com.exponential.app.ui.markdown.MarkdownEditor
+import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
+import com.exponential.app.ui.share.SharePrefill
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.dueDateColor
+import com.exponential.app.ui.theme.glassSection
+import java.util.UUID
+import kotlinx.coroutines.launch
+
+// Full-screen issue creation (iOS CreateIssueSheet parity): a "New Issue" nav
+// title with Cancel/Create actions over the shared AppBackground, then the
+// title field, description editor, and stacked glassSection metadata rows.
+// Reuses the same pickers, payload and createIssue path the bottom sheet used —
+// only the container and layout changed (a route screen, not a ModalBottomSheet).
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CreateIssueScreen(
+    onBack: () -> Unit,
+    sharePrefill: SharePrefill? = null,
+    onSharePrefillConsumed: () -> Unit = {},
+    viewModel: IssueListViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val permissions by viewModel.permissions.collectAsStateWithLifecycle()
+    val isModerator = permissions.isModerator
+
+    var title by remember { mutableStateOf(sharePrefill?.title ?: "") }
+    var description by remember { mutableStateOf(sharePrefill?.description ?: "") }
+    var status by remember { mutableStateOf(IssueStatus.Backlog) }
+    var priority by remember { mutableStateOf(IssuePriority.None) }
+    var assigneeId by remember { mutableStateOf<String?>(null) }
+    var dueDate by remember { mutableStateOf<String?>(null) }
+    var dueTime by remember { mutableStateOf<String?>(null) }
+    var endTime by remember { mutableStateOf<String?>(null) }
+    var recurrenceInterval by remember { mutableStateOf<Int?>(null) }
+    var recurrenceUnit by remember { mutableStateOf<String?>(null) }
+    var createMore by remember { mutableStateOf(false) }
+    var statusMenuOpen by remember { mutableStateOf(false) }
+    var priorityMenuOpen by remember { mutableStateOf(false) }
+    var assigneeMenuOpen by remember { mutableStateOf(false) }
+    var datePickerOpen by remember { mutableStateOf(false) }
+    var dueTimePickerOpen by remember { mutableStateOf(false) }
+    var endTimePickerOpen by remember { mutableStateOf(false) }
+    var recurrenceSheetOpen by remember { mutableStateOf(false) }
+
+    val initialPendingImages = remember { sharePrefill?.pendingImages ?: emptyMap() }
+    val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
+    val users = state.users
+    val assigneeUser = users.firstOrNull { it.id == assigneeId }
+    val isCreating = state.isCreating
+
+    // Consume the share prefill once so backing out and re-entering doesn't
+    // re-populate the form.
+    LaunchedEffect(sharePrefill) {
+        if (sharePrefill != null) onSharePrefillConsumed()
+    }
+
+    // Don't let system-back cancel an in-flight create (it would cancel the
+    // route's ViewModel scope mid-request); the toolbar Cancel is disabled too.
+    BackHandler(enabled = isCreating) {}
+
+    val scope = rememberCoroutineScope()
+    fun submit() {
+        if (title.isBlank() || isCreating) return
+        // Await the create on the screen's scope, then pop — popping cancels the
+        // route's ViewModel scope, so a fire-and-forget create would be dropped.
+        scope.launch {
+            val ok = viewModel.createIssueAwait(
+                title = title,
+                status = status,
+                priority = priority,
+                description = description,
+                dueDate = dueDate,
+                assigneeId = assigneeId,
+                dueTime = dueTime,
+                endTime = endTime,
+                recurrenceInterval = recurrenceInterval,
+                recurrenceUnit = recurrenceUnit,
+                pendingImages = pendingImages.toMap(),
+            )
+            if (ok) {
+                if (createMore) {
+                    title = ""
+                    description = ""
+                    pendingImages.clear()
+                } else {
+                    onBack()
+                }
+            }
+        }
+    }
+
+    ProvideMarkdownToolbar {
+        Scaffold(
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { Text("New Issue") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack, enabled = !isCreating) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = ::submit, enabled = !isCreating && title.isNotBlank()) {
+                            Text(if (isCreating) "Creating…" else "Create")
+                        }
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+                )
+            },
+            containerColor = Color.Transparent,
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    placeholder = { Text("Issue title") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                MarkdownEditor(
+                    markdown = description,
+                    editable = true,
+                    onChange = { description = it },
+                    onUploadImage = { uri ->
+                        val placeholder = "draft://${UUID.randomUUID()}"
+                        pendingImages[placeholder] = uri
+                        placeholder
+                    },
+                    imageUploadEnabled = true,
+                    placeholder = "Description (markdown supported)",
+                    minHeight = 120.dp,
+                    initialPendingImages = initialPendingImages,
+                    mentionMembers = remember(users) {
+                        users
+                            .filter { !it.isAgent }
+                            .map { MentionMember(it.name ?: it.email, it.email) }
+                    },
+                )
+
+                // Status / Priority / Assignee / Repeat — one grouped glass card.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassSection()
+                        .padding(vertical = 4.dp)
+                        .alpha(if (isModerator) 1f else 0.55f),
+                ) {
+                    MetaRow(label = "Status", enabled = isModerator, onClick = { statusMenuOpen = true }) {
+                        StatusIcon(status, size = 14.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text(status.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    MetaDivider()
+                    MetaRow(label = "Priority", enabled = isModerator, onClick = { priorityMenuOpen = true }) {
+                        PriorityIcon(priority, size = 14.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text(priority.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    MetaDivider()
+                    MetaRow(label = "Assignee", enabled = isModerator, onClick = { assigneeMenuOpen = true }) {
+                        Icon(Icons.Filled.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            assigneeUser?.name ?: assigneeUser?.email ?: "Unassigned",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    MetaDivider()
+                    MetaRow(label = "Repeat", enabled = isModerator, onClick = { recurrenceSheetOpen = true }) {
+                        Icon(Icons.Filled.Repeat, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                        Spacer(Modifier.width(6.dp))
+                        Text(formatRecurrence(recurrenceInterval, recurrenceUnit), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+
+                // Due date + (when set) start/end times — second grouped card,
+                // matching iOS where the time rows only appear with a due date.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassSection()
+                        .padding(vertical = 4.dp)
+                        .alpha(if (isModerator) 1f else 0.55f),
+                ) {
+                    MetaRow(label = "Due date", enabled = isModerator, onClick = { datePickerOpen = true }) {
+                        Icon(Icons.Filled.CalendarMonth, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            dueDate?.let { formatDueDate(it) } ?: "—",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dueDate != null) TextEmphasis.Primary else TextEmphasis.Tertiary),
+                        )
+                    }
+                    if (dueDate != null) {
+                        MetaDivider()
+                        MetaRow(label = "Start time", enabled = isModerator, onClick = { dueTimePickerOpen = true }) {
+                            Icon(Icons.Filled.Schedule, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                            Spacer(Modifier.width(6.dp))
+                            Text(dueTime ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dueTime != null) TextEmphasis.Primary else TextEmphasis.Tertiary))
+                        }
+                        MetaDivider()
+                        MetaRow(label = "End time", enabled = isModerator, onClick = { endTimePickerOpen = true }) {
+                            Icon(Icons.Filled.Schedule, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                            Spacer(Modifier.width(6.dp))
+                            Text(endTime ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (endTime != null) TextEmphasis.Primary else TextEmphasis.Tertiary))
+                        }
+                    }
+                }
+
+                if (state.error != null) {
+                    Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Create more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Switch(checked = createMore, onCheckedChange = { createMore = it })
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+
+    if (statusMenuOpen && isModerator) {
+        IssuePickerSheet(
+            title = "Status",
+            items = issueStatusOrder,
+            selected = status,
+            labelOf = { it.label },
+            iconOf = { statusIcon(it) },
+            onSelect = { status = it },
+            onDismiss = { statusMenuOpen = false },
+        )
+    }
+
+    if (priorityMenuOpen && isModerator) {
+        IssuePickerSheet(
+            title = "Priority",
+            items = issuePriorityOrder,
+            selected = priority,
+            labelOf = { it.label },
+            iconOf = { priorityIcon(it) },
+            onSelect = { priority = it },
+            onDismiss = { priorityMenuOpen = false },
+        )
+    }
+
+    if (assigneeMenuOpen && isModerator) {
+        val assigneeItems = listOf<com.exponential.app.data.db.UserEntity?>(null) + users
+        IssuePickerSheet(
+            title = "Assignee",
+            items = assigneeItems,
+            selected = assigneeItems.firstOrNull { it?.id == assigneeId },
+            keyOf = { it?.id ?: "__unassigned__" },
+            labelOf = { user -> user?.name ?: user?.email ?: "Unassigned" },
+            onSelect = { assigneeId = it?.id },
+            onDismiss = { assigneeMenuOpen = false },
+        )
+    }
+
+    if (datePickerOpen) {
+        IssueDatePickerDialog(
+            initialDate = dueDate,
+            onConfirm = { dueDate = it; datePickerOpen = false },
+            onDismiss = { datePickerOpen = false },
+        )
+    }
+
+    if (dueTimePickerOpen) {
+        IssueTimePickerDialog(
+            initialTime = dueTime,
+            title = "Start time",
+            onConfirm = { dueTime = it; dueTimePickerOpen = false },
+            onClear = { dueTime = null; dueTimePickerOpen = false },
+            onDismiss = { dueTimePickerOpen = false },
+        )
+    }
+
+    if (endTimePickerOpen) {
+        IssueTimePickerDialog(
+            initialTime = endTime,
+            title = "End time",
+            onConfirm = { endTime = it; endTimePickerOpen = false },
+            onClear = { endTime = null; endTimePickerOpen = false },
+            onDismiss = { endTimePickerOpen = false },
+        )
+    }
+
+    if (recurrenceSheetOpen) {
+        RecurrenceSheet(
+            interval = recurrenceInterval,
+            unit = recurrenceUnit,
+            onApply = { i, u ->
+                recurrenceInterval = i
+                recurrenceUnit = u
+                recurrenceSheetOpen = false
+            },
+            onDismiss = { recurrenceSheetOpen = false },
+        )
+    }
+}
+
+// One row of a grouped glass card: fixed-width label + trailing value (iOS
+// metadataRow). Tappable when [enabled].
+@Composable
+private fun MetaRow(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    value: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            modifier = Modifier.width(84.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        value()
+    }
+}
+
+@Composable
+private fun MetaDivider() {
+    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
+}

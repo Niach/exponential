@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -114,34 +115,49 @@ fun MarkdownEditor(
         }
     }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        MarkdownToolbar(
-            model = model,
-            onPickImage = {
-                pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
-            imageEnabled = imageUploadEnabled && onUploadImage != null,
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = minHeight)
-                .padding(top = 8.dp),
-        ) {
-            val rows = model.rows
-            val soleEmptyId = rows.singleOrNull()?.let { (it as? EditorRow.Para)?.takeIf { p -> p.text.isEmpty() }?.id }
-            rows.forEach { row ->
-                key(row.id) {
-                    when (row) {
-                        is EditorRow.Para -> BlockTextField(
-                            model = model,
-                            row = row,
-                            placeholder = if (row.id == soleEmptyId) placeholder else null,
-                            mentionMembers = mentionMembers,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        is EditorRow.Image -> BlockImageEditView(model = model, row = row)
-                    }
+    // The formatting toolbar is rendered by a screen-level overlay so it can
+    // float above the keyboard (see ProvideMarkdownToolbar). Register this
+    // editor as the active one while one of its fields is focused, and hand the
+    // overlay this editor's image-picker action (the launcher must stay in this
+    // composition). Last-focus-wins; the identity guard avoids clobbering a
+    // sibling editor that grabbed focus first.
+    val toolbarController = LocalMarkdownToolbarController.current
+    val imageEnabledFlag = imageUploadEnabled && onUploadImage != null
+    if (toolbarController != null) {
+        LaunchedEffect(model.focusedRowId) {
+            if (model.focusedRowId != null) {
+                toolbarController.activeModel = model
+                toolbarController.onPickImage = {
+                    pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+                toolbarController.imageEnabled = imageEnabledFlag
+            } else if (toolbarController.activeModel === model) {
+                toolbarController.activeModel = null
+            }
+        }
+        DisposableEffect(Unit) {
+            onDispose { if (toolbarController.activeModel === model) toolbarController.activeModel = null }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = minHeight),
+    ) {
+        val rows = model.rows
+        val soleEmptyId = rows.singleOrNull()?.let { (it as? EditorRow.Para)?.takeIf { p -> p.text.isEmpty() }?.id }
+        rows.forEach { row ->
+            key(row.id) {
+                when (row) {
+                    is EditorRow.Para -> BlockTextField(
+                        model = model,
+                        row = row,
+                        placeholder = if (row.id == soleEmptyId) placeholder else null,
+                        mentionMembers = mentionMembers,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    is EditorRow.Image -> BlockImageEditView(model = model, row = row)
                 }
             }
         }

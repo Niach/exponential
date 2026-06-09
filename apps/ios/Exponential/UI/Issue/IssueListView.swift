@@ -11,7 +11,6 @@ struct IssueListView: View {
     @State private var viewModel: IssueListViewModel?
     @State private var showCreateSheet = false
     @State private var searchText = ""
-    @State private var showRepoDialog = false
 
     var body: some View {
         ZStack {
@@ -20,9 +19,7 @@ struct IssueListView: View {
             if let vm = viewModel {
                 VStack(spacing: 0) {
                     if let repo = vm.project?.githubRepo, !repo.isEmpty {
-                        githubRepoBanner(repo: repo, canManage: vm.permissions.isOwner)
-                    } else if vm.permissions.isOwner {
-                        linkRepoButton
+                        githubRepoBanner(repo: repo)
                     }
                     issueListContent(vm)
                 }
@@ -43,17 +40,6 @@ struct IssueListView: View {
         .sheet(isPresented: $showCreateSheet) {
             CreateIssueSheet(projectId: projectId, onCreated: {})
                 .presentationBackground(.ultraThinMaterial)
-        }
-        .sheet(isPresented: $showRepoDialog) {
-            if let vm = viewModel {
-                RepoLinkDialog(
-                    currentRepo: vm.project?.githubRepo,
-                    onLink: { repo in await vm.linkRepo(repo) },
-                    onUnlink: { await vm.unlinkRepo() }
-                )
-                .presentationBackground(.ultraThinMaterial)
-                .presentationDetents([.medium])
-            }
         }
         .onAppear {
             if viewModel == nil {
@@ -308,57 +294,32 @@ struct IssueListView: View {
         return AppDateFormatters.MMMd.string(from: date)
     }
 
-    // Surfaces the project's linked GitHub repo as a tappable banner. Owners get
-    // a manage affordance to change/unlink it (mirrors the web + Android UI);
-    // everyone else can open it but not change the link.
+    // Surfaces the project's linked GitHub repo as a read-only tappable banner
+    // (opens it on GitHub). Linking now lives in workspace settings (the
+    // installed-repos picker), matching the web app.
     @ViewBuilder
-    private func githubRepoBanner(repo: String, canManage: Bool) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                if let url = URL(string: "https://github.com/\(repo)") {
-                    UIApplication.shared.open(url)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .font(.caption2)
-                    Text(repo)
-                        .font(.caption.monospaced())
-                        .lineLimit(1)
-                    Image(systemName: "arrow.up.right")
-                        .font(.caption2)
-                    Spacer()
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+    private func githubRepoBanner(repo: String) -> some View {
+        Button {
+            if let url = URL(string: "https://github.com/\(repo)") {
+                UIApplication.shared.open(url)
             }
-            .buttonStyle(.plain)
-            if canManage {
-                Button { showRepoDialog = true } label: {
-                    Image(systemName: "pencil").font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color.white.opacity(0.04))
-    }
-
-    // Owner-only affordance shown when no repo is linked yet.
-    private var linkRepoButton: some View {
-        Button { showRepoDialog = true } label: {
+        } label: {
             HStack(spacing: 8) {
-                Image(systemName: "link").font(.caption2)
-                Text("Link GitHub repo").font(.caption)
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.caption2)
+                Text(repo)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                Image(systemName: "arrow.up.right")
+                    .font(.caption2)
                 Spacer()
             }
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.04))
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.04))
     }
 
     private func dueDateColor(_ dateString: String) -> Color {
@@ -366,98 +327,6 @@ struct IssueListView: View {
         if date < Date() { return DesignTokens.Semantic.red }
         if Calendar.current.isDateInToday(date) { return DesignTokens.Semantic.orange }
         return .white.opacity(TextOpacity.tertiary)
-    }
-}
-
-// Owner-gated dialog to link / change / unlink the project's GitHub repo. The
-// server independently enforces ownership; we surface that error inline. Mirrors
-// the Android RepoLinkDialog (4ab404d).
-private struct RepoLinkDialog: View {
-    let currentRepo: String?
-    let onLink: (String) async -> String?
-    let onUnlink: () async -> String?
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var repo = ""
-    @State private var error: String?
-    @State private var saving = false
-
-    // owner/name — same shape the server validates.
-    private static let repoRegex = try! NSRegularExpression(
-        pattern: "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
-    )
-
-    private var trimmed: String { repo.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var isValid: Bool {
-        let r = trimmed
-        return Self.repoRegex.firstMatch(in: r, range: NSRange(r.startIndex..<r.endIndex, in: r)) != nil
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                AppBackground()
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Link the GitHub repository the agent opens pull requests against.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    TextField("owner/repository", text: $repo)
-                        .textFieldStyle(.plain)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.body.monospaced())
-                        .foregroundStyle(.white)
-                        .padding(12)
-                        .background(Color.white.opacity(0.05))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    if let error {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
-                    HStack(spacing: 12) {
-                        Button {
-                            Task {
-                                saving = true
-                                error = await onLink(trimmed)
-                                saving = false
-                                if error == nil { dismiss() }
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                if saving { ProgressView().controlSize(.mini).tint(.white) }
-                                Text(currentRepo == nil ? "Link" : "Update")
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!isValid || saving)
-                        if currentRepo != nil {
-                            Button(role: .destructive) {
-                                Task {
-                                    saving = true
-                                    error = await onUnlink()
-                                    saving = false
-                                    if error == nil { dismiss() }
-                                }
-                            } label: {
-                                Text("Remove").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(saving)
-                        }
-                    }
-                    Spacer()
-                }
-                .padding(20)
-            }
-            .navigationTitle("GitHub repo")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-            .onAppear { repo = currentRepo ?? "" }
-        }
     }
 }
 

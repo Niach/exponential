@@ -31,14 +31,12 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,11 +44,9 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,7 +59,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
@@ -76,7 +71,6 @@ import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.share.SharePrefill
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
@@ -89,31 +83,14 @@ fun IssueListScreen(
     projectId: String,
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit,
-    sharePrefill: SharePrefill? = null,
-    onSharePrefillConsumed: () -> Unit = {},
+    onCreateIssue: () -> Unit,
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
-    var showCreate by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
-    val scope = rememberCoroutineScope()
-    var showRepoDialog by remember { mutableStateOf(false) }
-    var repoSaving by remember { mutableStateOf(false) }
-    var repoError by remember { mutableStateOf<String?>(null) }
-
-    // Content shared into the app routes here with a prefill; capture it once
-    // (it gets cleared right after) and open the create sheet pre-populated.
-    var capturedPrefill by remember { mutableStateOf<SharePrefill?>(null) }
-    LaunchedEffect(sharePrefill) {
-        if (sharePrefill != null && capturedPrefill == null) {
-            capturedPrefill = sharePrefill
-            showCreate = true
-            onSharePrefillConsumed()
-        }
-    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -133,7 +110,7 @@ fun IssueListScreen(
                 }
                 if (permissions.canCreate) {
                     Spacer(Modifier.width(8.dp))
-                    CircleIconButton(Icons.Filled.Add, "Create issue", onClick = { showCreate = true })
+                    CircleIconButton(Icons.Filled.Add, "Create issue", onClick = onCreateIssue)
                 }
             }
 
@@ -181,27 +158,9 @@ fun IssueListScreen(
                     }
                     val currentRepo = state.project?.githubRepo?.takeIf { it.isNotBlank() }
                     if (currentRepo != null) {
+                        // Read-only indicator; linking now lives in workspace settings.
                         item(key = "repo") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(Modifier.weight(1f)) { GithubRepoBanner(currentRepo) }
-                                if (permissions.isOwner) {
-                                    TextButton(onClick = { repoError = null; showRepoDialog = true }) {
-                                        Text("Edit")
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                        }
-                    } else if (permissions.isOwner) {
-                        item(key = "repo-link") {
-                            TextButton(onClick = { repoError = null; showRepoDialog = true }) {
-                                Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Link GitHub repo")
-                            }
+                            GithubRepoBanner(currentRepo)
                             Spacer(Modifier.height(4.dp))
                         }
                     }
@@ -210,6 +169,14 @@ fun IssueListScreen(
                             active = state.tab,
                             hasFilters = !state.filters.isEmpty,
                             onSelect = viewModel::setTab,
+                            onClear = viewModel::clearFilters,
+                        )
+                        ActiveFilterPills(
+                            filters = state.filters,
+                            labels = state.labels,
+                            onToggleStatus = viewModel::toggleStatus,
+                            onTogglePriority = viewModel::togglePriority,
+                            onToggleLabel = viewModel::toggleLabel,
                             onClear = viewModel::clearFilters,
                         )
                     }
@@ -263,41 +230,6 @@ fun IssueListScreen(
         }
     }
 
-    if (showCreate) {
-        CreateIssueSheet(
-            isCreating = state.isCreating,
-            error = state.error,
-            users = state.users,
-            isModerator = permissions.isModerator,
-            initialTitle = capturedPrefill?.title ?: "",
-            initialDescription = capturedPrefill?.description ?: "",
-            initialPendingImages = capturedPrefill?.pendingImages ?: emptyMap(),
-            onDismiss = {
-                showCreate = false
-                capturedPrefill = null
-            },
-            onCreate = { payload ->
-                viewModel.createIssue(
-                    title = payload.title,
-                    status = payload.status,
-                    priority = payload.priority,
-                    description = payload.description,
-                    dueDate = payload.dueDate,
-                    assigneeId = payload.assigneeId,
-                    dueTime = payload.dueTime,
-                    endTime = payload.endTime,
-                    recurrenceInterval = payload.recurrenceInterval,
-                    recurrenceUnit = payload.recurrenceUnit,
-                    pendingImages = payload.pendingImages,
-                )
-                if (!payload.keepOpen) {
-                    showCreate = false
-                    capturedPrefill = null
-                }
-            },
-        )
-    }
-
     if (showFilters) {
         IssueFilterSheet(
             filters = state.filters,
@@ -309,99 +241,6 @@ fun IssueListScreen(
             onDismiss = { showFilters = false },
         )
     }
-
-    if (showRepoDialog) {
-        val existing = state.project?.githubRepo.orEmpty()
-        RepoLinkDialog(
-            initial = existing,
-            saving = repoSaving,
-            error = repoError,
-            onDismiss = { showRepoDialog = false; repoError = null },
-            onLink = { repo ->
-                scope.launch {
-                    repoSaving = true
-                    val err = viewModel.linkRepo(repo)
-                    repoSaving = false
-                    if (err == null) {
-                        showRepoDialog = false
-                        repoError = null
-                    } else {
-                        repoError = err
-                    }
-                }
-            },
-            onUnlink = if (existing.isNotBlank()) {
-                {
-                    scope.launch {
-                        repoSaving = true
-                        val err = viewModel.unlinkRepo()
-                        repoSaving = false
-                        if (err == null) {
-                            showRepoDialog = false
-                            repoError = null
-                        } else {
-                            repoError = err
-                        }
-                    }
-                }
-            } else {
-                null
-            },
-        )
-    }
-}
-
-private val REPO_REGEX = Regex("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
-
-// Owner-only dialog to link/unlink the project's GitHub repo. Mirrors the web
-// repo picker: an owner/repo field (validated) + Link, with Remove when already
-// linked. The server re-validates + enforces workspace-owner.
-@Composable
-private fun RepoLinkDialog(
-    initial: String,
-    saving: Boolean,
-    error: String?,
-    onDismiss: () -> Unit,
-    onLink: (String) -> Unit,
-    onUnlink: (() -> Unit)?,
-) {
-    var repo by remember { mutableStateOf(initial) }
-    val valid = REPO_REGEX.matches(repo.trim())
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("GitHub repository") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = repo,
-                    onValueChange = { repo = it },
-                    label = { Text("owner/repo") },
-                    singleLine = true,
-                    isError = repo.isNotBlank() && !valid,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (error != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = !saving && valid, onClick = { onLink(repo.trim()) }) {
-                Text(if (saving) "Saving…" else "Link")
-            }
-        },
-        dismissButton = {
-            Row {
-                if (onUnlink != null) {
-                    TextButton(enabled = !saving, onClick = onUnlink) {
-                        Text("Remove", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-    )
 }
 
 // Circular glass icon button (iOS .ultraThinMaterial nav circle).

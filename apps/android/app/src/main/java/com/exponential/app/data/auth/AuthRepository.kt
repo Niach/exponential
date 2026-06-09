@@ -30,6 +30,9 @@ class AuthRepository @Inject constructor(
     private val _isAdmin = MutableStateFlow(accountStore.activeAccount?.isAdmin ?: false)
     val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
 
+    private val _onboardingCompletedAt = MutableStateFlow(accountStore.activeAccount?.onboardingCompletedAt)
+    val onboardingCompletedAt: StateFlow<String?> = _onboardingCompletedAt.asStateFlow()
+
     fun setInstanceUrl(url: String) {
         val normalized = normalizeBaseUrl(url)
         accountStore.upsertAndActivate(normalized)
@@ -42,13 +45,34 @@ class AuthRepository @Inject constructor(
         republish()
     }
 
-    fun setToken(token: String, email: String?, userId: String? = null, isAdmin: Boolean = false) {
-        accountStore.updateActiveToken(token = token, email = email, name = null, userId = userId, isAdmin = isAdmin)
+    fun setToken(
+        token: String,
+        email: String?,
+        userId: String? = null,
+        isAdmin: Boolean = false,
+        onboardingCompletedAt: String? = null,
+    ) {
+        accountStore.updateActiveToken(
+            token = token,
+            email = email,
+            name = null,
+            userId = userId,
+            isAdmin = isAdmin,
+            onboardingCompletedAt = onboardingCompletedAt,
+        )
         republish()
     }
 
     fun clearToken() {
         accountStore.clearActiveToken()
+        republish()
+    }
+
+    // Mark the active account onboarded (after onboarding.complete succeeds) so the
+    // nav gate stops showing the wizard without needing a fresh session fetch.
+    fun markOnboardingCompleted(completedAtIso: String) {
+        val id = accountStore.activeAccountId.value ?: return
+        accountStore.setOnboardingCompletedAt(id, completedAtIso)
         republish()
     }
 
@@ -69,6 +93,7 @@ class AuthRepository @Inject constructor(
         _userEmail.value = active?.userEmail
         _userId.value = active?.userId
         _isAdmin.value = active?.isAdmin ?: false
+        _onboardingCompletedAt.value = active?.onboardingCompletedAt
     }
 
     private fun normalizeBaseUrl(input: String): String {

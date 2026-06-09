@@ -151,7 +151,7 @@ fun ShareTargetPickerScreen(
                                 Text(
                                     group.workspace.name,
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                                    color = MaterialTheme.colorScheme.onSurface,
                                 )
                             }
                             group.projects.forEach { project ->

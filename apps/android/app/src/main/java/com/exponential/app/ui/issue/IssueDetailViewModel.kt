@@ -284,21 +284,6 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
-    // Flips archivedAt between an ISO timestamp (archived) and null (active).
-    // The server clamps archivedAt for non-moderators of public workspaces.
-    fun toggleArchive() {
-        val current = state.value.issue ?: return
-        val next: String? = if (current.archivedAt == null) {
-            java.time.Instant.now().toString()
-        } else null
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, archivedAt = next))
-            }
-        }
-    }
-
     suspend fun uploadImage(uri: android.net.Uri): String? = runCatching {
         val accountId = auth.activeAccountId.value ?: return@runCatching null
         val resolver = appContext.contentResolver

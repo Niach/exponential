@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.SectionHeader
@@ -126,6 +129,7 @@ fun WorkspaceSettingsScreen(
 @Composable
 private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettingsViewModel) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var repoTarget by remember { mutableStateOf<ProjectEntity?>(null) }
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -173,7 +177,19 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                     ) {
                         Box(Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
                         Spacer(Modifier.width(10.dp))
-                        Text(project.name, modifier = Modifier.weight(1f))
+                        Text(project.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val repo = project.githubRepo?.takeIf { it.isNotBlank() }
+                        TextButton(onClick = { repoTarget = project }) {
+                            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                repo ?: "Connect",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 120.dp),
+                            )
+                        }
                         IconButton(onClick = { viewModel.deleteProject(project.id) }) {
                             Icon(Icons.Filled.Delete, contentDescription = "Delete project")
                         }
@@ -203,6 +219,23 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                 }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
+
+    repoTarget?.let { project ->
+        GithubRepoPickerSheet(
+            projectName = project.name,
+            currentRepo = project.githubRepo?.takeIf { it.isNotBlank() },
+            loadRepos = { viewModel.loadGithubRepos() },
+            onPick = { repo ->
+                viewModel.linkRepo(project.id, repo)
+                repoTarget = null
+            },
+            onUnlink = {
+                viewModel.unlinkRepo(project.id)
+                repoTarget = null
+            },
+            onDismiss = { repoTarget = null },
         )
     }
 }

@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -43,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
@@ -65,13 +63,11 @@ fun MarkdownToolbar(
     imageEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val keyboard = LocalSoftwareKeyboardController.current
     var linkDialogOpen by remember { mutableStateOf(false) }
 
     val activeRowId = model.activeRowId
     val attrs = activeRowId?.let { model.attrsFor(it) }
     val sel = model.activeSelection()
-    val hasSelection = sel != null && sel.second.last > sel.second.first
 
     fun markActive(kind: InlineKind): Boolean {
         val s = sel ?: return false
@@ -79,9 +75,20 @@ fun MarkdownToolbar(
         return MarkOps.hasMarkOver(model.marksFor(s.first), s.second.first, s.second.last, kind)
     }
 
-    fun toggleMark(kind: InlineKind) {
+    // Active when the range carries the mark, or — with a collapsed caret — when
+    // the mark is queued to apply to the next character typed.
+    fun markOrPendingActive(kind: InlineKind): Boolean {
+        val s = sel ?: return false
+        return if (s.second.last > s.second.first) markActive(kind)
+        else model.pendingMarkActive(s.first, s.second.first, kind)
+    }
+
+    // With a selection, toggle the mark over the range; with a collapsed caret,
+    // queue it so the next typed characters inherit it (iOS typingAttributes).
+    fun onMarkClick(kind: InlineKind) {
         val s = sel ?: return
         if (s.second.last > s.second.first) model.toggleMark(s.first, s.second, kind)
+        else model.togglePendingMark(s.first, s.second.first, kind)
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -95,7 +102,6 @@ fun MarkdownToolbar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(end = 40.dp) // leave room for the pinned dismiss button
                     .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -106,14 +112,14 @@ fun MarkdownToolbar(
                 ToolbarButton(Icons.Filled.FormatSize, "Heading", active = attrs?.kind == BlockKind.Heading) {
                     activeRowId?.let { model.cycleHeading(it) }
                 }
-                ToolbarButton(Icons.Filled.FormatBold, "Bold", active = markActive(InlineKind.Bold), enabled = hasSelection) {
-                    toggleMark(InlineKind.Bold)
+                ToolbarButton(Icons.Filled.FormatBold, "Bold", active = markOrPendingActive(InlineKind.Bold)) {
+                    onMarkClick(InlineKind.Bold)
                 }
-                ToolbarButton(Icons.Filled.FormatItalic, "Italic", active = markActive(InlineKind.Italic), enabled = hasSelection) {
-                    toggleMark(InlineKind.Italic)
+                ToolbarButton(Icons.Filled.FormatItalic, "Italic", active = markOrPendingActive(InlineKind.Italic)) {
+                    onMarkClick(InlineKind.Italic)
                 }
-                ToolbarButton(Icons.Filled.FormatStrikethrough, "Strikethrough", active = markActive(InlineKind.Strikethrough), enabled = hasSelection) {
-                    toggleMark(InlineKind.Strikethrough)
+                ToolbarButton(Icons.Filled.FormatStrikethrough, "Strikethrough", active = markOrPendingActive(InlineKind.Strikethrough)) {
+                    onMarkClick(InlineKind.Strikethrough)
                 }
                 Separator()
                 ToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", active = attrs?.listType == ListType.Bullet) {
@@ -134,13 +140,6 @@ fun MarkdownToolbar(
                 Separator()
                 ToolbarButton(Icons.Filled.Link, "Link", active = markActive(InlineKind.Link)) {
                     linkDialogOpen = true
-                }
-            }
-            // Pinned keyboard-dismiss button at the right edge.
-            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-                ToolbarButton(Icons.Filled.KeyboardHide, "Hide keyboard", active = false) {
-                    model.setFocused(null)
-                    keyboard?.hide()
                 }
             }
         }
@@ -175,7 +174,7 @@ private fun ToolbarButton(
         Icon(
             icon,
             contentDescription = label,
-            tint = if (!enabled) IconInactive.copy(alpha = 0.3f) else if (active) MdStyle.Link else IconInactive,
+            tint = if (!enabled) Color.White.copy(alpha = 0.3f) else if (active) MdStyle.Link else IconInactive,
             modifier = Modifier.size(18.dp),
         )
     }

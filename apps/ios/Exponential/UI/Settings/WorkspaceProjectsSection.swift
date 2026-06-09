@@ -4,7 +4,13 @@ import SwiftUI
 
 struct WorkspaceProjectsSection: View {
     let projects: [ProjectEntity]
+    let accountId: String
+    let projectsApi: ProjectsApi
+    let integrationsApi: IntegrationsApi
+    let installBaseURL: URL?
     let onDelete: (ProjectEntity) -> Void
+
+    @State private var repoTarget: ProjectEntity?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -39,14 +45,22 @@ struct WorkspaceProjectsSection: View {
 
                         Spacer()
 
-                        // Prefix badge
-                        Text(project.prefix)
-                            .font(.caption.monospaced())
+                        // Connect-repo affordance (installed-repos picker).
+                        Button {
+                            repoTarget = project
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                    .font(.caption2)
+                                Text(repoLabel(project))
+                                    .font(.caption.monospaced())
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .frame(maxWidth: 110, alignment: .trailing)
+                        }
+                        .buttonStyle(.plain)
 
                         // Delete button
                         Button {
@@ -63,5 +77,22 @@ struct WorkspaceProjectsSection: View {
                 }
             }
         }
+        .sheet(item: $repoTarget) { project in
+            GithubRepoPicker(
+                accountId: accountId,
+                projectId: project.id,
+                projectName: project.name,
+                currentRepo: project.githubRepo,
+                integrationsApi: integrationsApi,
+                projectsApi: projectsApi,
+                installBaseURL: installBaseURL
+            )
+            .presentationBackground(.ultraThinMaterial)
+        }
+    }
+
+    private func repoLabel(_ project: ProjectEntity) -> String {
+        if let repo = project.githubRepo, !repo.isEmpty { return repo }
+        return "Connect"
     }
 }

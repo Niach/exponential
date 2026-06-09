@@ -75,6 +75,7 @@ import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.PlanColors
@@ -118,6 +119,7 @@ fun IssueDetailScreen(
         }
     }
 
+    ProvideMarkdownToolbar {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -437,6 +439,7 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(8.dp))
             CommentThread(issueId = issue.id)
         }
+    }
     }
 
     if (statusMenuOpen && issue != null && isModerator) {

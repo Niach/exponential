@@ -17,6 +17,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -34,7 +35,12 @@ data class AuthUser(
     val isAdmin: Boolean = false,
 )
 
-data class SessionInfo(val email: String, val userId: String, val isAdmin: Boolean)
+data class SessionInfo(
+    val email: String,
+    val userId: String,
+    val isAdmin: Boolean,
+    val onboardingCompletedAt: String? = null,
+)
 
 sealed interface SignInResult {
     data class Success(val token: String, val email: String) : SignInResult
@@ -64,7 +70,7 @@ class AuthApi @Inject constructor(
             // plugin is enabled, or { user } with a Set-Cookie header. Try both.
             val parsed: SignInResponse = response.body()
             if (parsed.token != null && parsed.user != null) {
-                auth.setToken(parsed.token, parsed.user.email, parsed.user.id, parsed.user.isAdmin)
+                applyLogin(baseUrl, parsed.token, parsed.user.email, parsed.user.id, parsed.user.isAdmin)
                 return SignInResult.Success(parsed.token, parsed.user.email)
             }
 
@@ -76,7 +82,7 @@ class AuthApi @Inject constructor(
 
             if (token != null) {
                 val resolvedEmail = parsed.user?.email ?: email
-                auth.setToken(token, resolvedEmail, parsed.user?.id, parsed.user?.isAdmin == true)
+                applyLogin(baseUrl, token, resolvedEmail, parsed.user?.id, parsed.user?.isAdmin == true)
                 SignInResult.Success(token, resolvedEmail)
             } else {
                 SignInResult.Failure("Sign-in succeeded but no session token returned")
@@ -86,10 +92,40 @@ class AuthApi @Inject constructor(
         }
     }
 
+    // Set the active token together with the onboarding flag, captured from the
+    // session in the SAME step — so the onboarding nav gate never momentarily
+    // sees a stale "not onboarded" for a returning user. Falls back to the
+    // sign-in fields if the session fetch fails (a brand-new user is null anyway).
+    private suspend fun applyLogin(
+        baseUrl: String,
+        token: String,
+        email: String,
+        userId: String?,
+        isAdmin: Boolean,
+    ) {
+        // Preserve a previously-captured onboarding flag so a transient session
+        // fetch failure on re-login doesn't downgrade a returning user back to the
+        // onboarding wizard.
+        val prior = auth.accounts.value.firstOrNull { it.instanceUrl == baseUrl }?.onboardingCompletedAt
+        val info = fetchSession(baseUrl, token)
+        auth.setToken(
+            token = token,
+            email = info?.email ?: email,
+            userId = info?.userId ?: userId,
+            isAdmin = info?.isAdmin ?: isAdmin,
+            onboardingCompletedAt = info?.onboardingCompletedAt ?: prior,
+        )
+    }
+
     suspend fun fetchSession(accountId: String): SessionInfo? {
         val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return null
-        val baseUrl = account.instanceUrl
-        val token = account.token
+        return fetchSession(account.instanceUrl, account.token)
+    }
+
+    // Core session read. Takes baseUrl + token explicitly so a login flow can
+    // capture session fields (incl. onboardingCompletedAt) BEFORE persisting the
+    // token, avoiding any window where the account looks "not onboarded".
+    suspend fun fetchSession(baseUrl: String, token: String?): SessionInfo? {
         return try {
             val response = client.get("$baseUrl/api/auth/get-session") {
                 if (token != null) header("Authorization", "Bearer $token")
@@ -101,7 +137,10 @@ class AuthApi @Inject constructor(
             val email = user["email"]?.jsonPrimitive?.content ?: return null
             val id = user["id"]?.jsonPrimitive?.content ?: return null
             val isAdmin = (user["isAdmin"]?.jsonPrimitive?.booleanOrNull) ?: false
-            SessionInfo(email = email, userId = id, isAdmin = isAdmin)
+            // better-auth additionalField (type date, input:false) — returned on
+            // session reads as an ISO string or null, exactly like the web gate.
+            val onboarding = user["onboardingCompletedAt"]?.jsonPrimitive?.contentOrNull
+            SessionInfo(email = email, userId = id, isAdmin = isAdmin, onboardingCompletedAt = onboarding)
         } catch (e: Exception) {
             null
         }

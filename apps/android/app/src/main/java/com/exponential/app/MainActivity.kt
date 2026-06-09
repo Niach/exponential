@@ -87,13 +87,23 @@ class MainActivity : ComponentActivity() {
             ?.getOrNull(1)
             ?.let { android.net.Uri.decode(it) }
             ?: return
-        authRepository.setToken(token, authRepository.userEmail.value)
         lifecycleScope.launch {
-            val accountId = authRepository.activeAccountId.value ?: return@launch
-            val session = authApi.fetchSession(accountId)
-            if (session != null) {
-                authRepository.setToken(token, session.email, session.userId, session.isAdmin)
-            }
+            // Fetch the session with the new token BEFORE persisting it, so the
+            // onboarding flag lands together with the token and the nav gate never
+            // sees a returning user as "not onboarded". Falls back to a bare login
+            // if the session fetch fails.
+            val account = authRepository.accounts.value
+                .firstOrNull { it.id == authRepository.activeAccountId.value }
+            val session = account?.let { authApi.fetchSession(it.instanceUrl, token) }
+            authRepository.setToken(
+                token = token,
+                email = session?.email ?: account?.userEmail,
+                userId = session?.userId ?: account?.userId,
+                isAdmin = session?.isAdmin ?: false,
+                // Keep the prior onboarding flag if the session fetch fails so a
+                // returning user isn't bounced back into the wizard.
+                onboardingCompletedAt = session?.onboardingCompletedAt ?: account?.onboardingCompletedAt,
+            )
         }
     }
 
