@@ -2,11 +2,13 @@ import * as React from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth/client"
 import { getAuthConfig } from "@/lib/auth/config"
+import { authErrorMessage } from "@/lib/auth/error-messages"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AuthFormShell } from "@/components/auth-form-shell"
+import { PasswordInput } from "@/components/password-input"
 import {
   OAuthProviderButtons,
   useOAuthSignIn,
@@ -48,7 +50,7 @@ function LoginPage() {
       )
 
       if (error) {
-        setError(error.message || `Authentication failed`)
+        setError(authErrorMessage(error, `Couldn't sign you in. Try again.`))
       }
     } catch {
       setError(`An unexpected error occurred`)
@@ -107,9 +109,8 @@ function LoginPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="current-password"
                 required
                 value={password}

@@ -1,9 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   issueSubscribers,
   issues,
-  notifications,
   projects,
   users,
   workspaceMembers,
@@ -87,6 +86,20 @@ async function subscriberRecipients(
 // Write the in-app notification row(s) ALWAYS, and fire a push only when the
 // workspace plan allows it (the row-write is decoupled from canUsePush so the
 // inbox works on free plans; D7). Recipients are de-duped and agent-filtered.
+//
+// Idempotency: the fire-and-forget callers can run twice for one logical event
+// (e.g. concurrent comment creations fanning out to the same subscribers), and
+// `notifications` has no unique key to ON CONFLICT on. Adding one would need a
+// migration (out of scope here), so the insert dedupes in-query instead:
+// INSERT … SELECT … WHERE NOT EXISTS an identical recent row (same recipient,
+// issue, type and title within a short window). RETURNING tells us which rows
+// actually landed, so the push fan-out skips deduped recipients too. Two
+// transactions racing in the same instant can still both pass the NOT EXISTS
+// check (it can't see uncommitted rows) — a unique partial index would close
+// that residual window — but this removes the practical double-writes at
+// lowest risk.
+const NOTIFICATION_DEDUPE_WINDOW = `30 seconds`
+
 async function deliver(args: {
   issue: IssueMeta
   recipientIds: string[]
@@ -101,20 +114,32 @@ async function deliver(args: {
   const canPush = await canUsePush(args.issue.workspaceId)
   const now = new Date()
 
-  await db.insert(notifications).values(
-    recipients.map((userId) => ({
-      userId,
-      issueId: args.issue.id,
-      type: args.type,
-      title: args.title,
-      body: args.body,
-      pushedAt: canPush ? now : null,
-    }))
-  )
+  const inserted = await db.execute(sql`
+    insert into notifications (user_id, issue_id, type, title, body, pushed_at)
+    select
+      r.user_id,
+      ${args.issue.id}::uuid,
+      ${args.type}::notification_type,
+      ${args.title},
+      ${args.body},
+      ${canPush ? now : null}::timestamptz
+    from unnest(${recipients}::text[]) as r(user_id)
+    where not exists (
+      select 1
+      from notifications existing
+      where existing.user_id = r.user_id
+        and existing.issue_id = ${args.issue.id}::uuid
+        and existing.type = ${args.type}::notification_type
+        and existing.title = ${args.title}
+        and existing.created_at > now() - interval '${sql.raw(NOTIFICATION_DEDUPE_WINDOW)}'
+    )
+    returning user_id
+  `)
+  const deliveredIds = inserted.rows.map((row) => row.user_id as string)
 
   if (!canPush) return
   await Promise.all(
-    recipients.map((userId) =>
+    deliveredIds.map((userId) =>
       sendToUser(userId, {
         title: args.title,
         body: args.body ?? args.issue.title,

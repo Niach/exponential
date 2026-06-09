@@ -1,11 +1,13 @@
 import { router, authedProcedure } from "@/lib/trpc"
 import { users } from "@/db/auth-schema"
-import { getUserIdsInWorkspaces } from "@/lib/workspace-membership"
+import { getReadableUserIdsInWorkspaces } from "@/lib/workspace-membership"
 import { inArray } from "drizzle-orm"
 
 export const usersRouter = router({
   listByWorkspaceIds: authedProcedure.query(async ({ ctx }) => {
-    const userIds = await getUserIdsInWorkspaces(ctx.session.user.id)
+    // Same email-safe scoping as the users shape: only co-members of
+    // workspaces the caller actually joined (not all public workspaces).
+    const userIds = await getReadableUserIdsInWorkspaces(ctx.session.user.id)
 
     if (userIds.length === 0) {
       return { users: [] }

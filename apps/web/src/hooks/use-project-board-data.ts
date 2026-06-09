@@ -48,7 +48,7 @@ export function useProjectBoardData({
 
   const project = (projects?.[0] ?? null) as Project | null
 
-  const { data: issues } = useLiveQuery(
+  const { data: issues, isReady: issuesReady } = useLiveQuery(
     (query) =>
       project
         ? query
@@ -92,8 +92,15 @@ export function useProjectBoardData({
 
     return {
       issueLabelMap,
+      // True once the Electric issues collection delivered its first snapshot
+      // for this project — lets the list render skeletons instead of a false
+      // "no issues" empty state during initial sync.
+      issuesReady,
       labelList,
       project,
+      // Unfiltered count, so the list can tell "no issues at all" apart from
+      // "filters hide everything".
+      totalIssueCount: issueList.length,
       users,
       userMap,
       visibleGroups: buildVisibleIssueGroups(filteredIssues, filters.statuses),
@@ -103,6 +110,7 @@ export function useProjectBoardData({
     filters,
     issueLabelList,
     issueList,
+    issuesReady,
     labelList,
     project,
     userMap,

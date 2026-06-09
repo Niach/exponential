@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import {
+  Inbox,
   LogIn,
   LogOut,
   Plug,
@@ -12,6 +13,7 @@ import {
 import type { Project } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useShowWorkspaceChrome } from "@/hooks/use-workspace-data"
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
@@ -31,6 +33,33 @@ interface WorkspaceMobileTopbarProps {
   workspaceSlug: string
   projects: Project[]
   workspaceId?: string
+}
+
+// Rendered only when authed (the notifications shape is requireAuth). Mirrors
+// the sidebar's Inbox entry so mobile users see unread activity too.
+function MobileInboxButton({ workspaceSlug }: { workspaceSlug: string }) {
+  const unread = useUnreadNotificationCount()
+  return (
+    <Button
+      asChild
+      size="icon"
+      variant="ghost"
+      className="relative size-9 text-muted-foreground"
+    >
+      <Link
+        to="/w/$workspaceSlug/inbox"
+        params={{ workspaceSlug }}
+        aria-label="Inbox"
+      >
+        <Inbox className="size-5" />
+        {unread > 0 && (
+          <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-medium leading-none text-primary-foreground">
+            {unread > 99 ? `99+` : unread}
+          </span>
+        )}
+      </Link>
+    </Button>
+  )
 }
 
 export function WorkspaceMobileTopbar({
@@ -67,6 +96,7 @@ export function WorkspaceMobileTopbar({
         </div>
       )}
       <div className="ml-auto flex items-center gap-1 md:hidden">
+        {isAuthed && <MobileInboxButton workspaceSlug={workspaceSlug} />}
         {workspaceId && (
           <Button
             size="icon"

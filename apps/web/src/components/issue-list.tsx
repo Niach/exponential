@@ -5,9 +5,11 @@ import { PriorityDropdown } from "@/components/issue-properties/priority-dropdow
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
 import { DueDateDropdown } from "@/components/issue-properties/due-date-dropdown"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
+import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
-import { Plus, ChevronRight, Repeat } from "lucide-react"
+import { Plus, ChevronRight, ListTodo, Repeat, SearchX } from "lucide-react"
 import type { IssueStatus } from "@/lib/domain"
 import type { IssueGroup } from "@/lib/project-board"
 
@@ -33,6 +35,35 @@ interface IssueListProps {
   // disabled when false. Title/description/labels remain mutable by anyone
   // whose canMutateIssue is true.
   canModerate?: boolean
+  // True while the Electric issues collection is still loading its first
+  // snapshot — renders skeleton rows instead of an empty state.
+  isLoading?: boolean
+  // Distinguish "the project has no issues" from "filters hide everything".
+  hasAnyIssues?: boolean
+  hasActiveFilters?: boolean
+  onClearFilters?: () => void
+}
+
+function IssueListSkeleton() {
+  return (
+    <div data-testid="issue-list-skeleton">
+      <div className="flex items-center gap-2 pl-3 pr-3 md:pr-6 py-2 border-b border-border/50 bg-accent/20">
+        <Skeleton className="h-3.5 w-3.5 rounded-full" />
+        <Skeleton className="h-3.5 w-24" />
+      </div>
+      {Array.from({ length: 5 }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 h-12 md:h-10 px-3 md:px-6 border-b border-border/30"
+        >
+          <Skeleton className="h-4 w-4 rounded-full" />
+          <Skeleton className="hidden md:block h-3 w-14" />
+          <Skeleton className="h-4 w-4 rounded-full" />
+          <Skeleton className="h-3.5 flex-1 max-w-72" />
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function IssueList({
@@ -46,6 +77,10 @@ export function IssueList({
   canCreate = true,
   canMutateIssue,
   canModerate = true,
+  isLoading = false,
+  hasAnyIssues = false,
+  hasActiveFilters = false,
+  onClearFilters,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
@@ -63,20 +98,39 @@ export function IssueList({
   }
 
   if (visibleGroups.length === 0) {
+    if (isLoading) {
+      return <IssueListSkeleton />
+    }
+
+    if (hasAnyIssues && hasActiveFilters) {
+      return (
+        <EmptyState
+          icon={SearchX}
+          title="No issues match your filters"
+          description="Try removing some filters to see more issues."
+        >
+          {onClearFilters && (
+            <Button size="sm" variant="outline" onClick={onClearFilters}>
+              Clear filters
+            </Button>
+          )}
+        </EmptyState>
+      )
+    }
+
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground">
-        <p className="text-sm font-medium text-foreground">No issues yet</p>
-        <p className="max-w-xs text-xs">
-          Create an issue to track work — then assign it to a coding agent to
-          have it open a pull request.
-        </p>
+      <EmptyState
+        icon={ListTodo}
+        title="No issues yet"
+        description="Create an issue to track work — then assign it to a coding agent to have it open a pull request."
+      >
         {canCreate && (
           <Button size="sm" onClick={() => onNewIssue()}>
             <Plus className="mr-1.5 size-4" />
-            Create your first issue
+            New issue
           </Button>
         )}
-      </div>
+      </EmptyState>
     )
   }
 

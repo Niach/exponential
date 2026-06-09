@@ -10,6 +10,10 @@ export const Route = createFileRoute(`/api/shapes/users`)({
     handlers: {
       GET: createShapeRouteHandler({
         table: `users`,
+        // The users shape syncs FULL rows (including email), so its scope is
+        // membership-only: co-members of workspaces the caller has joined.
+        // Public-workspace viewers who aren't members get no user rows —
+        // see getReadableUserIdsInWorkspaces for the rationale.
         getWhere: async (userId) => {
           const sharedUserIds = await getReadableUserIdsInWorkspaces(userId)
           return buildWhereClause(`id`, sharedUserIds)

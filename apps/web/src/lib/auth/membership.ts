@@ -72,20 +72,32 @@ export async function getReadableProjectIds(
   return getPublicProjectIds()
 }
 
+// Resolves the user ids whose full `users` rows the caller may sync via the
+// users shape (and read via users.listByWorkspaceIds). The users table carries
+// EMAILS, so this is deliberately tighter than workspace readability: public
+// workspaces are readable by anyone, but their members' emails must not be
+// enumerable by arbitrary viewers. A caller therefore only sees users they
+// share an actual workspace_members row with — co-members of workspaces the
+// caller has JOINED (private or public) — plus themself. Anonymous callers get
+// no user rows at all; public-workspace UIs degrade gracefully (placeholder
+// avatars, raw `@email` mention text) for non-member viewers, while actual
+// members keep full mention/assignee rendering.
 export async function getReadableUserIdsInWorkspaces(
   userId: string | null
 ): Promise<string[]> {
-  if (userId) return getUserIdsInWorkspaces(userId)
-  // Anonymous callers see member identities only for public workspaces, so
-  // assignee/creator chips render.
-  const publicIds = await getPublicWorkspaceIds()
-  if (publicIds.length === 0) return []
+  if (!userId) return []
   const db = await getDb()
+  const membershipRows = await db
+    .select({ workspaceId: workspaceMembers.workspaceId })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, userId))
+  const joinedWorkspaceIds = membershipRows.map((row) => row.workspaceId)
+  if (joinedWorkspaceIds.length === 0) return [userId]
   const rows = await db
     .select({ userId: workspaceMembers.userId })
     .from(workspaceMembers)
-    .where(inArray(workspaceMembers.workspaceId, publicIds))
-  return [...new Set(rows.map((row) => row.userId))]
+    .where(inArray(workspaceMembers.workspaceId, joinedWorkspaceIds))
+  return [...new Set([userId, ...rows.map((row) => row.userId)])]
 }
 
 export async function getPublicProjectIds(): Promise<string[]> {

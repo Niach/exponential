@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import { StepProject } from "@/components/onboarding/step-project"
 import { StepFirstIssue } from "@/components/onboarding/step-first-issue"
+import { StepAgentIntro } from "@/components/onboarding/step-agent-intro"
 import { cn } from "@/lib/utils"
 
 export type StepProps = {
@@ -15,14 +16,19 @@ export type StepProps = {
   onProjectCreated?: (project: { id: string; slug: string }) => void
   onNext: () => void
   onSkip: () => void
+  // Finish the wizard straight into the "Set up coding agent" flow (used by
+  // the closing agent-intro step).
+  onSetupAgent?: () => void
 }
 
-// Onboarding milestone = "first issue created" (a low bar). Just two steps:
-// name a project, then create your first issue. Agent + GitHub setup is a
-// separate, prominent "Set up coding agent" flow (the setup checklist).
+// Onboarding milestone = "first issue created" (a low bar). Name a project,
+// create your first issue, then a closing screen that introduces the core
+// loop (issue → agent → PR). Actual agent + GitHub setup stays in the
+// separate "Set up coding agent" flow (the setup checklist).
 const STEPS = [
   { id: `project`, title: `Project`, component: StepProject },
   { id: `issue`, title: `First issue`, component: StepFirstIssue },
+  { id: `agent`, title: `Coding agent`, component: StepAgentIntro },
 ] as const
 
 export function OnboardingWizard({
@@ -41,6 +47,11 @@ export function OnboardingWizard({
   const finishWizard = async () => {
     await trpc.onboarding.complete.mutate()
     navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug } })
+  }
+
+  const finishToSetupAgent = async () => {
+    await trpc.onboarding.complete.mutate()
+    navigate({ to: `/w/$workspaceSlug/setup-agent`, params: { workspaceSlug } })
   }
 
   const handleNext = () => {
@@ -91,6 +102,7 @@ export function OnboardingWizard({
           onProjectCreated={setProject}
           onNext={handleNext}
           onSkip={handleNext}
+          onSetupAgent={() => void finishToSetupAgent()}
         />
 
         <div className="text-center">

@@ -101,9 +101,20 @@ export function LabelPicker({
         >
           <Tag className="size-3" />
           {selectedLabels.length > 0 ? (
-            <span className="max-w-[7.5rem] truncate">
-              {selectedLabels.map((l: Label) => l.name).join(`, `)}
-            </span>
+            <>
+              <span className="flex items-center -space-x-0.5">
+                {selectedLabels.slice(0, 3).map((l: Label) => (
+                  <span
+                    key={l.id}
+                    className="h-2 w-2 shrink-0 rounded-full ring-1 ring-background"
+                    style={{ backgroundColor: l.color }}
+                  />
+                ))}
+              </span>
+              <span className="max-w-[7.5rem] truncate">
+                {selectedLabels.map((l: Label) => l.name).join(`, `)}
+              </span>
+            </>
           ) : (
             `Label`
           )}

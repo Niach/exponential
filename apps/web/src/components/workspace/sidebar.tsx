@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { useLiveQuery } from "@tanstack/react-db"
 import {
   Check,
   ChevronsUpDown,
@@ -10,11 +9,12 @@ import {
   LogOut,
   Plug,
   Plus,
+  Search,
   Settings,
   Shield,
 } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
-import { notificationCollection } from "@/lib/collections"
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { getInitials } from "@/lib/utils"
@@ -25,6 +25,7 @@ import {
 } from "@/hooks/use-workspace-data"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
+import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { SetupChecklist } from "@/components/workspace/setup-checklist"
 import { FeedbackButton } from "@/components/feedback-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -55,10 +56,7 @@ import {
 // Rendered only when authed, so the per-user notifications shape (requireAuth)
 // isn't subscribed for anonymous public-workspace viewers.
 function InboxUnreadBadge() {
-  const { data: notifs } = useLiveQuery((query) =>
-    query.from({ n: notificationCollection })
-  )
-  const unread = (notifs ?? []).filter((n) => !n.readAt).length
+  const unread = useUnreadNotificationCount()
   if (unread === 0) return null
   return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
 }
@@ -78,6 +76,7 @@ export function WorkspaceSidebar({
   const navigate = useNavigate()
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const { myWorkspaces } = useWorkspaceMemberships(session?.user?.id)
   const isAuthed = Boolean(session?.user)
   // Solo users never see the "workspace" concept: no switcher, no name. The
@@ -193,19 +192,29 @@ export function WorkspaceSidebar({
         <Separator />
 
         <SidebarContent>
-          {isAuthed && (
+          {(isAuthed || workspace) && (
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <Link to="/w/$workspaceSlug/inbox" params={{ workspaceSlug }}>
-                        <Inbox className="h-4 w-4" />
-                        <span>Inbox</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    <InboxUnreadBadge />
-                  </SidebarMenuItem>
+                  {workspace && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton onClick={() => setSearchOpen(true)}>
+                        <Search className="h-4 w-4" />
+                        <span>Search</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAuthed && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link to="/w/$workspaceSlug/inbox" params={{ workspaceSlug }}>
+                          <Inbox className="h-4 w-4" />
+                          <span>Inbox</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      <InboxUnreadBadge />
+                    </SidebarMenuItem>
+                  )}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -345,6 +354,14 @@ export function WorkspaceSidebar({
         </SidebarFooter>
       </Sidebar>
 
+      {workspace && (
+        <IssueSearchSheet
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          workspaceId={workspace.id}
+          workspaceSlug={workspaceSlug}
+        />
+      )}
       {workspace && isAuthed && (
         <CreateProjectDialog
           open={createProjectOpen}

@@ -11,6 +11,7 @@ import {
   UserMinus,
 } from "lucide-react"
 import { TRPCClientError } from "@trpc/client"
+import { toast } from "sonner"
 import type { User, WorkspaceMember } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
@@ -230,14 +231,19 @@ function InviteControls({ workspaceId }: { workspaceId: string }) {
     setGenerating(true)
 
     try {
-      const { token } = await trpc.workspaceInvites.create.mutate({
-        workspaceId,
-      })
+      const { token } = await trpc.workspaceInvites.create.mutate(
+        { workspaceId },
+        // The FORBIDDEN (plan limit) case opens the upgrade dialog; the global
+        // mutation-error toast would be redundant noise on top of it.
+        { context: { skipErrorToast: true } }
+      )
 
       setInviteUrl(`${window.location.origin}/invite/${token}`)
     } catch (err) {
       if (err instanceof TRPCClientError && err.data?.code === `FORBIDDEN`) {
         setUpgradeOpen(true)
+      } else {
+        toast.error(`Couldn't create the invite`)
       }
     } finally {
       setGenerating(false)
@@ -251,6 +257,7 @@ function InviteControls({ workspaceId }: { workspaceId: string }) {
 
     await navigator.clipboard.writeText(inviteUrl)
     setCopied(true)
+    toast.success(`Invite link copied`)
 
     setTimeout(() => setCopied(false), 2000)
   }

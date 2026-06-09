@@ -1,3 +1,11 @@
+/**
+ * Quotes a value as a SQL string literal for an Electric shape `where` clause.
+ *
+ * WARNING: only pass database-derived values (ids read back from our own
+ * tables) — NEVER raw user input. Electric's where param has no server-side
+ * parameter binding, so this naive escaping is the only barrier; it handles
+ * quote doubling but is not a general-purpose SQL sanitizer.
+ */
 export function sqlStringLiteral(value: string): string {
   return `'${value.replace(/'/g, `''`)}'`
 }

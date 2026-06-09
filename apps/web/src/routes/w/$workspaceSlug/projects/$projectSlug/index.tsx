@@ -5,6 +5,7 @@ import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
+import { hasActiveFilters as filtersActive } from "@/lib/filters"
 import type { IssueFilters } from "@/lib/filters"
 import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
 import type { IssuePriority, IssueStatus } from "@/lib/domain"
@@ -122,8 +123,10 @@ function ProjectPage() {
 
   const {
     issueLabelMap,
+    issuesReady,
     labelList,
     project,
+    totalIssueCount,
     users,
     userMap,
     visibleGroups,
@@ -181,6 +184,12 @@ function ProjectPage() {
           canCreate={permissions.canCreate}
           canMutateIssue={permissions.canMutateIssue}
           canModerate={permissions.isModerator}
+          isLoading={!issuesReady}
+          hasAnyIssues={totalIssueCount > 0}
+          hasActiveFilters={filtersActive(filters)}
+          onClearFilters={() =>
+            setFilters({ statuses: [], priorities: [], labelIds: [] })
+          }
         />
       </div>
 

@@ -122,11 +122,23 @@ export const commentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
       const isAuthor = existing.authorId === ctx.session.user.id
-      if (!isAuthor && !(await isUserAdmin(ctx.session.user.id))) {
+      const isAdmin = await isUserAdmin(ctx.session.user.id)
+      if (!isAuthor && !isAdmin) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the author can edit this comment`,
         })
+      }
+      if (!isAdmin) {
+        // Authorship alone isn't enough: the author must still have comment
+        // access to the workspace (membership, or any-authed-user on a public
+        // workspace). Blocks edits by authors who since left a private
+        // workspace. Global admins keep their bypass.
+        await resolveWorkspaceAccess(
+          ctx.session.user.id,
+          existing.workspaceId,
+          `comment`
+        )
       }
 
       const result = await ctx.db.transaction(async (tx) => {
@@ -147,11 +159,21 @@ export const commentsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
       const isAuthor = existing.authorId === ctx.session.user.id
-      if (!isAuthor && !(await isUserAdmin(ctx.session.user.id))) {
+      const isAdmin = await isUserAdmin(ctx.session.user.id)
+      if (!isAuthor && !isAdmin) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the author or an admin can delete this comment`,
         })
+      }
+      if (!isAdmin) {
+        // Same workspace-access gate as update (see comment there); global
+        // admins keep their bypass.
+        await resolveWorkspaceAccess(
+          ctx.session.user.id,
+          existing.workspaceId,
+          `comment`
+        )
       }
 
       const result = await ctx.db.transaction(async (tx) => {

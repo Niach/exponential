@@ -88,6 +88,18 @@ html {
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Editor tokens without a shadcn equivalent (links + code-block syntax
+     highlighting). Defined per theme so .tiptap-* CSS stays token-driven. */
+  --link: oklch(0.5 0.18 264);
+  --hljs-comment: oklch(0.55 0.02 250);
+  --hljs-keyword: oklch(0.5 0.2 350);
+  --hljs-string: oklch(0.45 0.14 145);
+  --hljs-number: oklch(0.5 0.15 60);
+  --hljs-title: oklch(0.45 0.18 270);
+  --hljs-variable: oklch(0.4 0.08 220);
+  --hljs-tag: oklch(0.5 0.17 30);
+  --hljs-deletion: oklch(0.5 0.19 25);
+  --hljs-addition: oklch(0.5 0.15 145);
 }
 
 .dark {
@@ -122,6 +134,17 @@ html {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  /* Editor tokens (dark) — close to GitHub Dark Dimmed for the hljs palette. */
+  --link: oklch(0.65 0.15 264);
+  --hljs-comment: oklch(0.55 0 0);
+  --hljs-keyword: oklch(0.72 0.16 350);
+  --hljs-string: oklch(0.75 0.14 145);
+  --hljs-number: oklch(0.75 0.15 60);
+  --hljs-title: oklch(0.75 0.14 270);
+  --hljs-variable: oklch(0.85 0.05 220);
+  --hljs-tag: oklch(0.72 0.15 30);
+  --hljs-deletion: oklch(0.65 0.18 25);
+  --hljs-addition: oklch(0.72 0.14 145);
 }
 
 @layer base {
@@ -148,7 +171,7 @@ html {
   padding: 0.25rem 1.25rem;
   min-height: 3.5rem;
   outline: none;
-  color: oklch(0.985 0 0);
+  color: var(--foreground);
   min-width: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
@@ -213,7 +236,7 @@ html {
 
 .tiptap-content ul[data-type="taskList"] input[type="checkbox"] {
   cursor: pointer;
-  accent-color: #6366f1;
+  accent-color: var(--primary);
 }
 
 /* Mute completed task items (keeps the - [x] markdown round-trip) */
@@ -223,22 +246,23 @@ html {
 }
 
 .tiptap-content blockquote {
-  border-left: 2px solid oklch(1 0 0 / 15%);
+  border-left: 2px solid var(--border);
   padding-left: 0.75rem;
-  color: oklch(0.65 0 0);
+  color: var(--muted-foreground);
   margin: 0.25rem 0;
 }
 
 .tiptap-content code {
   font-size: 0.8rem;
-  background: oklch(1 0 0 / 8%);
+  background: var(--muted);
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .tiptap-content pre {
-  background: oklch(0.12 0 0);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.75rem 1rem;
   margin: 0.5rem 0;
@@ -252,54 +276,54 @@ html {
 }
 
 /* highlight.js token colors emitted by lowlight inside tiptap code blocks.
-   Tuned for the dark zinc palette — close to GitHub Dark Dimmed. */
+   Per-theme values live in the --hljs-* tokens defined on :root / .dark. */
 .tiptap-content pre code .hljs-comment,
 .tiptap-content pre code .hljs-quote {
-  color: oklch(0.55 0 0);
+  color: var(--hljs-comment);
   font-style: italic;
 }
 .tiptap-content pre code .hljs-keyword,
 .tiptap-content pre code .hljs-selector-tag,
 .tiptap-content pre code .hljs-literal,
 .tiptap-content pre code .hljs-meta {
-  color: oklch(0.72 0.16 350);
+  color: var(--hljs-keyword);
 }
 .tiptap-content pre code .hljs-string,
 .tiptap-content pre code .hljs-doctag,
 .tiptap-content pre code .hljs-regexp,
 .tiptap-content pre code .hljs-attr {
-  color: oklch(0.75 0.14 145);
+  color: var(--hljs-string);
 }
 .tiptap-content pre code .hljs-number,
 .tiptap-content pre code .hljs-symbol,
 .tiptap-content pre code .hljs-built_in,
 .tiptap-content pre code .hljs-bullet {
-  color: oklch(0.75 0.15 60);
+  color: var(--hljs-number);
 }
 .tiptap-content pre code .hljs-title,
 .tiptap-content pre code .hljs-section,
 .tiptap-content pre code .hljs-function,
 .tiptap-content pre code .hljs-title.function_,
 .tiptap-content pre code .hljs-title.class_ {
-  color: oklch(0.75 0.14 270);
+  color: var(--hljs-title);
 }
 .tiptap-content pre code .hljs-variable,
 .tiptap-content pre code .hljs-name,
 .tiptap-content pre code .hljs-params,
 .tiptap-content pre code .hljs-property {
-  color: oklch(0.85 0.05 220);
+  color: var(--hljs-variable);
 }
 .tiptap-content pre code .hljs-tag,
 .tiptap-content pre code .hljs-selector-class,
 .tiptap-content pre code .hljs-selector-id,
 .tiptap-content pre code .hljs-type {
-  color: oklch(0.72 0.15 30);
+  color: var(--hljs-tag);
 }
 .tiptap-content pre code .hljs-deletion {
-  color: oklch(0.65 0.18 25);
+  color: var(--hljs-deletion);
 }
 .tiptap-content pre code .hljs-addition {
-  color: oklch(0.72 0.14 145);
+  color: var(--hljs-addition);
 }
 .tiptap-content pre code .hljs-emphasis {
   font-style: italic;
@@ -310,14 +334,14 @@ html {
 
 .tiptap-content a,
 .tiptap-content .editor-link {
-  color: oklch(0.65 0.15 264);
+  color: var(--link);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
 .tiptap-content hr {
-  border-color: oklch(1 0 0 / 10%);
+  border-color: var(--border);
   margin: 0.5rem 0;
 }
 
@@ -328,7 +352,7 @@ html {
   height: auto;
   border-radius: 12px;
   margin: 0.75rem 0;
-  border: 1px solid oklch(1 0 0 / 10%);
+  border: 1px solid var(--border);
 }
 
 .tiptap-content .editor-image-node {
@@ -346,8 +370,8 @@ html {
 
 .tiptap-content .editor-image-node.is-selected .editor-image {
   box-shadow:
-    0 0 0 1px oklch(0.985 0 0 / 0.28),
-    0 0 0 4px oklch(0.68 0.12 238 / 0.16);
+    0 0 0 1px color-mix(in oklab, var(--foreground) 28%, transparent),
+    0 0 0 4px color-mix(in oklab, var(--ring) 16%, transparent);
 }
 
 .editor-image-remove {
@@ -361,15 +385,11 @@ html {
   justify-content: center;
   width: 1.75rem;
   height: 1.75rem;
-  border: 1px solid oklch(1 0 0 / 0.1);
+  border: 1px solid var(--border);
   border-radius: 9999px;
   padding: 0;
-  background: linear-gradient(
-    180deg,
-    oklch(0.24 0 0 / 0.92),
-    oklch(0.16 0 0 / 0.96)
-  );
-  color: oklch(0.92 0 0 / 0.85);
+  background: color-mix(in oklab, var(--popover) 94%, transparent);
+  color: color-mix(in oklab, var(--popover-foreground) 85%, transparent);
   line-height: 0;
   text-decoration: none;
   user-select: none;
@@ -378,7 +398,7 @@ html {
   -webkit-backdrop-filter: blur(12px);
   box-shadow:
     0 6px 18px -8px oklch(0 0 0 / 0.42),
-    inset 0 1px 0 oklch(1 0 0 / 0.08);
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent);
   opacity: 0;
   pointer-events: none;
   overflow: hidden;
@@ -404,21 +424,17 @@ html {
 }
 
 .editor-image-remove:hover {
-  color: oklch(0.985 0 0);
-  background: linear-gradient(
-    180deg,
-    oklch(0.3 0 0 / 0.95),
-    oklch(0.19 0 0 / 0.98)
-  );
-  border-color: oklch(1 0 0 / 0.16);
+  color: var(--foreground);
+  background: var(--accent);
+  border-color: color-mix(in oklab, var(--foreground) 16%, transparent);
 }
 
 .editor-image-remove:focus-visible {
   outline: none;
   box-shadow:
     0 6px 18px -8px oklch(0 0 0 / 0.42),
-    inset 0 1px 0 oklch(1 0 0 / 0.08),
-    0 0 0 2px oklch(0.68 0.12 238 / 0.3);
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent),
+    0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
 }
 
 .tiptap-content s {
@@ -430,7 +446,7 @@ html {
 .tiptap-content p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: oklch(0.45 0 0);
+  color: var(--muted-foreground);
   pointer-events: none;
   height: 0;
 }
@@ -442,13 +458,11 @@ html {
   display: flex;
   align-items: center;
   gap: 1px;
-  background: oklch(0.18 0 0);
-  border: 1px solid oklch(1 0 0 / 12%);
+  background: var(--popover);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 3px;
-  box-shadow:
-    0 4px 16px oklch(0 0 0 / 40%),
-    0 0 0 1px oklch(1 0 0 / 4%);
+  box-shadow: 0 4px 16px oklch(0 0 0 / 40%);
   animation: bubble-in 120ms ease-out;
 }
 
@@ -473,7 +487,7 @@ html {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: oklch(0.6 0 0);
+  color: var(--muted-foreground);
   cursor: pointer;
   transition:
     color 100ms,
@@ -483,20 +497,20 @@ html {
 
 .bubble-toolbar button:hover,
 .static-toolbar button:hover {
-  color: oklch(0.92 0 0);
-  background: oklch(1 0 0 / 8%);
+  color: var(--foreground);
+  background: var(--accent);
 }
 
 .bubble-toolbar button.is-active,
 .static-toolbar button.is-active {
-  color: oklch(0.985 0 0);
-  background: oklch(1 0 0 / 12%);
+  color: var(--accent-foreground);
+  background: var(--accent);
 }
 
 .bubble-separator {
   width: 1px;
   height: 16px;
-  background: oklch(1 0 0 / 10%);
+  background: var(--border);
   margin: 0 2px;
   flex-shrink: 0;
 }
@@ -509,7 +523,7 @@ html {
   flex-wrap: wrap;
   padding: 2px 1rem;
   margin-bottom: 0.125rem;
-  border-bottom: 1px solid oklch(1 0 0 / 8%);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Inline link editor (shared by both toolbars) */
@@ -522,15 +536,15 @@ html {
 .toolbar-link-input {
   width: 11rem;
   max-width: 40vw;
-  background: oklch(1 0 0 / 6%);
-  border: 1px solid oklch(1 0 0 / 15%);
+  background: var(--muted);
+  border: 1px solid var(--input);
   border-radius: 5px;
   padding: 2px 7px;
   font-size: 0.8rem;
-  color: oklch(0.985 0 0);
+  color: var(--foreground);
   outline: none;
 }
 
 .toolbar-link-input:focus {
-  border-color: oklch(0.65 0.15 264);
+  border-color: var(--ring);
 }

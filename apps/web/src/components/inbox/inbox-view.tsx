@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
   Bell,
+  CheckCircle2,
   CircleDot,
   GitPullRequest,
   MessageSquare,
@@ -10,6 +11,7 @@ import {
   UserPlus,
 } from "lucide-react"
 import type { Issue, Notification, Project } from "@/db/schema"
+import { EmptyState } from "@/components/empty-state"
 import { trpc } from "@/lib/trpc-client"
 import {
   issueCollection,
@@ -158,7 +160,11 @@ export function InboxView({
       <div className="mt-3 flex-1 space-y-2 overflow-y-auto">
         {tab === `for_me` ? (
           groups.length === 0 ? (
-            <Empty label="You're all caught up." />
+            <EmptyState
+              icon={CheckCircle2}
+              title="All caught up"
+              description="Assignments, comments and mentions on issues you follow will show up here."
+            />
           ) : (
             groups.map((g) => (
               <Link
