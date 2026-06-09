@@ -1,28 +1,76 @@
 import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import { Check, GitPullRequest, MessageSquareText, X } from "lucide-react"
+import {
+  AtSign,
+  BellRing,
+  CalendarDays,
+  Check,
+  FileText,
+  GitPullRequest,
+  Globe,
+  MessageSquareText,
+  Plug,
+  Repeat,
+  X,
+} from "lucide-react"
 import {
   cardReveal,
   staggerContainer,
 } from "../lib/animations"
+import { LINKS } from "../lib/links"
 import { IcBot, IcCopy, IcGithub, IcShield, IcZap } from "./icons"
 
 export function ValueProps() {
   const cards = [
     {
-      icon: <IcZap size={22} />,
+      icon: <IcZap size={20} />,
       title: `Real-time, everywhere`,
-      desc: `Every change syncs instantly to every client. Edits apply locally and reconcile in real time — no spinners, no stale lists.`,
+      desc: `Every change syncs instantly to all five clients. No spinners, no stale lists, no pull-to-refresh.`,
     },
     {
-      icon: <IcShield size={22} />,
-      title: `Native on every device`,
-      desc: `SwiftUI on iOS, Compose on Android. Offline-first, multi-server, live sync. Your tracker in your pocket.`,
+      icon: <FileText size={20} strokeWidth={1.8} />,
+      title: `One markdown, five clients`,
+      desc: `GFM with byte-parity across web, iOS, Android, macOS and Linux. Task lists, images and code blocks round-trip everywhere.`,
     },
     {
-      icon: <IcBot size={22} />,
-      title: `AI agents that ship`,
-      desc: `Assign an issue to Claude or Codex. They plan in comments, you approve, a PR opens on GitHub.`,
+      icon: <AtSign size={20} strokeWidth={1.8} />,
+      title: `Mentions & comments`,
+      desc: `@mention a teammate and they're notified and subscribed. Comments carry full markdown — including agent plans and questions.`,
+    },
+    {
+      icon: <BellRing size={20} strokeWidth={1.8} />,
+      title: `Inbox & push`,
+      desc: `Assignments, comments, mentions and agent events land in your inbox — and on your phone as push notifications.`,
+    },
+    {
+      icon: <Repeat size={20} strokeWidth={1.8} />,
+      title: `Recurring issues`,
+      desc: `Close a recurring issue and the next occurrence spawns itself. Daily, weekly, or monthly.`,
+    },
+    {
+      icon: <IcGithub size={20} />,
+      title: `GitHub, the App way`,
+      desc: `One issue, one branch, one PR. The GitHub App mints scoped tokens — no personal tokens to manage — and merge detection closes the loop.`,
+    },
+    {
+      icon: <CalendarDays size={20} strokeWidth={1.8} />,
+      title: `Calendar sync`,
+      desc: `Due dates appear in your Google Calendar automatically and disappear when the issue is done.`,
+    },
+    {
+      icon: <Plug size={20} strokeWidth={1.8} />,
+      title: `MCP built in`,
+      desc: `Point Claude Code, Cursor, or any MCP client at /api/mcp and let it drive issues, labels and comments.`,
+    },
+    {
+      icon: <Globe size={20} strokeWidth={1.8} />,
+      title: `Public workspaces`,
+      desc: `Open a workspace to the world — read-only or contributor mode. Perfect for public roadmaps and feedback.`,
+    },
+    {
+      icon: <IcShield size={20} />,
+      title: `Keyboard-first`,
+      desc: `Inline edits, context menus, save-on-blur. Built to keep your hands on the keys and out of modals.`,
     },
   ]
 
@@ -74,10 +122,7 @@ export function RepoCard() {
         run it on your own infrastructure.
       </p>
 
-      <a
-        className="btn btn-primary repo-cta"
-        href="https://github.com/Niach/exponential"
-      >
+      <a className="btn btn-primary repo-cta" href={LINKS.github.repo}>
         <IcGithub size={14} /> View on GitHub
       </a>
     </div>

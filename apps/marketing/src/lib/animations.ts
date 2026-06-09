@@ -44,6 +44,31 @@ export const sectionReveal = {
   transition: { duration: 0.55, ease: `easeOut` },
 } as const
 
+export const viewportOnce = { once: true, amount: 0.2 } as const
+
+/* Terminal lines appear — they never float. */
+export const termLine: Variants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { duration: 0.12 } },
+}
+
+export const glowIn: Variants = {
+  hidden: { opacity: 0, filter: `brightness(1.6)` },
+  visible: {
+    opacity: 1,
+    filter: `brightness(1)`,
+    transition: { duration: 0.5, ease: `easeOut` },
+  },
+}
+
+export const slideReveal: Variants = {
+  hidden: { clipPath: `inset(0 100% 0 0)` },
+  visible: {
+    clipPath: `inset(0 0% 0 0)`,
+    transition: { duration: 0.7, ease: `easeOut` },
+  },
+}
+
 export const timelineStep: Variants = {
   hidden: { opacity: 0, y: 16, scale: 0.97 },
   visible: {

@@ -1,0 +1,86 @@
+/* ─── Responsive ─── */
+@media (max-width: 960px) {
+  .mobile-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .mobile-stage { min-height: 620px; }
+  .agents-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .agents-stage {
+    min-height: auto;
+    padding: 8px 0;
+  }
+  .agent-stage-wrap { max-width: 100%; }
+}
+
+@media (max-width: 720px) {
+  .nav { display: none; }
+  .topbar-inner { gap: 12px; height: 52px; }
+  .topbar-right { gap: 6px; }
+  .topbar-right .btn-sm { padding: 5px 9px; font-size: 11.5px; }
+
+  section { padding: 56px 0; }
+
+  .hero { padding: 36px 0 12px; }
+  .hero-title { margin-bottom: 16px; }
+  .hero-sub { font-size: 16px; margin-bottom: 26px; }
+  .hero-cta { flex-wrap: wrap; margin-bottom: 36px; }
+
+  .preview-wrap {
+    padding: 0;
+    background: none;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    aspect-ratio: 1100 / 600;
+    container-type: inline-size;
+  }
+  .preview-wrap::before { display: none; }
+  .preview-wrap .window {
+    width: 1100px;
+    height: 600px;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+    transform-origin: top left;
+    transform: scale(calc(100cqi / 1100px));
+  }
+  .preview-wrap .ex-app { min-height: 564px; }
+
+  h2.section-title { font-size: 30px; line-height: 1.08; }
+  .section-sub { font-size: 15.5px; margin-bottom: 36px; }
+
+  .selfhost-grid { gap: 28px; }
+  .repo-card { padding: 20px; gap: 14px; }
+  .copy-cmd { font-size: 11.5px; }
+  .copy-cmd code { padding: 10px 12px; }
+  .copy-cmd .copy-btn { padding: 0 12px; }
+
+  footer { padding: 36px 0 44px; }
+  .foot-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .footer-cta { padding: 56px 0; }
+}
+
+@media (max-width: 420px) {
+  .shell { padding: 0 16px; }
+  .topbar-right .btn-ghost { display: none; }
+  .hero-cta .btn { font-size: 12.5px; padding: 7px 12px; }
+  .phone-frame {
+    width: 250px;
+    height: 530px;
+    border-radius: 38px;
+    padding: 8px;
+  }
+  .phone-screen { border-radius: 30px; }
+  .phone-island { width: 68px; height: 20px; top: 6px; }
+  .m-title { font-size: 20px; }
+  .mobile-stage { min-height: 560px; }
+}
+

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { LINKS } from "../lib/links"
 import { ExpLogo, IcArrow, IcGithub } from "./icons"
 
 export function SiteHeader() {
@@ -10,28 +11,20 @@ export function SiteHeader() {
           <span>Exponential</span>
         </a>
         <nav className="nav">
-          <a href="/#features">Features</a>
-          <a href="/#mobile">Mobile</a>
+          <a href="/#product">Product</a>
           <a href="/#agents">Agents</a>
+          <a href="/pricing/">Pricing</a>
           <a href="/docs/">Docs</a>
+          <a href="/#download">Download</a>
         </nav>
         <div className="topbar-right">
-          <a
-            className="btn btn-ghost btn-sm"
-            href="https://github.com/Niach/exponential"
-          >
+          <a className="btn btn-ghost btn-sm" href={LINKS.github.repo}>
             <IcGithub size={14} /> GitHub
           </a>
-          <a
-            className="btn btn-ghost btn-sm"
-            href="https://app.exponential.at/auth/login"
-          >
+          <a className="btn btn-ghost btn-sm" href={LINKS.app.login}>
             Sign in
           </a>
-          <a
-            className="btn btn-primary btn-sm"
-            href="https://app.exponential.at/auth/register"
-          >
+          <a className="btn btn-primary btn-sm" href={LINKS.app.register}>
             Get started free
           </a>
         </div>
@@ -40,17 +33,20 @@ export function SiteHeader() {
   )
 }
 
-export function FooterCTA() {
+export function FooterCTA({
+  title = `Go Exponential.`,
+  subtitle = `Free for individuals and teams. No credit card required.`,
+}: {
+  title?: string
+  subtitle?: string
+}) {
   return (
     <section className="footer-cta">
       <div className="shell footer-cta-inner">
-        <h2>Go Exponential.</h2>
-        <p>Free for individuals and teams. No credit card required.</p>
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
         <div className="footer-cta-buttons">
-          <a
-            className="btn btn-primary"
-            href="https://app.exponential.at/auth/register"
-          >
+          <a className="btn btn-primary" href={LINKS.app.register}>
             Sign up free <IcArrow size={12} />
           </a>
           <a className="btn btn-ghost" href="/docs/self-host/">
@@ -63,6 +59,27 @@ export function FooterCTA() {
 }
 
 export function SiteFooter() {
+  const groups = [
+    {
+      title: `Product`,
+      links: [
+        { label: `Pricing`, href: `/pricing/` },
+        { label: `Download`, href: `/#download` },
+        { label: `Docs`, href: `/docs/` },
+        { label: `Self-host`, href: `/docs/self-host/` },
+      ],
+    },
+    {
+      title: `Meta`,
+      links: [
+        { label: `Send feedback`, href: LINKS.app.feedback },
+        { label: `GitHub`, href: LINKS.github.repo },
+        { label: `Privacy`, href: `/privacy/` },
+        { label: `Terms`, href: `/terms/` },
+      ],
+    },
+  ]
+
   return (
     <footer>
       <div className="shell">
@@ -73,20 +90,20 @@ export function SiteFooter() {
             <ExpLogo size={16} />
             <span>Exponential</span>
           </span>
-          <span style={{ display: `inline-flex`, gap: 16, flexWrap: `wrap` }}>
-            <a
-              href="https://app.exponential.at/feedback"
-              style={{ color: `inherit` }}
-            >
-              Send feedback
-            </a>
-            <a href="/privacy/" style={{ color: `inherit` }}>
-              Privacy
-            </a>
-            <a href="/terms/" style={{ color: `inherit` }}>
-              Terms
-            </a>
-            <span>&copy; 2026 &mdash; Elastic License 2.0</span>
+          <span className="foot-groups">
+            {groups.map((g) => (
+              <span key={g.title} className="foot-group">
+                <span className="foot-group-title">{g.title}</span>
+                {g.links.map((l) => (
+                  <a key={l.label} href={l.href} style={{ color: `inherit` }}>
+                    {l.label}
+                  </a>
+                ))}
+              </span>
+            ))}
+            <span className="foot-legal">
+              &copy; 2026 &mdash; Elastic License 2.0
+            </span>
           </span>
         </div>
       </div>

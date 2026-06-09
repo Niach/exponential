@@ -106,24 +106,6 @@ function SparklesIcon({ size = 12 }: { size?: number }) {
   )
 }
 
-function CopyIcon({ size = 11 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x={9} y={9} width={13} height={13} rx={2} />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  )
-}
-
 const s = {
   dim: { color: `var(--fg-dim)` } as CSSProperties,
 }
@@ -287,49 +269,113 @@ export function DocsMockupAgentSettings() {
         {/* Header */}
         <div className="dm-agent-header">
           <BotIcon size={14} />
-          <span style={{ fontWeight: 600, fontSize: 13 }}>Agent Members</span>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Agents</span>
         </div>
 
-        {/* Install command */}
-        <div className="dm-agent-cmd">
-          <code>
-            npx exponential-agent --url https://app.exponenti
-          </code>
-          <span className="dm-agent-cmd-fade" />
-          <button className="dm-agent-cmd-copy" type="button">
-            <CopyIcon size={10} />
-          </button>
-        </div>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 11.5,
+            color: `var(--fg-dim)`,
+            lineHeight: 1.5,
+          }}
+        >
+          Desktop devices register here automatically when their owner signs
+          in to the desktop app.
+        </p>
 
-        {/* Create form */}
-        <div className="dm-agent-create">
-          <div className="dm-agent-input">Agent name</div>
-          <button className="dm-agent-add-btn" type="button">
-            Add agent member
-          </button>
-        </div>
-
-        {/* Existing agent */}
+        {/* Registered devices */}
         <div className="dm-agent-row">
           <span className="dm-agent-avatar">
             <SparklesIcon size={11} />
           </span>
           <span className="dm-agent-info">
             <span className="dm-agent-name">
-              Claude
+              Danny&apos;s MacBook Pro
               <span className="dm-agent-badge">agent</span>
             </span>
-            <span className="dm-agent-email">claude@agents</span>
+            <span className="dm-agent-email">claude · online</span>
           </span>
           <span className="dm-agent-meta">Last seen: just now</span>
           <span className="dm-agent-actions">
-            <button className="dm-agent-action" type="button">
-              Regenerate
-            </button>
             <button className="dm-agent-action dm-danger" type="button">
               Revoke
             </button>
           </span>
+        </div>
+        <div className="dm-agent-row">
+          <span className="dm-agent-avatar">
+            <SparklesIcon size={11} />
+          </span>
+          <span className="dm-agent-info">
+            <span className="dm-agent-name">
+              thinkpad-x1
+              <span className="dm-agent-badge">agent</span>
+            </span>
+            <span className="dm-agent-email">codex · offline</span>
+          </span>
+          <span className="dm-agent-meta">Last seen: 2h ago</span>
+          <span className="dm-agent-actions">
+            <button className="dm-agent-action dm-danger" type="button">
+              Revoke
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════
+   DocsMockupDesktopAgent — mini desktop window:
+   issue list beside the embedded ghostty terminal
+   ═══════════════════════════════════════════ */
+export function DocsMockupDesktopAgent() {
+  const lines = [
+    { cls: `tl-cmd`, text: `claude --session exp-181` },
+    { cls: `tl-dim`, text: `[exponential] EXP-181 assigned` },
+    { cls: `tl-tool`, text: `▸ Edit src/lib/webhooks.ts` },
+    { cls: `tl-tool`, text: `▸ Bash bun test` },
+    { cls: `tl-ok`, text: `  ✓ 24 tests passed` },
+    { cls: `tl-ok`, text: `✓ Opened PR niach/exponential#214` },
+  ]
+  return (
+    <div className="docs-mockup">
+      <div className="dm-desktop">
+        <div className="dm-desktop-bar">
+          <span className="dm-desktop-dots">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="dm-desktop-title">Exponential — Acme</span>
+        </div>
+        <div className="dm-desktop-body">
+          <div className="dm-desktop-side">
+            <div className="dm-desktop-side-label">Assigned to this device</div>
+            <div className="dm-desktop-issue is-active">
+              <span className="dm-row-ident">EXP-181</span>
+              <span>Add webhook events</span>
+            </div>
+            <div className="dm-desktop-issue">
+              <span className="dm-row-ident">EXP-186</span>
+              <span>Fix inbox badge count</span>
+            </div>
+            <div className="dm-desktop-issue">
+              <span className="dm-row-ident">EXP-190</span>
+              <span>Rate-limit invites</span>
+            </div>
+          </div>
+          <div className="dm-desktop-term">
+            {lines.map((l) => (
+              <div key={l.text} className={`term-line ${l.cls}`}>
+                {l.text}
+              </div>
+            ))}
+            <div className="term-line">
+              <span className="caret" aria-hidden />
+            </div>
+          </div>
         </div>
       </div>
     </div>

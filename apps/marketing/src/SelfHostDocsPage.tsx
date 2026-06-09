@@ -8,6 +8,7 @@ import {
 } from "./components/DocsLayout"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { IcDocker, IcGithub } from "./components/icons"
+import { LINKS } from "./lib/links"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `installation`, num: `01`, label: `Installation` },
@@ -22,7 +23,7 @@ export function SelfHostDocsPage() {
       <SiteHeader />
 
       <section className="docs-hero">
-        <div className="hero-grid" />
+        <div className="hero-atmos" aria-hidden />
         <div className="shell docs-hero-content fade-in">
           <span className="tag-row">
             <span className="tag-pill">Self-host docs</span>
@@ -40,10 +41,7 @@ export function SelfHostDocsPage() {
             <a className="btn btn-primary" href="#installation">
               <IcDocker size={14} /> Install
             </a>
-            <a
-              className="btn btn-ghost"
-              href="https://github.com/Niach/exponential"
-            >
+            <a className="btn btn-ghost" href={LINKS.github.repo}>
               <IcGithub size={14} /> View source
             </a>
           </div>
@@ -69,6 +67,12 @@ export function SelfHostDocsPage() {
             reverse proxy with automatic TLS). No SaaS dependencies. No
             telemetry.
           </p>
+
+          <DocsCallout kind="tip" title="No limits, ever">
+            Set <code>SELF_HOSTED=true</code> and every plan limit disappears
+            — unlimited members, projects, workspaces, and storage. Billing is
+            disabled entirely. Self-hosting is the unlimited tier.
+          </DocsCallout>
 
           <h3>1. Clone the repo</h3>
           <DocsCode language="shell">{`
@@ -150,6 +154,15 @@ bun dev
           <p>
             Open <code>http://localhost:5173</code>, register the first user
             — that's your instance.
+          </p>
+
+          <h3>Connect the apps</h3>
+          <p>
+            All native clients — iOS, Android, macOS, and Linux — work with
+            self-hosted instances out of the box. On first launch, enter your
+            instance URL instead of <code>app.exponential.at</code> and sign
+            in. The desktop apps register as workspace agents against your
+            server exactly as they do on the cloud.
           </p>
 
           <h3>Going live</h3>
@@ -272,6 +285,10 @@ PUSH_RELAY_URL=https://push.yourapp.com
             </EnvVar>
             <EnvVar name="S3_REGION">
               S3 region (default: <code>garage</code>).
+            </EnvVar>
+            <EnvVar name="SELF_HOSTED">
+              Set to <code>true</code> to disable billing and unlock all plan
+              limits (unlimited members, projects, storage).
             </EnvVar>
             <EnvVar name="AUTH_PASSWORD_ENABLED">
               Enable email/password login (default: <code>true</code>).
