@@ -39,6 +39,8 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.WorkspaceEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.ProjectRow
@@ -66,20 +68,24 @@ class ShareTargetPickerViewModel @Inject constructor(
     selection: WorkspaceSelection,
 ) : ViewModel() {
 
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
-    private val recentProjectId = selection.lastProject(accountId)
+    // Reactive account scoping (no constructor-time DB snapshot).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
 
     val state: StateFlow<ShareTargetState> = combine(
-        db.workspaceDao().observeAll(),
-        db.projectDao().observeAll(),
-    ) { workspaces, projects ->
+        dbFlow.scopedQuery(emptyList()) { it.workspaceDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        auth.activeAccountId,
+    ) { workspaces, projects, accountId ->
         val byWorkspace = projects.groupBy { it.workspaceId }
         val groups = workspaces.mapNotNull { ws ->
             val ps = byWorkspace[ws.id].orEmpty()
             if (ps.isEmpty()) null else WorkspaceProjects(ws, ps)
         }
-        ShareTargetState(groups = groups, recentProjectId = recentProjectId, isLoading = false)
+        ShareTargetState(
+            groups = groups,
+            recentProjectId = accountId?.let { selection.lastProject(it) },
+            isLoading = false,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareTargetState())
 }
 

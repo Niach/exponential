@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -243,7 +244,8 @@ fun IssueListScreen(
     }
 }
 
-// Circular glass icon button (iOS .ultraThinMaterial nav circle).
+// Circular glass icon button (iOS .ultraThinMaterial nav circle) — same fill +
+// hairline stroke combination as Modifier.glassRow, just on a circle.
 @Composable
 private fun CircleIconButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
     Box(
@@ -251,6 +253,7 @@ private fun CircleIconButton(icon: ImageVector, contentDescription: String, onCl
             .size(38.dp)
             .clip(CircleShape)
             .background(GlassTokens.RowFill, CircleShape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeRow, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

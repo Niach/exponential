@@ -10,6 +10,9 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.ui.markdown.stripDraftImages
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,30 +44,33 @@ class CommentThreadViewModel @Inject constructor(
     private val appContext: android.content.Context,
 ) : ViewModel() {
 
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
+    // Reactive account scoping: all queries re-scope on account switch (no
+    // constructor-time DB snapshot).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
 
     private val issueIdFlow = MutableStateFlow<String?>(null)
 
     // Comments + activity events pre-combined into one flow so the outer combine
     // stays within the 5-arg typed overload.
-    private val commentsAndEvents = issueIdFlow.flatMapLatest { id ->
-        if (id == null) {
-            flowOf(emptyList<CommentEntity>() to emptyList<IssueEventEntity>())
-        } else {
-            combine(
-                db.commentDao().observeByIssue(id),
-                db.issueEventDao().observeByIssue(id),
-            ) { comments, events -> comments to events }
+    private val commentsAndEvents = combine(dbFlow, issueIdFlow) { db, id -> db to id }
+        .flatMapLatest { (db, id) ->
+            if (db == null || id == null) {
+                flowOf(emptyList<CommentEntity>() to emptyList<IssueEventEntity>())
+            } else {
+                combine(
+                    db.commentDao().observeByIssue(id),
+                    db.issueEventDao().observeByIssue(id),
+                ) { comments, events -> comments to events }
+            }
         }
-    }
 
     val state: StateFlow<CommentThreadState> = combine(
-        issueIdFlow.flatMapLatest { id ->
-            if (id == null) flowOf(null) else db.issueDao().observeById(id)
-        },
+        combine(dbFlow, issueIdFlow) { db, id -> db to id }
+            .flatMapLatest { (db, id) ->
+                if (db == null || id == null) flowOf(null) else db.issueDao().observeById(id)
+            },
         commentsAndEvents,
-        db.userDao().observeAll(),
+        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
         auth.userId,
         auth.isAdmin,
     ) { issue, (comments, events), users, userId, isAdmin ->
@@ -85,12 +91,17 @@ class CommentThreadViewModel @Inject constructor(
     suspend fun createComment(text: String) {
         val issueId = issueIdFlow.value ?: return
         val accountId = auth.activeAccountId.value ?: return
-        runCatching { commentsApi.create(accountId, issueId, text) }
+        // Never persist `draft://` placeholders from in-flight/failed uploads.
+        val sanitized = stripDraftImages(text).trim()
+        if (sanitized.isEmpty()) return
+        runCatching { commentsApi.create(accountId, issueId, sanitized) }
     }
 
     suspend fun updateComment(id: String, text: String) {
         val accountId = auth.activeAccountId.value ?: return
-        runCatching { commentsApi.update(accountId, id, text) }
+        val sanitized = stripDraftImages(text).trim()
+        if (sanitized.isEmpty()) return
+        runCatching { commentsApi.update(accountId, id, sanitized) }
     }
 
     suspend fun deleteComment(id: String) {

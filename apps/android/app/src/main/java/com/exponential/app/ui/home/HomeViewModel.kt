@@ -17,6 +17,8 @@ import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.ServerProjectGroup
 import com.exponential.app.data.db.ServerWorkspaceGroup
 import com.exponential.app.data.db.WorkspaceEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -60,14 +62,17 @@ class HomeViewModel @Inject constructor(
     private val multiAccountProjects: MultiAccountProjectRepository,
 ) : ViewModel() {
 
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
+    // Reactive account scoping: all queries re-scope on account switch (no
+    // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private val workspacesFlow = db.workspaceDao().observeAll()
+    private val workspacesFlow = dbFlow.scopedQuery(emptyList()) { it.workspaceDao().observeAll() }
 
-    private val projectsFlow = selection.selectedId.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else db.projectDao().observeByWorkspace(id)
-    }
+    private val projectsFlow = combine(dbFlow, selection.selectedId) { db, id -> db to id }
+        .flatMapLatest { (db, id) ->
+            if (db == null || id == null) flowOf(emptyList())
+            else db.projectDao().observeByWorkspace(id)
+        }
 
     private val _syncing = MutableStateFlow(false)
 
@@ -119,7 +124,7 @@ class HomeViewModel @Inject constructor(
             try {
                 val accountId = auth.activeAccountId.value ?: return@launch
                 val workspace = workspacesApi.ensureDefault(accountId)
-                db.workspaceDao().upsert(workspace)
+                holder.database(forAccountId = accountId).workspaceDao().upsert(workspace)
                 if (selection.selectedId.value == null) selection.select(workspace.id)
                 _error.value = null
             } catch (error: Throwable) {
@@ -141,17 +146,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /// Project tap from the cross-server Home tree. Returns whether the
-    /// caller can navigate immediately (same-server) or should wait for the
-    /// activeAccountId-keyed rebuild + `pendingProjectId` consumption to do
-    /// it for them (cross-server).
-    fun onProjectTap(accountId: String, projectId: String): Boolean {
-        return if (accountId == auth.activeAccountId.value) {
-            true
-        } else {
-            selection.setPendingProject(projectId)
+    /// Project tap from the cross-server Home tree. Makes the tapped project's
+    /// account active (a no-op for same-server taps); the caller navigates
+    /// immediately afterwards — feature ViewModels scope to the active account
+    /// reactively, so no rebuild/pending-handoff dance is needed.
+    fun onProjectTap(accountId: String) {
+        if (accountId != auth.activeAccountId.value) {
             auth.switchAccount(accountId)
-            false
         }
     }
 

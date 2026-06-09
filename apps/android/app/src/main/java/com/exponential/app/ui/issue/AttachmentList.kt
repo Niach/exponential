@@ -35,6 +35,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -42,6 +43,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -138,14 +140,17 @@ class AttachmentListViewModel @Inject constructor(
     private val holder: DatabaseHolder,
     private val auth: AuthRepository,
 ) : ViewModel() {
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
+    // Reactive account scoping (no constructor-time DB snapshot).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
 
     private val issueIdFlow = MutableStateFlow<String?>(null)
 
-    val attachments: StateFlow<List<AttachmentEntity>> = issueIdFlow.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else db.attachmentDao().observeByIssue(id)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val attachments: StateFlow<List<AttachmentEntity>> =
+        combine(dbFlow, issueIdFlow) { db, id -> db to id }
+            .flatMapLatest { (db, id) ->
+                if (db == null || id == null) flowOf(emptyList()) else db.attachmentDao().observeByIssue(id)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun bind(issueId: String) {
         issueIdFlow.value = issueId

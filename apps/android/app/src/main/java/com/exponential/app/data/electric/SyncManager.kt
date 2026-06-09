@@ -80,6 +80,13 @@ class SyncManager @Inject constructor(
 
     // MARK: - Reconciliation
 
+    // Keyed to the SET of signed-in accounts, not the active account: rapid
+    // account switches don't churn pipelines at all (every signed-in account
+    // keeps syncing in the background). UI account scoping is reactive
+    // (accountDatabaseFlow), so there is no rebuild race to coordinate with.
+    // Sign-out cleanup still works through two redundant paths: signOut()
+    // cancels the pipeline directly, and the accounts collector in start()
+    // sees the token disappear and reconciles (both are idempotent).
     private fun reconcile(signedIn: Set<String>) {
         synchronized(lock) {
             val running = pipelines.keys.toSet()

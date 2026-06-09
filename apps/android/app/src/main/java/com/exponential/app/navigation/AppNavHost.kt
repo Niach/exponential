@@ -7,11 +7,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -52,9 +51,9 @@ fun AppNavHost() {
     val viewModel: AppViewModel = hiltViewModel()
     val deepLinkBus = applicationDeepLinkBus()
     val workspaceSelection = applicationWorkspaceSelection()
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val navController = rememberNavController()
-    val pendingTarget by deepLinkBus.target.collectAsState()
+    val pendingTarget by deepLinkBus.target.collectAsStateWithLifecycle()
 
     val startDestination = when {
         state.instanceUrl == null -> "instance"
@@ -95,7 +94,8 @@ fun AppNavHost() {
     // Gate the authenticated graph on onboarding: a brand-new user (no
     // onboardingCompletedAt on the active account, captured from the session at
     // login) starts in the wizard. Persisted, so it resolves synchronously at
-    // startup; the key(activeAccountId) rebuild re-evaluates it per account.
+    // startup; AuthenticatedNav re-routes to the wizard if an account switch
+    // lands on a not-yet-onboarded account.
     val activeAccount = state.accounts.firstOrNull { it.id == state.activeAccountId }
     val needsOnboarding = activeAccount?.onboardingCompletedAt == null
 
@@ -124,19 +124,17 @@ fun AppNavHost() {
                 cloudAlreadyAdded = cloudAlreadyAdded,
             )
         } else {
-            // Account scoping is still a constructor-time snapshot in the
-            // feature ViewModels, so a `key` rebuild on account switch keeps
-            // the stack pointing at the freshly-scoped DB. (Slated to be
-            // replaced by reactive scoping in a later phase.)
-            key(state.activeAccountId) {
-                AuthenticatedNav(
-                    navController = navController,
-                    cloudAlreadyAdded = cloudAlreadyAdded,
-                    activeAccountId = state.activeAccountId,
-                    needsOnboarding = needsOnboarding,
-                    onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
-                )
-            }
+            // Feature ViewModels scope to the active account reactively
+            // (accountDatabaseFlow + flatMapLatest), so an account switch
+            // re-scopes every live screen in place — no key(activeAccountId)
+            // rebuild, no pending-handoff flags.
+            AuthenticatedNav(
+                navController = navController,
+                cloudAlreadyAdded = cloudAlreadyAdded,
+                activeAccountId = state.activeAccountId,
+                needsOnboarding = needsOnboarding,
+                onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
+            )
         }
         }
     }
@@ -181,23 +179,16 @@ private fun AuthenticatedNav(
 ) {
     val workspaceSelection = applicationWorkspaceSelection()
 
-    // Consume a cross-server project tap that was pre-set before the
-    // `key(activeAccountId)` rebuild (HomeViewModel.onProjectTap), then push.
-    val pendingProjectId by workspaceSelection.pendingProjectId.collectAsState()
-    LaunchedEffect(pendingProjectId) {
-        pendingProjectId?.let { projectId ->
-            workspaceSelection.consumePendingProject()
-            navController.navigate("project/$projectId") { launchSingleTop = true }
-        }
-    }
-    // Same handoff for a Settings -> Workspaces tap on a workspace that lives
-    // on a different server.
-    val pendingWorkspaceSettings by workspaceSelection.pendingWorkspaceSettings.collectAsState()
-    LaunchedEffect(pendingWorkspaceSettings) {
-        if (pendingWorkspaceSettings) {
-            workspaceSelection.consumePendingWorkspaceSettings()
-            navController.navigate("settings")
-            navController.navigate("workspace-settings") { launchSingleTop = true }
+    // NavHost only evaluates startDestination once, so an account switch onto a
+    // not-yet-onboarded account (possible when a login was killed mid-wizard)
+    // must re-route explicitly. launchSingleTop makes this a no-op when the
+    // wizard is already showing (e.g. right after a fresh login).
+    LaunchedEffect(needsOnboarding) {
+        if (needsOnboarding) {
+            navController.navigate("onboarding") {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
         }
     }
 
@@ -308,7 +299,11 @@ private fun AuthenticatedNav(
             )
         }
         composable("project/{projectId}/new") {
-            val pendingShare by workspaceSelection.pendingShare.collectAsState()
+            // The pending share lives in the WorkspaceSelection singleton (not
+            // route state), so backing out of this screen and re-entering
+            // re-fills the form. The screen consumes it exactly once — on a
+            // successful create or an explicit discard.
+            val pendingShare by workspaceSelection.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             CreateIssueScreen(
                 onBack = { navController.popBackStack() },

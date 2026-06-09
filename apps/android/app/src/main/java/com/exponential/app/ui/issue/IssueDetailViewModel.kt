@@ -17,10 +17,13 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkspacePermissions
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
+import com.exponential.app.ui.markdown.stripDraftImages
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -62,20 +65,29 @@ class IssueDetailViewModel @Inject constructor(
 ) : ViewModel() {
 
     val issueId: String = savedStateHandle["issueId"] ?: ""
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
 
-    private val issueFlow = db.issueDao().observeById(issueId)
+    // Account scoping is reactive: every query chain hangs off the active
+    // account's DB flow, so an account switch re-scopes all live data without
+    // the nav shell rebuilding this ViewModel.
+    private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    private val issueFlow = dbFlow.scopedQuery<IssueEntity?>(null) { it.issueDao().observeById(issueId) }
     private val _project = MutableStateFlow<ProjectEntity?>(null)
-    private val workspaceLabelsFlow = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(project.workspaceId)
-    }
-    private val workspaceForProject = _project.flatMapLatest { project ->
-        if (project == null) flowOf(null) else db.workspaceDao().observeById(project.workspaceId)
-    }
-    private val membersForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
-    }
+    private val workspaceLabelsFlow = combine(dbFlow, _project) { db, project -> db to project }
+        .flatMapLatest { (db, project) ->
+            if (db == null || project == null) flowOf(emptyList())
+            else db.labelDao().observeByWorkspace(project.workspaceId)
+        }
+    private val workspaceForProject = combine(dbFlow, _project) { db, project -> db to project }
+        .flatMapLatest { (db, project) ->
+            if (db == null || project == null) flowOf(null)
+            else db.workspaceDao().observeById(project.workspaceId)
+        }
+    private val membersForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
+        .flatMapLatest { (db, project) ->
+            if (db == null || project == null) flowOf(emptyList())
+            else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
+        }
 
     val permissions: StateFlow<WorkspacePermissions> = combine(
         workspaceForProject,
@@ -96,8 +108,8 @@ class IssueDetailViewModel @Inject constructor(
         issueFlow,
         _project,
         workspaceLabelsFlow,
-        db.issueLabelDao().observeByIssue(issueId),
-        db.userDao().observeAll(),
+        dbFlow.scopedQuery(emptyList()) { it.issueLabelDao().observeByIssue(issueId) },
+        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
     ) { issue, project, allLabels, joins, users ->
         val labelsById = allLabels.associateBy { it.id }
         IssueDetailState(
@@ -113,7 +125,7 @@ class IssueDetailViewModel @Inject constructor(
     // Subscription state (separate StateFlow — the main combine is at the 5-arg
     // typed cap). Drives the Bell/BellOff toggle in the detail top bar.
     val isSubscribed: StateFlow<Boolean> = combine(
-        db.issueSubscriberDao().observeByIssue(issueId),
+        dbFlow.scopedQuery(emptyList()) { it.issueSubscriberDao().observeByIssue(issueId) },
         auth.userId,
     ) { subs, userId ->
         userId != null && subs.any { it.userId == userId && !it.unsubscribed }
@@ -137,9 +149,9 @@ class IssueDetailViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            issueFlow
-                .flatMapLatest { issue ->
-                    if (issue == null) flowOf(null)
+            combine(dbFlow, issueFlow) { db, issue -> db to issue }
+                .flatMapLatest { (db, issue) ->
+                    if (db == null || issue == null) flowOf(null)
                     else db.projectDao().observeAll().map { projects ->
                         projects.firstOrNull { it.id == issue.projectId }
                     }
@@ -176,12 +188,16 @@ class IssueDetailViewModel @Inject constructor(
 
     private suspend fun saveDescription(text: String) {
         val accountId = auth.activeAccountId.value ?: return
+        // Never persist `draft://` placeholders: while an image upload is in
+        // flight (or failed, awaiting retry) the editor's markdown contains
+        // them; the editor emits the final markdown once the upload resolves.
+        val sanitized = stripDraftImages(text)
         // Skip no-op saves (debounce can fire with the already-persisted value).
-        if (text == extractDescriptionMarkdown(state.value.issue?.description)) return
+        if (sanitized == extractDescriptionMarkdown(state.value.issue?.description)) return
         runCatching {
             issuesApi.update(
                 accountId,
-                UpdateIssueInput(id = issueId, description = text)
+                UpdateIssueInput(id = issueId, description = sanitized)
             )
         }
     }
@@ -300,5 +316,8 @@ class IssueDetailViewModel @Inject constructor(
     }.getOrNull()
 
     // Changed files for this issue's PR (live GitHub fetch via the server).
-    suspend fun loadPrFiles(): List<PullFile> = prFilesApi.get(accountId, issueId).files
+    suspend fun loadPrFiles(): List<PullFile> {
+        val accountId = auth.activeAccountId.value ?: return emptyList()
+        return prFilesApi.get(accountId, issueId).files
+    }
 }

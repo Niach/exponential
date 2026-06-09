@@ -13,6 +13,17 @@ fun isDraftUrl(url: String): Boolean = url.startsWith("draft://")
 fun hasDraftImages(markdown: String): Boolean =
     MARKDOWN_IMAGE_REGEX.findAll(markdown).any { isDraftUrl(it.groupValues[2]) }
 
+/**
+ * Drop every still-unuploaded `draft://` image reference. Used by save/send
+ * paths so an in-flight or failed upload never leaks a draft placeholder into
+ * a persisted description/comment (the editor keeps the row + bytes around for
+ * retry regardless).
+ */
+fun stripDraftImages(markdown: String): String =
+    MARKDOWN_IMAGE_REGEX.replace(markdown) { match ->
+        if (isDraftUrl(match.groupValues[2])) "" else match.value
+    }
+
 /** Drop image references whose URL is in `urls`. */
 fun removeMarkdownImagesByUrl(markdown: String, urls: Collection<String>): String {
     if (urls.isEmpty()) return markdown

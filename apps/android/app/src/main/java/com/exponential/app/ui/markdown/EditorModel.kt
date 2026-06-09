@@ -86,6 +86,7 @@ class EditorModel {
     fun load(markdown: String) {
         pendingImages.clear()
         uploadStates.clear()
+        uploaders.clear()
         rows = EditorRows.fromBlocks(MarkdownParser.parse(markdown))
         bumpAll()
         // Baseline against the DERIVED markdown — the round-trip is not
@@ -257,6 +258,7 @@ class EditorModel {
                 // Delete the image above, then merge this para into the para above it.
                 dropPendingDraft(prev)
                 uploadStates.remove(prev.id)
+                uploaders.remove(prev.id)
                 val prevPrevIdx = idx - 2
                 val next = rows.toMutableList()
                 if (prevPrevIdx >= 0 && next[prevPrevIdx] is EditorRow.Para) {
@@ -429,21 +431,20 @@ class EditorModel {
 
     // -- Images -----------------------------------------------------------------
 
-    fun insertImage(image: PendingImage) {
+    fun insertImage(image: PendingImage): String =
         doInsertImage(url = draftUrl(), alt = "image", pending = image)
-    }
 
     /**
      * Insert an image with a caller-supplied URL (real `/api/attachments/...` or a
      * `draft://` placeholder), preserving the existing `onUploadImage` contract.
      * A non-null [pending] supplies in-memory bytes so the tile previews before /
-     * during the host's own upload.
+     * during the host's own upload. Returns the inserted row's id (for
+     * [runUpload] / [retryUpload]).
      */
-    fun insertImageUrl(url: String, alt: String = "image", pending: PendingImage? = null) {
+    fun insertImageUrl(url: String, alt: String = "image", pending: PendingImage? = null): String =
         doInsertImage(url = url, alt = alt, pending = pending)
-    }
 
-    private fun doInsertImage(url: String, alt: String, pending: PendingImage?) {
+    private fun doInsertImage(url: String, alt: String, pending: PendingImage?): String {
         if (pending != null) pendingImages[url] = pending
         val imageRow = EditorRow.Image(url = url, alt = alt)
 
@@ -462,7 +463,7 @@ class EditorModel {
             focusedRowId = after.id
             desiredSelection = after.id to 0
             notifyEdit()
-            return
+            return imageRow.id
         }
 
         val caret = (selection?.takeIf { it.first == targetRow.id }?.second?.first ?: targetRow.text.length)
@@ -486,6 +487,51 @@ class EditorModel {
         focusedRowId = after.id
         desiredSelection = after.id to 0
         notifyEdit()
+        return imageRow.id
+    }
+
+    // Host-supplied upload per image row, kept around while the upload can
+    // still fail so the Failed overlay's Retry can re-invoke it.
+    private val uploaders = mutableMapOf<String, suspend () -> String?>()
+
+    /**
+     * Run the host [upload] for an inserted image row: marks it Uploading, swaps
+     * the row's URL (and preview-bytes key) to the returned URL on success, and
+     * marks it Failed on error — the failed row keeps its bytes + uploader so
+     * [retryUpload] can try again. Mirrors the iOS editor's per-block upload
+     * lifecycle.
+     */
+    suspend fun runUpload(rowId: String, upload: suspend () -> String?) {
+        if (rows.none { it.id == rowId }) return
+        uploaders[rowId] = upload
+        uploadStates[rowId] = ImageUploadState.Uploading
+        val newUrl = runCatching { upload() }.getOrNull()
+        val current = rows.firstOrNull { it.id == rowId } as? EditorRow.Image
+        if (current == null) {
+            // Row was deleted while the upload ran — drop all tracking.
+            uploaders.remove(rowId)
+            uploadStates.remove(rowId)
+            return
+        }
+        if (newUrl == null) {
+            uploadStates[rowId] = ImageUploadState.Failed
+            return
+        }
+        if (newUrl != current.url) {
+            // Keep the local preview bytes under the new key so the tile keeps
+            // rendering without waiting on a network fetch.
+            pendingImages.remove(current.url)?.let { pendingImages[newUrl] = it }
+            setImageUrl(rowId, newUrl)
+        }
+        uploaders.remove(rowId)
+        uploadStates[rowId] = ImageUploadState.Idle
+        notifyEdit()
+    }
+
+    /** Re-run a failed upload (no-op unless the row still has a registered uploader). */
+    suspend fun retryUpload(rowId: String) {
+        val upload = uploaders[rowId] ?: return
+        runUpload(rowId, upload)
     }
 
     fun deleteImageRow(rowId: String) {
@@ -494,6 +540,7 @@ class EditorModel {
         val img = rows[idx] as? EditorRow.Image ?: return
         dropPendingDraft(img)
         uploadStates.remove(img.id)
+        uploaders.remove(img.id)
 
         val prevIdx = idx - 1
         val nextIdx = idx + 1
@@ -572,6 +619,7 @@ class EditorModel {
             val r = next[i]
             if (r is EditorRow.Image && isDraftUrl(r.url) && pendingImages[r.url] == null) {
                 uploadStates.remove(r.id)
+                uploaders.remove(r.id)
                 next.removeAt(i)
                 changed = true
             }

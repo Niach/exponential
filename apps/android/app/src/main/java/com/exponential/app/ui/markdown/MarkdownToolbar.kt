@@ -198,6 +198,7 @@ private fun InsertLinkDialog(
 ) {
     var text by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
+    val urlValid = isValidLinkUrl(url)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Insert link") },
@@ -215,12 +216,31 @@ private fun InsertLinkDialog(
                     onValueChange = { url = it },
                     label = { Text("URL") },
                     singleLine = true,
+                    isError = url.isNotBlank() && !urlValid,
+                    supportingText = if (url.isNotBlank() && !urlValid) {
+                        { Text("Enter a valid http(s) URL") }
+                    } else {
+                        null
+                    },
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onInsert(text, url) }, enabled = url.isNotBlank()) { Text("Insert") }
+            TextButton(onClick = { onInsert(text, url.trim()) }, enabled = urlValid) { Text("Insert") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+// Basic URL sanity check before enabling Insert: no whitespace, parses as a
+// http(s) URI with a non-empty host (the caller still prepends https:// for
+// scheme-less input like "example.com").
+private fun isValidLinkUrl(raw: String): Boolean {
+    val candidate = raw.trim()
+    if (candidate.isEmpty() || candidate.any { it.isWhitespace() }) return false
+    val normalized = if (candidate.contains("://")) candidate else "https://$candidate"
+    val uri = runCatching { java.net.URI(normalized) }.getOrNull() ?: return false
+    val scheme = uri.scheme?.lowercase()
+    val host = uri.host ?: return false
+    return (scheme == "http" || scheme == "https") && (host.contains(".") || host == "localhost")
 }

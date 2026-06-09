@@ -107,11 +107,22 @@ fun MarkdownEditor(
             val mime = MarkdownMediaUtils.guessMimeType(context, uri)
             val name = MarkdownMediaUtils.guessFilename(context, uri)
             val size = MarkdownMediaUtils.probeSize(context, uri)
-            val url = runCatching { uploader(uri) }.getOrNull() ?: return@launch
-            val pending = if (bytes != null) {
-                PendingImage(uri, bytes, name, mime, size.width, size.height)
-            } else null
-            model.insertImageUrl(url, alt = "image", pending = pending)
+            if (bytes == null) {
+                // No preview bytes — fall back to upload-then-insert (nothing to
+                // show while the upload runs).
+                val url = runCatching { uploader(uri) }.getOrNull() ?: return@launch
+                model.insertImageUrl(url, alt = "image")
+                return@launch
+            }
+            // Insert the block immediately (local preview), then run the host
+            // upload through the model so the tile shows an uploading overlay
+            // and, on failure, a Retry/remove affordance (iOS editor parity).
+            // The host uploader returns either a real /api/attachments/... URL
+            // (eager upload) or a draft:// placeholder (deferred upload at
+            // create time); either way the row's URL is swapped on success.
+            val pending = PendingImage(uri, bytes, name, mime, size.width, size.height)
+            val rowId = model.insertImageUrl(draftUrl(), alt = "image", pending = pending)
+            model.runUpload(rowId) { uploader(uri) }
         }
     }
 

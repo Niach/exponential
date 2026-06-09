@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -36,7 +37,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -112,16 +112,32 @@ fun CreateIssueScreen(
     val users = state.users
     val assigneeUser = users.firstOrNull { it.id == assigneeId }
     val isCreating = state.isCreating
+    var confirmDiscard by remember { mutableStateOf(false) }
 
-    // Consume the share prefill once so backing out and re-entering doesn't
-    // re-populate the form.
-    LaunchedEffect(sharePrefill) {
-        if (sharePrefill != null) onSharePrefillConsumed()
+    // Anything worth a "discard?" prompt: typed/prefilled content or images
+    // queued for upload.
+    val hasUnsavedContent = title.isNotBlank() || description.isNotBlank() || pendingImages.isNotEmpty()
+
+    // The share prefill is NOT consumed on entry: it lives in an app-singleton
+    // (WorkspaceSelection.pendingShare), so backing out and re-entering re-fills
+    // the form. It's consumed exactly once — on a successful create (below) or
+    // an explicit discard.
+    fun close(discarding: Boolean) {
+        if (discarding && sharePrefill != null) onSharePrefillConsumed()
+        onBack()
     }
 
-    // Don't let system-back cancel an in-flight create (it would cancel the
-    // route's ViewModel scope mid-request); the toolbar Cancel is disabled too.
-    BackHandler(enabled = isCreating) {}
+    fun attemptClose() {
+        if (isCreating) return
+        if (hasUnsavedContent) confirmDiscard = true else close(discarding = false)
+    }
+
+    // System back: blocked while a create is in flight (it would cancel the
+    // route's ViewModel scope mid-request), and gated behind a discard
+    // confirmation while the form holds unsaved content.
+    BackHandler(enabled = isCreating || hasUnsavedContent) {
+        if (!isCreating) confirmDiscard = true
+    }
 
     val scope = rememberCoroutineScope()
     fun submit() {
@@ -143,6 +159,9 @@ fun CreateIssueScreen(
                 pendingImages = pendingImages.toMap(),
             )
             if (ok) {
+                // The share prefill (if any) made it into this issue — consume
+                // it now so it can't prefill another create.
+                if (sharePrefill != null) onSharePrefillConsumed()
                 if (createMore) {
                     title = ""
                     description = ""
@@ -160,7 +179,7 @@ fun CreateIssueScreen(
                 CenterAlignedTopAppBar(
                     title = { Text("New Issue") },
                     navigationIcon = {
-                        IconButton(onClick = onBack, enabled = !isCreating) {
+                        IconButton(onClick = ::attemptClose, enabled = !isCreating) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
                         }
                     },
@@ -375,6 +394,25 @@ fun CreateIssueScreen(
                 recurrenceSheetOpen = false
             },
             onDismiss = { recurrenceSheetOpen = false },
+        )
+    }
+
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text("Discard this issue?") },
+            text = { Text("Your title, description and attached images will be lost.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDiscard = false
+                    close(discarding = true)
+                }) {
+                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") }
+            },
         )
     }
 }

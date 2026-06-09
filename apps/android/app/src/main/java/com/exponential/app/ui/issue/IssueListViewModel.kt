@@ -14,6 +14,8 @@ import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
@@ -83,8 +85,10 @@ class IssueListViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val projectId: String = savedStateHandle["projectId"] ?: ""
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
+
+    // Reactive account scoping: all queries re-scope on account switch (no
+    // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
 
     private val _filters = MutableStateFlow(IssueFilters())
     val filters: StateFlow<IssueFilters> = _filters
@@ -104,18 +108,26 @@ class IssueListViewModel @Inject constructor(
         .debounce(250)
         .distinctUntilChanged()
 
-    private val labelsForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(project.workspaceId)
-    }
-    private val issueLabelsForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else db.issueLabelDao().observeByWorkspace(project.workspaceId)
-    }
-    private val workspaceForProject = _project.flatMapLatest { project ->
-        if (project == null) flowOf(null) else db.workspaceDao().observeById(project.workspaceId)
-    }
-    private val membersForWorkspace = _project.flatMapLatest { project ->
-        if (project == null) flowOf(emptyList()) else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
-    }
+    private val labelsForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
+        .flatMapLatest { (db, project) ->
+            if (db == null || project == null) flowOf(emptyList())
+            else db.labelDao().observeByWorkspace(project.workspaceId)
+        }
+    private val issueLabelsForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
+        .flatMapLatest { (db, project) ->
+            if (db == null || project == null) flowOf(emptyList())
+            else db.issueLabelDao().observeByWorkspace(project.workspaceId)
+        }
+    private val workspaceForProject = combine(dbFlow, _project) { db, project -> db to project }
+        .flatMapLatest { (db, project) ->
+            if (db == null || project == null) flowOf(null)
+            else db.workspaceDao().observeById(project.workspaceId)
+        }
+    private val membersForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
+        .flatMapLatest { (db, project) ->
+            if (db == null || project == null) flowOf(emptyList())
+            else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
+        }
 
     val permissions: StateFlow<WorkspacePermissions> = combine(
         workspaceForProject,
@@ -140,11 +152,11 @@ class IssueListViewModel @Inject constructor(
     private val groupedState: Flow<GroupedIssueState> = combine(
         listOf(
             _project,
-            db.issueDao().observeByProject(projectId),
+            dbFlow.scopedQuery(emptyList()) { it.issueDao().observeByProject(projectId) },
             labelsForWorkspace,
             issueLabelsForWorkspace,
             _filters,
-            db.userDao().observeAll(),
+            dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             debouncedQuery,
         )
     ) { values ->
@@ -217,7 +229,7 @@ class IssueListViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            db.projectDao().observeAll().collect { all ->
+            dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() }.collect { all ->
                 _project.value = all.firstOrNull { it.id == projectId }
             }
         }

@@ -22,6 +22,8 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.WorkspaceEntity
 import com.exponential.app.data.db.WorkspaceInviteEntity
 import com.exponential.app.data.db.WorkspaceMemberEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -65,25 +67,28 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val integrationsApi: IntegrationsApi,
 ) : ViewModel() {
 
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
+    // Reactive account scoping: a Settings → Workspaces tap on a different
+    // server switches the active account and this ViewModel re-scopes to the
+    // new account's DB automatically (no rebuild, no pending-handoff flag).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
+    private val dbAndSelected = combine(dbFlow, selection.selectedId) { db, id -> db to id }
 
-    private val workspaceFlow = selection.selectedId.flatMapLatest { id ->
-        if (id == null) flowOf(null)
+    private val workspaceFlow = dbAndSelected.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(null)
         else db.workspaceDao().observeAll().map { list -> list.firstOrNull { it.id == id } }
     }
 
-    private val membersFlow = selection.selectedId.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else db.workspaceMemberDao().observeByWorkspace(id)
+    private val membersFlow = dbAndSelected.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(emptyList()) else db.workspaceMemberDao().observeByWorkspace(id)
     }
-    private val invitesFlow = selection.selectedId.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else db.workspaceInviteDao().observeByWorkspace(id)
+    private val invitesFlow = dbAndSelected.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(emptyList()) else db.workspaceInviteDao().observeByWorkspace(id)
     }
-    private val labelsFlow = selection.selectedId.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(id)
+    private val labelsFlow = dbAndSelected.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(emptyList()) else db.labelDao().observeByWorkspace(id)
     }
-    private val projectsFlow = selection.selectedId.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else db.projectDao().observeByWorkspace(id)
+    private val projectsFlow = dbAndSelected.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(emptyList()) else db.projectDao().observeByWorkspace(id)
     }
 
     private val _transient = MutableStateFlow<String?>(null)
@@ -98,7 +103,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
             invitesFlow,
             labelsFlow,
             projectsFlow,
-            db.userDao().observeAll(),
+            dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             auth.userId,
             auth.instanceUrl,
             _transient,

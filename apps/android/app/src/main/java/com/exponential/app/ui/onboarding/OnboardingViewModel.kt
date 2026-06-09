@@ -100,9 +100,16 @@ class OnboardingViewModel @Inject constructor(
     /** Skip the rest of setup (still marks onboarding complete, like web). */
     fun skip() {
         if (_state.value.busy) return
-        viewModelScope.launch { finish() }
+        viewModelScope.launch {
+            // Mark busy so every button (Skip included) disables while the
+            // async complete call runs — no double-tap, no racing a create.
+            _state.value = _state.value.copy(busy = true, error = null)
+            finish()
+        }
     }
 
+    // Deliberately leaves `busy` set: the `done` flag navigates away, and
+    // re-enabling the buttons first would open a double-submit window.
     private suspend fun finish() {
         val accountId = auth.activeAccountId.value
         if (accountId != null) runCatching { onboardingApi.complete(accountId) }

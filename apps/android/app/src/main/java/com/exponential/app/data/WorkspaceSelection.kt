@@ -23,41 +23,10 @@ class WorkspaceSelection @Inject constructor(
         _selectedId.value = id
     }
 
-    // Set just before a cross-server `auth.switchAccount(id)` from the Home
-    // tree when the user taps a project on a different server. After the
-    // `key(activeAccountId)` rebuild, AuthenticatedShell's LaunchedEffect
-    // reads this and navigates to `project/<id>` on the freshly-built
-    // NavHost, then clears the field.
-    private val _pendingProjectId = MutableStateFlow<String?>(null)
-    val pendingProjectId: StateFlow<String?> = _pendingProjectId.asStateFlow()
-
-    fun setPendingProject(projectId: String) {
-        _pendingProjectId.value = projectId
-    }
-
-    fun consumePendingProject(): String? {
-        val value = _pendingProjectId.value
-        _pendingProjectId.value = null
-        return value
-    }
-
-    // Same idea as pendingProjectId but for Settings → Workspaces taps on a
-    // workspace that lives on a different server. The pre-set
-    // `selectedId = workspaceId` already drives WorkspaceSettingsViewModel's
-    // observers correctly; this flag just tells AuthenticatedShell that a
-    // workspace-settings push is expected after the next account switch.
-    private val _pendingWorkspaceSettings = MutableStateFlow(false)
-    val pendingWorkspaceSettings: StateFlow<Boolean> = _pendingWorkspaceSettings.asStateFlow()
-
-    fun setPendingWorkspaceSettings() {
-        _pendingWorkspaceSettings.value = true
-    }
-
-    fun consumePendingWorkspaceSettings(): Boolean {
-        val value = _pendingWorkspaceSettings.value
-        _pendingWorkspaceSettings.value = false
-        return value
-    }
+    // (The old pendingProjectId / pendingWorkspaceSettings handoff flags are
+    // gone: feature ViewModels scope to the active account reactively, so
+    // cross-server taps switch the account and navigate immediately — no
+    // key(activeAccountId) rebuild to hand state across anymore.)
 
     // Last project the user opened, persisted per account so the share-target
     // picker can pre-select a sensible default. Account-keyed to avoid
@@ -72,9 +41,11 @@ class WorkspaceSelection @Inject constructor(
 
     private fun lastProjectKey(accountId: String) = "last_project_id_$accountId"
 
-    // One-shot handoff for the share → create flow. MainActivity routes shared
-    // content here via the nav layer; the project route consumes it once after
-    // navigation lands and pre-fills the create sheet.
+    // Pending shared content for the share → create flow. MainActivity routes
+    // shared content here via the nav layer; it lives in this app-singleton (not
+    // route state) so backing out of the create screen and re-entering re-fills
+    // the form. Consumed exactly once — on a successful create, an explicit
+    // discard from the create screen, or cancel from the share picker.
     private val _pendingShare = MutableStateFlow<DeepLinkBus.Target.ShareContent?>(null)
     val pendingShare: StateFlow<DeepLinkBus.Target.ShareContent?> = _pendingShare.asStateFlow()
 

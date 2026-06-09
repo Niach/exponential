@@ -7,8 +7,9 @@ import kotlinx.serialization.Serializable
 
 // Mirrors apps/web/src/lib/trpc/agent-plan.ts. The agent submits plans via the
 // same router; this Android surface exposes the human-side actions (approve /
-// request-changes / retry / answer a question) plus the structured plan/question
-// read (`getState`) that backs the native Plan Panel.
+// request-changes / retry / answer a question). There is no `getState` read
+// anymore: every field the Plan Panel needs (plan text, question, revision,
+// approval, lastError) is synced locally via the `agent_runs` Electric shape.
 @Serializable
 private data class IssueIdInput(@SerialName("issueId") val issueId: String)
 
@@ -18,31 +19,8 @@ private data class AnswerInput(
     @SerialName("answer") val answer: String,
 )
 
-/// The structured agent plan/question state for an issue. The plan/question TEXT
-/// is server-only (not synced via Electric), so it's fetched on demand. Keys
-/// match the camelCase tRPC payload.
-@Serializable
-data class AgentPlanState(
-    val planText: String? = null,
-    val question: String? = null,
-    val questionAskedAt: String? = null,
-    val state: String? = null,
-    val revision: Int = 0,
-    val approvedAt: String? = null,
-)
-
 @Singleton
 class AgentPlanApi @Inject constructor(private val trpc: TrpcClient) {
-
-    /** Read the structured plan/question text + state for an issue (tRPC query). */
-    suspend fun getState(accountId: String, issueId: String): AgentPlanState =
-        trpc.query(
-            accountId,
-            path = "agentPlan.getState",
-            input = IssueIdInput(issueId),
-            inputSerializer = IssueIdInput.serializer(),
-            outputSerializer = AgentPlanState.serializer(),
-        )
 
     suspend fun approvePlan(accountId: String, issueId: String) {
         trpc.mutationUnit(

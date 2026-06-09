@@ -18,6 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +27,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.exponential.app.ui.markdown.model.PendingImage
+import kotlinx.coroutines.launch
 
 /**
  * An image block while editing: full-width tile pre-sized by the pending/probed
@@ -43,6 +45,7 @@ fun BlockImageEditView(
     val uploadState = model.uploadState(row.id)
     val aspect = aspectRatioOf(pending)
     val source: Any = pending?.bytes ?: row.url
+    val scope = rememberCoroutineScope()
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -66,7 +69,11 @@ fun BlockImageEditView(
                 UploadingBadge(Modifier.align(Alignment.BottomStart).padding(8.dp))
             }
             if (uploadState == EditorModel.ImageUploadState.Failed) {
-                RetryBadge(Modifier.align(Alignment.Center)) { model.onEdit?.invoke() }
+                // Re-runs the registered host upload for this row; the top-right
+                // X (below) is the remove affordance.
+                RetryBadge(Modifier.align(Alignment.Center)) {
+                    scope.launch { model.retryUpload(row.id) }
+                }
             }
 
             IconButton(
@@ -108,14 +115,14 @@ private fun RetryBadge(modifier: Modifier, onRetry: () -> Unit) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = 0.06f))
+            .background(Color.Black.copy(alpha = 0.55f))
             .padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         IconButton(onClick = onRetry) {
-            Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = Color.White.copy(alpha = 0.6f))
+            Icon(Icons.Filled.Refresh, contentDescription = "Retry upload", tint = Color.White.copy(alpha = 0.8f))
         }
-        Text("Tap to retry", color = Color.White.copy(alpha = 0.6f), style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.75f))
+        Text("Upload failed — tap to retry", color = Color.White.copy(alpha = 0.7f), style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.75f))
     }
 }
 

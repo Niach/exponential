@@ -76,19 +76,14 @@ class SettingsViewModel @Inject constructor(
     // startAddServer removed — Settings now navigates to the instance route
     // directly via the onAddServer callback.
 
-    /// Settings → Workspaces tap. Same-server taps just `select(workspaceId)`
-    /// then the caller navigates to "workspace-settings"; cross-server taps
-    /// also flip a pending flag that AuthenticatedShell consumes after the
-    /// `key(activeAccountId)` rebuild to push the route on the new NavHost.
-    /// Returns whether the caller can navigate immediately.
-    fun onWorkspaceSettingsTap(accountId: String, workspaceId: String): Boolean {
+    /// Settings → Workspaces tap. Selects the workspace and (for cross-server
+    /// taps) makes its account active; the caller navigates immediately —
+    /// WorkspaceSettingsViewModel scopes to the active account reactively, so
+    /// no rebuild/pending-handoff dance is needed.
+    fun onWorkspaceSettingsTap(accountId: String, workspaceId: String) {
         selection.select(workspaceId)
-        return if (accountId == auth.activeAccountId.value) {
-            true
-        } else {
-            selection.setPendingWorkspaceSettings()
+        if (accountId != auth.activeAccountId.value) {
             auth.switchAccount(accountId)
-            false
         }
     }
 }
@@ -173,8 +168,8 @@ fun SettingsScreen(
                                 WorkspaceGroupBlock(
                                     group = group,
                                     onWorkspaceTap = { workspaceId ->
-                                        val sameServer = viewModel.onWorkspaceSettingsTap(group.accountId, workspaceId)
-                                        if (sameServer) onOpenWorkspaceSettings()
+                                        viewModel.onWorkspaceSettingsTap(group.accountId, workspaceId)
+                                        onOpenWorkspaceSettings()
                                     },
                                 )
                             }

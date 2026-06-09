@@ -18,8 +18,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -47,6 +45,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassCard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -182,76 +182,71 @@ fun IntegrationsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                // Frosted glass card (iOS .glassCard) instead of a Material card.
+                Column(
+                    modifier = Modifier.fillMaxWidth().glassCard().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "Google Calendar",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (state.connected) {
-                                Icon(
-                                    Icons.Filled.CheckCircle,
-                                    contentDescription = "Connected",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                        when {
-                            state.loading -> CircularProgressIndicator()
-                            state.connected -> ConnectedSection(
-                                connectedAt = state.connectedAt,
-                                backfillScheduled = state.backfillResult,
-                                backfilling = state.backfilling,
-                                disconnecting = state.disconnecting,
-                                onBackfill = viewModel::backfill,
-                                onDisconnect = { confirmDisconnect = true },
-                            )
-                            else -> DisconnectedSection(
-                                instanceUrl = instanceUrl,
-                                onConnect = {
-                                    val url = "${instanceUrl}/account/integrations"
-                                    val intent = CustomTabsIntent.Builder().build()
-                                    intent.launchUrl(context, Uri.parse(url))
-                                },
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Google Calendar",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (state.connected) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = "Connected",
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         }
-                        state.error?.let { error ->
-                            Text(
-                                error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
+                    }
+                    when {
+                        state.loading -> CircularProgressIndicator()
+                        state.connected -> ConnectedSection(
+                            connectedAt = state.connectedAt,
+                            backfillScheduled = state.backfillResult,
+                            backfilling = state.backfilling,
+                            disconnecting = state.disconnecting,
+                            onBackfill = viewModel::backfill,
+                            onDisconnect = { confirmDisconnect = true },
+                        )
+                        else -> DisconnectedSection(
+                            instanceUrl = instanceUrl,
+                            onConnect = {
+                                val url = "${instanceUrl}/account/integrations"
+                                val intent = CustomTabsIntent.Builder().build()
+                                intent.launchUrl(context, Uri.parse(url))
+                            },
+                        )
+                    }
+                    state.error?.let { error ->
+                        Text(
+                            error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
             }
             item {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                Column(
+                    modifier = Modifier.fillMaxWidth().glassCard().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "Push notifications",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            "Push uses Firebase Cloud Messaging. The Android client registers an " +
-                                "FCM token automatically when google-services.json is bundled with " +
-                                "the build.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        "Push notifications",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Push uses Firebase Cloud Messaging. The Android client registers an " +
+                            "FCM token automatically when google-services.json is bundled with " +
+                            "the build.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
                 }
             }
         }
@@ -287,13 +282,13 @@ private fun ConnectedSection(
     Text(
         "Issues with due dates sync as all-day events on your primary Google calendar.",
         style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
     )
     if (connectedAt != null) {
         Text(
             "Connected $connectedAt",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
     backfillScheduled?.let {
@@ -335,7 +330,7 @@ private fun DisconnectedSection(
     Text(
         "Link your Google account to mirror issues with due dates as all-day calendar events.",
         style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
     )
     Button(
         enabled = instanceUrl != null,

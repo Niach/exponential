@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ArrowCircleUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -45,6 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,14 +73,17 @@ private val PanelAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 private val ErrorRed = Color(0xFFF87171)
 
 // First-class panel for the agent plan/question lifecycle, replacing the
-// plan/question comment rows (mirror of apps/web/src/components/agent-plan-panel.tsx).
-// State is driven by the synced `issue` columns; the plan/question TEXT is
-// fetched via agentPlan.getState (server-only, not in Electric).
+// plan/question comment rows (mirror of apps/web/src/components/agent-plan-panel.tsx
+// and the iOS AgentPlanPanel). State is driven by the synced `issue` columns;
+// the plan/question TEXT comes from the locally synced `agent_runs` row — no
+// server round-trip. [prSection] is slotted in by the caller (the PR diff
+// lives in the detail ViewModel) and renders inside the panel like iOS.
 @Composable
 fun AgentPlanPanel(
     issueId: String,
     canApprovePlan: Boolean,
     viewModel: AgentPlanPanelViewModel = hiltViewModel(),
+    prSection: @Composable () -> Unit = {},
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -88,8 +94,10 @@ fun AgentPlanPanel(
     val latestIsError = agentEvents.lastOrNull()?.type == "agent_error"
     val planState = issue?.agentPlanState
 
-    // Render nothing when there is no agent involvement.
-    if (issue == null || (planState == null && !latestIsError)) return
+    // Render nothing when there is no agent involvement. iOS-parity gating:
+    // a plan lifecycle, a terminal agent error, OR an opened PR all surface
+    // the panel (the PR can outlive the plan state).
+    if (issue == null || (planState == null && !latestIsError && issue.prUrl == null)) return
 
     var busy by remember { mutableStateOf<String?>(null) }
     var answer by remember { mutableStateOf("") }
@@ -167,6 +175,55 @@ fun AgentPlanPanel(
                 retrying = busy == "retry",
                 enabled = busy == null,
                 onRetry = { act("retry") { viewModel.retry() } },
+            )
+        }
+
+        // PR section (branch + link + caller-provided diff), once the agent has
+        // opened a pull request — mirrors the iOS panel's prSection.
+        if (!issue.prUrl.isNullOrBlank()) {
+            Spacer(Modifier.height(8.dp))
+            PrLinkRow(prUrl = issue.prUrl, branch = issue.branch)
+            prSection()
+        }
+    }
+}
+
+@Composable
+private fun PrLinkRow(prUrl: String, branch: String?) {
+    val context = LocalContext.current
+    Column {
+        if (!branch.isNullOrBlank()) {
+            Text(
+                branch,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = PanelMeta,
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable {
+                runCatching {
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(prUrl),
+                    )
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
+            },
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = PanelAccent,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "View pull request",
+                style = MaterialTheme.typography.labelMedium,
+                color = PanelAccent,
             )
         }
     }

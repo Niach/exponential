@@ -106,8 +106,11 @@ fun HomeScreen(
                 ProjectTree(
                     groups = state.projectTree,
                     onOpenProject = { accountId, projectId ->
-                        val sameServer = viewModel.onProjectTap(accountId, projectId)
-                        if (sameServer) onOpenProject(accountId, projectId)
+                        // Cross-server taps switch the active account first; the
+                        // route's ViewModels scope to it reactively, so we can
+                        // navigate right away.
+                        viewModel.onProjectTap(accountId)
+                        onOpenProject(accountId, projectId)
                     },
                     onNewWorkspace = { accountId ->
                         createError = null

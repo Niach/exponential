@@ -9,6 +9,8 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,7 +30,7 @@ data class AgentPlanPanelState(
     val questionText: String? = null,
 )
 
-// States where the server has plan/question TEXT to fetch via getState.
+// States where the agent_runs row carries plan/question TEXT worth showing.
 private val planTextStates = setOf("awaiting_approval", "awaiting_answer", "approved")
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -39,29 +41,30 @@ class AgentPlanPanelViewModel @Inject constructor(
     private val auth: AuthRepository,
 ) : ViewModel() {
 
-    private val accountId = auth.activeAccountId.value ?: ""
-    private val db = holder.database(forAccountId = accountId)
+    // Reactive account scoping (no constructor-time DB snapshot).
+    private val dbFlow = accountDatabaseFlow(auth, holder)
 
     private val issueIdFlow = MutableStateFlow<String?>(null)
+    private val dbAndIssueId = combine(dbFlow, issueIdFlow) { db, id -> db to id }
 
-    private val issueFlow = issueIdFlow.flatMapLatest { id ->
-        if (id == null) flowOf(null) else db.issueDao().observeById(id)
+    private val issueFlow = dbAndIssueId.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(null) else db.issueDao().observeById(id)
     }
-    private val eventsFlow = issueIdFlow.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList<IssueEventEntity>()) else db.issueEventDao().observeByIssue(id)
+    private val eventsFlow = dbAndIssueId.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(emptyList<IssueEventEntity>()) else db.issueEventDao().observeByIssue(id)
     }
 
     // Plan/question TEXT now comes from the synced `agent_runs` shape — no
     // agentPlan.getState round-trip. plan_text/question are stored as the raw
     // jsonb `{ text }` string, so getCommentBodyText unwraps them (tolerant).
-    private val agentRunFlow = issueIdFlow.flatMapLatest { id ->
-        if (id == null) flowOf(null) else db.agentRunDao().observeByIssue(id)
+    private val agentRunFlow = dbAndIssueId.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(null) else db.agentRunDao().observeByIssue(id)
     }
 
     val state: StateFlow<AgentPlanPanelState> = combine(
         issueFlow,
         eventsFlow,
-        db.userDao().observeAll(),
+        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
         agentRunFlow,
     ) { issue, events, users, run ->
         val showText = issue?.agentPlanState in planTextStates

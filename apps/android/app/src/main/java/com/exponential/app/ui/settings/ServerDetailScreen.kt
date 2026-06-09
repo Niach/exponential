@@ -1,29 +1,33 @@
 package com.exponential.app.ui.settings
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -31,8 +35,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -41,6 +48,8 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.electric.SyncManager
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
@@ -80,6 +89,8 @@ class ServerDetailViewModel @Inject constructor(
     }
 }
 
+// iOS-parity server detail: glass-grouped sections over the shared
+// AppBackground, mirroring SettingsScreen's glassSection row pattern.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServerDetailScreen(
@@ -93,94 +104,102 @@ fun ServerDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = { Text(account?.displayHost ?: "Server") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
                 ),
             )
         },
-        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        containerColor = Color.Transparent,
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 8.dp),
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            item {
-                ListItem(
-                    headlineContent = { Text(account?.displayHost.orEmpty()) },
-                    supportingContent = {
-                        Column {
-                            if (!account?.userEmail.isNullOrBlank()) {
-                                Text(account!!.userEmail!!)
-                            }
+            // Server identity card.
+            Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Dns,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            account?.displayHost.orEmpty(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (!account?.userEmail.isNullOrBlank()) {
                             Text(
-                                if (account?.token == null) "Signed out" else "Signed in",
+                                account!!.userEmail!!,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
-                    },
-                    leadingContent = { Icon(Icons.Filled.Dns, contentDescription = null) },
-                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-                )
-                HorizontalDivider()
+                        Text(
+                            if (account?.token == null) "Signed out" else "Signed in",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (account?.token == null) {
+                                MaterialTheme.colorScheme.tertiary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                            },
+                        )
+                    }
+                }
             }
 
-            if (account?.token != null) {
-                item {
-                    ListItem(
-                        headlineContent = { Text("Sign out") },
-                        leadingContent = {
-                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
-                        },
-                        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-                        modifier = Modifier.clickable {
+            // Actions card.
+            Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                if (account?.token != null) {
+                    ActionRow(
+                        icon = Icons.AutoMirrored.Filled.Logout,
+                        title = "Sign out",
+                        onClick = {
                             viewModel.signOut(accountId)
                             onBack()
                         },
                     )
-                    HorizontalDivider()
-                }
-            } else {
-                item {
+                } else {
                     val url = account?.instanceUrl
-                    ListItem(
-                        headlineContent = { Text("Reauthenticate") },
-                        leadingContent = {
-                            Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
-                        },
-                        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-                        modifier = Modifier.clickable(enabled = url != null) {
+                    ActionRow(
+                        icon = Icons.AutoMirrored.Filled.Login,
+                        title = "Reauthenticate",
+                        enabled = url != null,
+                        onClick = {
                             if (url != null) {
                                 viewModel.reauthenticate(url)
                                 onBack()
                             }
                         },
                     )
-                    HorizontalDivider()
                 }
-            }
-
-            item {
-                ListItem(
-                    headlineContent = {
-                        Text("Remove server", color = MaterialTheme.colorScheme.error)
-                    },
-                    leadingContent = {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-                    modifier = Modifier.clickable { showRemoveConfirm = true },
+                CardDivider()
+                ActionRow(
+                    icon = Icons.Filled.Delete,
+                    title = "Remove server",
+                    tint = MaterialTheme.colorScheme.error,
+                    onClick = { showRemoveConfirm = true },
                 )
             }
         }
@@ -207,4 +226,42 @@ fun ServerDetailScreen(
             },
         )
     }
+}
+
+// One tappable action row inside a glass section: leading icon + title (iOS
+// settingsRow, same pattern as SettingsScreen).
+@Composable
+private fun ActionRow(
+    icon: ImageVector,
+    title: String,
+    enabled: Boolean = true,
+    tint: Color? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = tint ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = tint ?: MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+// Hairline divider between grouped-card rows (iOS Divider white@6%).
+@Composable
+private fun CardDivider() {
+    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
 }
