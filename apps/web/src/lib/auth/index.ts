@@ -10,6 +10,11 @@ import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
+import {
+  emailEnabled,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "@/lib/email"
 import { isAdminUser } from "./app-user"
 
 export { parseOidcProviders, type OidcProviderConfig }
@@ -74,8 +79,25 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: process.env.AUTH_PASSWORD_ENABLED !== `false`,
-    disableSignUp: process.env.NODE_ENV === `production`,
+    // Public password sign-up: historically OFF in production (invite/OAuth
+    // only). AUTH_SIGNUP_ENABLED overrides in either direction so the cloud
+    // instance can open registration for launch.
+    disableSignUp: process.env.AUTH_SIGNUP_ENABLED
+      ? process.env.AUTH_SIGNUP_ENABLED === `false`
+      : process.env.NODE_ENV === `production`,
     minPasswordLength: process.env.NODE_ENV === `production` ? 8 : 1,
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail({ to: user.email, url })
+    },
+  },
+  emailVerification: {
+    // Verification emails are sent but logging in is NOT blocked on them
+    // (requireEmailVerification stays off) — low-friction launch posture.
+    // OAuth/OIDC users arrive pre-verified by their provider.
+    sendOnSignUp: emailEnabled,
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendVerificationEmail({ to: user.email, url })
+    },
   },
   session: {
     expiresIn: 60 * 60 * 24 * 60,

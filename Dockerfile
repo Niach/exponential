@@ -29,4 +29,7 @@ COPY --from=builder /app/packages packages
 RUN bun install --frozen-lockfile
 RUN touch apps/web/.env
 EXPOSE 3000
+# start-period covers the migrate step before the server begins listening.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD bun -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["sh", "-c", "bun --filter @exp/web migrate && bun .output/server/index.mjs"]

@@ -25,8 +25,12 @@ export const Route = createFileRoute(`/auth/login`)({
 
 function LoginPage() {
   const { redirect: redirectTo } = Route.useSearch()
-  const { passwordEnabled, oidcProviders, googleLoginEnabled } =
-    Route.useLoaderData()
+  const {
+    passwordEnabled,
+    passwordResetEnabled,
+    oidcProviders,
+    googleLoginEnabled,
+  } = Route.useLoaderData()
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
@@ -108,7 +112,17 @@ function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {passwordResetEnabled && (
+                  <Link
+                    to="/auth/forgot-password"
+                    className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
               <PasswordInput
                 id="password"
                 autoComplete="current-password"

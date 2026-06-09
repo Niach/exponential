@@ -91,6 +91,14 @@ Three production targets run on Coolify (`coolify.home.straehhuber.com`, Hetzner
 - **Self-host (on-prem)**: tag `vX.Y.Z` triggers `.gitea/workflows/build-release.yml` — builds the root `Dockerfile` (context `.`), pushes to the Gitea registry, then redeploys the Portainer stack.
 - **Android**: tag `android-vX.Y.Z` triggers `.gitea/workflows/build-android.yml` — builds debug + release (unsigned) APKs and uploads them as artifacts. Signing for distribution still needs a keystore + signing config in `app/build.gradle.kts`.
 
+### Release-time checklist (not automated)
+
+- **Android signing**: generate a keystore, add `signingConfigs` to `app/build.gradle.kts`, store the keystore + passwords as CI secrets; only then can store/distribution builds ship.
+- **macOS notarization**: the `Exponential-macOS` build already bundles + ad-hoc-signs `libagent_core.dylib` and ships hardened-runtime entitlements; release needs a Developer ID cert, real codesign, and `xcrun notarytool submit`.
+- **iOS distribution**: no CI pipeline yet — archive via Xcode (`Exponential` scheme) and upload to TestFlight manually.
+- **Cloud launch env**: set `AUTH_SIGNUP_ENABLED=true` + `RESEND_API_KEY`/`EMAIL_FROM` on the production web app (sign-up defaults OFF in production; email flows are silently disabled without the key).
+- `/api/health` gates the web Docker HEALTHCHECK (DB-backed; Electric reported but non-gating). The push relay's is `/healthz`.
+
 DNS for `exponential.at` is on Cloudflare (zone-only, gray-cloud A records → Hetzner host) so Traefik's Let's Encrypt HTTP-01 challenge keeps working.
 
 After schema changes, always: `bun run migrate:generate && bun run migrate`
@@ -244,6 +252,9 @@ S3_SECRET_KEY                 # S3 secret key (created by `bun run storage:init`
 S3_BUCKET                     # S3 bucket for attachments (default: exponential-attachments)
 S3_REGION                     # S3 region label (default: garage)
 AUTH_PASSWORD_ENABLED         # Enable email/password login (default: true)
+AUTH_SIGNUP_ENABLED           # Public password sign-up ('true'/'false'; default: on in dev, OFF in production)
+RESEND_API_KEY                # Resend API key — enables password reset + email verification (unset = email flows off)
+EMAIL_FROM                    # Verified sender, e.g. "Exponential <noreply@exponential.at>"
 OIDC_PROVIDERS                # JSON array of OIDC providers — the primary OIDC mechanism (see .env.example)
 # Legacy single-provider OIDC (used only when OIDC_PROVIDERS is unset):
 AUTH_OIDC_ENABLED             # Enable legacy single-provider OIDC (default: false)

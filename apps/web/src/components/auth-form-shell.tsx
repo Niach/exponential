@@ -38,6 +38,25 @@ export function AuthFormShell({
             {footer}
           </CardContent>
         </Card>
+        <p className="text-center text-xs text-muted-foreground">
+          <a
+            href="https://exponential.at/privacy/"
+            className="underline-offset-4 hover:text-foreground hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Privacy
+          </a>
+          {` · `}
+          <a
+            href="https://exponential.at/terms/"
+            className="underline-offset-4 hover:text-foreground hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Terms
+          </a>
+        </p>
       </div>
     </div>
   )

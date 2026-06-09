@@ -12,11 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
+import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
 import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedFeedbackRouteImport } from './routes/_authenticated/feedback'
@@ -71,6 +74,11 @@ const InviteTokenRoute = InviteTokenRouteImport.update({
   path: '/invite/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
+  id: '/auth/reset-password',
+  path: '/auth/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRegisterRoute = AuthRegisterRouteImport.update({
   id: '/auth/register',
   path: '/auth/register',
@@ -79,6 +87,11 @@ const AuthRegisterRoute = AuthRegisterRouteImport.update({
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
   path: '/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
+  id: '/auth/forgot-password',
+  path: '/auth/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMobileOauthStartRoute = ApiMobileOauthStartRouteImport.update({
@@ -94,6 +107,11 @@ const ApiMobileOauthReturnRoute = ApiMobileOauthReturnRouteImport.update({
 const ApiMcpRoute = ApiMcpRouteImport.update({
   id: '/api/mcp',
   path: '/api/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
@@ -316,11 +334,14 @@ export interface FileRoutesByFullPath {
   '/feedback': typeof AuthenticatedFeedbackRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -362,11 +383,14 @@ export interface FileRoutesByTo {
   '/feedback': typeof AuthenticatedFeedbackRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -412,11 +436,14 @@ export interface FileRoutesById {
   '/_authenticated/feedback': typeof AuthenticatedFeedbackRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/_authenticated/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
@@ -462,11 +489,14 @@ export interface FileRouteTypes {
     | '/feedback'
     | '/onboarding'
     | '/api/auth-config'
+    | '/api/health'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/reset-password'
     | '/invite/$token'
     | '/account/integrations'
     | '/admin/users'
@@ -508,11 +538,14 @@ export interface FileRouteTypes {
     | '/feedback'
     | '/onboarding'
     | '/api/auth-config'
+    | '/api/health'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/reset-password'
     | '/invite/$token'
     | '/account/integrations'
     | '/admin/users'
@@ -557,11 +590,14 @@ export interface FileRouteTypes {
     | '/_authenticated/feedback'
     | '/_authenticated/onboarding'
     | '/api/auth-config'
+    | '/api/health'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/reset-password'
     | '/invite/$token'
     | '/_authenticated/account/integrations'
     | '/_authenticated/admin/users'
@@ -604,11 +640,14 @@ export interface RootRouteChildren {
   Char91DotwellKnownChar93OauthAuthorizationServerRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ApiAuthConfigRoute: typeof ApiAuthConfigRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
   ApiMobileOauthStartRoute: typeof ApiMobileOauthStartRoute
+  AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
+  AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   InviteTokenRoute: typeof InviteTokenRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -656,6 +695,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/reset-password': {
+      id: '/auth/reset-password'
+      path: '/auth/reset-password'
+      fullPath: '/auth/reset-password'
+      preLoaderRoute: typeof AuthResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/register': {
       id: '/auth/register'
       path: '/auth/register'
@@ -668,6 +714,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/login'
       fullPath: '/auth/login'
       preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/forgot-password': {
+      id: '/auth/forgot-password'
+      path: '/auth/forgot-password'
+      fullPath: '/auth/forgot-password'
+      preLoaderRoute: typeof AuthForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mobile-oauth-start': {
@@ -689,6 +742,13 @@ declare module '@tanstack/react-router' {
       path: '/api/mcp'
       fullPath: '/api/mcp'
       preLoaderRoute: typeof ApiMcpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth-config': {
@@ -1038,11 +1098,14 @@ const rootRouteChildren: RootRouteChildren = {
   Char91DotwellKnownChar93OauthProtectedResourceRoute:
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
   ApiAuthConfigRoute: ApiAuthConfigRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,
   ApiMobileOauthStartRoute: ApiMobileOauthStartRoute,
+  AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
+  AuthResetPasswordRoute: AuthResetPasswordRoute,
   InviteTokenRoute: InviteTokenRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
