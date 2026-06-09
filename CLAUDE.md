@@ -96,7 +96,7 @@ Three production targets run on Coolify (`coolify.home.straehhuber.com`, Hetzner
 - **Android signing**: generate a keystore, add `signingConfigs` to `app/build.gradle.kts`, store the keystore + passwords as CI secrets; only then can store/distribution builds ship.
 - **macOS notarization**: the `Exponential-macOS` build already bundles + ad-hoc-signs `libagent_core.dylib` and ships hardened-runtime entitlements; release needs a Developer ID cert, real codesign, and `xcrun notarytool submit`.
 - **iOS distribution**: no CI pipeline yet — archive via Xcode (`Exponential` scheme) and upload to TestFlight manually.
-- **Cloud launch env**: set `AUTH_SIGNUP_ENABLED=true` + `RESEND_API_KEY`/`EMAIL_FROM` on the production web app (sign-up defaults OFF in production; email flows are silently disabled without the key).
+- **Cloud launch env**: sign-up is **Google-only** — set `AUTH_PASSWORD_ENABLED=false`, `GOOGLE_LOGIN_ENABLED=true` + `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, and leave `AUTH_SIGNUP_ENABLED` unset/false (Google sign-in auto-creates accounts; `/auth/register` redirects to the Google-only login). `RESEND_API_KEY`/`EMAIL_FROM` stay configured for transactional mail, but the password reset/verification flows are inert without password auth. Staging (`next.exponential.at`) already runs this posture.
 - `/api/health` gates the web Docker HEALTHCHECK (DB-backed; Electric reported but non-gating). The push relay's is `/healthz`.
 
 DNS for `exponential.at` is on Cloudflare (zone-only, gray-cloud A records → Hetzner host) so Traefik's Let's Encrypt HTTP-01 challenge keeps working.
