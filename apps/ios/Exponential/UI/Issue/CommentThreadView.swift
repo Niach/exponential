@@ -28,6 +28,9 @@ struct CommentThreadView: View {
     @State private var composerHasText = false
     @State private var submitting = false
     @State private var editingCommentId: String?
+    // The rich editor backing the comment currently being edited (re-seeded on
+    // each Edit tap; only one comment edits at a time).
+    @State private var editEditor = IssueEditorModel()
     @State private var observationTask: Task<Void, Never>?
 
     // Linear-style activity timeline: regular comments + non-agent events.
@@ -126,11 +129,30 @@ struct CommentThreadView: View {
             isAuthor: comment.authorId == deps.auth.userId,
             isAdmin: deps.auth.isAdmin,
             isEditing: editingCommentId == comment.id,
-            onEdit: { editingCommentId = comment.id },
+            editEditor: editEditor,
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient,
+            mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+            onEdit: {
+                // Fresh model per edit, seeded from the comment's markdown — the
+                // same rich block editor as the composer (images, mentions, lists).
+                let editor = IssueEditorModel()
+                editor.load(
+                    markdown: getCommentBodyText(comment.body),
+                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                )
+                editEditor = editor
+                editingCommentId = comment.id
+            },
             onCancelEdit: { editingCommentId = nil },
-            onSaveEdit: { newText in
+            onSaveEdit: {
+                let ok = await editEditor.commitPendingImages(uploader: makeCommentImageUploader())
+                guard ok, !editEditor.hasUncommittedDrafts else { return }
+                let md = editEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !md.isEmpty else { return }
                 do {
-                    try await deps.commentsApi.update(accountId: accountId, id: comment.id, text: newText)
+                    try await deps.commentsApi.update(accountId: accountId, id: comment.id, text: md)
                     editingCommentId = nil
                 } catch {}
             },
@@ -249,12 +271,17 @@ private struct RegularCommentRow: View {
     let isAuthor: Bool
     let isAdmin: Bool
     let isEditing: Bool
+    let editEditor: IssueEditorModel
+    let baseURL: URL?
+    let accountId: String
+    let httpClient: HTTPClient?
+    let mentionMembers: [MentionMember]
     let onEdit: () -> Void
     let onCancelEdit: () -> Void
-    let onSaveEdit: (String) async -> Void
+    let onSaveEdit: () async -> Void
     let onDelete: () -> Void
 
-    @State private var draft: String = ""
+    @State private var saving = false
 
     private var canModify: Bool { isAuthor || isAdmin }
 
@@ -278,10 +305,7 @@ private struct RegularCommentRow: View {
                     Spacer()
                     if canModify && !isEditing {
                         Menu {
-                            Button("Edit") {
-                                draft = getCommentBodyText(comment.body)
-                                onEdit()
-                            }
+                            Button("Edit", action: onEdit)
                             Button("Delete", role: .destructive, action: onDelete)
                         } label: {
                             Image(systemName: "ellipsis")
@@ -294,27 +318,36 @@ private struct RegularCommentRow: View {
                 }
 
                 if isEditing {
-                    TextField("Edit comment", text: $draft, axis: .vertical)
-                        .lineLimit(1...5)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .foregroundStyle(.white)
+                    // The same rich block editor as the composer — formatting,
+                    // images, and @mentions all work in edit mode too.
+                    MarkdownEditor(
+                        model: editEditor,
+                        placeholder: "Edit comment…",
+                        baseURL: baseURL,
+                        accountId: accountId,
+                        httpClient: httpClient,
+                        mentionMembers: mentionMembers
+                    )
+                    .frame(minHeight: 60, maxHeight: 220)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                     HStack {
-                        Button("Save") {
-                            let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else {
-                                onCancelEdit()
-                                return
+                        Button {
+                            saving = true
+                            Task {
+                                await onSaveEdit()
+                                saving = false
                             }
-                            Task { await onSaveEdit(trimmed) }
+                        } label: {
+                            if saving { ProgressView().controlSize(.small) } else { Text("Save") }
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
+                        .disabled(saving)
                         Button("Cancel", action: onCancelEdit)
                             .controlSize(.small)
+                            .disabled(saving)
                     }
                 } else {
                     Markdown(getCommentBodyText(comment.body))

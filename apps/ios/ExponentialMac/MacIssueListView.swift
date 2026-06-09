@@ -127,6 +127,29 @@ struct MacIssueListView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
 
+                    // Linked GitHub repo banner (iOS parity) — read-only, opens
+                    // the repo; linking lives in workspace settings.
+                    if let repo = model.project?.githubRepo, !repo.isEmpty {
+                        Button {
+                            if let url = URL(string: "https://github.com/\(repo)") {
+                                Platform.open(url)
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "chevron.left.forwardslash.chevron.right").font(.caption2)
+                                Text(repo).font(.caption.monospaced()).lineLimit(1)
+                                Image(systemName: "arrow.up.right").font(.caption2)
+                                Spacer()
+                            }
+                            .foregroundStyle(.secondary)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.04))
+                    }
+
                     List {
                         ForEach(IssueStatus.displayOrder, id: \.self) { status in
                             let items = model.issues(in: status, search: search)

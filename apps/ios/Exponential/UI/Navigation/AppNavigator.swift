@@ -32,7 +32,36 @@ struct AppNavigator: View {
                     .id(deps.auth.activeAccountId ?? "none")
             }
         }
+        // URL handling lives at the ROOT view (mounted from first render), so a
+        // cold launch via exp:// lands in the bus even before MainNavigator
+        // exists; MainNavigator drains the bus when it appears.
+        .onOpenURL { url in
+            handleDeepLink(url)
+        }
         .transaction { $0.animation = nil }
+    }
+
+    private func handleDeepLink(_ url: URL) {
+        // exp://oauth-return#token=...
+        if url.host == "oauth-return", let fragment = url.fragment {
+            let params = fragment.split(separator: "&").reduce(into: [String: String]()) { dict, pair in
+                let parts = pair.split(separator: "=", maxSplits: 1)
+                if parts.count == 2 {
+                    dict[String(parts[0])] = String(parts[1])
+                }
+            }
+            if let token = params["token"] {
+                NotificationCenter.default.post(name: .oauthTokenReceived, object: nil, userInfo: ["token": token])
+            }
+        }
+        // exp://issue/<issueId>
+        if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
+            deps.deepLinkBus.navigateToIssue(String(issueId))
+        }
+        // exp://invite/<token>
+        if url.host == "invite", let token = url.pathComponents.dropFirst().first {
+            deps.deepLinkBus.navigateToInvite(String(token))
+        }
     }
 }
 
@@ -78,14 +107,49 @@ struct MainNavigator: View {
             projectLoader?.refresh()
         }
         .onDisappear { stopObserving() }
-        .onOpenURL { url in
-            handleDeepLink(url)
-        }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
                 path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: issueId))
                 _ = deps.deepLinkBus.consume()
             }
+        }
+        .onChange(of: deps.deepLinkBus.pendingInviteToken) { _, token in
+            if let token {
+                path.append(AppRoute.invite(token: token))
+                _ = deps.deepLinkBus.consumeInvite()
+            }
+        }
+        // Drain links that arrived before this navigator mounted (cold launch).
+        .task {
+            if let issueId = deps.deepLinkBus.consume() {
+                path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: issueId))
+            }
+            if let token = deps.deepLinkBus.consumeInvite() {
+                path.append(AppRoute.invite(token: token))
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
+    }
+
+    /// Thin status banner when live sync is degraded (offline / expired session).
+    @ViewBuilder
+    private var syncBanner: some View {
+        let health = SyncDebug.shared.health
+        if health != .ok {
+            HStack(spacing: 6) {
+                Image(systemName: health == .unauthorized ? "person.crop.circle.badge.exclamationmark" : "wifi.slash")
+                    .font(.caption2)
+                Text(health == .unauthorized
+                    ? "Session expired — sign in again to keep syncing"
+                    : "Can't reach the server — showing cached data")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(.orange.opacity(0.35))
+            .background(.ultraThinMaterial)
         }
     }
 
@@ -122,29 +186,6 @@ struct MainNavigator: View {
             InviteAcceptView(token: token)
         case .syncDebug:
             SyncDebugView()
-        }
-    }
-
-    private func handleDeepLink(_ url: URL) {
-        // Handle exp://oauth-return#token=...
-        if url.host == "oauth-return", let fragment = url.fragment {
-            let params = fragment.split(separator: "&").reduce(into: [String: String]()) { dict, pair in
-                let parts = pair.split(separator: "=", maxSplits: 1)
-                if parts.count == 2 {
-                    dict[String(parts[0])] = String(parts[1])
-                }
-            }
-            if let token = params["token"] {
-                NotificationCenter.default.post(name: .oauthTokenReceived, object: nil, userInfo: ["token": token])
-            }
-        }
-        // Handle exp://issue/<issueId>
-        if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
-            path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: String(issueId)))
-        }
-        // Handle exp://invite/<token>
-        if url.host == "invite", let token = url.pathComponents.dropFirst().first {
-            path.append(AppRoute.invite(token: String(token)))
         }
     }
 

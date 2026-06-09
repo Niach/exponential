@@ -57,7 +57,7 @@ struct MarkdownEditor: View {
                                 pendingImages: model.pendingImages,
                                 onDelete: { model.deleteImageBlock(id: id) },
                                 onTapBelow: { focusBlock(after: id) },
-                                onRetry: { triggerRetry() }
+                                onRetry: { Task { await model.retryImage(blockId: id) } }
                             )
                             .id(id)
                         }
@@ -131,12 +131,6 @@ struct MarkdownEditor: View {
     private func focusBlock(after id: UUID) {
         guard let idx = model.blocks.firstIndex(where: { $0.id == id }), idx + 1 < model.blocks.count else { return }
         model.setFocused(model.blocks[idx + 1].id)
-    }
-
-    private func triggerRetry() {
-        // Retry simply re-runs the host's commit; failed drafts still carry
-        // their in-memory data, so the next commit re-uploads them.
-        model.onEdit?()
     }
 
     // MARK: - Image insertion

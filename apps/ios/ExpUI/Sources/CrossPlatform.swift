@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 
 #if os(iOS)
@@ -14,12 +15,22 @@ public typealias PlatformFont = NSFont
 
 /// Cross-platform shims so shared SwiftUI code doesn't `#if os(...)` inline.
 public enum Platform {
-    /// Open a URL in the user's default handler (browser / app).
+    /// Open a URL in the user's default handler (browser / app). Failures are
+    /// logged (URLs here are server-derived, so they should never be invalid —
+    /// a failure means a misconfigured instance URL worth surfacing in logs).
     public static func open(_ url: URL) {
         #if os(iOS)
-        UIApplication.shared.open(url)
+        UIApplication.shared.open(url) { ok in
+            if !ok {
+                Logger(subsystem: "at.exponential", category: "Platform")
+                    .error("Failed to open URL: \(url.absoluteString, privacy: .public)")
+            }
+        }
         #elseif os(macOS)
-        NSWorkspace.shared.open(url)
+        if !NSWorkspace.shared.open(url) {
+            Logger(subsystem: "at.exponential", category: "Platform")
+                .error("Failed to open URL: \(url.absoluteString, privacy: .public)")
+        }
         #endif
     }
 

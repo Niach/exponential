@@ -69,6 +69,9 @@ struct HomeView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                createMenu
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 inboxButton
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -98,6 +101,37 @@ struct HomeView: View {
     private var inboxButton: some View {
         NavigationLink(value: AppRoute.inbox) {
             Image(systemName: "tray")
+        }
+    }
+
+    /// One obvious create entry point (the inline per-workspace "+" buttons stay,
+    /// but discoverability shouldn't depend on them).
+    @ViewBuilder
+    private var createMenu: some View {
+        let groups = projectLoader?.groups ?? []
+        Menu {
+            if let accountId = deps.auth.activeAccountId {
+                Button {
+                    createWorkspaceTarget = CreateWorkspaceTarget(accountId: accountId)
+                } label: {
+                    Label("New Workspace", systemImage: "rectangle.stack.badge.plus")
+                }
+            }
+            let blocks = groups.flatMap { group in
+                group.workspaceBlocks.map { (group.accountId, $0.workspace) }
+            }
+            if !blocks.isEmpty {
+                Divider()
+                ForEach(blocks, id: \.1.id) { accountId, workspace in
+                    Button {
+                        createProjectTarget = CreateProjectTarget(accountId: accountId, workspaceId: workspace.id)
+                    } label: {
+                        Label("New Project in \(workspace.name)", systemImage: "folder.badge.plus")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
         }
     }
 

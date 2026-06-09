@@ -55,6 +55,11 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             } catch {
                 logger.warning("[\(self.shapeName)] error: \(error.localizedDescription)")
                 SyncDebug.shared.log("[\(shapeName)] ERR: \(error.localizedDescription)")
+                // HTTP-level failures already went through reportShape; this
+                // also catches transport errors so the sync banner can react.
+                if !(error is ShapeError) {
+                    SyncDebug.shared.reportTransportError(name: shapeName)
+                }
                 try await Task.sleep(for: .milliseconds(backoffMs))
                 backoffMs = min(backoffMs * 2, 30_000)
             }

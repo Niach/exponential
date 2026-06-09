@@ -218,6 +218,7 @@ struct MacWorkspaceSettingsView: View {
     @State private var editingName = ""
     @State private var showDeleteConfirm = false
     @State private var showUnregisterConfirm = false
+    @State private var repoPickerProject: ProjectEntity?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -279,6 +280,19 @@ struct MacWorkspaceSettingsView: View {
             }
         }
         .onDisappear { model?.stop() }
+        .sheet(item: $repoPickerProject) { project in
+            MacGithubRepoPicker(
+                accountId: target.accountId,
+                projectId: project.id,
+                projectName: project.name,
+                currentRepo: project.githubRepo,
+                integrationsApi: deps.integrationsApi,
+                projectsApi: deps.projectsApi,
+                installBaseURL: deps.auth.accounts.first(where: { $0.id == target.accountId })
+                    .flatMap { URL(string: $0.instanceUrl) }
+            )
+            .preferredColorScheme(.dark)
+        }
     }
 
     @ViewBuilder
@@ -370,15 +384,37 @@ struct MacWorkspaceSettingsView: View {
     private func projectsSection(_ model: MacWorkspaceSettingsModel) -> some View {
         Section("Projects") {
             ForEach(model.projects) { project in
-                HStack {
-                    Text(project.name)
-                    Spacer()
-                    Text(project.prefix).font(.caption).foregroundStyle(.tertiary)
-                    if model.isOwnerOrAdmin {
-                        Button(role: .destructive) { model.deleteProject(project.id) } label: {
-                            Image(systemName: "trash")
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(project.name)
+                        Spacer()
+                        Text(project.prefix).font(.caption).foregroundStyle(.tertiary)
+                        if model.isOwnerOrAdmin {
+                            Button(role: .destructive) { model.deleteProject(project.id) } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        .buttonStyle(.borderless)
+                    }
+                    // GitHub repo link — what the coding agent clones/pushes
+                    // (iOS parity; link/unlink is owner-gated server-side).
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if let repo = project.githubRepo, !repo.isEmpty {
+                            Text(repo).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        } else {
+                            Text("No repo linked").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                        if model.isOwnerOrAdmin {
+                            Button(project.githubRepo?.isEmpty == false ? "Change…" : "Link repo…") {
+                                repoPickerProject = project
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                        }
                     }
                 }
             }

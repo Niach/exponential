@@ -374,6 +374,9 @@ public final class IssueEditorModel {
     public func commitPendingImages(
         uploader: @escaping @Sendable (PendingImage) async throws -> String
     ) async -> Bool {
+        // Remember the uploader so a per-image Retry can re-upload one failed
+        // draft directly (a failed block can only exist after a commit ran).
+        lastUploader = uploader
         removeDanglingDraftBlocks()
 
         let drafts: [(blockId: UUID, draftUrl: String, image: PendingImage)] = blocks.compactMap { block in
@@ -424,6 +427,31 @@ public final class IssueEditorModel {
     private enum UploadOutcome: Sendable {
         case success(String)
         case failure(String)
+    }
+
+    private var lastUploader: (@Sendable (PendingImage) async throws -> String)?
+
+    /// Re-upload ONE failed draft image (the block's Retry button), using the
+    /// uploader remembered from the last commit. On success the block swaps to
+    /// the real attachment URL and the host's edit hook fires so it can re-save.
+    public func retryImage(blockId: UUID) async {
+        guard let uploader = lastUploader,
+              uploadState(for: blockId) == .failed,
+              let idx = blocks.firstIndex(where: { $0.id == blockId }),
+              case .image(_, let draftUrl, _) = blocks[idx],
+              MarkdownImageUtils.isDraft(draftUrl),
+              let image = pendingImages[draftUrl] else { return }
+        imageUploadStates[blockId] = .uploading
+        do {
+            let realUrl = try await uploader(image)
+            setImageURL(blockId: blockId, url: realUrl)
+            pendingImages[draftUrl] = nil
+            imageUploadStates[blockId] = .idle
+            notifyEdit()
+        } catch {
+            log.error("Image retry failed: \(error.localizedDescription, privacy: .public)")
+            imageUploadStates[blockId] = .failed
+        }
     }
 
     // MARK: - Internals
