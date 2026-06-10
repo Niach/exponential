@@ -10,6 +10,7 @@ import { trpc } from "@/lib/trpc-client"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceMobileTopbar } from "@/components/workspace/mobile-topbar"
 import { WorkspaceSidebar } from "@/components/workspace/sidebar"
+import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
@@ -71,6 +72,7 @@ function WorkspaceLayout() {
 
   return (
     <SidebarProvider>
+      <FeedbackWidgetProvider />
       <WorkspaceSidebar
         workspaceSlug={workspaceSlug}
         workspace={workspace}

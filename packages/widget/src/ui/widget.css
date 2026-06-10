@@ -1,0 +1,352 @@
+/* Self-contained styles inside the shadow root: zinc-dark palette transcribed
+   from packages/design-tokens/tokens.json (see ../theme.ts). The widget must
+   never depend on host-page CSS. */
+
+:host {
+  all: initial;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.exp-root {
+  font-family: var(--exp-font);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--exp-foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+.exp-panel {
+  position: fixed;
+  bottom: 76px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: min(85vh, 640px);
+  display: flex;
+  flex-direction: column;
+  background: var(--exp-card);
+  border: 1px solid var(--exp-border);
+  border-radius: var(--exp-radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.exp-panel.exp-right { right: 20px; }
+.exp-panel.exp-left { left: 20px; }
+
+@media (max-width: 480px) {
+  .exp-panel {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0;
+    width: 100%;
+    max-width: none;
+    border-radius: var(--exp-radius) var(--exp-radius) 0 0;
+  }
+}
+
+.exp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--exp-border);
+}
+
+.exp-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.exp-close {
+  all: initial;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--exp-muted-foreground);
+  cursor: pointer;
+}
+.exp-close:hover { background: var(--exp-secondary); color: var(--exp-foreground); }
+.exp-close:focus-visible { outline: 2px solid var(--exp-foreground); }
+.exp-close svg { width: 14px; height: 14px; }
+
+.exp-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.exp-shot {
+  position: relative;
+  border: 1px solid var(--exp-border);
+  border-radius: 8px;
+  background: var(--exp-background);
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.exp-shot img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+}
+
+.exp-shot-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--exp-muted-foreground);
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.exp-shot-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.exp-shot-busy {
+  padding: 24px;
+  color: var(--exp-muted-foreground);
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.exp-chip {
+  all: initial;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--exp-foreground);
+  border: 1px solid var(--exp-border);
+  cursor: pointer;
+}
+.exp-chip:hover { background: rgba(0, 0, 0, 0.85); }
+.exp-chip:focus-visible { outline: 2px solid var(--exp-foreground); }
+
+.exp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exp-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--exp-muted-foreground);
+}
+
+.exp-input,
+.exp-textarea {
+  all: initial;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--exp-foreground);
+  background: var(--exp-background);
+  border: 1px solid var(--exp-input);
+  border-radius: 8px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.exp-textarea {
+  min-height: 84px;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.exp-input::placeholder,
+.exp-textarea::placeholder {
+  color: var(--exp-muted-foreground);
+  opacity: 0.7;
+}
+
+.exp-input:focus,
+.exp-textarea:focus {
+  border-color: var(--exp-accent);
+  outline: 1px solid var(--exp-accent);
+}
+
+.exp-error {
+  font-size: 12.5px;
+  color: var(--exp-destructive);
+}
+
+.exp-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--exp-border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.exp-submit {
+  all: initial;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--exp-accent);
+  color: var(--exp-accent-foreground);
+  cursor: pointer;
+}
+.exp-submit:hover { filter: brightness(1.08); }
+.exp-submit:focus-visible { outline: 2px solid var(--exp-foreground); outline-offset: 2px; }
+.exp-submit[disabled] { opacity: 0.55; cursor: default; }
+
+.exp-success {
+  padding: 36px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.exp-success-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--exp-success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.exp-success-icon svg { width: 18px; height: 18px; }
+
+.exp-success-title { font-size: 14px; font-weight: 600; }
+.exp-success-sub { font-size: 12.5px; color: var(--exp-muted-foreground); }
+
+.exp-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--exp-border);
+  border-top-color: var(--exp-foreground);
+  animation: exp-spin 0.8s linear infinite;
+}
+
+/* Annotation editor: full-screen overlay above the (hidden) panel. */
+.exp-annotator {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.8);
+  font-family: var(--exp-font);
+  color: var(--exp-foreground);
+  outline: none;
+}
+
+.exp-ann-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 6px;
+  background: var(--exp-card);
+  border: 1px solid var(--exp-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+.exp-tool {
+  all: initial;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--exp-muted-foreground);
+  cursor: pointer;
+}
+.exp-tool:hover { background: var(--exp-secondary); color: var(--exp-foreground); }
+.exp-tool:focus-visible { outline: 2px solid var(--exp-foreground); }
+.exp-tool[aria-pressed="true"] {
+  background: var(--exp-secondary);
+  color: var(--exp-destructive);
+}
+.exp-tool[disabled] { opacity: 0.4; cursor: default; background: none; }
+.exp-tool svg { width: 16px; height: 16px; }
+
+.exp-ann-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--exp-border);
+}
+
+.exp-ann-cancel,
+.exp-ann-save {
+  all: initial;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.exp-ann-cancel { color: var(--exp-muted-foreground); }
+.exp-ann-cancel:hover { background: var(--exp-secondary); color: var(--exp-foreground); }
+.exp-ann-save {
+  background: var(--exp-accent);
+  color: var(--exp-accent-foreground);
+}
+.exp-ann-save:hover { filter: brightness(1.08); }
+.exp-ann-cancel:focus-visible,
+.exp-ann-save:focus-visible { outline: 2px solid var(--exp-foreground); outline-offset: 2px; }
+
+.exp-ann-stage {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.exp-ann-stage canvas {
+  display: block;
+  border: 1px solid var(--exp-border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  cursor: crosshair;
+  touch-action: none;
+  background: #ffffff;
+}
+
+@keyframes exp-spin {
+  to { transform: rotate(360deg); }
+}

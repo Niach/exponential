@@ -534,6 +534,85 @@ export const issueEvents = pgTable(
   ]
 )
 
+// Embeddable feedback-widget configs (server-only, NOT Electric-synced; read
+// via the `widgets` tRPC router). One row = one paste-in snippet: a public
+// key scoped to a destination workspace+project, plus the domain allowlist
+// that gates cross-origin submissions.
+export const widgetConfigs = pgTable(
+  `widget_configs`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
+    name: varchar({ length: 255 }).notNull(),
+    // `expw_` + 32 base62 chars. Public by design (it ships inside the host
+    // page's snippet); the domain allowlist + rate limiting are the controls,
+    // so it is stored in plaintext for direct lookup.
+    publicKey: varchar(`public_key`, { length: 64 }).notNull().unique(),
+    // Hostname[:port] patterns; `*.example.com` matches subdomains only.
+    // Empty array = any origin may use the key (settings UI warns about this).
+    allowedDomains: jsonb(`allowed_domains`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    enabled: boolean().notNull().default(true),
+    // Appearance/behavior overrides served to the widget loader:
+    // { buttonLabel?, accentColor?, position?, emailRequired? }.
+    formConfig: jsonb(`form_config`).$type<Record<string, unknown>>(),
+    // Synthetic isAgent user that owns issues created through this widget.
+    // `restrict` because issues.creator_id cascades on user delete — deleting
+    // this user would silently delete every issue the widget ever created.
+    // Config deletion keeps the user (and its agent-role membership) around.
+    widgetUserId: text(`widget_user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `restrict` }),
+    createdByUserId: text(`created_by_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    ...timestamps,
+  },
+  (table) => [index(`idx_widget_configs_workspace`).on(table.workspaceId)]
+)
+
+// One row per issue created through a widget (server-only, NOT synced). The
+// structured reporter contact + page/env context that must survive description
+// edits; the issue's description carries the same data as a readable block.
+export const widgetSubmissions = pgTable(
+  `widget_submissions`,
+  {
+    id: uuidPk(),
+    // `set null` so deleting a config keeps reporter contact info on issues.
+    widgetConfigId: uuid(`widget_config_id`).references(
+      () => widgetConfigs.id,
+      { onDelete: `set null` }
+    ),
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .unique()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    reporterEmail: varchar(`reporter_email`, { length: 320 }),
+    reporterName: varchar(`reporter_name`, { length: 255 }),
+    // Host-app user id passed via identify(); opaque to us.
+    reporterExternalId: varchar(`reporter_external_id`, { length: 255 }),
+    pageUrl: text(`page_url`),
+    userAgent: text(`user_agent`),
+    viewportWidth: integer(`viewport_width`),
+    viewportHeight: integer(`viewport_height`),
+    screenWidth: integer(`screen_width`),
+    screenHeight: integer(`screen_height`),
+    devicePixelRatio: doublePrecision(`device_pixel_ratio`),
+    customData: jsonb(`custom_data`).$type<Record<string, unknown>>(),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_widget_submissions_config`).on(table.widgetConfigId),
+  ]
+)
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -623,6 +702,18 @@ export const selectAgentRunSchema = createSelectSchema(agentRuns, {
   runMode: runModeSchema.nullable(),
 })
 
+export const selectWidgetConfigSchema = createSelectSchema(widgetConfigs, {
+  allowedDomains: z.array(z.string()),
+  formConfig: z.record(z.string(), z.unknown()).nullable(),
+})
+
+export const selectWidgetSubmissionSchema = createSelectSchema(
+  widgetSubmissions,
+  {
+    customData: z.record(z.string(), z.unknown()).nullable(),
+  }
+)
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -643,3 +734,5 @@ export type Notification = InferSelectModel<typeof notifications>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type AgentRun = InferSelectModel<typeof agentRuns>
+export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
+export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>

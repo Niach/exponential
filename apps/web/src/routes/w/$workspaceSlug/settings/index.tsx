@@ -11,6 +11,7 @@ import { WorkspaceLabelsSection } from "@/components/workspace/labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace/members-section"
 import { WorkspaceAgentsSection } from "@/components/workspace/agents-section"
 import { WorkspaceProjectsSection } from "@/components/workspace/projects-section"
+import { WorkspaceWidgetSection } from "@/components/workspace/widget-section"
 import { WorkspaceBillingSection } from "@/components/workspace/billing-section"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
@@ -116,6 +117,10 @@ function WorkspaceSettings() {
 
       {workspace && isOwner && (
         <WorkspaceProjectsSection workspaceId={workspace.id} />
+      )}
+
+      {workspace && isOwner && (
+        <WorkspaceWidgetSection workspaceId={workspace.id} />
       )}
 
       <WorkspaceMembersSection

@@ -54,10 +54,23 @@ const securityHeadersEnabled = process.env.SECURITY_HEADERS_ENABLED === `true`
 // Electric long-poll requests against the same origin. Tightening to
 // nonce-based scripts requires a Start-internal change and is left as
 // follow-up.
+// Self-hosted instances load the dogfooded feedback widget from the cloud
+// origin (FEEDBACK_WIDGET_SCRIPT_URL), which needs a script-src entry; on
+// cloud the widget is same-origin and 'self' covers it.
+const feedbackWidgetScriptOrigin = (() => {
+  const raw = process.env.FEEDBACK_WIDGET_SCRIPT_URL?.trim()
+  if (!raw) return null
+  try {
+    return new URL(raw).origin
+  } catch {
+    return null
+  }
+})()
+
 const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy": [
     `default-src 'self'`,
-    `script-src 'self' 'unsafe-inline'`,
+    `script-src 'self' 'unsafe-inline'${feedbackWidgetScriptOrigin ? ` ${feedbackWidgetScriptOrigin}` : ``}`,
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `img-src 'self' data: blob: https://*.googleusercontent.com`,
     `font-src 'self' data: https://fonts.gstatic.com`,
@@ -83,8 +96,26 @@ function withSecurityHeaders(response: Response): Response {
   return response
 }
 
+// The embeddable widget artifacts (apps/web/public/widget/, built by
+// packages/widget) are loaded by third-party pages. Stable filenames with
+// moderate TTLs instead of hashed bundles: a hashed widget.js would 404 for
+// cached loaders across deploys. ACAO on scripts is defensive (classic
+// script tags don't need CORS; API calls carry their own CORS headers).
+function withWidgetAssetHeaders(req: Request, response: Response): Response {
+  const pathname = new URL(req.url).pathname
+  if (!pathname.startsWith(`/widget/`)) return response
+  response.headers.set(`Access-Control-Allow-Origin`, `*`)
+  response.headers.set(
+    `Cache-Control`,
+    pathname.endsWith(`/loader.js`)
+      ? `public, max-age=300, stale-while-revalidate=86400`
+      : `public, max-age=3600, stale-while-revalidate=86400`
+  )
+  return response
+}
+
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
-  withSecurityHeaders(await nitroApp.fetch(req))
+  withSecurityHeaders(withWidgetAssetHeaders(req, await nitroApp.fetch(req)))
 const ws = hasWebSocket
   ? wsAdapter({ resolve: resolveWebsocketHooks })
   : undefined
@@ -101,7 +132,9 @@ if (hasWebSocket && ws) {
       // the guard above ensures we only get here on websocket requests.
       return upgraded as Response | Promise<Response>
     }
-    return withSecurityHeaders(await nitroApp.fetch(req))
+    return withSecurityHeaders(
+      withWidgetAssetHeaders(req, await nitroApp.fetch(req))
+    )
   }
 }
 

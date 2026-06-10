@@ -30,6 +30,8 @@ import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authentic
 import { Route as WWorkspaceSlugIndexRouteImport } from './routes/w/$workspaceSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as WWorkspaceSlugSetupAgentRouteImport } from './routes/w/$workspaceSlug/setup-agent'
+import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
+import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
 import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiShapesWorkspacesRouteImport } from './routes/api/shapes/workspaces'
@@ -167,6 +169,16 @@ const WWorkspaceSlugSetupAgentRoute =
     path: '/setup-agent',
     getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
+const ApiWidgetSubmitRoute = ApiWidgetSubmitRouteImport.update({
+  id: '/api/widget/submit',
+  path: '/api/widget/submit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWidgetConfigRoute = ApiWidgetConfigRouteImport.update({
+  id: '/api/widget/config',
+  path: '/api/widget/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksGithubRoute = ApiWebhooksGithubRouteImport.update({
   id: '/api/webhooks/github',
   path: '/api/webhooks/github',
@@ -365,6 +377,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
+  '/api/widget/config': typeof ApiWidgetConfigRoute
+  '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/w/$workspaceSlug/setup-agent': typeof WWorkspaceSlugSetupAgentRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
@@ -414,6 +428,8 @@ export interface FileRoutesByTo {
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
+  '/api/widget/config': typeof ApiWidgetConfigRoute
+  '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/w/$workspaceSlug/setup-agent': typeof WWorkspaceSlugSetupAgentRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
@@ -467,6 +483,8 @@ export interface FileRoutesById {
   '/api/shapes/workspaces': typeof ApiShapesWorkspacesRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
+  '/api/widget/config': typeof ApiWidgetConfigRoute
+  '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/w/$workspaceSlug/setup-agent': typeof WWorkspaceSlugSetupAgentRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
@@ -520,6 +538,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
     | '/api/webhooks/github'
+    | '/api/widget/config'
+    | '/api/widget/submit'
     | '/w/$workspaceSlug/setup-agent'
     | '/admin/'
     | '/w/$workspaceSlug/'
@@ -569,6 +589,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
     | '/api/webhooks/github'
+    | '/api/widget/config'
+    | '/api/widget/submit'
     | '/w/$workspaceSlug/setup-agent'
     | '/admin'
     | '/w/$workspaceSlug'
@@ -621,6 +643,8 @@ export interface FileRouteTypes {
     | '/api/shapes/workspaces'
     | '/api/trpc/$'
     | '/api/webhooks/github'
+    | '/api/widget/config'
+    | '/api/widget/submit'
     | '/w/$workspaceSlug/setup-agent'
     | '/_authenticated/admin/'
     | '/w/$workspaceSlug/'
@@ -668,6 +692,8 @@ export interface RootRouteChildren {
   ApiShapesWorkspacesRoute: typeof ApiShapesWorkspacesRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
   ApiWebhooksGithubRoute: typeof ApiWebhooksGithubRoute
+  ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
+  ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
   ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
 }
@@ -820,6 +846,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/w/$workspaceSlug/setup-agent'
       preLoaderRoute: typeof WWorkspaceSlugSetupAgentRouteImport
       parentRoute: typeof WWorkspaceSlugRouteRoute
+    }
+    '/api/widget/submit': {
+      id: '/api/widget/submit'
+      path: '/api/widget/submit'
+      fullPath: '/api/widget/submit'
+      preLoaderRoute: typeof ApiWidgetSubmitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/widget/config': {
+      id: '/api/widget/config'
+      path: '/api/widget/config'
+      fullPath: '/api/widget/config'
+      preLoaderRoute: typeof ApiWidgetConfigRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/webhooks/github': {
       id: '/api/webhooks/github'
@@ -1126,6 +1166,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesWorkspacesRoute: ApiShapesWorkspacesRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
   ApiWebhooksGithubRoute: ApiWebhooksGithubRoute,
+  ApiWidgetConfigRoute: ApiWidgetConfigRoute,
+  ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
   ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
 }

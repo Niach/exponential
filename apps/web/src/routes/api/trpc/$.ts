@@ -21,6 +21,7 @@ import { billingRouter } from "@/lib/trpc/billing"
 import { onboardingRouter } from "@/lib/trpc/onboarding"
 import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
 import { notificationsRouter } from "@/lib/trpc/notifications"
+import { widgetsRouter } from "@/lib/trpc/widgets"
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -46,6 +47,7 @@ export const appRouter = router({
   onboarding: onboardingRouter,
   subscriptions: subscriptionsRouter,
   notifications: notificationsRouter,
+  widgets: widgetsRouter,
 })
 
 export type AppRouter = typeof appRouter

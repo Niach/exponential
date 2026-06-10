@@ -1,9 +1,16 @@
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { projects, workspaceMembers, workspaces } from "@/db/schema"
+import {
+  projects,
+  widgetConfigs,
+  workspaceMembers,
+  workspaces,
+} from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { invalidatePublicWorkspaceCache } from "@/lib/workspace-membership"
 import { emailEnabled } from "@/lib/email"
+import { generateWidgetKey } from "@/lib/widget/key"
+import { createWidgetUser } from "@/lib/widget/widget-user"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
@@ -66,6 +73,54 @@ async function ensurePublicWorkspace() {
     .where(eq(workspaces.id, workspaceId))
 
   return workspaceId
+}
+
+const FEEDBACK_WIDGET_NAME = `Exponential App`
+
+// The dogfood widget: the Exponential web app itself embeds the feedback
+// widget pointed at the public feedback workspace. Domains stay open
+// (allow-all) on purpose — self-hosted instances with arbitrary hostnames
+// load this same cloud widget, and the workspace is already
+// publicWritePolicy=everyone; rate limiting is the abuse control.
+async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
+  const [existing] = await db
+    .select({ id: widgetConfigs.id })
+    .from(widgetConfigs)
+    .where(
+      and(
+        eq(widgetConfigs.workspaceId, publicWorkspaceId),
+        eq(widgetConfigs.name, FEEDBACK_WIDGET_NAME)
+      )
+    )
+    .limit(1)
+  if (existing) return
+
+  const [project] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, publicWorkspaceId),
+        eq(projects.slug, PUBLIC_PROJECT_SLUG)
+      )
+    )
+    .limit(1)
+  if (!project) return
+
+  await db.transaction(async (tx) => {
+    const widgetUserId = await createWidgetUser(tx, {
+      workspaceId: publicWorkspaceId,
+      configName: FEEDBACK_WIDGET_NAME,
+    })
+    await tx.insert(widgetConfigs).values({
+      workspaceId: publicWorkspaceId,
+      projectId: project.id,
+      name: FEEDBACK_WIDGET_NAME,
+      publicKey: generateWidgetKey(),
+      allowedDomains: [],
+      widgetUserId,
+    })
+  })
 }
 
 async function addAdminsAsPublicWorkspaceOwners(publicWorkspaceId: string) {
@@ -140,6 +195,7 @@ export function bootstrapCloud(): Promise<void> {
       if (isCloudInstance()) {
         const publicWorkspaceId = await ensurePublicWorkspace()
         await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
+        await ensureFeedbackWidgetConfig(publicWorkspaceId)
       }
     } catch (err) {
       console.error(`[bootstrap-cloud] failed:`, err)

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Exponential Widget Demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: oklch(0.145 0 0);
+        color: oklch(0.985 0 0);
+        min-height: 200vh; /* scroll to test viewport cropping */
+      }
+      header {
+        padding: 48px 24px 24px;
+        background: linear-gradient(135deg, #4f46e5, #9333ea);
+      }
+      main { padding: 24px; max-width: 720px; }
+      .card {
+        background: oklch(0.205 0 0);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 16px;
+        backdrop-filter: blur(4px);
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        background: oklch(0.269 0 0);
+        font-size: 12px;
+        margin-right: 8px;
+      }
+      canvas { border: 1px solid rgba(255,255,255,.2); border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Widget demo page</h1>
+      <p>Modern CSS (oklch, gradients, backdrop-filter) to exercise capture.</p>
+    </header>
+    <main>
+      <div class="card">
+        <span class="pill">bug</span><span class="pill">feedback</span>
+        <p>Click the feedback button bottom-right. The screenshot should show
+        this page without the widget itself.</p>
+      </div>
+      <div class="card">
+        <canvas id="chart" width="320" height="120"></canvas>
+      </div>
+      <div class="card" style="margin-top: 60vh">
+        <p>Scrolled-down content — capture should crop to the viewport.</p>
+      </div>
+    </main>
+
+    <script>
+      const ctx = document.getElementById("chart").getContext("2d")
+      ctx.fillStyle = "#4f46e5"
+      for (let i = 0; i < 10; i++) ctx.fillRect(i * 32 + 4, 120 - i * 10, 24, i * 10)
+    </script>
+
+    <!-- The real paste-in snippet, pointed at this origin's loader. -->
+    <script>
+      ;(function (w, d, u) {
+        if (w.ExponentialWidget) return
+        var q = [],
+          api = { q: q }
+        ;["init", "identify", "setCustomData", "open", "close"].forEach(
+          function (m) {
+            api[m] = function () {
+              q.push([m, [].slice.call(arguments)])
+            }
+          }
+        )
+        w.ExponentialWidget = api
+        var s = d.createElement("script")
+        s.async = true
+        s.src = u
+        d.head.appendChild(s)
+      })(window, document, "/widget/v1/loader.js")
+
+      // ?key=expw_… lets you point the demo at a real widget config.
+      ExponentialWidget.init({
+        key:
+          new URLSearchParams(location.search).get("key") ||
+          "expw_demo0000000000000000000000000000",
+      })
+      ExponentialWidget.setCustomData({ demo: true, page: "demo.html" })
+    </script>
+  </body>
+</html>

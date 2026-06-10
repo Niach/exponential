@@ -31,6 +31,7 @@ exponential/
 │   ├── db-schema/          # Drizzle schema + shared zod/domain types
 │   ├── domain-contract/    # contract.json — canonical enum values; emits per-language constants
 │   ├── electric-protocol/  # Electric SQL shape protocol fixtures
+│   ├── widget/             # Embeddable feedback widget (Preact + snapDOM); builds loader.js/widget.js into apps/web/public/widget/v1/
 │   └── tsconfig/           # Shared TS configs
 ├── docker-compose.yaml
 ├── Caddyfile
@@ -39,7 +40,7 @@ exponential/
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
-Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/tsconfig`. (The Linux desktop app `apps/linux` is a Zig project and the Rust `crates/agent-core` is a Cargo crate — neither is a bun workspace.)
+Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/widget`, `@exp/tsconfig`. (The Linux desktop app `apps/linux` is a Zig project and the Rust `crates/agent-core` is a Cargo crate — neither is a bun workspace.)
 
 **Client parity:** all five clients (web, iOS, Android, macOS, Linux) sync the same fourteen Electric shapes (workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, **comments**, **attachments**, **notifications**, **issue_events**, **issue_subscribers**, **agent_runs**). The web app additionally proxies an `assigned-issues` shape used only by the desktop agent runtime (15 proxies total). All clients honor `isPublic` / `publicWritePolicy` field gating via a small `WorkspacePermissions` helper that mirrors `apps/web/src/hooks/use-workspace-permissions.ts`. **Billing (Creem) and the Google Calendar integration are intentionally web-only** — native clients show no billing UI (store-policy safe) and link to the web app for calendar connect. When changing enum values in `packages/db-schema/src/domain.ts`, also update `packages/domain-contract/contract.json` and run `bun run --filter @exp/domain-contract generate` to refresh the Swift / Kotlin constants.
 
@@ -55,8 +56,11 @@ bun dev                            # Start web dev server (apps/web, localhost:5
 bun run dev:marketing              # Start marketing dev server (apps/marketing)
 bun run dev:push-relay             # Start push relay dev server (apps/push-relay, localhost:4001)
 bun run start:push-relay           # Start push relay in production mode
-bun run build                      # Build web + marketing
+bun run build                      # Build widget + web + marketing (widget MUST build before web)
 bun run build:web                  # Build only the web app
+bun run build:widget               # Build the embeddable widget into apps/web/public/widget/v1/
+bun run dev:widget                 # Watch-build the widget (pairs with `bun dev`; test page at /widget/v1/demo.html)
+bun run test:widget                # Run widget package unit tests
 bun run typecheck                  # Typecheck the web app
 bun run test                       # Run web vitest unit tests
 bun run test:e2e                   # Run web playwright e2e tests
@@ -280,6 +284,10 @@ PUSH_RELAY_URL                # URL of the push-relay service (e.g. https://push
 PUSH_RELAY_SECRET             # Shared secret between web app and push relay
 SECURITY_HEADERS_ENABLED      # 'true' to emit CSP/HSTS etc. from the Bun server
 INITIAL_ADMIN_EMAILS          # Comma-separated emails auto-promoted to global admin at startup
+FEEDBACK_WIDGET_SCRIPT_URL    # Self-hosted only: cloud loader URL for the in-app feedback widget (cloud derives from DB)
+FEEDBACK_WIDGET_KEY           # Self-hosted only: expw_ key of the cloud feedback widget config
+WIDGET_RATE_LIMIT_PER_KEY_HOURLY # Widget submit limit per public key (default 60/h, burst 10 via WIDGET_RATE_LIMIT_KEY_BURST)
+WIDGET_RATE_LIMIT_PER_IP_HOURLY  # Widget submit limit per client IP (default 60/h, burst 5 via WIDGET_RATE_LIMIT_IP_BURST)
 ```
 
 (The push relay process itself reads `FIREBASE_SERVICE_ACCOUNT_JSON` — see `.env.example`.)
@@ -303,6 +311,14 @@ The desktop apps (macOS: `apps/ios/ExponentialMac`; Linux: `apps/linux`, Zig + G
 The full roadmap (locked architecture, the shared agent-core C ABI + run-request protocol, libghostty notes, and the sequenced macOS plan) is in `docs/native-desktop-roadmap.md`.
 
 Registration is automatic after login: `agent.register({deviceId, name})` creates one synthetic agent user per physical device (persisted in `agent_registrations`, `unique(owner_user_id, device_id)`), mints a single long-lived `expk_` API key (Better Auth apiKey plugin), and fans the device user into every workspace the owner belongs to as `role=agent`. Server routes live in `lib/trpc/companion/` but are mounted as `agent.*` in the appRouter (`companion.*` remains as a temporary alias). The agent watches assigned issues over Electric (`expk_` key, `/api/shapes/assigned-issues`), runs in a git worktree, and opens a GitHub PR. Agent lifecycle events (plan ready, questions, PR opened, errors) flow through `agent_runs` + `issue_events` and the native Plan Panels; plan approval uses `issues.agentPlanState` with run details in `agent_runs`; server logic lives in `lib/trpc/agent-plan.ts`. v1 runs the agent only while the desktop app is open (no headless/systemd mode).
+
+### Embeddable Feedback Widget
+
+A marker.io-style widget third parties paste into their sites via a GA-style async `<script>` snippet. Source lives in `packages/widget` (Preact in a shadow root + `@zumer/snapdom` for client-side screenshots); the build emits two classic IIFE scripts into `apps/web/public/widget/v1/` — `loader.js` (snippet target: command queue, floating button, config prefetch) and `widget.js` (lazy-loaded panel + capture), plus `demo.html` for manual testing. The widget API is `window.ExponentialWidget`: `init({key})`, `identify({email,name,userId})`, `setCustomData({...})`, `open()`, `close()`. Screenshots are captured client-side (snapDOM, viewport-cropped, WebP→PNG→JPEG ladder, never blocks submission on failure); marker.io's server-side rendering approach was researched and deliberately not used (capture sits behind a `CaptureEngine` interface in `packages/widget/src/capture/` if that ever changes). Screenshots can be **annotated** in a full-screen editor (rectangle / free line / arrow, fixed red, undo/clear): shapes live in image-pixel space (`packages/widget/src/annotate/`), stay editable across editor reopens, and are flattened into the uploaded image on submit (`flattenAnnotations` re-runs the encode ladder) — the server only ever sees one plain image.
+
+Server side: two server-only tables (`widget_configs` with the public `expw_` key + domain allowlist, `widget_submissions` with reporter email/page/env metadata — NOT Electric-synced, read via the `widgets` tRPC router), two CORS-handling public routes (`/api/widget/config`, `/api/widget/submit` — plain file routes; CORS/origin/rate-limit/honeypot helpers in `apps/web/src/lib/widget/`). Each config owns a synthetic `isAgent` user (role=agent member) as the issue creator — **never delete that user: `issues.creator_id` cascades**. Submissions create the issue + screenshot attachment + submission row in ONE transaction; the description gets a human-readable metadata block. Rate limiting is in-process token buckets (`WIDGET_RATE_LIMIT_*` env). Managed in workspace settings → "Feedback widget" (owner-only, copy-paste snippet). Dogfood: cloud bootstrap creates the `Exponential App` config on the public feedback workspace; the sidebar FeedbackButton opens the embedded widget (`FeedbackWidgetProvider` in the workspace layout) and falls back to the legacy `/feedback` redirect; self-hosted instances point at the cloud via `FEEDBACK_WIDGET_SCRIPT_URL` + `FEEDBACK_WIDGET_KEY` (the script origin is auto-added to the CSP).
+
+Dev-mode gotcha: the nitro-alpha dev bridge renders any app 404-status response as a connect `Cannot GET/POST` HTML page and strips custom response headers — both dev-only; production (`server-bun.ts`/srvx) passes responses through untouched.
 
 ## Style Conventions
 

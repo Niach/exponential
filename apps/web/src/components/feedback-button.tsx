@@ -6,6 +6,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { getRuntimeConfig } from "@/lib/runtime-config"
+import { openFeedbackWidget } from "@/components/feedback-widget-provider"
 
 // One-shot fetch — runtime config is set at deploy time and won't change
 // during a session. Cached at module scope so subsequent mounts don't refetch.
@@ -39,6 +40,9 @@ export function FeedbackButton() {
   }, [])
 
   const handleClick = () => {
+    // Preferred path: the embedded feedback widget (screenshot + form in
+    // place). Falls back to the legacy redirect flows when it isn't loaded.
+    if (openFeedbackWidget()) return
     if (externalUrl) {
       const source =
         typeof window !== `undefined` ? window.location.hostname : ``
