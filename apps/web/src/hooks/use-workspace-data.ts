@@ -98,18 +98,23 @@ export function useOwnedWorkspaceCount(userId?: string): number {
 
 // Whether to show workspace-level chrome (the switcher, "New workspace", the
 // workspace name). Revealed when the current workspace is no longer solo, OR
-// the user belongs to more than one non-public workspace (they clearly already
-// reason about multiple workspaces). Biased to hidden while data loads.
+// the user has explicit memberships in more than one workspace (they clearly
+// already reason about multiple workspaces). The public workspace counts only
+// for users with a membership row in it (e.g. its owner) — for everyone else
+// it is just implicitly visible. Biased to hidden while data loads.
 export function useShowWorkspaceChrome(
   workspaceId?: string,
   userId?: string
 ): boolean {
   const isSolo = useIsSolo(workspaceId)
-  const { myWorkspaces } = useWorkspaceMemberships(userId)
-  const nonPublicCount = myWorkspaces.filter(
-    (workspace) => !workspace.isPublic
+  const { memberships, myWorkspaces } = useWorkspaceMemberships(userId)
+  const membershipIds = new Set(
+    memberships.map((member) => member.workspaceId)
+  )
+  const explicitCount = myWorkspaces.filter(
+    (workspace) => !workspace.isPublic || membershipIds.has(workspace.id)
   ).length
-  return !isSolo || nonPublicCount > 1
+  return !isSolo || explicitCount > 1
 }
 
 export function useWorkspaceProjects(workspaceId?: string) {
