@@ -26,9 +26,14 @@ struct MarkdownEditor: View {
     @State private var linkURLText = ""
     @State private var toolbar = MarkdownToolbar()
 
+    // NOTE: deliberately no internal ScrollView. Every usage embeds this
+    // editor inside an outer ScrollView (issue detail, create sheet, comment
+    // composer); a nested vertical ScrollView proposed an unbounded height
+    // reports its content's IDEAL size in both axes, so one long unwrappable
+    // line (e.g. a code span) blew the whole column out to ~3× screen width
+    // and embedded images rendered at native pixel size.
     var body: some View {
-        ScrollViewReader { _ in
-            ScrollView {
+        Group {
                 VStack(spacing: 0) {
                     ForEach(model.blocks) { block in
                         switch block {
@@ -65,8 +70,6 @@ struct MarkdownEditor: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 12)
-                .padding(.bottom, 60)
-            }
         }
         .overlay(alignment: .top) {
             if !model.mentionCandidates.isEmpty { mentionBar }
@@ -296,6 +299,25 @@ private struct BlockTextEditor: UIViewRepresentable {
             coord.showPlaceholder(in: tv, text: placeholder)
         }
         return tv
+    }
+
+    // Without this, SwiftUI sizes the representable from UITextView's
+    // intrinsicContentSize, whose width is the longest paragraph UNWRAPPED —
+    // one long code span (e.g. a user-agent string) then widens the whole
+    // block column far beyond the screen. Adopt the proposed width and report
+    // the wrapped text height for it instead.
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView tv: EditorTextView,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0 else {
+            return nil
+        }
+        let fitted = tv.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude)
+        )
+        return CGSize(width: width, height: fitted.height)
     }
 
     func updateUIView(_ tv: EditorTextView, context: Context) {
