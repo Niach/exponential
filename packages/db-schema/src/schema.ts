@@ -30,6 +30,7 @@ import {
   issueStatusValues,
   prStateSchema,
   prStateValues,
+  type ProjectPreviewMirror,
   publicWritePolicyValues,
   recurrenceUnitSchema,
   recurrenceUnitValues,
@@ -219,6 +220,11 @@ export const projects = pgTable(
     // means an agent assigned an issue here will mark it needs_human until
     // an owner links a repo from the workspace settings UI.
     githubRepo: text(`github_repo`),
+    // Display-only mirror of the project's preview run targets + feedback issue
+    // routing target. The canonical build/run commands live in the committed
+    // `.exponential/config.json` working-tree file — this mirror is NEVER
+    // executed; it only feeds the web settings UI + pre-clone discovery.
+    previewConfig: jsonb(`preview_config`).$type<ProjectPreviewMirror>(),
     ...timestamps,
   },
   (table) => [unique().on(table.workspaceId, table.slug)]

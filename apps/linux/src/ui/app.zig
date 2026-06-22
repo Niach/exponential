@@ -30,6 +30,10 @@ const registration = @import("../core/agent/registration.zig");
 const agent_manager = @import("../core/agent/agent_manager.zig");
 const terminal_dock = @import("terminal_dock.zig");
 const Heartbeat = @import("../core/agent/heartbeat.zig").Heartbeat;
+const preview_panel = @import("preview/preview_panel.zig");
+const preview = @import("preview/preview.zig");
+const preview_config = @import("preview/preview_config.zig");
+const api_projects = @import("../core/api/projects.zig");
 
 extern fn readlink(path: [*:0]const u8, buf: [*]u8, bufsiz: usize) isize;
 
@@ -61,6 +65,11 @@ const AppState = struct {
     sidebar_account: gtk.Object = null,
     content_nav: gtk.Object = null, // AdwNavigationView (list → detail subpages)
     term_dock: ?*terminal_dock.TerminalDock = null, // IDE-style bottom terminal dock
+    preview_pane: ?*preview_panel.PreviewPanel = null, // dedicated resizable Preview pane
+    preview_ctrl: ?*preview.PreviewController = null, // owns the live preview lifecycle
+    preview_split: gtk.Object = null, // horizontal GtkPaned: content | preview (toggle)
+    preview_targets: std.ArrayListUnmanaged(PreviewTargetEntry) = .empty, // gpa-owned parsed targets for the active project
+    preview_repo_slug: ?[]u8 = null, // github_repo of the project whose targets are loaded
     list_page: gtk.Object = null, // root AdwNavigationPage (the issue list)
     selected_project_id: ?[]u8 = null, // null = all issues
     selected_project_name: ?[]u8 = null, // for the create-issue default + title
@@ -98,6 +107,14 @@ const AppState = struct {
 /// A label currently used as a filter — name/colour kept so pills can render it
 /// without a re-query.
 const FilterLabel = struct { id: []u8, name: []u8, color: []u8 };
+
+/// A run target loaded for the active project's preview pane. Holds an owned
+/// arena with the parsed RunTarget so the picker → Run callback can dispatch by
+/// index without re-reading the repo file.
+const PreviewTargetEntry = struct {
+    arena: std.heap.ArenaAllocator,
+    target: preview_config.RunTarget,
+};
 
 fn statusDisplayIndex(value: []const u8) usize {
     for (format.status_display_order, 0..) |s, i| if (std.mem.eql(u8, s, value)) return i;
@@ -603,6 +620,18 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     if (state.agent_core) |m| agent_manager.stop(m);
     state.agent_core = null;
     state.device_register_attempted = false;
+    // Tear down the preview: the controller owns the dev-server / emulator child
+    // processes, so its ordered stop() (un-reparent → kill → free ports) must run
+    // before the window content is dropped. Do this before freeing creds (the
+    // controller holds its own duped copies).
+    if (state.preview_ctrl) |c| c.destroy();
+    state.preview_ctrl = null;
+    if (state.preview_pane) |p| p.destroy();
+    state.preview_pane = null;
+    freePreviewTargets(state);
+    if (state.preview_repo_slug) |p| state.gpa.free(p);
+    state.preview_repo_slug = null;
+    state.preview_split = null;
     // The dock's GTK widgets die with the window content; free our struct (the
     // agent core was stopped just above, so it won't touch the dock anymore).
     if (state.term_dock) |d| state.gpa.destroy(d);
@@ -779,6 +808,13 @@ fn buildTrackerUI(state: *AppState) void {
     _ = gtk.g_signal_connect_data(integrations_item, "clicked", @ptrCast(&onIntegrationsClicked), state, null, 0);
     gtk.gtk_box_append(user_pop_box, integrations_item);
 
+    // Toggle the dedicated Preview pane (build + run the project's targets).
+    const preview_item = gtk.gtk_button_new_with_label("Preview");
+    gtk.gtk_widget_add_css_class(preview_item, "flat");
+    gtk.gtk_widget_set_halign(preview_item, gtk.ALIGN_FILL);
+    _ = gtk.g_signal_connect_data(preview_item, "clicked", @ptrCast(&onPreviewToggle), state, null, 0);
+    gtk.gtk_box_append(user_pop_box, preview_item);
+
     const signout_item = gtk.gtk_button_new_with_label("Sign out");
     gtk.gtk_widget_add_css_class(signout_item, "flat");
     gtk.gtk_widget_set_halign(signout_item, gtk.ALIGN_FILL);
@@ -842,12 +878,49 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.adw_navigation_view_push(nav, list_page);
     // Wrap the content nav in an IDE-style vertical split: agent runs land in a
     // collapsible bottom terminal dock instead of a throwaway window.
-    if (terminal_dock.TerminalDock.create(state.gpa, nav)) |dock| {
-        state.term_dock = dock;
-        gtk.gtk_widget_set_hexpand(dock.paned, 1);
-        gtk.gtk_box_append(panes, dock.paned);
+    const content_widget = blk: {
+        if (terminal_dock.TerminalDock.create(state.gpa, nav)) |dock| {
+            state.term_dock = dock;
+            gtk.gtk_widget_set_hexpand(dock.paned, 1);
+            break :blk dock.paned;
+        }
+        break :blk nav;
+    };
+
+    // Dedicated, resizable Preview pane on the trailing edge — SEPARATE from the
+    // bottom terminal dock (which keeps hosting agent build/run logs). A
+    // horizontal GtkPaned splits content | preview; the preview side starts
+    // hidden and is revealed by the sidebar "Preview" action.
+    if (preview_panel.PreviewPanel.create(state.gpa, state.window)) |pane| {
+        state.preview_pane = pane;
+        const split = gtk.gtk_paned_new(gtk.ORIENTATION_HORIZONTAL);
+        gtk.gtk_widget_set_hexpand(split, 1);
+        gtk.gtk_paned_set_start_child(split, content_widget);
+        gtk.gtk_paned_set_resize_start_child(split, 1);
+        gtk.gtk_paned_set_shrink_start_child(split, 0);
+        gtk.gtk_paned_set_end_child(split, pane.root);
+        gtk.gtk_paned_set_resize_end_child(split, 0);
+        gtk.gtk_paned_set_shrink_end_child(split, 0);
+        gtk.gtk_widget_set_visible(pane.root, 0); // hidden until toggled
+        state.preview_split = split;
+        gtk.gtk_box_append(panes, split);
+
+        // Own the lifecycle controller + wire the header callbacks.
+        if (state.instance) |inst| {
+            if (preview.PreviewController.create(state.gpa, pane, inst, state.token)) |ctrl| {
+                state.preview_ctrl = ctrl;
+            }
+        }
+        pane.setCallbacks(.{
+            .ctx = state,
+            .on_run = onPreviewRun,
+            .on_stop = onPreviewStop,
+            .on_target_changed = onPreviewTargetChanged,
+            .on_annotate_begin = onPreviewAnnotateBegin,
+        });
     } else {
-        gtk.gtk_box_append(panes, nav);
+        gtk.gtk_widget_set_hexpand(content_widget, 1);
+        gtk.gtk_box_append(panes, content_widget);
     }
 
     gtk.adw_application_window_set_content(state.window, panes);
@@ -4048,6 +4121,252 @@ fn onIntegrationsClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const state: *AppState = @ptrCast(@alignCast(data));
     const instance = state.instance orelse return;
     integrations.open(state.gpa, instance, state.token, state.window);
+}
+
+// --- Preview pane wiring -----------------------------------------------------
+
+fn freePreviewTargets(state: *AppState) void {
+    for (state.preview_targets.items) |*e| e.arena.deinit();
+    state.preview_targets.clearAndFree(state.gpa);
+}
+
+/// Toggle the dedicated Preview pane. On first reveal for a project, load its
+/// run targets from the cloned repo file (canonical command source) into the
+/// picker. Trust-gated: a target's Run is blocked until the user approves the
+/// repo's command set (see onPreviewRun).
+fn onPreviewToggle(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const split = state.preview_split;
+    const pane = state.preview_pane orelse return;
+    if (split == null) return;
+    const showing = gtk.gtk_widget_get_visible(pane.root) != 0;
+    if (showing) {
+        gtk.gtk_widget_set_visible(pane.root, 0);
+        return;
+    }
+    loadPreviewTargets(state);
+    gtk.gtk_widget_set_visible(pane.root, 1);
+    // Split ~40% to the preview (portrait phone proportion) once allocated.
+    const total = gtk.gtk_widget_get_width(split);
+    if (total > 600) gtk.gtk_paned_set_position(split, total - 420);
+}
+
+/// Read the active project's `.exponential/config.json` from its clone and fill
+/// the picker. The DB mirror (preview_config column) only names targets; the
+/// commands come from the working-tree file — so a project with no clone yet
+/// shows an empty picker + a hint.
+fn loadPreviewTargets(state: *AppState) void {
+    const pane = state.preview_pane orelse return;
+    freePreviewTargets(state);
+
+    // The project's GitHub repo slug ("owner/name") keys the clone dir.
+    const repo = state.selected_project_repo orelse "";
+    if (repo.len == 0) {
+        pane.setMessage("This project has no linked GitHub repo — preview reads .exponential/config.json from the clone.");
+        return;
+    }
+    if (state.preview_repo_slug) |p| state.gpa.free(p);
+    state.preview_repo_slug = state.gpa.dupe(u8, repo) catch null;
+
+    // Parse into per-target owned arenas (so the picker index → target dispatch
+    // survives the scratch arena below).
+    var scratch = std.heap.ArenaAllocator.init(state.gpa);
+    defer scratch.deinit();
+    const cfg = preview_config.load(scratch.allocator(), repo) catch {
+        pane.setMessage("No .exponential/config.json found in the clone yet (clone the repo via an agent run first).");
+        return;
+    };
+
+    var picker_entries = std.ArrayListUnmanaged(preview_panel.PickerTarget).empty;
+    for (cfg.targets) |t| {
+        var arena = std.heap.ArenaAllocator.init(state.gpa);
+        const owned = dupePreviewTarget(arena.allocator(), t) catch {
+            arena.deinit();
+            continue;
+        };
+        state.preview_targets.append(state.gpa, .{ .arena = arena, .target = owned }) catch {
+            arena.deinit();
+            continue;
+        };
+        picker_entries.append(scratch.allocator(), .{
+            .name = owned.name,
+            .platform_label = owned.platform.label(),
+        }) catch {};
+    }
+    pane.setTargets(picker_entries.items);
+    if (state.preview_targets.items.len == 0)
+        pane.setMessage("No run targets declared in .exponential/config.json.");
+}
+
+fn dupePreviewTarget(a: std.mem.Allocator, t: preview_config.RunTarget) !preview_config.RunTarget {
+    var out = t;
+    out.id = try a.dupe(u8, t.id);
+    out.name = try a.dupe(u8, t.name);
+    out.root_dir = try dupeOptStr(a, t.root_dir);
+    out.setup = try dupeOptStr(a, t.setup);
+    out.run = try dupeOptStr(a, t.run);
+    out.url = try dupeOptStr(a, t.url);
+    out.ready_path = try dupeOptStr(a, t.ready_path);
+    out.build = try dupeOptStr(a, t.build);
+    out.apk = try dupeOptStr(a, t.apk);
+    out.install_command = try dupeOptStr(a, t.install_command);
+    out.avd = try dupeOptStr(a, t.avd);
+    out.application_id = try dupeOptStr(a, t.application_id);
+    out.activity = try dupeOptStr(a, t.activity);
+    out.scheme = try dupeOptStr(a, t.scheme);
+    out.workspace = try dupeOptStr(a, t.workspace);
+    out.simulator = try dupeOptStr(a, t.simulator);
+    out.bundle_id = try dupeOptStr(a, t.bundle_id);
+    return out;
+}
+
+fn dupeOptStr(a: std.mem.Allocator, s: ?[]const u8) !?[]const u8 {
+    return if (s) |v| try a.dupe(u8, v) else null;
+}
+
+/// Header Run: trust-gate the repo's command set, then start the selected target.
+fn onPreviewRun(ctx: ?*anyopaque, target_index: usize) void {
+    const state: *AppState = @ptrCast(@alignCast(ctx orelse return));
+    const ctrl = state.preview_ctrl orelse return;
+    if (target_index >= state.preview_targets.items.len) return;
+    const repo = state.preview_repo_slug orelse return;
+    const target = state.preview_targets.items[target_index].target;
+
+    // Trust gate: commands come from the working-tree repo file; require a
+    // one-time approval per command-set hash. iOS needs no gate (no commands run).
+    if (target.platform != .ios) {
+        if (!ensurePreviewTrust(state, repo)) {
+            confirmPreviewTrust(state, repo, target_index);
+            return;
+        }
+    }
+    ctrl.start(repo, target);
+}
+
+/// Whether the repo's current command set is already approved.
+fn ensurePreviewTrust(state: *AppState, repo: []const u8) bool {
+    var scratch = std.heap.ArenaAllocator.init(state.gpa);
+    defer scratch.deinit();
+    const cfg = preview_config.load(scratch.allocator(), repo) catch return false;
+    const hash = preview_config.commandSetHash(scratch.allocator(), cfg) catch return false;
+    return preview_config.isTrusted(state.gpa, repo, hash);
+}
+
+const TrustCtx = struct { state: *AppState, repo: []u8, target_index: usize };
+
+/// Present a one-time "Trust preview commands for owner/name?" dialog. On accept,
+/// record the command-set hash and run the target.
+fn confirmPreviewTrust(state: *AppState, repo: []const u8, target_index: usize) void {
+    const tc = state.gpa.create(TrustCtx) catch return;
+    tc.* = .{ .state = state, .repo = state.gpa.dupe(u8, repo) catch {
+        state.gpa.destroy(tc);
+        return;
+    }, .target_index = target_index };
+
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, "Trust preview commands?");
+    gtk.adw_dialog_set_content_width(dialog, 440);
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+    const box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 10);
+    gtk.gtk_widget_set_margin_top(box, 14);
+    gtk.gtk_widget_set_margin_bottom(box, 14);
+    gtk.gtk_widget_set_margin_start(box, 14);
+    gtk.gtk_widget_set_margin_end(box, 14);
+    const lbl = gtk.gtk_label_new(null);
+    if (std.fmt.allocPrintSentinel(state.gpa, "Preview runs build/run commands from .exponential/config.json in {s}. These came from the repo. Run them on this machine?", .{repo}, 0)) |z| {
+        defer state.gpa.free(z);
+        gtk.gtk_label_set_text(lbl, z.ptr);
+    } else |_| {}
+    gtk.gtk_label_set_wrap(lbl, 1);
+    gtk.gtk_label_set_xalign(lbl, 0);
+    gtk.gtk_box_append(box, lbl);
+    const trust_btn = gtk.gtk_button_new_with_label("Trust & run");
+    gtk.gtk_widget_add_css_class(trust_btn, "suggested-action");
+    gtk.g_object_set_data_full(trust_btn, "exp-tc", @ptrCast(tc), @ptrCast(&freeTrustCtx));
+    gtk.g_object_set_data_full(trust_btn, "exp-dialog", dialog, null);
+    _ = gtk.g_signal_connect_data(trust_btn, "clicked", @ptrCast(&onTrustAccept), tc, null, 0);
+    gtk.adw_header_bar_pack_end(header, trust_btn);
+    gtk.adw_toolbar_view_set_content(tv, box);
+    gtk.adw_dialog_set_child(dialog, tv);
+    gtk.adw_dialog_present(dialog, state.window);
+}
+
+fn freeTrustCtx(p: gtk.gpointer) callconv(.c) void {
+    const tc: *TrustCtx = @ptrCast(@alignCast(p));
+    tc.state.gpa.free(tc.repo);
+    tc.state.gpa.destroy(tc);
+}
+
+fn onTrustAccept(btn: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const tc: *TrustCtx = @ptrCast(@alignCast(data orelse return));
+    const state = tc.state;
+    // Record the approval (hash of the current command set), then run.
+    var scratch = std.heap.ArenaAllocator.init(state.gpa);
+    defer scratch.deinit();
+    if (preview_config.load(scratch.allocator(), tc.repo)) |cfg| {
+        if (preview_config.commandSetHash(scratch.allocator(), cfg)) |hash| {
+            preview_config.trust(state.gpa, tc.repo, hash);
+        } else |_| {}
+    } else |_| {}
+    const idx = tc.target_index;
+    const dialog = gtk.g_object_get_data(btn, "exp-dialog");
+    if (dialog != null) _ = gtk.adw_dialog_close(dialog);
+    // Now trusted → start.
+    if (idx < state.preview_targets.items.len) {
+        if (state.preview_ctrl) |ctrl| {
+            if (state.preview_repo_slug) |repo| ctrl.start(repo, state.preview_targets.items[idx].target);
+        }
+    }
+}
+
+fn onPreviewStop(ctx: ?*anyopaque) void {
+    const state: *AppState = @ptrCast(@alignCast(ctx orelse return));
+    if (state.preview_ctrl) |c| c.stop();
+}
+
+fn onPreviewTargetChanged(ctx: ?*anyopaque, target_index: usize) void {
+    const state: *AppState = @ptrCast(@alignCast(ctx orelse return));
+    // Switching targets stops the current preview (single active preview rule).
+    if (state.preview_ctrl) |c| c.stop();
+    _ = target_index;
+}
+
+/// Annotate toggled ON: capture the current preview frame + wire the report
+/// target. The issue routes to the DB mirror's feedbackProjectId when set, else
+/// the previewed project itself.
+fn onPreviewAnnotateBegin(ctx: ?*anyopaque) void {
+    const state: *AppState = @ptrCast(@alignCast(ctx orelse return));
+    const ctrl = state.preview_ctrl orelse return;
+    const project_id = state.selected_project_id orelse return;
+    var arena = std.heap.ArenaAllocator.init(state.gpa);
+    defer arena.deinit();
+    const report_target = feedbackProjectId(state, arena.allocator()) orelse project_id;
+    ctrl.prepareAnnotation(report_target);
+}
+
+/// Read `feedbackProjectId` out of the selected project's preview_config mirror
+/// (display-only JSON synced over Electric). Returns null when unset.
+fn feedbackProjectId(state: *AppState, a: std.mem.Allocator) ?[]const u8 {
+    const db = if (state.db) |*d| d else return null;
+    const pid = state.selected_project_id orelse return null;
+    const projects = db.listProjects(a, state.active_workspace_id) catch return null;
+    for (projects) |p| {
+        if (!std.mem.eql(u8, p.id, pid)) continue;
+        if (p.preview_config.len == 0) return null;
+        const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, p.preview_config, .{}) catch return null;
+        const obj = switch (parsed) {
+            .object => |o| o,
+            else => return null,
+        };
+        const v = obj.get("feedbackProjectId") orelse return null;
+        return switch (v) {
+            .string => |s| s,
+            else => null,
+        };
+    }
+    return null;
 }
 
 fn openProjectDialog(state: *AppState) void {

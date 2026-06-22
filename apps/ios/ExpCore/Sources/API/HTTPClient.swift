@@ -43,6 +43,32 @@ public final class HTTPClient: Sendable {
         try await perform(request(url, accountId: accountId, method: "POST", body: body))
     }
 
+    /// POST a single file as `multipart/form-data` under field name `file` (the
+    /// shape the `/api/issues/{id}/images` route expects). Authed for `accountId`.
+    /// Mirrors the hand-rolled boundary in IssueImagesApi so other callers (the
+    /// preview feedback reporter) don't re-implement it.
+    public func postMultipart(
+        _ url: URL,
+        accountId: String,
+        fileData: Data,
+        filename: String,
+        contentType: String
+    ) async throws -> (Data, HTTPURLResponse) {
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".utf8))
+        body.append(Data("Content-Type: \(contentType)\r\n\r\n".utf8))
+        body.append(fileData)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var req = request(
+            url, accountId: accountId, method: "POST", body: body,
+            contentType: "multipart/form-data; boundary=\(boundary)"
+        )
+        req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
+        return try await perform(req)
+    }
+
     // GET with an explicit bearer token — used by AuthApi.fetchSession during
     // login, before the token is persisted to the account store.
     public func get(_ url: URL, bearerToken: String?) async throws -> (Data, HTTPURLResponse) {

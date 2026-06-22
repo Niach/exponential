@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Github, Trash2 } from "lucide-react"
+import { Github, SlidersHorizontal, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
+import { ProjectPreviewSettingsDialog } from "@/components/workspace/project-preview-settings-dialog"
 
 export function WorkspaceProjectsSection({
   workspaceId,
@@ -43,6 +44,13 @@ export function WorkspaceProjectsSection({
     repo: string | null
   } | null>(null)
   const [repoBusy, setRepoBusy] = useState(false)
+  const [previewTargetId, setPreviewTargetId] = useState<string | null>(null)
+
+  // The section is only rendered for workspace owners (see settings route), so
+  // the per-project preview dialog is always editable here — but pass an
+  // explicit flag so the dialog can gate the mutation defensively.
+  const previewTarget =
+    visibleProjects.find((p) => p.id === previewTargetId) ?? null
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -139,6 +147,15 @@ export function WorkspaceProjectsSection({
                   <Button
                     variant="ghost"
                     size="icon"
+                    className="h-7 w-7 shrink-0 text-muted-foreground"
+                    title="Run Targets & Preview"
+                    onClick={() => setPreviewTargetId(project.id)}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
                     onClick={() =>
                       setDeleteTarget({ id: project.id, name: project.name })
@@ -221,6 +238,16 @@ export function WorkspaceProjectsSection({
           )}
         </DialogContent>
       </Dialog>
+
+      <ProjectPreviewSettingsDialog
+        project={previewTarget}
+        workspaceProjects={visibleProjects}
+        isOwner
+        open={previewTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewTargetId(null)
+        }}
+      />
     </>
   )
 }

@@ -351,6 +351,15 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // Additive: projects.preview_config — the display-only mirror of the
+        // project's preview run targets + feedback routing target. jsonb in
+        // Postgres, stored here as text; nullable.
+        migrator.registerMigration("v6_project_preview_config") { db in
+            try db.alter(table: "projects") { t in
+                t.add(column: "preview_config", .text)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 

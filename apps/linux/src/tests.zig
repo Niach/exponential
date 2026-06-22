@@ -16,6 +16,8 @@ test {
     _ = @import("core/agent/heartbeat.zig");
     _ = @import("core/db/database.zig");
     _ = @import("core/db/migrations.zig");
+    _ = @import("core/annotate/geometry.zig");
+    _ = @import("ui/preview/preview_config.zig"); // GTK-free parse + trust + doctor
     _ = @import("ui/oauth.zig");
     _ = @import("ui/format.zig"); // GTK-free presentation helpers
 }

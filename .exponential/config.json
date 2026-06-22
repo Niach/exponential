@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "web",
+      "name": "Web",
+      "platform": "web",
+      "rootDir": "apps/web",
+      "setup": "bun install",
+      "run": "bun run dev",
+      "url": "http://localhost:5173",
+      "readyPath": "/",
+      "injectWidget": false,
+      "env": {}
+    },
+    {
+      "id": "android",
+      "name": "Android",
+      "platform": "android",
+      "rootDir": "apps/android",
+      "setup": "./gradlew --offline help",
+      "build": "./gradlew :app:assembleDebug",
+      "apk": "app/build/outputs/apk/debug/app-debug.apk",
+      "applicationId": "at.exponential",
+      "activity": "com.exponential.app.MainActivity",
+      "avd": "Pixel_3a_API_34_extension_level_7_x86_64",
+      "env": {}
+    },
+    {
+      "id": "ios-staging",
+      "name": "iOS Staging",
+      "platform": "ios",
+      "rootDir": "apps/ios",
+      "scheme": "Exponential-Staging",
+      "workspace": "Exponential.xcworkspace",
+      "simulator": "iPhone 15 Pro",
+      "bundleId": "at.exponential.staging"
+    },
+    {
+      "id": "ios-prod",
+      "name": "iOS Prod",
+      "platform": "ios",
+      "rootDir": "apps/ios",
+      "scheme": "Exponential",
+      "workspace": "Exponential.xcworkspace",
+      "simulator": "iPhone 15 Pro",
+      "bundleId": "at.exponential"
+    }
+  ]
+}

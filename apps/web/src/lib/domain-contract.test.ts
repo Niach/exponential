@@ -11,6 +11,7 @@ import {
   notificationTypeValues,
   prStateValues,
   runModeValues,
+  platformValues,
   subscriberSourceValues,
   issueEventTypeValues,
   recurrenceIntervals,
@@ -69,6 +70,10 @@ describe(`domain-contract parity`, () => {
 
   it(`run mode values match the contract`, () => {
     expect([...runModeValues]).toEqual([...contract.runMode.values])
+  })
+
+  it(`platform values match the contract`, () => {
+    expect([...platformValues]).toEqual([...contract.platform.values])
   })
 
   it(`subscriber source values match the contract`, () => {

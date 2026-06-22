@@ -97,6 +97,9 @@ public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identi
     public let sortOrder: Double?
     public let archivedAt: String?
     public let githubRepo: String?
+    // Display-only mirror of the preview run targets + feedback routing target
+    // (jsonb in Postgres). Stored as the raw JSON text; never executed.
+    public let previewConfig: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -110,6 +113,7 @@ public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identi
         sortOrder: Double?,
         archivedAt: String?,
         githubRepo: String?,
+        previewConfig: String?,
         createdAt: String,
         updatedAt: String
     ) {
@@ -122,6 +126,7 @@ public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identi
         self.sortOrder = sortOrder
         self.archivedAt = archivedAt
         self.githubRepo = githubRepo
+        self.previewConfig = previewConfig
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -132,6 +137,7 @@ public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identi
         case sortOrder = "sort_order"
         case archivedAt = "archived_at"
         case githubRepo = "github_repo"
+        case previewConfig = "preview_config"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
