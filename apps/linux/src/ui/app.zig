@@ -808,13 +808,6 @@ fn buildTrackerUI(state: *AppState) void {
     _ = gtk.g_signal_connect_data(integrations_item, "clicked", @ptrCast(&onIntegrationsClicked), state, null, 0);
     gtk.gtk_box_append(user_pop_box, integrations_item);
 
-    // Toggle the dedicated Preview pane (build + run the project's targets).
-    const preview_item = gtk.gtk_button_new_with_label("Preview");
-    gtk.gtk_widget_add_css_class(preview_item, "flat");
-    gtk.gtk_widget_set_halign(preview_item, gtk.ALIGN_FILL);
-    _ = gtk.g_signal_connect_data(preview_item, "clicked", @ptrCast(&onPreviewToggle), state, null, 0);
-    gtk.gtk_box_append(user_pop_box, preview_item);
-
     const signout_item = gtk.gtk_button_new_with_label("Sign out");
     gtk.gtk_widget_add_css_class(signout_item, "flat");
     gtk.gtk_widget_set_halign(signout_item, gtk.ALIGN_FILL);
@@ -837,6 +830,14 @@ fn buildTrackerUI(state: *AppState) void {
     const list_toolbar = gtk.adw_toolbar_view_new();
     const list_header = gtk.adw_header_bar_new();
     gtk.adw_header_bar_set_show_start_title_buttons(list_header, 0); // only the inner edge
+    // IDE-style "Run preview" play button (top, left edge) — reveals the
+    // dedicated Preview pane to build + run the project's targets and annotate.
+    const preview_btn = gtk.gtk_button_new_with_label("");
+    gtk.gtk_button_set_icon_name(preview_btn, "media-playback-start-symbolic");
+    gtk.gtk_widget_set_tooltip_text(preview_btn, "Preview — build & run this project");
+    gtk.gtk_widget_add_css_class(preview_btn, "flat");
+    _ = gtk.g_signal_connect_data(preview_btn, "clicked", @ptrCast(&onPreviewToggle), state, null, 0);
+    gtk.adw_header_bar_pack_start(list_header, preview_btn);
     const new_issue = gtk.gtk_button_new_with_label("New issue");
     gtk.gtk_widget_add_css_class(new_issue, "suggested-action");
     _ = gtk.g_signal_connect_data(new_issue, "clicked", @ptrCast(&onNewIssueClicked), state, null, 0);
@@ -890,7 +891,7 @@ fn buildTrackerUI(state: *AppState) void {
     // Dedicated, resizable Preview pane on the trailing edge — SEPARATE from the
     // bottom terminal dock (which keeps hosting agent build/run logs). A
     // horizontal GtkPaned splits content | preview; the preview side starts
-    // hidden and is revealed by the sidebar "Preview" action.
+    // hidden and is revealed by the "Run preview" play button in the content header.
     if (preview_panel.PreviewPanel.create(state.gpa, state.window)) |pane| {
         state.preview_pane = pane;
         const split = gtk.gtk_paned_new(gtk.ORIENTATION_HORIZONTAL);

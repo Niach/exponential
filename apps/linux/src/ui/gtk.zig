@@ -473,6 +473,7 @@ pub extern fn XSync(display: ?*anyopaque, discard: c_int) c_int;
 // Xlib tree-walk to locate the emulator's top-level window (match _NET_WM_PID /
 // the window name) before reparenting it.
 pub const XA_CARDINAL: Atom = 6;
+pub const XA_STRING: Atom = 31;
 pub extern fn XDefaultRootWindow(display: ?*anyopaque) XID;
 pub extern fn XInternAtom(display: ?*anyopaque, atom_name: [*:0]const u8, only_if_exists: c_int) Atom;
 pub extern fn XQueryTree(display: ?*anyopaque, w: XID, root_return: *XID, parent_return: *XID, children_return: *?[*]XID, nchildren_return: *c_uint) c_int;

@@ -31,9 +31,28 @@ const cfg = @import("preview_config.zig");
 const panel = @import("preview_panel.zig");
 const annotation_overlay = @import("annotation_overlay.zig");
 
+
+// std.process.run/spawn must read the child's stdout AND stderr while it runs,
+// which needs a CONCURRENT Io. The app-wide `global_single_threaded` Io has no
+// worker threads and spuriously fails subprocess capture with error.OutOfMemory
+// (confirmed). So lazily init ONE multi-threaded Threaded instance (cpu_count-1
+// workers) and reuse it for every subprocess call here. Thread-safe — the
+// android/health/stream/input workers all call this off the main thread.
+// Swap-based spinlock (0.16's std.Io.Mutex needs an Io handle; std.Thread.Mutex
+// is gone) — the same idiom as database.zig. Only contended once, at first init.
+var preview_io_lock: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+var preview_io_instance: ?*std.Io.Threaded = null;
 const io = struct {
     fn get() std.Io {
-        return std.Io.Threaded.global_single_threaded.io();
+        while (preview_io_lock.swap(true, .acquire)) std.atomic.spinLoopHint();
+        defer preview_io_lock.store(false, .release);
+        if (preview_io_instance == null) {
+            const t = std.heap.page_allocator.create(std.Io.Threaded) catch
+                return std.Io.Threaded.global_single_threaded.io();
+            t.* = std.Io.Threaded.init(std.heap.page_allocator, .{});
+            preview_io_instance = t;
+        }
+        return preview_io_instance.?.io();
     }
 };
 
@@ -47,24 +66,21 @@ fn sleepMs(ms: u64) void {
     _ = nanosleep(&ts, null);
 }
 
-extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
 /// The Android SDK ships `emulator` under `$ANDROID_HOME/emulator` and `adb`
-/// under `platform-tools`; neither is always on PATH. Prepend the SDK dirs to
-/// this process's PATH once so the bare `emulator`/`adb` spawns below (and their
-/// children) resolve. Idempotent + no-op when the SDK root isn't set.
+/// under `platform-tools`; neither is reliably on PATH. Prepend the SDK dirs to
+/// the env map we hand spawned children (`storage.environ()`), so the bare
+/// `emulator`/`adb` spawns resolve. Idempotent + no-op when the SDK root isn't set.
 var android_path_done: bool = false;
 fn ensureAndroidPath() void {
     if (android_path_done) return;
     android_path_done = true;
     const home = std.c.getenv("ANDROID_HOME") orelse std.c.getenv("ANDROID_SDK_ROOT") orelse return;
     const home_s = std.mem.span(home);
-    const cur = std.c.getenv("PATH");
-    const cur_s = if (cur) |c| std.mem.span(c) else "";
-    const gpa = std.heap.page_allocator;
-    const new_path = std.fmt.allocPrintSentinel(gpa, "{s}/emulator:{s}/platform-tools:{s}/cmdline-tools/latest/bin:{s}", .{ home_s, home_s, home_s, cur_s }, 0) catch return;
-    defer gpa.free(new_path);
-    _ = setenv("PATH", new_path.ptr, 1);
+    const map = storage.environ() orelse return;
+    const cur = map.get("PATH") orelse "";
+    const new_path = std.fmt.allocPrint(std.heap.page_allocator, "{s}/emulator:{s}/platform-tools:{s}/cmdline-tools/latest/bin:{s}", .{ home_s, home_s, home_s, cur }) catch return;
+    defer std.heap.page_allocator.free(new_path);
+    map.put("PATH", new_path) catch {};
 }
 
 const RunResult = struct { term: std.process.Child.Term, stdout: []u8, stderr: []u8 };
@@ -76,6 +92,7 @@ fn runCapture(gpa: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8
     const res = std.process.run(gpa, io.get(), .{
         .argv = argv,
         .cwd = if (cwd) |c| .{ .path = c } else .inherit,
+        .environ_map = storage.environ(),
         .stdout_limit = .limited(1 << 20),
         .stderr_limit = .limited(1 << 20),
     }) catch return null;
@@ -311,10 +328,7 @@ pub const PreviewController = struct {
         // port. Output is piped and logged (a full terminal-dock tee is the
         // agent-run path; the dev-server log is informational here).
         self.setPhase(.setup);
-        if (!self.runSetup(root, target.setup)) {
-            self.fail("setup command failed");
-            return;
-        }
+        if (!self.runSetup(root, target.setup)) return; // runSetup surfaced the error
         self.setPhase(.building);
         const run_cmd = target.run orelse {
             self.fail("web target has no `run` command");
@@ -401,31 +415,23 @@ pub const PreviewController = struct {
         // Ensure the SDK's `emulator`/`adb` resolve (prepend the SDK dirs to PATH).
         ensureAndroidPath();
 
-        // Embed strategy: under X11/XWayland we reparent the emulator's own
-        // window into the panel (full fidelity, interactive). On native Wayland
-        // that's impossible, so we stream the framebuffer into a GtkPicture and
-        // forward tap/swipe via `adb shell input`. Decide now so the right
-        // surface is mounted before androidWorker finishes.
-        self.android_streamed = isNativeWayland();
-        if (self.android_streamed) {
-            const pic = gtk.gtk_picture_new();
-            gtk.gtk_picture_set_content_fit(pic, gtk.CONTENT_FIT_CONTAIN);
-            self.stream_picture = pic;
-            attachStreamInput(self, pic);
-            self.pane.mountSurface(pic);
-        } else {
-            // Mount the embed socket NOW (main thread) so its native X11 surface
-            // is realized at a nonzero size before androidWorker reparents into
-            // it. (Never mount at 0×0; the panel gives the slot a portrait min.)
-            self.pane.mountEmbedSocket();
-        }
+        // Embed strategy: GTK4 renders every widget into ONE window surface and
+        // gives widgets no native X11 sub-window, so there's nothing to reparent
+        // a foreign emulator window INTO — a reparent lands at the top-level
+        // origin and mispositions off-screen (GTK dropped GtkSocket for this very
+        // reason). So we stream the framebuffer into a GtkPicture (a normal
+        // widget that embeds cleanly) and forward tap/swipe via `adb shell input`.
+        // Works identically on X11 and Wayland.
+        self.android_streamed = true;
+        const pic = gtk.gtk_picture_new();
+        gtk.gtk_picture_set_content_fit(pic, gtk.CONTENT_FIT_CONTAIN);
+        self.stream_picture = pic;
+        attachStreamInput(self, pic);
+        self.pane.mountSurface(pic);
 
         // 1) Build the APK (owned, blocking on a worker — long).
         self.setPhase(.setup);
-        if (!self.runSetup(root, target.setup)) {
-            self.fail("setup command failed");
-            return;
-        }
+        if (!self.runSetup(root, target.setup)) return; // runSetup surfaced the error
 
         // The remaining boot/build/install/launch chain is long-running and must
         // not block the GTK main loop, so hand it to a worker that marshals each
@@ -472,10 +478,24 @@ pub const PreviewController = struct {
     fn runSetup(self: *PreviewController, root: []const u8, setup: ?[]const u8) bool {
         const command = setup orelse return true;
         if (command.len == 0) return true;
-        const res = runCapture(self.gpa, &.{ "/usr/bin/env", "bash", "-lc", command }, root) orelse return false;
+        const res = runCapture(self.gpa, &.{ "/usr/bin/env", "bash", "-lc", command }, root) orelse {
+            self.fail("setup couldn't start (failed to spawn a shell)");
+            return false;
+        };
         defer self.gpa.free(res.stdout);
         defer self.gpa.free(res.stderr);
-        return termOk(res.term);
+        if (termOk(res.term)) return true;
+        // Surface the tail of the command's output so the failure is actionable
+        // instead of a generic "setup failed".
+        const detail = if (res.stderr.len > 0) res.stderr else res.stdout;
+        const trimmed = std.mem.trim(u8, detail, " \t\r\n");
+        const tail = trimmed[trimmed.len -| 280 ..];
+        self.setPhase(.err);
+        if (std.fmt.allocPrint(self.gpa, "Setup `{s}` failed: {s}", .{ command, tail })) |msg| {
+            defer self.gpa.free(msg);
+            self.pane.setMessage(msg);
+        } else |_| self.pane.setMessage("Setup command failed.");
+        return false;
     }
 
     /// Spawn a long-running shell command as an owned child in `root` (the dev
@@ -487,6 +507,7 @@ pub const PreviewController = struct {
         return std.process.spawn(io.get(), .{
             .argv = &.{ "/usr/bin/env", "bash", "-lc", command },
             .cwd = .{ .path = root },
+            .environ_map = storage.environ(),
             .stdout = .ignore,
             .stderr = .ignore,
         });
@@ -636,18 +657,20 @@ fn healthWorker(job: *HealthJob) void {
     defer _ = gtk.g_idle_add(@ptrCast(&onHealthDone), job);
     const url_z = std.fmt.allocPrintSentinel(job.gpa, "{s}", .{job.url}, 0) catch return;
     defer job.gpa.free(url_z);
-    // ≈300ms cadence, 60s budget (200 attempts). Stop early if the controller
-    // was torn down (cancel flag).
+    // ≈300ms cadence, ~180s budget (600 attempts) — vite's first cold bind on a
+    // large app can take a while. ANY successful HTTP round-trip means the port
+    // is up and serving: we deliberately accept any status (the shared client
+    // sends `Accept: application/json`, which a dev SSR server may answer with a
+    // 500 — that still proves it's listening). The webview then loads the URL
+    // with normal browser headers and gets the real page. Stop early on cancel.
     var i: usize = 0;
-    while (i < 200) : (i += 1) {
+    while (i < 600) : (i += 1) {
         if (job.ctrl.cancel.load(.seq_cst)) return;
         if (http.get(job.gpa, url_z, null, 5, null)) |resp| {
             var r = resp;
-            defer r.deinit();
-            if (r.status >= 200 and r.status < 500) {
-                job.reachable = true;
-                return;
-            }
+            r.deinit();
+            job.reachable = true;
+            return;
         } else |_| {}
         sleepMs(300);
     }
@@ -723,8 +746,13 @@ fn androidWorker(job: *AndroidJob) void {
     };
     defer gpa.free(avd);
     marshalPhase(job.ctrl, .booting);
+    var emu_buf: [std.fs.max_path_bytes]u8 = undefined;
+    // -no-window: run headless. We mirror the framebuffer into the pane via
+    // `adb screencap`, so the emulator's own window (and its floating toolbar)
+    // would just be redundant clutter. screencap + `adb input` work headless.
     const emu = std.process.spawn(io.get(), .{
-        .argv = &.{ "emulator", "-avd", avd, "-grpc", "8554", "-no-snapshot-save" },
+        .argv = &.{ emulatorBin(&emu_buf), "-avd", avd, "-grpc", "8554", "-no-snapshot-save", "-no-window" },
+        .environ_map = storage.environ(),
         .stdout = .ignore,
         .stderr = .ignore,
     }) catch {
@@ -875,8 +903,18 @@ fn cmdOk(gpa: std.mem.Allocator, argv: []const []const u8) bool {
 /// result; null only when no AVDs exist at all. If `emulator -list-avds` can't
 /// run, optimistically returns the configured name (boot then surfaces the real
 /// "is `emulator` on PATH?" error).
+/// Absolute path to the SDK `emulator` binary — it lives under
+/// `$ANDROID_HOME/emulator` and is NOT on PATH (unlike adb at /usr/bin). Returns
+/// a slice into `buf`, or the bare "emulator" (PATH fallback) when the SDK root
+/// is unset or the binary is missing.
+fn emulatorBin(buf: []u8) []const u8 {
+    const home = std.c.getenv("ANDROID_HOME") orelse std.c.getenv("ANDROID_SDK_ROOT") orelse return "emulator";
+    return std.fmt.bufPrint(buf, "{s}/emulator/emulator", .{std.mem.span(home)}) catch "emulator";
+}
+
 fn resolveAvd(gpa: std.mem.Allocator, configured: []const u8) ?[]u8 {
-    const res = runCapture(gpa, &.{ "emulator", "-list-avds" }, null) orelse
+    var emu_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const res = runCapture(gpa, &.{ emulatorBin(&emu_buf), "-list-avds" }, null) orelse
         return gpa.dupe(u8, configured) catch null;
     defer gpa.free(res.stdout);
     defer gpa.free(res.stderr);
@@ -911,7 +949,7 @@ fn attachStreamInput(self: *PreviewController, pic: gtk.Object) void {
 /// Spawn the screencast worker (main thread, after a successful Wayland boot).
 fn startStreamWorker(self: *PreviewController) void {
     self.setPhase(.running);
-    self.pane.setMessage("Native Wayland: mirroring the emulator (tap & swipe are forwarded via adb).");
+    self.pane.setMessage("Mirroring the device — tap & swipe in the pane to control it.");
     const th = std.Thread.spawn(.{}, streamWorker, .{self}) catch return;
     th.detach();
 }
@@ -1120,7 +1158,7 @@ fn findEmulatorWindow(xdisplay: *anyopaque, emulator_pid: i32) ?gtk.XID {
 
 fn searchWindow(xdisplay: *anyopaque, w: gtk.XID, pid_atom: gtk.Atom, target_pid: i32, depth: u32) ?gtk.XID {
     if (depth > 0 and windowMatchesEmulator(xdisplay, w, pid_atom, target_pid)) return w;
-    if (depth >= 3) return null;
+    if (depth >= 5) return null;
     var root_ret: gtk.XID = 0;
     var parent_ret: gtk.XID = 0;
     var children: ?[*]gtk.XID = null;
@@ -1141,9 +1179,15 @@ fn searchWindow(xdisplay: *anyopaque, w: gtk.XID, pid_atom: gtk.Atom, target_pid
 }
 
 fn windowMatchesEmulator(xdisplay: *anyopaque, w: gtk.XID, pid_atom: gtk.Atom, target_pid: i32) bool {
-    // Primary: window title contains "emulator" (case-insensitive). The main
-    // emulator window is titled "Android Emulator - …"; extended-controls and
-    // splash windows are not, so this picks the device window.
+    // Primary: WM_CLASS. Qt always sets it; the emulator's is
+    // "qemu-system-x86_64"/"Emulator". (The title is set via _NET_WM_NAME — which
+    // the legacy XFetchName/WM_NAME doesn't see — and _NET_WM_PID is the forked
+    // qemu pid, not our launcher pid. So WM_CLASS is the one reliable signal.)
+    if (readWindowClass(xdisplay, w)) |buf| {
+        defer _ = gtk.XFree(@ptrCast(buf.ptr));
+        if (containsIgnoreCase(buf, "emulator") or containsIgnoreCase(buf, "qemu")) return true;
+    }
+    // Secondary: legacy WM_NAME (older emulators set it).
     var name_ptr: ?[*:0]u8 = null;
     if (gtk.XFetchName(xdisplay, w, &name_ptr) != 0) {
         if (name_ptr) |np| {
@@ -1151,7 +1195,7 @@ fn windowMatchesEmulator(xdisplay: *anyopaque, w: gtk.XID, pid_atom: gtk.Atom, t
             if (containsIgnoreCase(std.mem.span(np), "emulator")) return true;
         }
     }
-    // Secondary: _NET_WM_PID == the emulator process (covers retitled windows).
+    // Tertiary: _NET_WM_PID == the emulator process (covers retitled windows).
     if (pid_atom != 0 and target_pid > 0) {
         var actual_type: gtk.Atom = 0;
         var actual_format: c_int = 0;
@@ -1170,6 +1214,24 @@ fn windowMatchesEmulator(xdisplay: *anyopaque, w: gtk.XID, pid_atom: gtk.Atom, t
         }
     }
     return false;
+}
+
+/// Read WM_CLASS ("res_name\0res_class\0") as raw bytes. The caller must
+/// `XFree(result.ptr)`. Null when the window has no WM_CLASS.
+fn readWindowClass(xdisplay: *anyopaque, w: gtk.XID) ?[]u8 {
+    const wm_class_atom = gtk.XInternAtom(xdisplay, "WM_CLASS", 1);
+    if (wm_class_atom == 0) return null;
+    var actual_type: gtk.Atom = 0;
+    var actual_format: c_int = 0;
+    var nitems: c_ulong = 0;
+    var bytes_after: c_ulong = 0;
+    var prop: ?[*]u8 = null;
+    if (gtk.XGetWindowProperty(xdisplay, w, wm_class_atom, 0, 64, 0, gtk.XA_STRING, &actual_type, &actual_format, &nitems, &bytes_after, &prop) != 0) return null;
+    if (prop) |p| {
+        if (actual_format == 8 and nitems > 0) return p[0..nitems];
+        _ = gtk.XFree(@ptrCast(p));
+    }
+    return null;
 }
 
 fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
