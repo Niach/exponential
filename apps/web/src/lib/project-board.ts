@@ -21,7 +21,8 @@ function isIssueOverdue(issue: Issue, today: string) {
     issue.dueDate !== null &&
     issue.dueDate < today &&
     issue.status !== `done` &&
-    issue.status !== `cancelled`
+    issue.status !== `cancelled` &&
+    issue.status !== `duplicate`
   )
 }
 

@@ -166,12 +166,12 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let archivedAt: String?
     public let recurrenceInterval: Int?
     public let recurrenceUnit: String?
-    public let googleCalendarEventId: String?
-    public let googleCalendarLastSyncedAt: String?
-    public let googleCalendarLastSyncError: String?
-    // Agent run state lives in `agent_runs` (its own synced shape) as of Phase F;
-    // issues keeps only the summary `agentPlanState` + the PR summary columns.
-    public let agentPlanState: String?
+    // Duplicate resolution: the canonical issue this one duplicates (pairs with
+    // status='duplicate'). 1:1, no relation graph.
+    public let duplicateOfId: String?
+    // PR linkage (one issue = one PR = one branch). Written server-side by the
+    // MCP open_pr tool + the merge webhook/cron; synced to every client so the
+    // PR badge works without parsing comments.
     public let prUrl: String?
     public let prNumber: Int?
     public let prState: String?
@@ -199,10 +199,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         archivedAt: String?,
         recurrenceInterval: Int?,
         recurrenceUnit: String?,
-        googleCalendarEventId: String?,
-        googleCalendarLastSyncedAt: String?,
-        googleCalendarLastSyncError: String?,
-        agentPlanState: String?,
+        duplicateOfId: String?,
         prUrl: String?,
         prNumber: Int?,
         prState: String?,
@@ -229,10 +226,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.archivedAt = archivedAt
         self.recurrenceInterval = recurrenceInterval
         self.recurrenceUnit = recurrenceUnit
-        self.googleCalendarEventId = googleCalendarEventId
-        self.googleCalendarLastSyncedAt = googleCalendarLastSyncedAt
-        self.googleCalendarLastSyncError = googleCalendarLastSyncError
-        self.agentPlanState = agentPlanState
+        self.duplicateOfId = duplicateOfId
         self.prUrl = prUrl
         self.prNumber = prNumber
         self.prState = prState
@@ -255,10 +249,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case archivedAt = "archived_at"
         case recurrenceInterval = "recurrence_interval"
         case recurrenceUnit = "recurrence_unit"
-        case googleCalendarEventId = "google_calendar_event_id"
-        case googleCalendarLastSyncedAt = "google_calendar_last_synced_at"
-        case googleCalendarLastSyncError = "google_calendar_last_sync_error"
-        case agentPlanState = "agent_plan_state"
+        case duplicateOfId = "duplicate_of_id"
         case prUrl = "pr_url"
         case prNumber = "pr_number"
         case prState = "pr_state"
@@ -290,10 +281,7 @@ extension IssueEntity: Codable {
         archivedAt = try container.decodeIfPresent(String.self, forKey: .archivedAt)
         recurrenceInterval = try container.decodeIfPresent(Int.self, forKey: .recurrenceInterval)
         recurrenceUnit = try container.decodeIfPresent(String.self, forKey: .recurrenceUnit)
-        googleCalendarEventId = try container.decodeIfPresent(String.self, forKey: .googleCalendarEventId)
-        googleCalendarLastSyncedAt = try container.decodeIfPresent(String.self, forKey: .googleCalendarLastSyncedAt)
-        googleCalendarLastSyncError = try container.decodeIfPresent(String.self, forKey: .googleCalendarLastSyncError)
-        agentPlanState = try container.decodeIfPresent(String.self, forKey: .agentPlanState)
+        duplicateOfId = try container.decodeIfPresent(String.self, forKey: .duplicateOfId)
         prUrl = try container.decodeIfPresent(String.self, forKey: .prUrl)
         prNumber = try container.decodeIfPresent(Int.self, forKey: .prNumber)
         prState = try container.decodeIfPresent(String.self, forKey: .prState)
@@ -319,128 +307,62 @@ extension IssueEntity: Codable {
     }
 }
 
-// MARK: - AgentRun
+// MARK: - CodingSession
 
-// The agent run state for an issue (one row per issue). Split out of `issues`
-// into its own synced shape in Phase F; mirrors packages/db-schema agentRuns.
-// `planText` and `question` are server-authored jsonb `{text}` — stored as the
-// raw stringified JSON and unwrapped lazily via getCommentBodyText() (the same
-// envelope as comments.body / issues.description legacy rows).
-public struct AgentRunEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "agent_runs"
+// The live "coding now" record — one row per interactive desktop coding session
+// (one terminal + one CLI child in one worktree). Synced as the 14th Electric
+// shape so every coordination client can show a "coding now" badge. No plan or
+// approval state; the PR outcome lives on `issues`. `userId` is the REAL user
+// driving the session (not a synthetic bot). Mirrors packages/db-schema
+// codingSessions.
+public struct CodingSessionEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "coding_sessions"
 
+    public let id: String
     public let issueId: String
     public let workspaceId: String
-    public let planText: String?
-    public let question: String?
-    public let questionAskedAt: String?
-    public let planRevision: Int
-    public let approvedAt: String?
-    public let approvedBy: String?
-    public let lastCommentSeenAt: String?
-    public let sessionId: String?
-    public let runMode: String?
-    public let interactiveClaimedAt: String?
-    public let interactiveClaimedExpiresAt: String?
-    public let lastError: String?
+    public let userId: String
+    public let deviceLabel: String?
+    public let status: String
+    public let startedAt: String
+    public let endedAt: String?
     public let createdAt: String
     public let updatedAt: String
 
-    public var id: String { issueId }
-
     public init(
+        id: String,
         issueId: String,
         workspaceId: String,
-        planText: String?,
-        question: String?,
-        questionAskedAt: String?,
-        planRevision: Int,
-        approvedAt: String?,
-        approvedBy: String?,
-        lastCommentSeenAt: String?,
-        sessionId: String?,
-        runMode: String?,
-        interactiveClaimedAt: String?,
-        interactiveClaimedExpiresAt: String?,
-        lastError: String?,
+        userId: String,
+        deviceLabel: String?,
+        status: String,
+        startedAt: String,
+        endedAt: String?,
         createdAt: String,
         updatedAt: String
     ) {
+        self.id = id
         self.issueId = issueId
         self.workspaceId = workspaceId
-        self.planText = planText
-        self.question = question
-        self.questionAskedAt = questionAskedAt
-        self.planRevision = planRevision
-        self.approvedAt = approvedAt
-        self.approvedBy = approvedBy
-        self.lastCommentSeenAt = lastCommentSeenAt
-        self.sessionId = sessionId
-        self.runMode = runMode
-        self.interactiveClaimedAt = interactiveClaimedAt
-        self.interactiveClaimedExpiresAt = interactiveClaimedExpiresAt
-        self.lastError = lastError
+        self.userId = userId
+        self.deviceLabel = deviceLabel
+        self.status = status
+        self.startedAt = startedAt
+        self.endedAt = endedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case question
+        case id, status
         case issueId = "issue_id"
         case workspaceId = "workspace_id"
-        case planText = "plan_text"
-        case questionAskedAt = "question_asked_at"
-        case planRevision = "plan_revision"
-        case approvedAt = "approved_at"
-        case approvedBy = "approved_by"
-        case lastCommentSeenAt = "last_comment_seen_at"
-        case sessionId = "session_id"
-        case runMode = "run_mode"
-        case interactiveClaimedAt = "interactive_claimed_at"
-        case interactiveClaimedExpiresAt = "interactive_claimed_expires_at"
-        case lastError = "last_error"
+        case userId = "user_id"
+        case deviceLabel = "device_label"
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
-    }
-}
-
-extension AgentRunEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        issueId = try container.decode(String.self, forKey: .issueId)
-        workspaceId = try container.decode(String.self, forKey: .workspaceId)
-        questionAskedAt = try container.decodeIfPresent(String.self, forKey: .questionAskedAt)
-        planRevision = (try? container.decodeIfPresent(Int.self, forKey: .planRevision)) ?? 0
-        approvedAt = try container.decodeIfPresent(String.self, forKey: .approvedAt)
-        approvedBy = try container.decodeIfPresent(String.self, forKey: .approvedBy)
-        lastCommentSeenAt = try container.decodeIfPresent(String.self, forKey: .lastCommentSeenAt)
-        sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
-        runMode = try container.decodeIfPresent(String.self, forKey: .runMode)
-        interactiveClaimedAt = try container.decodeIfPresent(String.self, forKey: .interactiveClaimedAt)
-        interactiveClaimedExpiresAt = try container.decodeIfPresent(String.self, forKey: .interactiveClaimedExpiresAt)
-        lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
-        createdAt = try container.decode(String.self, forKey: .createdAt)
-        updatedAt = try container.decode(String.self, forKey: .updatedAt)
-
-        // jsonb {text}: object, string, or null (same handling as CommentEntity.body)
-        planText = AgentRunEntity.decodeJsonbText(container, forKey: .planText)
-        question = AgentRunEntity.decodeJsonbText(container, forKey: .question)
-    }
-
-    private static func decodeJsonbText(
-        _ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
-    ) -> String? {
-        guard container.contains(key) else { return nil }
-        if let stringValue = try? container.decode(String.self, forKey: key) {
-            return stringValue
-        }
-        if (try? container.decodeNil(forKey: key)) == true {
-            return nil
-        }
-        if let rawJSON = try? container.decode(AnyCodableValue.self, forKey: key) {
-            return rawJSON.jsonString
-        }
-        return nil
     }
 }
 
@@ -813,7 +735,8 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
     public let id: String
     public let userId: String
     public let issueId: String?
-    // notification_type: issue_assigned|issue_comment|issue_status_changed|issue_mention
+    // notification_type: issue_assigned|issue_comment|issue_status_changed|
+    //                    issue_mention|pr_opened|pr_merged
     public let type: String
     public let title: String
     public let body: String?
@@ -864,9 +787,12 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
 
     public let id: String
     public let issueId: String
-    public let userId: String
+    // Nullable: widget_reporter rows carry `email` instead of a member `userId`.
+    public let userId: String?
+    // Set for widget_reporter rows; null for member rows.
+    public let email: String?
     public let workspaceId: String
-    // source: creator|assignee|commenter|manual|mention
+    // source: creator|assignee|commenter|manual|mention|widget_reporter
     public let source: String
     public let unsubscribed: Bool
     public let createdAt: String
@@ -875,7 +801,8 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
     public init(
         id: String,
         issueId: String,
-        userId: String,
+        userId: String?,
+        email: String?,
         workspaceId: String,
         source: String,
         unsubscribed: Bool,
@@ -885,6 +812,7 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
         self.id = id
         self.issueId = issueId
         self.userId = userId
+        self.email = email
         self.workspaceId = workspaceId
         self.source = source
         self.unsubscribed = unsubscribed
@@ -893,7 +821,7 @@ public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, source, unsubscribed
+        case id, source, unsubscribed, email
         case issueId = "issue_id"
         case userId = "user_id"
         case workspaceId = "workspace_id"
@@ -909,7 +837,8 @@ extension IssueSubscriberEntity {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         issueId = try container.decode(String.self, forKey: .issueId)
-        userId = try container.decode(String.self, forKey: .userId)
+        userId = try container.decodeIfPresent(String.self, forKey: .userId)
+        email = try container.decodeIfPresent(String.self, forKey: .email)
         workspaceId = try container.decode(String.self, forKey: .workspaceId)
         source = try container.decode(String.self, forKey: .source)
         if let boolValue = try? container.decode(Bool.self, forKey: .unsubscribed) {
@@ -934,7 +863,7 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
     public let workspaceId: String
     public let actorUserId: String?
     // type: status_changed|assignee_changed|label_added|label_removed|
-    //       pr_opened|pr_merged|plan_ready|agent_error
+    //       pr_opened|pr_merged
     public let type: String
     // JSON payload — Electric delivers as object; stored as the stringified
     // JSON, decoded lazily by the UI. Null when the event has no payload.

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,9 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,11 +31,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.data.api.PullFile
+import com.exponential.app.ui.theme.glassSection
 
 private val AddLine = Color(0xFF6EE7B7) // emerald-300
 private val DelLine = Color(0xFFFDA4AF) // rose-300
@@ -41,6 +48,53 @@ private fun lineColor(line: String, context: Color): Color = when {
     line.startsWith("+") -> AddLine
     line.startsWith("-") -> DelLine
     else -> context
+}
+
+// Full PR block for the issue detail: the branch, a "View pull request" link,
+// and the collapsible inline diff. Rendered only when the issue has a linked PR
+// (populated by server-side merge detection). CommentAccent/CommentMeta are
+// shared package-internal palette values from CommentThread.kt.
+@Composable
+fun PrSection(prUrl: String?, branch: String?, loadFiles: suspend () -> List<PullFile>) {
+    if (prUrl.isNullOrBlank()) return
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth().glassSection().padding(12.dp)) {
+        if (!branch.isNullOrBlank()) {
+            Text(
+                branch,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = CommentMeta,
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable {
+                runCatching {
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(prUrl),
+                    )
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
+            },
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = CommentAccent,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "View pull request",
+                style = MaterialTheme.typography.labelMedium,
+                color = CommentAccent,
+            )
+        }
+        PrDiffSection(prUrl = prUrl, loadFiles = loadFiles)
+    }
 }
 
 // Collapsible inline PR diff. Mirrors the web DiffView: a "View changes" toggle

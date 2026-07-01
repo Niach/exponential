@@ -40,7 +40,6 @@ pub fn build(b: *std.Build) void {
     });
     linkCore(exe.root_module, build_options);
     linkGui(exe.root_module, enable_webkit, enable_x11);
-    linkAgentCore(b, exe, optimize);
     linkLibghostty(b, exe);
     b.installArtifact(exe);
 
@@ -65,10 +64,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_tests.step);
 
     // --- compile check (no linking) ---
-    // Type-checks the FULL app, UI included, without linking GTK/libghostty/
-    // agent-core — the GTK + ghostty bindings are hand-declared externs, so
-    // compilation needs no Linux headers. This is the gate a macOS dev runs to
-    // verify Linux changes "to the link boundary": `zig build check`.
+    // Type-checks the FULL app, UI included, without linking GTK/libghostty —
+    // the GTK + ghostty bindings are hand-declared externs, so compilation needs
+    // no Linux headers. This is the gate a macOS dev runs to verify Linux changes
+    // "to the link boundary": `zig build check`.
     const check_obj = b.addObject(.{
         .name = "exponential-check",
         .root_module = b.createModule(.{
@@ -120,26 +119,5 @@ fn linkLibghostty(b: *std.Build, exe: *std.Build.Step.Compile) void {
     exe.root_module.linkSystemLibrary("ghostty", .{});
     exe.root_module.linkSystemLibrary("GL", .{});
     // Find libghostty.so (and its sibling libglad.so) at runtime.
-    exe.root_module.addRPath(.{ .cwd_relative = lib_dir });
-}
-
-/// Build the Rust `agent-core` (cargo) and link its cdylib into the exe so the
-/// app can drive the shared agent loop over the C ABI (ffi `agent_core_*`).
-fn linkAgentCore(b: *std.Build, exe: *std.Build.Step.Compile, optimize: std.builtin.OptimizeMode) void {
-    const release = optimize != .Debug;
-    const manifest = b.pathFromRoot("../../Cargo.toml");
-    const cargo = if (release)
-        b.addSystemCommand(&.{ "cargo", "build", "--release", "-p", "agent-core", "--manifest-path", manifest })
-    else
-        b.addSystemCommand(&.{ "cargo", "build", "-p", "agent-core", "--manifest-path", manifest });
-    // The Rust build is the source of truth; rerun it every time (cargo is
-    // incremental, so this is cheap when nothing changed).
-    cargo.has_side_effects = true;
-
-    const lib_dir = b.pathFromRoot(b.fmt("../../target/{s}", .{if (release) "release" else "debug"}));
-    exe.step.dependOn(&cargo.step);
-    exe.root_module.addLibraryPath(.{ .cwd_relative = lib_dir });
-    exe.root_module.linkSystemLibrary("agent_core", .{});
-    // Find libagent_core.so at runtime (dev convenience).
     exe.root_module.addRPath(.{ .cwd_relative = lib_dir });
 }

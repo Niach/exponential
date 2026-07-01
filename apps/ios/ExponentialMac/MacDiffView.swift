@@ -3,14 +3,13 @@ import ExpUI
 import SwiftUI
 
 /// The PR diff for an issue, loaded once from `issues.prFiles`. Renders each
-/// changed file as a patch block with +/−/context line coloring. iOS mirror of
-/// `MacDiffView` (ExponentialMac/MacDiffView.swift). Read-only in v1.
-struct DiffView: View {
+/// changed file as a collapsible patch block with +/−/context line coloring.
+/// Read-only in v1; hunks stay line-anchored so review comments can attach
+/// later.
+struct MacDiffView: View {
+    @Environment(MacAppDependencies.self) private var deps
+    let accountId: String
     let issueId: String
-
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
-
     @State private var files: [PrFile]?
     @State private var loadError: String?
     @State private var loaded = false
@@ -18,20 +17,17 @@ struct DiffView: View {
     var body: some View {
         Group {
             if let loadError {
-                Text(loadError).font(.caption).foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(loadError).font(.caption).foregroundStyle(.secondary)
             } else if let files {
                 if files.isEmpty {
-                    Text("No changes yet.").font(.caption).foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text("No changes yet.").font(.caption).foregroundStyle(.secondary)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(files) { fileBlock($0) }
                     }
                 }
             } else {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text("Loading changes…").font(.caption).foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
+                ProgressView().controlSize(.small)
             }
         }
         .task { await load() }
@@ -51,9 +47,7 @@ struct DiffView: View {
     private func fileBlock(_ file: PrFile) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
-                Text(file.filename)
-                    .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(file.filename).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Text("+\(file.additions)").font(.caption2).foregroundStyle(.green)
                 Text("−\(file.deletions)").font(.caption2).foregroundStyle(.red)
@@ -86,7 +80,7 @@ struct DiffView: View {
         if line.hasPrefix("@@") { return Accent.indigo }
         if line.hasPrefix("+") { return .green }
         if line.hasPrefix("-") { return .red }
-        return .white.opacity(TextOpacity.secondary)
+        return Color.secondary
     }
 
     private func lineBackground(_ line: String) -> Color {

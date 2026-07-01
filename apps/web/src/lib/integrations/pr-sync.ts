@@ -5,8 +5,8 @@ import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 
 // Shared PR-merge writer, callable outside tRPC (webhook + self-hosted cron).
-// Mirrors agentPlan.reportPr's open→merged write semantics: flips prState to
-// 'merged', stamps prMergedAt, and emits a single pr_merged activity event.
+// Applies the open→merged write semantics: flips prState to 'merged', stamps
+// prMergedAt, and emits a single pr_merged activity event.
 //
 // Idempotent on the open→merged transition: if the issue is already 'merged'
 // we return without touching anything, so the webhook and the outbound cron

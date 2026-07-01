@@ -17,7 +17,6 @@ final class MacIssueDetailModel {
     var comments: [CommentEntity] = []
     var issueEvents: [IssueEventEntity] = []
     var attachments: [AttachmentEntity] = []
-    var agentRun: AgentRunEntity?
     var permissions: WorkspacePermissions?
     var workspaceId: String?
     var projectName: String?
@@ -59,9 +58,8 @@ final class MacIssueDetailModel {
     var canModerate: Bool { permissions?.isModerator ?? false }
     var canEditContent: Bool { permissions?.canMutateIssue(creatorId: issue?.creatorId) ?? false }
     func user(_ id: String?) -> UserEntity? { id.flatMap { uid in users.first { $0.id == uid } } }
-    // Assignee picker segmentation: human members vs agent sub-users (is_agent).
+    // Assignable members exclude the widget helpdesk bot (is_agent).
     var peopleUsers: [UserEntity] { users.filter { !$0.isAgent } }
-    var agentUsers: [UserEntity] { users.filter { $0.isAgent } }
     // Non-agent members offered by the editors' @-mention autocomplete.
     var mentionMembers: [MentionMember] {
         peopleUsers.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
@@ -90,9 +88,6 @@ final class MacIssueDetailModel {
         let subObs = ValueObservation.tracking { db in
             try IssueSubscriberEntity.filter(Column("issue_id") == issueId).fetchAll(db)
         }
-        let agentRunObs = ValueObservation.tracking { db in
-            try AgentRunEntity.fetchOne(db, key: issueId)
-        }
 
         tasks.append(Task { @MainActor [weak self] in
             do { for try await row in issueObs.values(in: pool) { self?.applyIssue(row) } } catch {}
@@ -114,9 +109,6 @@ final class MacIssueDetailModel {
         })
         tasks.append(Task { @MainActor [weak self] in
             do { for try await rows in eventObs.values(in: pool) { self?.issueEvents = rows } } catch {}
-        })
-        tasks.append(Task { @MainActor [weak self] in
-            do { for try await row in agentRunObs.values(in: pool) { self?.agentRun = row } } catch {}
         })
         tasks.append(Task { @MainActor [weak self] in
             do {
@@ -348,38 +340,6 @@ final class MacIssueDetailModel {
         }
     }
 
-    func approvePlan() async {
-        guard let issue else { return }
-        try? await deps.agentPlanApi.approvePlan(accountId: accountId, issueId: issue.id)
-    }
-
-    func requestChanges() async {
-        guard let issue else { return }
-        try? await deps.agentPlanApi.requestChanges(accountId: accountId, issueId: issue.id)
-    }
-
-    func answerQuestion(_ answer: String) async {
-        guard let issue else { return }
-        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do { try await deps.agentPlanApi.answerQuestion(accountId: accountId, issueId: issue.id, answer: trimmed) }
-        catch { self.error = error.localizedDescription }
-    }
-
-    func retry() async {
-        guard let issue else { return }
-        try? await deps.agentPlanApi.retry(accountId: accountId, issueId: issue.id)
-    }
-
-    /// Approve the plan with the human session, THEN resume the interactive session
-    /// to implement it. Order is load-bearing — the agent credential can't approve;
-    /// the host approves (human session), then only resumes the session.
-    func approveAndContinue() async {
-        guard let issue else { return }
-        await approvePlan()
-        deps.agentService.approveInteractive(accountId: accountId, issueId: issue.id)
-    }
-
     func toggleSubscribe() async {
         guard let issue else { return }
         do {
@@ -407,6 +367,7 @@ struct MacIssueDetailView: View {
     @State private var submittingComment = false
     @State private var showDuePicker = false
     @State private var showLabelPicker = false
+    @State private var showDiff = false
     @State private var newLabelName = ""
     @State private var editingCommentId: String?
     @State private var editDraft = ""
@@ -466,8 +427,7 @@ struct MacIssueDetailView: View {
                         descriptionSection(model)
                         Divider()
                         attachmentsSection(model)
-                        MacAgentPanel(model: model, issue: issue)
-                        MacAgentActivityFeed(events: model.issueEvents, user: model.user)
+                        prSection(model, issue: issue)
                         Divider()
                         commentsSection(model)
                         errorText(model)
@@ -484,17 +444,6 @@ struct MacIssueDetailView: View {
                     Image(systemName: model.isSubscribed ? "bell.fill" : "bell.slash")
                 }
                 .help(model.isSubscribed ? "Unsubscribe from this issue" : "Subscribe to this issue")
-            }
-            if deps.agentService.canRunInteractive(accountId: model.accountId) {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        deps.agentService.requestInteractive(accountId: model.accountId, issueId: issue.id)
-                    } label: {
-                        Label("AI", systemImage: "sparkles")
-                    }
-                    .help("Start an interactive agent session for this issue")
-                    .disabled(model.workspaceId == nil)
-                }
             }
             ToolbarItem(placement: .destructiveAction) {
                 Button(role: .destructive) { showDeleteConfirm = true } label: {
@@ -519,11 +468,43 @@ struct MacIssueDetailView: View {
             descriptionSection(model)
             Divider()
             attachmentsSection(model)
-            MacAgentPanel(model: model, issue: issue)
-            MacAgentActivityFeed(events: model.issueEvents, user: model.user)
+            prSection(model, issue: issue)
             Divider()
             commentsSection(model)
             errorText(model)
+        }
+    }
+
+    // MARK: - Pull request (read-only diff; one issue = one PR = one branch)
+
+    @ViewBuilder
+    private func prSection(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        if let prUrl = issue.prUrl, let url = URL(string: prUrl) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(Accent.indigo)
+                    Text("Pull request").font(.subheadline.weight(.semibold))
+                    if let prState = issue.prState {
+                        Text(prState.capitalized)
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(Capsule())
+                    }
+                    Spacer()
+                    Link("Open on GitHub", destination: url).font(.caption)
+                }
+                if let branch = issue.branch, !branch.isEmpty {
+                    Text(branch).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("Changed files", isExpanded: $showDiff) {
+                    MacDiffView(accountId: model.accountId, issueId: issue.id)
+                }
+                .font(.subheadline)
+            }
+            .padding(12)
+            .glassSection()
         }
     }
 
@@ -634,19 +615,10 @@ struct MacIssueDetailView: View {
                     }
                 }
             }
-            if !model.agentUsers.isEmpty {
-                Section("Agents") {
-                    ForEach(model.agentUsers) { u in
-                        Button { Task { await model.setAssignee(u.id) } } label: {
-                            Label("\(u.name ?? u.email) · agent", systemImage: "cpu")
-                        }
-                    }
-                }
-            }
         } label: {
             Label(
                 assignee?.name ?? assignee?.email ?? "Unassigned",
-                systemImage: assignee?.isAgent == true ? "cpu" : "person.crop.circle"
+                systemImage: "person.crop.circle"
             )
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -884,8 +856,8 @@ struct MacIssueDetailView: View {
         }
     }
 
-    // Only regular (human) comments reach this row — plan/question comments are
-    // rendered by the Plan Panel now (and filtered out of `timeline`).
+    // Only regular (human) comments reach this row — any legacy plan/question
+    // comment kinds are filtered out of `timeline`.
     @ViewBuilder
     private func commentRow(_ comment: CommentEntity, model: MacIssueDetailModel) -> some View {
         let author = model.user(comment.authorId)
@@ -952,12 +924,11 @@ struct MacIssueDetailView: View {
         }
     }
 
-    // The human conversation timeline: regular comments + non-agent events
-    // (status/assignee/label changes). Plan/question comments and agent
-    // lifecycle events are surfaced by the Plan Panel + activity feed instead.
+    // The activity timeline: regular comments + issue events (status/assignee/
+    // label/PR changes), merged by created_at.
     private func timeline(_ model: MacIssueDetailModel) -> [MacTimelineItem] {
         let comments = model.comments.filter { $0.commentKind == .regular }
-        let events = model.issueEvents.filter { !macAgentEventTypes.contains($0.type) }
+        let events = model.issueEvents
         return (comments.map { MacTimelineItem.comment($0) }
             + events.map { MacTimelineItem.event($0) })
             .sorted { $0.createdAt < $1.createdAt }

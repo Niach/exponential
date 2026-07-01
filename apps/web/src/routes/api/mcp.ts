@@ -21,9 +21,9 @@ const methodNotAllowed = () =>
   )
 
 async function handle(request: Request) {
-  // Accepts MCP OAuth2 access tokens (agent credential + human MCP clients),
-  // legacy `expk_` api keys, session cookies, and bearer session tokens — all
-  // via the shared resolveSession chokepoint.
+  // Accepts human MCP clients' OAuth2 access tokens, personal `expu_` api keys,
+  // session cookies, and bearer session tokens — all via the shared
+  // resolveSession chokepoint.
   const userId = await resolveSessionUserId(request)
 
   if (!userId) {

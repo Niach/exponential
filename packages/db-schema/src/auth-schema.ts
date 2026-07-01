@@ -18,19 +18,15 @@ export const users = pgTable(`users`, {
   isAdmin: boolean(`is_admin`)
     .$defaultFn(() => false)
     .notNull(),
-  // True for synthetic agent users (a desktop coding agent registered by a
-  // human owner). Replaces the brittle `email LIKE 'agent-%'` hack. Agent users
-  // are hidden from member/admin lists and excluded from notification fan-out.
+  // True for synthetic bot/system users. The ONLY remaining bot identity is
+  // the per-widget helpdesk user that owns externally-filed feedback issues
+  // (widget_configs.widgetUserId — never delete it, issues.creator_id
+  // cascades). Bot users are hidden from member/admin lists, excluded from
+  // notification fan-out, and don't count toward seat limits.
   isAgent: boolean(`is_agent`).notNull().default(false),
   creemCustomerId: text(`creem_customer_id`),
   hadTrial: boolean(`had_trial`).notNull().default(false),
   onboardingCompletedAt: timestamp(`onboarding_completed_at`, {
-    withTimezone: true,
-  }),
-  // When the user dismissed the "Set up coding agent" setup checklist. The
-  // checklist's completion is computed server-side from real signals; this only
-  // records the explicit dismissal so it follows the user across web + desktop.
-  setupChecklistDismissedAt: timestamp(`setup_checklist_dismissed_at`, {
     withTimezone: true,
   }),
   createdAt: timestamp(`created_at`)

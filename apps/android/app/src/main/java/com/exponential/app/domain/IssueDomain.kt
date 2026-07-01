@@ -3,6 +3,7 @@ package com.exponential.app.domain
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -18,7 +19,8 @@ enum class IssueStatus(val wire: String, val label: String) {
     Todo("todo", "Todo"),
     InProgress("in_progress", "In progress"),
     Done("done", "Done"),
-    Cancelled("cancelled", "Cancelled");
+    Cancelled("cancelled", "Cancelled"),
+    Duplicate("duplicate", "Duplicate");
 
     companion object {
         fun fromWire(value: String?): IssueStatus =
@@ -32,6 +34,7 @@ val issueStatusOrder: List<IssueStatus> = listOf(
     IssueStatus.Backlog,
     IssueStatus.Done,
     IssueStatus.Cancelled,
+    IssueStatus.Duplicate,
 )
 
 fun statusIcon(status: IssueStatus): ImageVector = when (status) {
@@ -40,6 +43,7 @@ fun statusIcon(status: IssueStatus): ImageVector = when (status) {
     IssueStatus.InProgress -> Icons.Filled.HourglassTop
     IssueStatus.Done -> Icons.Filled.CheckCircle
     IssueStatus.Cancelled -> Icons.Filled.Cancel
+    IssueStatus.Duplicate -> Icons.Filled.ContentCopy
 }
 
 enum class IssuePriority(val wire: String, val label: String) {

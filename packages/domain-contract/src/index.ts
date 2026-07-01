@@ -13,10 +13,9 @@ export interface DomainContract {
   workspaceRole: { values: readonly string[] }
   publicWritePolicy: { values: readonly string[] }
   commentKind: { values: readonly string[] }
-  agentPlanState: { values: readonly string[] }
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
-  runMode: { values: readonly string[] }
+  codingSessionStatus: { values: readonly string[] }
   platform: { values: readonly string[] }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }

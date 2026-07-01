@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Github, SlidersHorizontal, Trash2 } from "lucide-react"
+import { SlidersHorizontal, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,10 +19,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
-import {
-  GithubRepoPicker,
-  type PickerRepo,
-} from "@/components/github-repo-picker"
 import { ProjectPreviewSettingsDialog } from "@/components/workspace/project-preview-settings-dialog"
 
 export function WorkspaceProjectsSection({
@@ -38,12 +34,6 @@ export function WorkspaceProjectsSection({
     name: string
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [repoTarget, setRepoTarget] = useState<{
-    id: string
-    name: string
-    repo: string | null
-  } | null>(null)
-  const [repoBusy, setRepoBusy] = useState(false)
   const [previewTargetId, setPreviewTargetId] = useState<string | null>(null)
 
   // The section is only rendered for workspace owners (see settings route), so
@@ -60,31 +50,6 @@ export function WorkspaceProjectsSection({
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
-    }
-  }
-
-  const handleLinkRepo = async (picked: PickerRepo) => {
-    if (!repoTarget) return
-    setRepoBusy(true)
-    try {
-      await trpc.projects.linkGithubRepo.mutate({
-        projectId: repoTarget.id,
-        repo: picked.fullName,
-      })
-      setRepoTarget(null)
-    } finally {
-      setRepoBusy(false)
-    }
-  }
-
-  const handleUnlinkRepo = async () => {
-    if (!repoTarget) return
-    setRepoBusy(true)
-    try {
-      await trpc.projects.unlinkGithubRepo.mutate({ projectId: repoTarget.id })
-      setRepoTarget(null)
-    } finally {
-      setRepoBusy(false)
     }
   }
 
@@ -127,23 +92,6 @@ export function WorkspaceProjectsSection({
                   >
                     {project.prefix}
                   </Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 gap-1.5 text-xs text-muted-foreground"
-                    onClick={() =>
-                      setRepoTarget({
-                        id: project.id,
-                        name: project.name,
-                        repo: project.githubRepo ?? null,
-                      })
-                    }
-                  >
-                    <Github className="h-3.5 w-3.5" />
-                    <span className="max-w-[10rem] truncate">
-                      {project.githubRepo ?? `Connect repo`}
-                    </span>
-                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -204,38 +152,6 @@ export function WorkspaceProjectsSection({
               {deleting ? `Deleting...` : `Delete project`}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={repoTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setRepoTarget(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {repoTarget?.repo ? `Change repository` : `Connect a repository`}
-            </DialogTitle>
-            <DialogDescription>
-              {repoTarget?.repo
-                ? `${repoTarget.name} is connected to ${repoTarget.repo}.`
-                : `Pick a GitHub repo for ${repoTarget?.name ?? `this project`}. The agent works there.`}
-            </DialogDescription>
-          </DialogHeader>
-          <GithubRepoPicker onSelect={handleLinkRepo} />
-          {repoTarget?.repo && (
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={handleUnlinkRepo}
-                disabled={repoBusy}
-              >
-                {repoBusy ? `Unlinking...` : `Unlink repo`}
-              </Button>
-            </DialogFooter>
-          )}
         </DialogContent>
       </Dialog>
 

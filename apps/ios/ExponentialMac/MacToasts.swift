@@ -1,37 +1,8 @@
 import SwiftUI
 
-/// Live view of the agent-core's runs, fed by the core's `run_started` /
-/// `run_finished` / `run_cancelled` host events. The single source of truth for
-/// "is a run in flight for this issue?" — drives the panel's Cancel button and
-/// the dock indicator without guessing from plan states.
-@MainActor
-@Observable
-final class MacAgentRunMonitor {
-    private(set) var runningIssueIds: Set<String> = []
-    private var runIdsByIssue: [String: String] = [:]
-
-    func isRunning(issueId: String) -> Bool { runningIssueIds.contains(issueId) }
-
-    func runStarted(issueId: String, runId: String) {
-        guard !issueId.isEmpty else { return }
-        runningIssueIds.insert(issueId)
-        runIdsByIssue[issueId] = runId
-    }
-
-    func runEnded(issueId: String) {
-        runningIssueIds.remove(issueId)
-        runIdsByIssue[issueId] = nil
-    }
-
-    /// All runs vanish with their cores (used on shutdown/unregister).
-    func reset() {
-        runningIssueIds.removeAll()
-        runIdsByIssue.removeAll()
-    }
-}
-
-/// App-wide ephemeral toasts (run started/finished/cancelled, agent errors).
-/// Rendered by `MacToastOverlay` at the bottom of `MacShell`.
+/// App-wide ephemeral toasts. Rendered by `MacToastOverlay` at the bottom of
+/// `MacShell`. UI infra shared by the preview flow, feedback, and app deps —
+/// independent of any agent runtime.
 @MainActor
 @Observable
 final class MacToastCenter {

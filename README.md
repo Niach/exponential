@@ -12,7 +12,6 @@ Most issue trackers are SaaS. Exponential is a small, sharp, self-hostable alter
 - **Real-time sync** across clients via [ElectricSQL](https://electric-sql.com) shape proxies
 - **Workspaces** with multi-user membership and email invites
 - **Auth** — email/password and OIDC (Authentik, Keycloak, anything that speaks OIDC)
-- **Google Calendar integration** — opt-in per user; due dates round-trip as all-day events ([scope: `calendar.events`](https://developers.google.com/identity/protocols/oauth2/scopes#calendar))
 - **MCP server** — exposes issue/label/project tools to Claude Code, Cursor, etc. via OAuth 2.1 (DCR + PKCE); each client logs in as a real Exponential user
 - **Keyboard-friendly** — context menus, inline status/priority/label editing, save-on-blur
 
@@ -43,7 +42,7 @@ This is a bun workspace.
 .
 ├── src/                  # the app (TanStack Start + tRPC + Electric + Drizzle)
 │   ├── db/               # Drizzle schema, migrations, custom triggers
-│   ├── lib/              # auth, trpc routers, electric collections, google-calendar, mcp
+│   ├── lib/              # auth, trpc routers, electric collections, integrations, mcp
 │   ├── components/       # shadcn primitives + business components
 │   └── routes/           # TanStack Router file routes (incl. /api/trpc, /api/shapes, /api/auth)
 ├── marketing/            # standalone Vite app for exponential.at
@@ -59,7 +58,7 @@ This is a bun workspace.
 - **Database**: PostgreSQL 17 + Drizzle ORM (`snake_case` casing)
 - **Real-time**: ElectricSQL shape-proxy pattern via `@tanstack/electric-db-collection`
 - **API**: tRPC v11 with `authedProcedure` + `generateTxId` for Electric-aware mutations
-- **Auth**: Better Auth (email/password, OIDC via `genericOAuth`, Google social provider for Calendar linking)
+- **Auth**: Better Auth (email/password, OIDC via `genericOAuth`, Google social login)
 - **UI**: shadcn/ui on Tailwind v4, dark theme forced via `html.dark`, OKLCH zinc palette
 - **Editor**: Tiptap with markdown + image extensions
 - **Storage**: Garage (S3-compatible) for issue image attachments
@@ -77,7 +76,7 @@ See [`.env.example`](./.env.example) for the full list. Highlights:
 | `ELECTRIC_URL` | yes | Electric service URL |
 | `S3_*` | yes | Attachment storage (Garage by default) |
 | `AUTH_OIDC_ENABLED` + `OIDC_*` | optional | Enable OIDC login |
-| `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | optional | Enable Google Calendar integration |
+| `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | optional | Enable "Sign in with Google" |
 
 After schema changes, regenerate + apply migrations:
 
@@ -126,7 +125,6 @@ bun run build         # outputs dist/ for Cloudflare Pages
 - **tRPC mutations** enforce workspace-scoped authorization in `src/lib/trpc/*` (`assertProjectMember`, `assertWorkspaceMember`)
 - **Electric shape proxies** in `src/routes/api/shapes/*` scope rows to the requesting user before forwarding to Electric
 - **Collections** in `src/lib/collections.ts` use `snakeCamelMapper()` so `useLiveQuery` filters work against camelCase fields
-- **Google Calendar sync** is fire-and-forget after each issue mutation commits — failures persist to `issues.googleCalendarLastSyncError` but never block the mutation
 - **MCP** delegates every operation through the same tRPC routers as the UI, so write-path authorization stays single-source
 
 ## Connecting an MCP client

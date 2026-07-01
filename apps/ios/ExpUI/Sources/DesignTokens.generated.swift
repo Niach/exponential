@@ -30,7 +30,7 @@ public enum DesignTokens {
         public static let sidebarBorder: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1020)
     }
 
-    // Fixed brand accents (status / priority / due-date / agent-plan).
+    // Fixed brand accents (status / priority / due-date).
     public enum Semantic {
         public static let neutral: Color = Color(red: 0.6314, green: 0.6314, blue: 0.6667, opacity: 1.0000)
         public static let yellow: Color = Color(red: 0.9804, green: 0.8000, blue: 0.0824, opacity: 1.0000)
@@ -38,10 +38,6 @@ public enum DesignTokens {
         public static let red: Color = Color(red: 0.9373, green: 0.2667, blue: 0.2667, opacity: 1.0000)
         public static let orange: Color = Color(red: 0.9765, green: 0.4510, blue: 0.0863, opacity: 1.0000)
         public static let blue: Color = Color(red: 0.2314, green: 0.5098, blue: 0.9647, opacity: 1.0000)
-        public static let planDrafting: Color = Color(red: 0.9176, green: 0.7020, blue: 0.0314, opacity: 1.0000)
-        public static let planAwaitingAnswer: Color = Color(red: 0.7020, green: 0.5333, blue: 0.9608, opacity: 1.0000)
-        public static let planAwaitingApproval: Color = Color(red: 0.3765, green: 0.6471, blue: 0.9804, opacity: 1.0000)
-        public static let planApproved: Color = Color(red: 0.2039, green: 0.8275, blue: 0.6000, opacity: 1.0000)
     }
 
     // Corner radii (px ≡ pt), matching the web rounded-* scale.

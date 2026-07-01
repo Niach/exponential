@@ -2,7 +2,6 @@ import { useState } from "react"
 import { FolderKanban } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
-import { invalidateSetupChecklistCache } from "@/hooks/use-setup-checklist"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -43,7 +42,6 @@ export function StepProject({
         color,
       })
       invalidateBillingCache()
-      invalidateSetupChecklistCache()
       if (result.project) {
         onProjectCreated?.({
           id: result.project.id,

@@ -3,8 +3,8 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// Quit teardown: shut every agent core down (cancelling in-flight runs and
-/// killing CLI children) so no orphaned `claude` processes survive the app.
+/// Quit teardown: tear the local device preview down (killing its emulator /
+/// serve-sim / dev-server children) so no orphaned processes survive the app.
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var onTerminate: (() -> Void)?
 
@@ -28,10 +28,9 @@ struct ExponentialMacApp: App {
                 .onAppear {
                     let deps = deps
                     MacAppDelegate.onTerminate = {
-                        // Tear the preview down first (kills emulator/serve-sim/dev
+                        // Tear the preview down (kills emulator/serve-sim/dev
                         // server + frees ports) so no orphan child survives the app.
                         deps.previewController.shutdown()
-                        deps.agentService.shutdownAll()
                     }
                 }
         }

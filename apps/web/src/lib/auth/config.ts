@@ -8,7 +8,6 @@ export type AuthConfig = {
   passwordResetEnabled: boolean
   oidcProviders: Array<{ id: string; name: string }>
   googleLoginEnabled: boolean
-  googleCalendarEnabled: boolean
   githubEnabled: boolean
 }
 
@@ -23,8 +22,6 @@ export function buildAuthConfig(): AuthConfig {
     oidcProviders: parseOidcProviders().map(({ id, name }) => ({ id, name })),
     googleLoginEnabled:
       googleClientConfigured && process.env.GOOGLE_LOGIN_ENABLED === `true`,
-    googleCalendarEnabled:
-      googleClientConfigured && process.env.GOOGLE_CALENDAR_ENABLED === `true`,
     githubEnabled: Boolean(
       process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY
     ),

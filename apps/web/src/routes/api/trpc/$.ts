@@ -15,8 +15,6 @@ import { integrationsRouter } from "@/lib/trpc/integrations"
 import { adminRouter } from "@/lib/trpc/admin"
 import { pushTokensRouter } from "@/lib/trpc/push-tokens"
 import { commentsRouter } from "@/lib/trpc/comments"
-import { companionRouter } from "@/lib/trpc/companion"
-import { agentPlanRouter } from "@/lib/trpc/agent-plan"
 import { billingRouter } from "@/lib/trpc/billing"
 import { onboardingRouter } from "@/lib/trpc/onboarding"
 import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
@@ -36,13 +34,6 @@ export const appRouter = router({
   integrations: integrationsRouter,
   admin: adminRouter,
   pushTokens: pushTokensRouter,
-  // The desktop agent runtime + web agent UI call these under `agent.*` (the
-  // companion daemon was replaced by agent-core). `companion` is a temporary
-  // alias so already-deployed agent builds keep working for one release; drop it
-  // once every client ships the `agent.*` paths.
-  agent: companionRouter,
-  companion: companionRouter,
-  agentPlan: agentPlanRouter,
   billing: billingRouter,
   onboarding: onboardingRouter,
   subscriptions: subscriptionsRouter,

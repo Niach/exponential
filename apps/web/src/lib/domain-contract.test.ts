@@ -7,10 +7,9 @@ import {
   workspaceRoleValues,
   publicWritePolicyValues,
   commentKindValues,
-  agentPlanStateValues,
   notificationTypeValues,
   prStateValues,
-  runModeValues,
+  codingSessionStatusValues,
   platformValues,
   subscriberSourceValues,
   issueEventTypeValues,
@@ -52,12 +51,6 @@ describe(`domain-contract parity`, () => {
     expect([...commentKindValues]).toEqual([...contract.commentKind.values])
   })
 
-  it(`agent plan state values match the contract`, () => {
-    expect([...agentPlanStateValues]).toEqual([
-      ...contract.agentPlanState.values,
-    ])
-  })
-
   it(`notification type values match the contract`, () => {
     expect([...notificationTypeValues]).toEqual([
       ...contract.notificationType.values,
@@ -68,8 +61,10 @@ describe(`domain-contract parity`, () => {
     expect([...prStateValues]).toEqual([...contract.prState.values])
   })
 
-  it(`run mode values match the contract`, () => {
-    expect([...runModeValues]).toEqual([...contract.runMode.values])
+  it(`coding session status values match the contract`, () => {
+    expect([...codingSessionStatusValues]).toEqual([
+      ...contract.codingSessionStatus.values,
+    ])
   })
 
   it(`platform values match the contract`, () => {

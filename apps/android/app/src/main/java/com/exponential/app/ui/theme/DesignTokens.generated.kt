@@ -34,7 +34,7 @@ object DesignTokens {
         val SidebarBorder: Color = Color(0x1AFFFFFF)
     }
 
-    // Fixed brand accents (status / priority / due-date / agent-plan).
+    // Fixed brand accents (status / priority / due-date).
     object Semantic {
         val Neutral: Color = Color(0xFFA1A1AA)
         val Yellow: Color = Color(0xFFFACC15)
@@ -42,10 +42,6 @@ object DesignTokens {
         val Red: Color = Color(0xFFEF4444)
         val Orange: Color = Color(0xFFF97316)
         val Blue: Color = Color(0xFF3B82F6)
-        val PlanDrafting: Color = Color(0xFFEAB308)
-        val PlanAwaitingAnswer: Color = Color(0xFFB388F5)
-        val PlanAwaitingApproval: Color = Color(0xFF60A5FA)
-        val PlanApproved: Color = Color(0xFF34D399)
     }
 
     // Corner radii (px ≡ dp), matching the web rounded-* scale.

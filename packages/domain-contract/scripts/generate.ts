@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Emits the canonical enum value lists from contract.json into Swift (iOS),
-// Kotlin (Android), Rust (crates/agent-core), and Zig (apps/linux) sources.
+// Kotlin (Android), and Zig (apps/linux) sources.
 // Run from the repo root with: `bun run --filter @exp/domain-contract generate`.
 //
 // The mobile native enums (IssueStatus.swift, IssueStatus.kt, …) are
@@ -28,10 +28,9 @@ interface Contract {
   workspaceRole: Section
   publicWritePolicy: Section
   commentKind: Section
-  agentPlanState: Section
   notificationType: Section
   prState: Section
-  runMode: Section
+  codingSessionStatus: Section
   platform: Section
   subscriberSource: Section
   issueEventType: Section
@@ -40,13 +39,6 @@ interface Contract {
   // create / stripped on update). Shared so the native WorkspacePermissions +
   // web hook stop hand-mirroring the list.
   moderationRestrictedFields: string[]
-  // Agent-core pipeline state machine (Rust-only consumer). Emitted to
-  // domain_contract.rs so the dispatcher/pipeline stop hand-coding these.
-  agentPipeline: {
-    nonTerminalStatuses: string[]
-    reentryStatuses: string[]
-    planRevisionCap: number
-  }
 }
 
 const contract: Contract = JSON.parse(
@@ -99,11 +91,7 @@ function kotlinNamedValues(prefix: string, values: string[]): string {
     .join(`\n`)
 }
 
-// --- Rust + Zig (consumed by crates/agent-core and apps/linux) ---
-
-function screamingSnake(s: string): string {
-  return s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()
-}
+// --- Zig (consumed by apps/linux) ---
 
 function snakeCase(s: string): string {
   return s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()
@@ -111,19 +99,6 @@ function snakeCase(s: string): string {
 
 function identSuffix(value: string): string {
   return value.replace(/[^A-Za-z0-9]+/g, "_")
-}
-
-function rustStrSlice(name: string, values: string[]): string {
-  return `pub const ${screamingSnake(name)}: &[&str] = &[${values.map((v) => `"${v}"`).join(", ")}];`
-}
-
-function rustNamedValues(prefix: string, values: string[]): string {
-  return values
-    .map(
-      (v) =>
-        `pub const ${screamingSnake(prefix)}_${identSuffix(v).toUpperCase()}: &str = "${v}";`
-    )
-    .join(`\n`)
 }
 
 function zigStrArray(name: string, values: string[]): string {
@@ -151,10 +126,9 @@ ${swiftStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${swiftStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
-${swiftStringArray("agentPlanStateValues", contract.agentPlanState.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
-${swiftStringArray("runModeValues", contract.runMode.values)}
+${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("platformValues", contract.platform.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -164,10 +138,9 @@ ${swiftStringArray("moderationRestrictedFields", contract.moderationRestrictedFi
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${swiftNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
-${swiftNamedValues("agentPlanState", contract.agentPlanState.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
-${swiftNamedValues("runMode", contract.runMode.values)}
+${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${swiftNamedValues("platform", contract.platform.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
@@ -185,10 +158,9 @@ ${kotlinStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${kotlinStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
-${kotlinStringArray("agentPlanStateValues", contract.agentPlanState.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
-${kotlinStringArray("runModeValues", contract.runMode.values)}
+${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("platformValues", contract.platform.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -198,59 +170,17 @@ ${kotlinIntArray("recurrenceIntervals", contract.recurrenceIntervals)}
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${kotlinNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
-${kotlinNamedValues("agentPlanState", contract.agentPlanState.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
-${kotlinNamedValues("runMode", contract.runMode.values)}
+${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${kotlinNamedValues("platform", contract.platform.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 }
 `
 
-const HEADER_RUST = `// AUTO-GENERATED by packages/domain-contract/scripts/generate.ts — do not edit.
-// Single source of truth: packages/domain-contract/contract.json.
-`
-
 const HEADER_ZIG = `// AUTO-GENERATED by packages/domain-contract/scripts/generate.ts — do not edit.
 // Single source of truth: packages/domain-contract/contract.json.
-`
-
-const rust = `${HEADER_RUST}#![allow(dead_code)]
-
-${rustStrSlice("issueStatusValues", contract.issueStatus.values)}
-${rustStrSlice("issueStatusDisplayOrder", contract.issueStatus.displayOrder ?? contract.issueStatus.values)}
-${rustStrSlice("issuePriorityValues", contract.issuePriority.values)}
-${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
-${rustStrSlice("recurrenceUnitValues", contract.recurrenceUnit.values)}
-${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
-${rustStrSlice("publicWritePolicyValues", contract.publicWritePolicy.values)}
-${rustStrSlice("commentKindValues", contract.commentKind.values)}
-${rustStrSlice("agentPlanStateValues", contract.agentPlanState.values)}
-${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
-${rustStrSlice("prStateValues", contract.prState.values)}
-${rustStrSlice("runModeValues", contract.runMode.values)}
-${rustStrSlice("platformValues", contract.platform.values)}
-${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
-${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
-${rustStrSlice("moderationRestrictedFields", contract.moderationRestrictedFields)}
-pub const RECURRENCE_INTERVALS: &[i32] = &[${contract.recurrenceIntervals.join(", ")}];
-
-${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
-${rustNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
-${rustNamedValues("commentKind", contract.commentKind.values)}
-${rustNamedValues("agentPlanState", contract.agentPlanState.values)}
-${rustNamedValues("notificationType", contract.notificationType.values)}
-${rustNamedValues("prState", contract.prState.values)}
-${rustNamedValues("runMode", contract.runMode.values)}
-${rustNamedValues("platform", contract.platform.values)}
-${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
-${rustNamedValues("issueEventType", contract.issueEventType.values)}
-
-// --- Agent-core pipeline state machine (consumed by dispatcher.rs / pipeline.rs) ---
-${rustStrSlice("agentPipelineNonTerminalStatuses", contract.agentPipeline.nonTerminalStatuses)}
-${rustStrSlice("agentPipelineReentryStatuses", contract.agentPipeline.reentryStatuses)}
-pub const AGENT_PIPELINE_PLAN_REVISION_CAP: i64 = ${contract.agentPipeline.planRevisionCap};
 `
 
 const zig = `${HEADER_ZIG}
@@ -262,10 +192,9 @@ ${zigStrArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${zigStrArray("workspaceRoleValues", contract.workspaceRole.values)}
 ${zigStrArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
 ${zigStrArray("commentKindValues", contract.commentKind.values)}
-${zigStrArray("agentPlanStateValues", contract.agentPlanState.values)}
 ${zigStrArray("notificationTypeValues", contract.notificationType.values)}
 ${zigStrArray("prStateValues", contract.prState.values)}
-${zigStrArray("runModeValues", contract.runMode.values)}
+${zigStrArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${zigStrArray("platformValues", contract.platform.values)}
 ${zigStrArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${zigStrArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -275,10 +204,9 @@ pub const recurrence_intervals = [_]i32{ ${contract.recurrenceIntervals.join(", 
 ${zigNamedValues("workspaceRole", contract.workspaceRole.values)}
 ${zigNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
 ${zigNamedValues("commentKind", contract.commentKind.values)}
-${zigNamedValues("agentPlanState", contract.agentPlanState.values)}
 ${zigNamedValues("notificationType", contract.notificationType.values)}
 ${zigNamedValues("prState", contract.prState.values)}
-${zigNamedValues("runMode", contract.runMode.values)}
+${zigNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${zigNamedValues("platform", contract.platform.values)}
 ${zigNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${zigNamedValues("issueEventType", contract.issueEventType.values)}
@@ -292,8 +220,6 @@ const kotlinPath = join(
   repoRoot,
   "apps/android/app/src/main/java/com/exponential/app/domain/DomainContract.generated.kt"
 )
-
-const rustPath = join(repoRoot, "crates/agent-core/src/domain_contract.rs")
 const zigPath = join(
   repoRoot,
   "apps/linux/src/core/domain/contract.generated.zig"
@@ -301,14 +227,11 @@ const zigPath = join(
 
 mkdirSync(dirname(swiftPath), { recursive: true })
 mkdirSync(dirname(kotlinPath), { recursive: true })
-mkdirSync(dirname(rustPath), { recursive: true })
 mkdirSync(dirname(zigPath), { recursive: true })
 writeFileSync(swiftPath, swift)
 writeFileSync(kotlinPath, kotlin)
-writeFileSync(rustPath, rust)
 writeFileSync(zigPath, zig)
 
 console.log(`Wrote ${swiftPath}`)
 console.log(`Wrote ${kotlinPath}`)
-console.log(`Wrote ${rustPath}`)
 console.log(`Wrote ${zigPath}`)

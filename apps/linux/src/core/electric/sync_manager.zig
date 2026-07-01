@@ -30,7 +30,7 @@ pub const specs = [_]ShapeSpec{
     .{ .name = "notifications", .url_path = "/api/shapes/notifications", .table = "notifications" },
     .{ .name = "issue-events", .url_path = "/api/shapes/issue-events", .table = "issue_events" },
     .{ .name = "issue-subscribers", .url_path = "/api/shapes/issue-subscribers", .table = "issue_subscribers" },
-    .{ .name = "agent-runs", .url_path = "/api/shapes/agent-runs", .table = "agent_runs" },
+    .{ .name = "coding-sessions", .url_path = "/api/shapes/coding-sessions", .table = "coding_sessions" },
 };
 
 pub const PollOutcome = struct {

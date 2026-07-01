@@ -1,7 +1,7 @@
 -- Custom triggers for Exponential
 -- Apply after migrations: docker exec -i exponential-postgres-1 psql -U postgres -d exponential < src/db/out/custom/0001_triggers.sql
 
--- 1. Auto-update updated_at timestamp on all tables
+-- 1. Auto-update updated_at timestamp on all tables that carry it.
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -18,9 +18,19 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON comments FOR EACH R
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON attachments FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON notifications FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON push_subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON fcm_tokens FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_members FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON workspace_invites FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agent_registrations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_subscribers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_events FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON coding_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON repositories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON project_repositories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_notification_prefs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON email_deliveries FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_submissions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 2. Auto-generate issue number and identifier per project
 CREATE OR REPLACE FUNCTION generate_issue_number()
@@ -46,9 +56,8 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER generate_issue_number BEFORE INSERT ON issues FOR EACH ROW EXECUTE FUNCTION generate_issue_number();
 
 -- 3. Bump issue.updated_at when a comment is created/edited/deleted so the
---    companion daemon's Electric shape on `issues` fires an `updated` event
---    on new discussion. The daemon uses this to re-enter the pipeline (e.g.,
---    to revise a plan in light of new comments).
+--    issues Electric shape fires an `updated` event on new discussion (keeps
+--    "recently active" ordering honest on every client).
 CREATE OR REPLACE FUNCTION bump_issue_updated_at_from_comment()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -88,14 +97,10 @@ CREATE OR REPLACE TRIGGER populate_issue_label_workspace_id
   BEFORE INSERT ON issue_labels
   FOR EACH ROW EXECUTE FUNCTION populate_issue_label_workspace_id();
 
--- 5. update_updated_at on the new activity/subscription tables.
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_subscribers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_events FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- 6. Auto-populate workspace_id on issue_subscribers / issue_events from the
---    referenced issue's project, so the Electric shape filter can be
---    workspace-scoped (stable). issues have no direct workspace_id, so resolve
---    it via issues → projects (NOT the issue_labels template which reads
+-- 5. Auto-populate workspace_id on issue-child tables from the referenced
+--    issue's project, so their Electric shape filters can be workspace-scoped
+--    (stable). issues have no direct workspace_id, so resolve it via
+--    issues → projects (NOT the issue_labels template which reads
 --    labels.workspace_id). A wrong source leaves workspace_id NULL → NOT NULL
 --    violation.
 CREATE OR REPLACE FUNCTION populate_issue_child_workspace_id()
@@ -116,12 +121,10 @@ CREATE OR REPLACE TRIGGER populate_issue_event_workspace_id
   BEFORE INSERT ON issue_events
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_workspace_id();
 
--- 7. agent_runs (the per-issue agent run: plan/question text + bookkeeping,
---    extracted off the issues row). updated_at + workspace_id denormalized from
---    issue→project via the shared populate_issue_child_workspace_id, so its
---    Electric shape filter stays workspace-scoped and stable.
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agent_runs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE OR REPLACE TRIGGER populate_agent_run_workspace_id
-  BEFORE INSERT ON agent_runs
+-- 6. coding_sessions (the live "coding now" record, the 14th synced shape):
+--    workspace_id denormalized from issue→project via the shared
+--    populate_issue_child_workspace_id, so its Electric shape filter stays
+--    workspace-scoped and stable.
+CREATE OR REPLACE TRIGGER populate_coding_session_workspace_id
+  BEFORE INSERT ON coding_sessions
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_workspace_id();

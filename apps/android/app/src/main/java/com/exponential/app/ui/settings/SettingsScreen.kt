@@ -184,7 +184,7 @@ fun SettingsScreen(
                         SettingsRow(
                             icon = Icons.Filled.Extension,
                             title = "Integrations",
-                            subtitle = "Google Calendar, push notifications",
+                            subtitle = "Push notifications",
                             onClick = onOpenIntegrations,
                         )
                         CardDivider()

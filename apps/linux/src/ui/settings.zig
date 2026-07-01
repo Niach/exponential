@@ -13,8 +13,6 @@ const gtk = @import("gtk.zig");
 const widgets = @import("widgets.zig");
 const trpc = @import("../core/api/trpc.zig");
 const Database = @import("../core/db/database.zig").Database;
-const registration = @import("../core/agent/registration.zig");
-const identity_store = @import("../core/agent/identity_store.zig");
 const api_projects = @import("../core/api/projects.zig");
 
 const policy_options = [_:null]?[*:0]const u8{ "members", "everyone" };
@@ -32,7 +30,6 @@ const Ctx = struct {
     public_check: gtk.Object = null,
     policy_dd: gtk.Object = null,
     link_entry: gtk.Object = null,
-    agent_status: gtk.Object = null,
     new_label_entry: gtk.Object = null,
     last_link: ?[:0]u8 = null,
 };
@@ -218,56 +215,6 @@ fn rebuild(ctx: *Ctx) void {
 
     // --- Labels ---
     labelsSection(ctx, a);
-
-    // --- Desktop agent ---
-    gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Desktop agent"));
-    if (identity_store.exists(ctx.gpa)) {
-        const agent_name = identity_store.readField(ctx.gpa, "agentName");
-        defer if (agent_name) |n| ctx.gpa.free(n);
-        const lbl = gtk.gtk_label_new(null);
-        var buf: [256]u8 = undefined;
-        if (std.fmt.bufPrintZ(&buf, "<span foreground='#22c55e'>✓ Registered as {s}</span>", .{agent_name orelse "this machine"})) |z|
-            gtk.gtk_label_set_markup(lbl, z.ptr)
-        else |_| {}
-        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-        gtk.gtk_box_append(ctx.content, lbl);
-        const unreg = gtk.gtk_button_new_with_label("Unregister this machine");
-        gtk.gtk_widget_add_css_class(unreg, "flat");
-        gtk.gtk_widget_set_halign(unreg, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(unreg, "clicked", @ptrCast(&onUnregister), ctx, null, 0);
-        gtk.gtk_box_append(ctx.content, unreg);
-
-        // GitHub is connected once in the web app (Account → Integrations); the
-        // agent uses the owner's token for clone/push, and the server opens PRs
-        // + serves diffs. No per-machine device flow.
-        const gh_lbl = gtk.gtk_label_new("Connect GitHub in the web app (Account → Integrations) so the agent can push code and open pull requests.");
-        gtk.gtk_widget_add_css_class(gh_lbl, "dim-label");
-        gtk.gtk_widget_set_halign(gh_lbl, gtk.ALIGN_START);
-        gtk.gtk_label_set_wrap(gh_lbl, 1);
-        gtk.gtk_box_append(ctx.content, gh_lbl);
-        const open_gh = gtk.gtk_button_new_with_label("Open Integrations in browser");
-        gtk.gtk_widget_add_css_class(open_gh, "flat");
-        gtk.gtk_widget_set_halign(open_gh, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(open_gh, "clicked", @ptrCast(&onOpenGithubIntegrations), ctx, null, 0);
-        gtk.gtk_box_append(ctx.content, open_gh);
-    } else {
-        const desc = gtk.gtk_label_new("Register this machine so it can run assigned issues as an agent.");
-        gtk.gtk_widget_add_css_class(desc, "dim-label");
-        gtk.gtk_widget_set_halign(desc, gtk.ALIGN_START);
-        gtk.gtk_label_set_wrap(desc, 1);
-        gtk.gtk_box_append(ctx.content, desc);
-        const reg = gtk.gtk_button_new_with_label("Register this machine as a desktop agent");
-        gtk.gtk_widget_add_css_class(reg, "suggested-action");
-        gtk.gtk_widget_set_halign(reg, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(reg, "clicked", @ptrCast(&onRegister), ctx, null, 0);
-        gtk.gtk_box_append(ctx.content, reg);
-    }
-    const status = gtk.gtk_label_new("");
-    gtk.gtk_widget_add_css_class(status, "dim-label");
-    gtk.gtk_widget_set_halign(status, gtk.ALIGN_START);
-    gtk.gtk_label_set_wrap(status, 1);
-    gtk.gtk_box_append(ctx.content, status);
-    ctx.agent_status = status;
 
     // --- Danger Zone (owner-only) ---
     var is_owner = false;
@@ -781,118 +728,6 @@ fn onConfirmDelete(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     }
 }
 
-fn setAgentStatus(ctx: *Ctx, msg: []const u8) void {
-    const lbl = ctx.agent_status orelse return;
-    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
-    defer arena.deinit();
-    if (arena.allocator().dupeZ(u8, msg)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
-}
-
-/// Register this machine in one human-session-authorized call (companion.register).
-fn onRegister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    setAgentStatus(ctx, "Registering…");
-    const did = registration.deviceId(ctx.gpa) catch {
-        setAgentStatus(ctx, "Request failed.");
-        return;
-    };
-    defer ctx.gpa.free(did);
-    var oc = registration.registerDevice(ctx.gpa, ctx.instance, ctx.token, did, "Desktop", 30) catch {
-        setAgentStatus(ctx, "Request failed.");
-        return;
-    };
-    switch (oc) {
-        .failure => |m| {
-            defer ctx.gpa.free(m);
-            setAgentStatus(ctx, m);
-        },
-        .success => |*id| {
-            defer id.deinit();
-            _ = identity_store.save(ctx.gpa, id) catch {};
-            rebuild(ctx); // now shows "Registered"; app's heartbeat reconcile starts the ping
-        },
-    }
-}
-
-// Confirmation before unregistering — accidental unregister silently stops the
-// agent from picking up assigned issues, so make it deliberate.
-const UnregConfirm = struct { ctx: *Ctx, dialog: gtk.Object = null };
-
-fn onUnregister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    const uc = ctx.gpa.create(UnregConfirm) catch return;
-    uc.ctx = ctx;
-
-    const dialog = gtk.adw_dialog_new();
-    gtk.adw_dialog_set_title(dialog, "Unregister this machine");
-    gtk.adw_dialog_set_content_width(dialog, 420);
-    uc.dialog = dialog;
-
-    const tv = gtk.adw_toolbar_view_new();
-    const header = gtk.adw_header_bar_new();
-    const cancel = gtk.gtk_button_new_with_label("Cancel");
-    _ = gtk.g_signal_connect_data(cancel, "clicked", @ptrCast(&onUnregCancel), uc, null, 0);
-    gtk.adw_header_bar_pack_start(header, cancel);
-    gtk.adw_toolbar_view_add_top_bar(tv, header);
-
-    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 10);
-    gtk.gtk_widget_set_margin_top(form, 16);
-    gtk.gtk_widget_set_margin_bottom(form, 16);
-    gtk.gtk_widget_set_margin_start(form, 16);
-    gtk.gtk_widget_set_margin_end(form, 16);
-    const msg = gtk.gtk_label_new("Unregister this machine? It will stop running assigned issues until you register it again.");
-    gtk.gtk_label_set_wrap(msg, 1);
-    gtk.gtk_widget_set_halign(msg, gtk.ALIGN_START);
-    gtk.gtk_box_append(form, msg);
-    const confirm = gtk.gtk_button_new_with_label("Unregister");
-    gtk.gtk_widget_add_css_class(confirm, "destructive-action");
-    gtk.gtk_widget_set_halign(confirm, gtk.ALIGN_END);
-    _ = gtk.g_signal_connect_data(confirm, "clicked", @ptrCast(&onUnregConfirm), uc, null, 0);
-    gtk.gtk_box_append(form, confirm);
-
-    gtk.adw_toolbar_view_set_content(tv, form);
-    gtk.adw_dialog_set_child(dialog, tv);
-    _ = gtk.g_signal_connect_data(dialog, "closed", @ptrCast(&onUnregClosed), uc, null, 0);
-    gtk.adw_dialog_present(dialog, ctx.dialog);
-}
-
-fn onUnregCancel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
-    _ = gtk.adw_dialog_close(uc.dialog);
-}
-
-fn onUnregClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
-    uc.ctx.gpa.destroy(uc);
-}
-
-fn onUnregConfirm(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
-    const ctx = uc.ctx;
-    doUnregister(ctx);
-    _ = gtk.adw_dialog_close(uc.dialog); // frees uc via onUnregClosed
-    rebuild(ctx);
-}
-
-fn doUnregister(ctx: *Ctx) void {
-    if (identity_store.readField(ctx.gpa, "apiKey")) |key| {
-        defer ctx.gpa.free(key);
-        _ = registration.uninstall(ctx.gpa, ctx.instance, key, 30);
-    }
-    identity_store.delete(ctx.gpa);
-}
-
-/// GitHub is connected in the web app now — open Account → Integrations in the
-/// browser. (The desktop agent fetches the owner's token from the server; there
-/// is no per-machine device flow anymore.)
-fn onOpenGithubIntegrations(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    var buf: [512]u8 = undefined;
-    const base = std.mem.trimEnd(u8, ctx.instance, "/");
-    const url = std.fmt.bufPrintZ(&buf, "{s}/account/integrations", .{base}) catch return;
-    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
-}
-
 fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow, owner_count: usize) gtk.Object {
     const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
     gtk.gtk_widget_set_margin_top(row, 2);
@@ -923,14 +758,14 @@ fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow, owner_c
     gtk.gtk_widget_add_css_class(role_lbl, "dim-label");
     gtk.gtk_box_append(row, role_lbl);
 
-    // Agents are managed elsewhere; no actions for them. The last owner of a
-    // workspace can't be demoted or leave (mirrors the server guard).
+    // The widget helpdesk bot is managed elsewhere; no actions for it. The last
+    // owner of a workspace can't be demoted or leave (mirrors the server guard).
     const is_last_owner = std.mem.eql(u8, m.role, "owner") and owner_count <= 1;
     const can_make_owner = !std.mem.eql(u8, m.role, "owner");
     const can_make_member = !std.mem.eql(u8, m.role, "member") and !is_last_owner;
     const can_leave = is_self and !is_last_owner;
     const can_remove = !is_self;
-    if (!std.mem.eql(u8, m.role, "agent") and (can_make_owner or can_make_member or can_leave or can_remove)) {
+    if (!m.is_agent and (can_make_owner or can_make_member or can_leave or can_remove)) {
         const menu = gtk.gtk_menu_button_new();
         gtk.gtk_menu_button_set_child(menu, gtk.gtk_label_new("⋯"));
         const pop = gtk.gtk_popover_new();

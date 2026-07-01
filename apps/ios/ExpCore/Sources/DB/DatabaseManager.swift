@@ -81,8 +81,13 @@ public final class DatabaseManager: @unchecked Sendable {
         let fm = FileManager.default
         guard let parent = try? fileURL(for: accountId).deletingLastPathComponent() else { return }
         // Purge every superseded file-name generation: the pre-v2 singular-name
-        // file and the v2 file (replaced by -v3 in Phase F).
-        let legacyBases = ["exponential-\(accountId).sqlite", "exponential-\(accountId)-v2.sqlite"]
+        // file, the v2 file, and the v3 file (replaced by -v4 in the hard-cut
+        // greenfield reshape — dropped agent/calendar columns, added coding_sessions).
+        let legacyBases = [
+            "exponential-\(accountId).sqlite",
+            "exponential-\(accountId)-v2.sqlite",
+            "exponential-\(accountId)-v3.sqlite",
+        ]
         for legacyBase in legacyBases {
             for suffix in ["", "-wal", "-shm"] {
                 let target = parent.appendingPathComponent(legacyBase + suffix)
@@ -104,19 +109,23 @@ public final class DatabaseManager: @unchecked Sendable {
         // The `-vN` suffix marks the canonical file naming. Bumping the suffix is
         // how we force a wipe-and-resync on every existing device when the local
         // schema is fundamentally reshaped (table renames, dropped columns).
-        // `-v3` (Phase F): the stale agent_* columns were dropped from `issues`
-        // and the `agent_runs` table was added.
-        return dbDir.appendingPathComponent("exponential-\(accountId)-v3.sqlite")
+        // `-v4` (greenfield reshape): dropped the agent_runs table + the stale
+        // agent_plan_state / google_calendar_* columns from `issues`, added the
+        // `coding_sessions` shape, `issues.duplicate_of_id`, and
+        // `issue_subscribers.email` (with a nullable user_id).
+        return dbDir.appendingPathComponent("exponential-\(accountId)-v4.sqlite")
     }
 
     private static func runMigrations(on dbPool: DatabasePool) throws {
         var migrator = DatabaseMigrator()
 
-        // Single canonical schema. Mirrors the Postgres tables Electric syncs to
-        // mobile, with column names and nullability matching packages/db-schema.
-        // SQLite type affinities are looser than Postgres — uuid/timestamp/date
-        // columns are stored as text (ISO-8601 for timestamps), enums as text,
-        // jsonb (issues.description, comments.body) as text.
+        // Single canonical schema (collapsed into one migration — the `-v4` file
+        // suffix forces a clean wipe-and-resync, so there's no upgrade path to
+        // preserve). Mirrors the Postgres tables Electric syncs to mobile, with
+        // column names and nullability matching packages/db-schema. SQLite type
+        // affinities are looser than Postgres — uuid/timestamp/date columns are
+        // stored as text (ISO-8601 for timestamps), enums as text, jsonb
+        // (issues.description, comments.body) as text.
         migrator.registerMigration("v1_initial") { db in
             try db.create(table: "electric_offsets", ifNotExists: true) { t in
                 t.primaryKey("shape", .text)
@@ -144,7 +153,12 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("color", .text).notNull().defaults(to: "#6366f1")
                 t.column("sort_order", .double).notNull().defaults(to: 0)
                 t.column("archived_at", .text)
+                // Repos move to a server-only registry in a later phase; the
+                // column stays so the (now-inert) repo-picker UI still compiles.
+                // Electric no longer populates it.
                 t.column("github_repo", .text)
+                // Display-only mirror of the preview run targets + feedback target.
+                t.column("preview_config", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -168,12 +182,14 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("archived_at", .text)
                 t.column("recurrence_interval", .integer)
                 t.column("recurrence_unit", .text)
-                t.column("google_calendar_event_id", .text)
-                t.column("google_calendar_last_synced_at", .text)
-                t.column("google_calendar_last_sync_error", .text)
-                // agent_plan_state stays on issues (summary); the rest of the
-                // agent run state moved to agent_runs (its own shape) in Phase F.
-                t.column("agent_plan_state", .text)
+                // Duplicate resolution (pairs with status='duplicate').
+                t.column("duplicate_of_id", .text)
+                // PR linkage (one issue = one PR); all nullable.
+                t.column("pr_url", .text)
+                t.column("pr_number", .integer)
+                t.column("pr_state", .text)
+                t.column("branch", .text)
+                t.column("pr_merged_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -202,6 +218,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("name", .text)
                 t.column("email", .text).notNull()
                 t.column("image", .text)
+                // Widget helpdesk bot marker — excluded from mention/assignee lists.
+                t.column("is_agent", .boolean).notNull().defaults(to: false)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -249,31 +267,11 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("size_bytes", .integer).notNull()
                 t.column("storage_key", .text).notNull()
                 t.column("url", .text).notNull()
+                // Intrinsic image dimensions (nullable for non-image rows).
+                t.column("width", .integer)
+                t.column("height", .integer)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
-            }
-        }
-
-        // Additive: intrinsic image dimensions synced from the attachments
-        // shape (nullable so legacy/non-image rows and partial updates are fine).
-        migrator.registerMigration("v2_attachment_dimensions") { db in
-            try db.alter(table: "attachments") { t in
-                t.add(column: "width", .integer)
-                t.add(column: "height", .integer)
-            }
-        }
-
-        // Additive (agent-system redesign): PR/agent-run columns on issues, plus
-        // three new synced shapes — notifications, issue_subscribers, issue_events.
-        // All new issue columns are nullable; the new tables mirror the Postgres
-        // schema (snake_case, indexes matching packages/db-schema).
-        migrator.registerMigration("v3_agent_system") { db in
-            try db.alter(table: "issues") { t in
-                t.add(column: "pr_url", .text)
-                t.add(column: "pr_number", .integer)
-                t.add(column: "pr_state", .text)
-                t.add(column: "branch", .text)
-                t.add(column: "pr_merged_at", .text)
             }
 
             try db.create(table: "notifications", ifNotExists: true) { t in
@@ -298,7 +296,9 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.create(table: "issue_subscribers", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
                 t.column("issue_id", .text).notNull()
-                t.column("user_id", .text).notNull().indexed()
+                // Nullable now: widget_reporter rows carry `email` instead.
+                t.column("user_id", .text).indexed()
+                t.column("email", .text)
                 t.column("workspace_id", .text).notNull().indexed()
                 t.column("source", .text).notNull()
                 t.column("unsubscribed", .boolean).notNull().defaults(to: false)
@@ -316,47 +316,20 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
-        }
 
-        // Additive: users.is_agent (assign-to-agent picker segmentation).
-        migrator.registerMigration("v4_user_is_agent") { db in
-            try db.alter(table: "users") { t in
-                t.add(column: "is_agent", .boolean).notNull().defaults(to: false)
-            }
-        }
-
-        // Phase F: agent run state split out of `issues` into its own synced
-        // shape. One row per issue (PK issue_id). plan_text/question are jsonb
-        // {text} stored as text; the stale agent_* columns were removed from the
-        // `issues` schema above (the DB file suffix was bumped to force a clean
-        // wipe-and-resync, the project's convention for dropped columns).
-        migrator.registerMigration("v5_agent_runs") { db in
-            try db.create(table: "agent_runs", ifNotExists: true) { t in
-                t.primaryKey("issue_id", .text)
+            // The live "coding now" record — one row per interactive desktop
+            // coding session. Replaces the old agent_runs shape (14th shape).
+            try db.create(table: "coding_sessions", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("issue_id", .text).notNull().indexed()
                 t.column("workspace_id", .text).notNull().indexed()
-                t.column("plan_text", .text)
-                t.column("question", .text)
-                t.column("question_asked_at", .text)
-                t.column("plan_revision", .integer).notNull().defaults(to: 0)
-                t.column("approved_at", .text)
-                t.column("approved_by", .text)
-                t.column("last_comment_seen_at", .text)
-                t.column("session_id", .text)
-                t.column("run_mode", .text)
-                t.column("interactive_claimed_at", .text)
-                t.column("interactive_claimed_expires_at", .text)
-                t.column("last_error", .text)
+                t.column("user_id", .text).notNull().indexed()
+                t.column("device_label", .text)
+                t.column("status", .text).notNull().defaults(to: "running")
+                t.column("started_at", .text).notNull()
+                t.column("ended_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
-            }
-        }
-
-        // Additive: projects.preview_config — the display-only mirror of the
-        // project's preview run targets + feedback routing target. jsonb in
-        // Postgres, stored here as text; nullable.
-        migrator.registerMigration("v6_project_preview_config") { db in
-            try db.alter(table: "projects") { t in
-                t.add(column: "preview_config", .text)
             }
         }
 
@@ -367,7 +340,7 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
-            try db.execute(sql: "DELETE FROM agent_runs")
+            try db.execute(sql: "DELETE FROM coding_sessions")
             try db.execute(sql: "DELETE FROM notifications")
             try db.execute(sql: "DELETE FROM issue_events")
             try db.execute(sql: "DELETE FROM issue_subscribers")

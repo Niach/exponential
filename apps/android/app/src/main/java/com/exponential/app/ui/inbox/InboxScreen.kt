@@ -26,9 +26,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,11 +36,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
-import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,7 +48,6 @@ fun InboxScreen(
     viewModel: InboxViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var tab by remember { mutableStateOf(0) } // 0 = For me, 1 = Needs your review
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -76,62 +69,23 @@ fun InboxScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TabPill("For me" + if (state.totalUnread > 0) " · ${state.totalUnread}" else "", tab == 0) { tab = 0 }
-                TabPill("Needs review" + if (state.reviewIssues.isNotEmpty()) " · ${state.reviewIssues.size}" else "", tab == 1) { tab = 1 }
-            }
-
-            if (tab == 0) {
-                if (state.groups.isEmpty()) {
-                    EmptyState("You're all caught up.")
-                } else {
-                    LazyColumn(
-                        Modifier.fillMaxSize().padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(state.groups, key = { it.issue.id }) { group ->
-                            InboxGroupCard(group) {
-                                viewModel.markGroupRead(group)
-                                onOpenIssue(group.issue.id)
-                            }
-                        }
-                    }
-                }
+            if (state.groups.isEmpty()) {
+                EmptyState("You're all caught up.")
             } else {
-                if (state.reviewIssues.isEmpty()) {
-                    EmptyState("Nothing waiting on your review.")
-                } else {
-                    LazyColumn(
-                        Modifier.fillMaxSize().padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(state.reviewIssues, key = { it.id }) { issue ->
-                            ReviewIssueCard(issue) { onOpenIssue(issue.id) }
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.groups, key = { it.issue.id }) { group ->
+                        InboxGroupCard(group) {
+                            viewModel.markGroupRead(group)
+                            onOpenIssue(group.issue.id)
                         }
                     }
                 }
             }
         }
     }
-}
-
-// Glass capsule tab — same pattern as IssueListScreen's FilterPills.
-@Composable
-private fun TabPill(label: String, active: Boolean, onClick: () -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurface.copy(
-            alpha = if (active) TextEmphasis.Primary else TextEmphasis.Secondary,
-        ),
-        modifier = Modifier
-            .glassButton(active = active)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
 }
 
 @Composable
@@ -172,40 +126,6 @@ private fun InboxGroupCard(group: InboxGroup, onClick: () -> Unit) {
                 modifier = Modifier.padding(start = 16.dp, top = 2.dp),
             )
         }
-    }
-}
-
-@Composable
-private fun ReviewIssueCard(issue: IssueEntity, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .glassRow()
-            .clickable(onClick = onClick)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            issue.identifier,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Text(
-            issue.title,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            if (issue.agentPlanState == "awaiting_approval") "Plan" else "PR",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
     }
 }
 

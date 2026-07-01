@@ -18,17 +18,19 @@ import androidx.room.RoomDatabase
         NotificationEntity::class,
         IssueSubscriberEntity::class,
         IssueEventEntity::class,
-        AgentRunEntity::class,
+        CodingSessionEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
     // v3: added 8 agent/PR fields on issues + notifications / issue_subscribers
     //     / issue_events tables (parity with web; the 11th/12th/13th shapes).
-    // v4: added users.is_agent (assign-to-agent picker segmentation).
-    // v5: agent_runs table (14th shape) — plan/question text + run bookkeeping
-    //     extracted off issues; drops the agentPlan.getState round-trip.
+    // v4: added users.is_agent (widget helpdesk bot marker).
+    // v5: agent_runs table (14th shape) — removed in v6.
+    // v6: hard cut — dropped agent_runs + agent/google-calendar issue columns,
+    //     added coding_sessions (the new 14th shape) + issues.duplicate_of_id,
+    //     issue_subscribers.user_id nullable + email.
     // No Migration object — DatabaseHolder uses destructive fallback + resync.
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -45,6 +47,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun issueSubscriberDao(): IssueSubscriberDao
     abstract fun issueEventDao(): IssueEventDao
-    abstract fun agentRunDao(): AgentRunDao
+    abstract fun codingSessionDao(): CodingSessionDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

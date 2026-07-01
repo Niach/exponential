@@ -10,8 +10,8 @@ fn io() std.Io {
     return std.Io.Threaded.global_single_threaded.io();
 }
 
-/// The process environment, stashed from `main` so background workers (e.g. the
-/// agent-core run handler) can seed a child process's env without threading
+/// The process environment, stashed from `main` so the preview run-target infra
+/// can seed the env of a child process it spawns without threading
 /// `std.process.Init` through every call site. Null until `setEnviron` runs.
 var g_environ: ?*std.process.Environ.Map = null;
 

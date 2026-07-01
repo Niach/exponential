@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto"
 
 // Public widget keys ship inside third-party pages' snippets, so they are
 // identifiers, not secrets: stored in plaintext, gated by the domain
-// allowlist + rate limiting. `expw_` mirrors the `expk_` agent-key prefix.
+// allowlist + rate limiting. `expw_` mirrors the `expu_` personal-key prefix.
 const widgetKeyAlphabet = `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789`
 const widgetKeyLength = 32
 

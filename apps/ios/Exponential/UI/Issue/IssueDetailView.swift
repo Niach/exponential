@@ -15,6 +15,7 @@ struct IssueDetailView: View {
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
     @State private var showRecurrencePicker = false
+    @State private var showDiff = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -24,7 +25,7 @@ struct IssueDetailView: View {
             if let vm = viewModel, let issue = vm.issue {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Header: identifier + agent plan badge + overflow
+                        // Header: identifier + overflow
                         HStack {
                             if let identifier = issue.identifier {
                                 Text(identifier)
@@ -34,7 +35,6 @@ struct IssueDetailView: View {
                                     .padding(.vertical, 4)
                                     .glassButton()
                             }
-                            planStateBadge(for: issue)
                             Spacer()
                             Button {
                                 Task { await vm.toggleSubscribe() }
@@ -256,18 +256,46 @@ struct IssueDetailView: View {
                                 .foregroundStyle(.red)
                         }
 
+                        // Pull request (read-only diff; one issue = one PR =
+                        // one exp/<IDENTIFIER> branch).
+                        if let prUrl = issue.prUrl, let url = URL(string: prUrl) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.triangle.branch")
+                                        .foregroundStyle(Accent.indigo)
+                                    Text("Pull request")
+                                        .font(.subheadline.weight(.semibold))
+                                    if let prState = issue.prState {
+                                        Text(prState.capitalized)
+                                            .font(.caption2.weight(.medium))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.white.opacity(0.08))
+                                            .clipShape(Capsule())
+                                    }
+                                    Spacer()
+                                    Link("Open on GitHub", destination: url)
+                                        .font(.caption)
+                                }
+                                if let branch = issue.branch, !branch.isEmpty {
+                                    Text(branch)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                }
+                                DisclosureGroup("Changed files", isExpanded: $showDiff) {
+                                    DiffView(issueId: issue.id).padding(.top, 6)
+                                }
+                                .font(.subheadline)
+                            }
+                            .padding(12)
+                            .glassSection()
+                        }
+
                         // Attachments (read-only list synced from Electric).
                         // Inline images in the description still preview
                         // inside MarkdownEditor's preview tab — this section
                         // surfaces them as discoverable items.
                         AttachmentListView(issueId: issue.id)
-
-                        // Agent plan/question lifecycle (first-class panel; the
-                        // plan/question text is fetched server-side, not synced).
-                        AgentPlanPanel(
-                            issue: issue,
-                            canApprovePlan: vm.permissions.canApprovePlan(creatorId: issue.creatorId)
-                        )
 
                         // Comments
                         CommentThreadView(issue: issue)
@@ -322,12 +350,6 @@ struct IssueDetailView: View {
                     ) { option in
                         if option.userId == nil {
                             Label("Unassigned", systemImage: "person.crop.circle.badge.xmark")
-                        } else if option.isAgent {
-                            Label {
-                                Text("\(option.displayName) · agent")
-                            } icon: {
-                                Image(systemName: "cpu")
-                            }
                         } else {
                             Label {
                                 Text(option.displayName)
@@ -415,51 +437,6 @@ struct IssueDetailView: View {
     private func parseDate(_ dateString: String?) -> Date? {
         guard let dateString else { return nil }
         return AppDateFormatters.yyyyMMdd.date(from: dateString)
-    }
-
-    // The compact pill under the identifier. Hidden when there's no agent
-    // plan state to surface. Mirrors the state derivation in
-    // apps/web/src/components/issue-timeline.tsx (~lines 421-446).
-    @ViewBuilder
-    private func planStateBadge(for issue: IssueEntity) -> some View {
-        if let label = planStateLabel(issue: issue) {
-            HStack(spacing: 4) {
-                Image(systemName: label.symbol)
-                    .font(.caption2)
-                Text(label.text)
-                    .font(.caption2.weight(.medium))
-            }
-            .foregroundStyle(label.color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(label.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-        }
-    }
-
-    private struct PlanLabel {
-        let text: String
-        let color: Color
-        let symbol: String
-    }
-
-    private func planStateLabel(issue: IssueEntity) -> PlanLabel? {
-        switch issue.agentPlanState {
-        case "drafting":
-            return PlanLabel(text: "Drafting", color: DesignTokens.Semantic.planDrafting, symbol: "pencil")
-        case "awaiting_answer":
-            return PlanLabel(text: "Awaiting answer", color: DesignTokens.Semantic.planAwaitingAnswer, symbol: "questionmark.circle")
-        case "awaiting_approval":
-            return PlanLabel(text: "Awaiting approval", color: DesignTokens.Semantic.planAwaitingApproval, symbol: "hand.raised")
-        case "approved":
-            // Hide once status moves to done/cancelled — the approval no
-            // longer needs surfacing for finished work.
-            if issue.status == "done" || issue.status == "cancelled" {
-                return nil
-            }
-            return PlanLabel(text: "Approved", color: DesignTokens.Semantic.planApproved, symbol: "checkmark.circle")
-        default:
-            return nil
-        }
     }
 
 }

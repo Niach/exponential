@@ -200,14 +200,15 @@ final class MacGhosttyTerminalView: NSView {
     }
 }
 
-/// Runs one agent `run_request` inside a visible ghostty terminal window (M7's
-/// "watch & steer"), capturing output + exit code via the same tee/PIPESTATUS
-/// bash wrapper the Linux app uses, then reports the result to the core.
-/// Owns one in-flight agent run: the capture file paths, the result callback,
+/// Runs one host-side process inside a visible ghostty terminal window,
+/// capturing output + exit code via the same tee/PIPESTATUS bash wrapper the
+/// Linux app uses, then reports the result to the caller (preview/run-config
+/// backends today; the "Start coding" launcher later).
+/// Owns one in-flight run: the capture file paths, the result callback,
 /// and the terminal window (as its delegate). `@MainActor` so all access is
 /// main-isolated; the window's weak `delegate` is kept alive by the runner.
 @MainActor
-final class AgentRunSession: NSObject, NSWindowDelegate {
+final class TerminalRunSession: NSObject, NSWindowDelegate {
     private let promptPath, scriptPath, outPath, codePath: String
     private let onDone: @Sendable (Int32, String) -> Void
     // STRONG: the ghostty surface holds an unretained pointer to this view as its
@@ -249,12 +250,12 @@ final class AgentRunSession: NSObject, NSWindowDelegate {
 }
 
 @MainActor
-final class MacAgentTerminalRunner {
-    static let shared = MacAgentTerminalRunner()
-    private var sessions: [String: AgentRunSession] = [:]
+final class MacTerminalRunner {
+    static let shared = MacTerminalRunner()
+    private var sessions: [String: TerminalRunSession] = [:]
     private var windows: [String: NSWindow] = [:]
-    /// The shared bottom terminal dock (set once by `MacAgentService`). Interactive
-    /// runs mount here; headless runs use a per-run window.
+    /// The shared bottom terminal dock (set once by `MacAppDependencies`).
+    /// Interactive runs mount here; headless runs use a per-run window.
     weak var dock: MacTerminalDock?
 
     /// `onDone(exitCode, capturedOutput)` is always called exactly once. Interactive
@@ -272,16 +273,14 @@ final class MacAgentTerminalRunner {
         onDone: @escaping @Sendable (Int32, String) -> Void
     ) {
         guard MacGhosttyApp.shared.app != nil else {
-            // No terminal engine (e.g. GhosttyKit not fetched) — run headless so
-            // the agent still works; the user just doesn't see the CLI live.
-            DispatchQueue.global(qos: .userInitiated).async {
-                let (code, text) = MacAgentRunner.run(program: program, argv: argv, env: env, cwd: cwd, prompt: prompt)
-                DispatchQueue.main.async { onDone(code, text) }
-            }
+            // No terminal engine (e.g. GhosttyKit not fetched) — nothing can host
+            // the command. Report failure so the caller (the preview run) surfaces
+            // it instead of hanging on a result that never arrives.
+            onDone(-1, "Terminal engine unavailable (GhosttyKit not loaded).")
             return
         }
 
-        let runsDir = MacDeviceStore.dir().appendingPathComponent("agent-runs")
+        let runsDir = MacAppSupport.dir().appendingPathComponent("terminal-runs")
         try? FileManager.default.createDirectory(at: runsDir, withIntermediateDirectories: true)
         let promptPath = runsDir.appendingPathComponent("\(runId).prompt").path
         let scriptPath = runsDir.appendingPathComponent("\(runId).sh").path
@@ -307,7 +306,7 @@ final class MacAgentTerminalRunner {
             }
             return
         }
-        let session = AgentRunSession(view: view, promptPath: promptPath, scriptPath: scriptPath,
+        let session = TerminalRunSession(view: view, promptPath: promptPath, scriptPath: scriptPath,
                                       outPath: outPath, codePath: codePath, onDone: onDone)
         session.onClosed = { [weak self] in
             self?.sessions[runId] = nil

@@ -155,17 +155,20 @@ interface CommentDao {
 }
 
 @Dao
-interface AgentRunDao {
-    @Query("SELECT * FROM agent_runs WHERE issue_id = :issueId LIMIT 1")
-    fun observeByIssue(issueId: String): Flow<AgentRunEntity?>
+interface CodingSessionDao {
+    @Query("SELECT * FROM coding_sessions WHERE issue_id = :issueId ORDER BY started_at DESC")
+    fun observeByIssue(issueId: String): Flow<List<CodingSessionEntity>>
+
+    @Query("SELECT * FROM coding_sessions WHERE workspace_id = :workspaceId")
+    fun observeByWorkspace(workspaceId: String): Flow<List<CodingSessionEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: AgentRunEntity)
+    suspend fun upsert(item: CodingSessionEntity)
 
-    @Query("DELETE FROM agent_runs WHERE issue_id = :id")
+    @Query("DELETE FROM coding_sessions WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM agent_runs")
+    @Query("DELETE FROM coding_sessions")
     suspend fun clear()
 }
 

@@ -25,6 +25,7 @@ fun statusColor(status: IssueStatus): Color = when (status) {
     IssueStatus.InProgress -> Yellow
     IssueStatus.Done -> Green
     IssueStatus.Cancelled -> Red
+    IssueStatus.Duplicate -> Neutral
 }
 
 fun priorityColor(priority: IssuePriority): Color = when (priority) {
@@ -47,15 +48,4 @@ fun dueDateColor(dueDate: String?): Color {
         due.isEqual(today) -> Orange
         else -> Neutral.copy(alpha = TextEmphasis.Tertiary)
     }
-}
-
-/**
- * Agent-plan badge colors (iOS `PlanLabel`). Tokenized here to kill the
- * hardcoded hex previously duplicated across IssueDetailScreen and CommentThread.
- */
-object PlanColors {
-    val Drafting = DesignTokens.Semantic.PlanDrafting
-    val AwaitingAnswer = DesignTokens.Semantic.PlanAwaitingAnswer
-    val AwaitingApproval = DesignTokens.Semantic.PlanAwaitingApproval
-    val Approved = DesignTokens.Semantic.PlanApproved
 }

@@ -5,8 +5,7 @@ import os
 private let logger = Logger(subsystem: "at.exponential.mac", category: "MacAppDependencies")
 
 /// macOS composition root. Mirrors the iOS `AppDependencies` minus the iOS-only
-/// pieces (Firebase, FCM push, `NotificationDelegate`). Read-only live sync for
-/// A2; CRUD/agent wiring lands in A3+.
+/// pieces (Firebase, FCM push, `NotificationDelegate`).
 @Observable
 final class MacAppDependencies: @unchecked Sendable {
     let keychain: KeychainStore
@@ -26,13 +25,10 @@ final class MacAppDependencies: @unchecked Sendable {
     let workspaceMembersApi: WorkspaceMembersApi
     let workspaceInvitesApi: WorkspaceInvitesApi
     let issueImagesApi: IssueImagesApi
-    let agentPlanApi: AgentPlanApi
-    let companionApi: CompanionApi
     let integrationsApi: IntegrationsApi
     let notificationsApi: NotificationsApi
     let subscriptionsApi: SubscriptionsApi
     let terminalDock: MacTerminalDock
-    let agentService: MacAgentService
     let toastCenter: MacToastCenter
     // The local device-preview runtime (build/run/embed the selected run target
     // in the dedicated Preview pane). Single active preview, retained here so it
@@ -82,31 +78,20 @@ final class MacAppDependencies: @unchecked Sendable {
         self.workspaceMembersApi = WorkspaceMembersApi(trpc: trpc)
         self.workspaceInvitesApi = WorkspaceInvitesApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
-        self.agentPlanApi = AgentPlanApi(trpc: trpc)
-        self.companionApi = CompanionApi(trpc: trpc)
         let integrationsApi = IntegrationsApi(trpc: trpc)
         self.integrationsApi = integrationsApi
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
         // The collapsible bottom terminal dock — shared by MacShell (renders it)
-        // and MacAgentService (mounts interactive runs into it).
+        // and the preview run terminals (which mount into it).
         let terminalDock = MainActor.assumeIsolated { MacTerminalDock() }
         self.terminalDock = terminalDock
+        // The terminal runner is a singleton; point it at the shared dock once so
+        // interactive runs mount there instead of a per-run window.
+        MainActor.assumeIsolated { MacTerminalRunner.shared.dock = terminalDock }
         let toastCenter = MainActor.assumeIsolated { MacToastCenter() }
         self.toastCenter = toastCenter
         self.previewController = MainActor.assumeIsolated { MacPreviewController() }
-        // @State initializes this composition root on the main actor, so it's safe
-        // to construct the MainActor-isolated agent service here (it starts
-        // heartbeats for any already-registered workspaces).
-        self.agentService = MainActor.assumeIsolated {
-            MacAgentService(
-                auth: auth,
-                integrationsApi: integrationsApi,
-                terminalDock: terminalDock,
-                runMonitor: MacAgentRunMonitor(),
-                toasts: toastCenter
-            )
-        }
 
         // Start sync — it observes auth state and launches one shape pipeline set
         // per signed-in account, swapping pools on account switch.

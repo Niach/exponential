@@ -97,15 +97,7 @@ export async function resolveWorkspaceAccess(
 // - `read`: anyone who can read the workspace.
 // - `write` / `delete`: member, OR (in a public workspace) the issue creator or
 //   an instance admin. publicWritePolicy gates create, not mutation.
-// - `approve_plan`: the issue creator OR a workspace owner.
-// - `agent_write`: only an `agent`-role member (the agent acts as the issue's
-//   moderator and writes plan/PR/run state). No publicWritePolicy bypass.
-export type IssueAction =
-  | `read`
-  | `write`
-  | `delete`
-  | `approve_plan`
-  | `agent_write`
+export type IssueAction = `read` | `write` | `delete`
 
 export async function assertIssueAccess(
   userId: string,
@@ -151,32 +143,6 @@ export async function assertIssueAccess(
         code: `FORBIDDEN`,
         message: `Not a member of this workspace`,
       })
-    }
-    case `approve_plan`: {
-      const db = await getDb()
-      const [row] = await db
-        .select({ creatorId: issues.creatorId })
-        .from(issues)
-        .where(eq(issues.id, issueId))
-        .limit(1)
-      // getIssueWorkspaceContext already guaranteed the issue exists.
-      if (row?.creatorId === userId) return issueContext
-      const member = await getWorkspaceMember(userId, issueContext.workspaceId)
-      if (member && member.role === `owner`) return issueContext
-      throw new TRPCError({
-        code: `FORBIDDEN`,
-        message: `Only the issue creator or a workspace owner can approve the plan`,
-      })
-    }
-    case `agent_write`: {
-      const member = await getWorkspaceMember(userId, issueContext.workspaceId)
-      if (!member || member.role !== `agent`) {
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `Only an agent member can mutate an agent plan`,
-        })
-      }
-      return issueContext
     }
   }
 }

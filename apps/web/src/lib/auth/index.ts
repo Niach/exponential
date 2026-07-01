@@ -68,9 +68,7 @@ const googleClientConfigured = Boolean(
 )
 const googleLoginEnabled =
   googleClientConfigured && process.env.GOOGLE_LOGIN_ENABLED === `true`
-const googleCalendarEnabled =
-  googleClientConfigured && process.env.GOOGLE_CALENDAR_ENABLED === `true`
-const googleSocialEnabled = googleLoginEnabled || googleCalendarEnabled
+const googleSocialEnabled = googleLoginEnabled
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -127,7 +125,8 @@ export const auth = betterAuth({
         defaultValue: false,
         input: false,
       },
-      // True for synthetic desktop-agent users. Never settable by a client.
+      // True for the synthetic widget-helpdesk bot user (owns issues created
+      // through the embeddable feedback widget). Never settable by a client.
       isAgent: {
         type: `boolean`,
         defaultValue: false,
@@ -257,29 +256,31 @@ export const auth = betterAuth({
   plugins: [
     bearer(),
     apiKey({
-      defaultPrefix: `expk_`,
+      // Personal API keys (desktop coding sessions / MCP clients) — minted by
+      // the user for their own auth, never a synthetic identity.
+      defaultPrefix: `expu_`,
       enableMetadata: true,
       enableSessionForAPIKeys: true,
-      // Default cap is 32, but device keys are named `Device: <hostname>` and a
-      // hostname like "macbook-pro-von-danny.local" blows past that → register
+      // Default cap is 32, but keys are named `Device: <hostname>` and a
+      // hostname like "macbook-pro-von-danny.local" blows past that → minting
       // would 500 on createApiKey. Give the name field generous room.
       maximumNameLength: 200,
       keyExpiration: { defaultExpiresIn: null },
-      // Per-key rate limiting is off by default for service tokens — the
-      // companion daemon long-polls /api/shapes/* and would blow through
-      // the plugin default of 10 req/day in seconds. The global Better Auth
+      // Per-key rate limiting is off by default for personal keys — a desktop
+      // coding session long-polls /api/shapes/* and would blow through the
+      // plugin default of 10 req/day in seconds. The global Better Auth
       // rateLimit (configured above on the auth root) still applies, plus
       // network-level limits at the reverse proxy.
       rateLimit: { enabled: false },
       // Accept the key from either `x-api-key` (api-key plugin default) or
-      // `Authorization: Bearer expk_...` so MCP clients that only know the
+      // `Authorization: Bearer expu_...` so MCP clients that only know the
       // bearer convention can authenticate without a custom header.
       customAPIKeyGetter: (ctx) => {
         const direct = ctx.headers?.get(`x-api-key`)
         if (direct) return direct
         const authz = ctx.headers?.get(`authorization`)
         if (!authz) return null
-        const match = authz.match(/^Bearer\s+(expk_[^\s]+)$/i)
+        const match = authz.match(/^Bearer\s+(expu_[^\s]+)$/i)
         return match ? match[1] : null
       },
     }),
@@ -288,12 +289,12 @@ export const auth = betterAuth({
       resource: process.env.BETTER_AUTH_URL
         ? `${process.env.BETTER_AUTH_URL.replace(/\/$/, ``)}/api/mcp`
         : undefined,
-      // The desktop agent holds a refreshable OAuth credential (minted by
-      // companion.register). The mcp plugin reads token lifetimes from
-      // `oidcConfig`: give it a generous refresh window so an agent offline for
-      // weeks can still refresh without re-registering; the short access-token
-      // life keeps rotation frequent (getMcpSession ignores access expiry, but
-      // the client refreshes proactively).
+      // Human MCP clients (Claude etc.) hold a refreshable OAuth credential.
+      // The mcp plugin reads token lifetimes from `oidcConfig`: give it a
+      // generous refresh window so a client offline for weeks can still refresh
+      // without re-authorizing; the short access-token life keeps rotation
+      // frequent (getMcpSession ignores access expiry, but the client refreshes
+      // proactively).
       oidcConfig: {
         loginPage: `/auth/login`,
         accessTokenExpiresIn: 60 * 60 * 24,

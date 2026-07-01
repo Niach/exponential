@@ -19,6 +19,7 @@ const statusHeaderBg: Record<IssueStatus, string> = {
   in_progress: `rgba(234, 179, 8, 0.10)`,
   done: `rgba(34, 197, 94, 0.10)`,
   cancelled: `rgba(113, 113, 122, 0.08)`,
+  duplicate: `rgba(113, 113, 122, 0.08)`,
 }
 
 interface IssueListProps {
@@ -122,7 +123,7 @@ export function IssueList({
       <EmptyState
         icon={ListTodo}
         title="No issues yet"
-        description="Create an issue to track work — then assign it to a coding agent to have it open a pull request."
+        description="Create an issue to start tracking work."
       >
         {canCreate && (
           <Button size="sm" onClick={() => onNewIssue()}>

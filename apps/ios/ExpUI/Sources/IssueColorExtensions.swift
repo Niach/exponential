@@ -11,6 +11,7 @@ extension IssueStatus {
         case .inProgress: StatusColor.inProgress
         case .done: StatusColor.done
         case .cancelled: StatusColor.cancelled
+        case .duplicate: StatusColor.duplicate
         }
     }
 }

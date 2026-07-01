@@ -7,7 +7,7 @@ private let log = Logger(subsystem: "at.exponential.mac", category: "Ghostty")
 
 /// Process-global libghostty app: init, config, the 60Hz tick, runtime callbacks.
 /// Mirrors github.com/thdxg/macterm's GhosttyApp (the macOS reference for the
-/// embedded apprt). Created lazily on first agent-run terminal.
+/// embedded apprt). Created lazily on the first terminal run.
 @MainActor
 final class MacGhosttyApp {
     static let shared = MacGhosttyApp()

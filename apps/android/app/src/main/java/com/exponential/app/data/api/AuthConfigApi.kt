@@ -17,7 +17,6 @@ data class AuthConfig(
     val passwordEnabled: Boolean = true,
     val oidcProviders: List<OidcProvider> = emptyList(),
     val googleLoginEnabled: Boolean = false,
-    val googleCalendarEnabled: Boolean = false,
 )
 
 @Singleton

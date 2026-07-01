@@ -16,7 +16,6 @@ import { createWidgetUser } from "@/lib/widget/widget-user"
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
 import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
-import publicWorkspaceSql from "@/db/out/custom/0002_public_workspace.sql?raw"
 
 const PUBLIC_WORKSPACE_SLUG = `feedback`
 const PUBLIC_WORKSPACE_NAME = `Exponential Feedback`
@@ -168,7 +167,6 @@ async function ensureDogfoodProject(publicWorkspaceId: string) {
       await db
         .update(projects)
         .set({
-          githubRepo: repo,
           previewConfig: {
             targets: DOGFOOD_TARGETS,
             feedbackProjectId: existing.id,
@@ -187,7 +185,6 @@ async function ensureDogfoodProject(publicWorkspaceId: string) {
         name: DOGFOOD_PROJECT_NAME,
         slug: DOGFOOD_PROJECT_SLUG,
         prefix: DOGFOOD_PROJECT_PREFIX,
-        githubRepo: repo,
       })
       .returning({ id: projects.id })
 
@@ -248,7 +245,6 @@ async function promoteInitialAdmins() {
 async function applyCustomSql() {
   for (const [name, content] of [
     [`0001_triggers.sql`, triggersSql],
-    [`0002_public_workspace.sql`, publicWorkspaceSql],
   ] as const) {
     if (!content) continue
     try {

@@ -9,36 +9,6 @@ struct WorkspaceSettingsTarget: Identifiable, Hashable {
     var id: String { accountId + ":" + workspaceId }
 }
 
-/// The owner's default agent workspace — the oldest one they own that is NOT
-/// public. Agents register here so they never get orphaned in a shared/public
-/// workspace. Mirrors `defaultOwnedWorkspaceId` on Linux + the server filter.
-struct OwnedWorkspaceRef: Equatable {
-    let id: String
-    let name: String
-}
-
-/// Resolve the oldest non-public workspace `userId` owns from `pool`. The owner
-/// join + is_public filter is done in Swift (rather than raw SQL) so the
-/// permissive `is_public` decoding in `WorkspaceEntity` applies. Shared by the
-/// settings agent section and the "Set up coding agent" entry point.
-func resolveDefaultOwnedWorkspace(pool: DatabasePool, userId: String) -> OwnedWorkspaceRef? {
-    let resolved = try? pool.read { db -> OwnedWorkspaceRef? in
-        let ownedIds = Set(
-            try WorkspaceMemberEntity
-                .filter(Column("user_id") == userId)
-                .filter(Column("role") == DomainContract.workspaceRoleOwner)
-                .fetchAll(db)
-                .map(\.workspaceId)
-        )
-        let candidate = try WorkspaceEntity.fetchAll(db)
-            .filter { ownedIds.contains($0.id) && !$0.isPublic }
-            .sorted { $0.createdAt < $1.createdAt }
-            .first
-        return candidate.map { OwnedWorkspaceRef(id: $0.id, name: $0.name) }
-    }
-    return resolved ?? nil
-}
-
 @MainActor
 @Observable
 final class MacWorkspaceSettingsModel {
@@ -49,9 +19,6 @@ final class MacWorkspaceSettingsModel {
     var projects: [ProjectEntity] = []
     var users: [UserEntity] = []
     var error: String?
-    // The oldest non-public workspace the current user owns — where a new agent
-    // should be registered. Resolved once on start (#2 owned-workspace fix).
-    var ownedDefault: OwnedWorkspaceRef?
 
     let accountId: String
     let workspaceId: String
@@ -72,19 +39,7 @@ final class MacWorkspaceSettingsModel {
 
     func user(_ id: String) -> UserEntity? { users.first { $0.id == id } }
 
-    var isCurrentPublic: Bool { workspace?.isPublic ?? false }
-    // The current workspace is a valid agent home: the user owns/admins it and
-    // it isn't public.
-    var canRegisterHere: Bool { isOwnerOrAdmin && !isCurrentPublic }
-
-    /// Resolve the oldest non-public workspace the current user owns.
-    func loadOwnedDefault() {
-        guard let uid = deps.auth.userId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-        ownedDefault = resolveDefaultOwnedWorkspace(pool: pool, userId: uid)
-    }
-
     func start() {
-        loadOwnedDefault()
         guard tasks.isEmpty, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let wid = workspaceId
         let wsObs = ValueObservation.tracking { db in try WorkspaceEntity.fetchOne(db, key: wid) }
@@ -217,7 +172,6 @@ struct MacWorkspaceSettingsView: View {
     @State private var editingLabelId: String?
     @State private var editingName = ""
     @State private var showDeleteConfirm = false
-    @State private var showUnregisterConfirm = false
     @State private var repoPickerProject: ProjectEntity?
     @State private var previewSettingsProject: ProjectEntity?
 
@@ -237,7 +191,6 @@ struct MacWorkspaceSettingsView: View {
                     invitesSection(model)
                     projectsSection(model)
                     labelsSection(model)
-                    agentSection(model)
                     dangerSection(model)
                     if let error = model.error {
                         Text(error).foregroundStyle(.red).font(.callout)
@@ -255,18 +208,6 @@ struct MacWorkspaceSettingsView: View {
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("This permanently deletes the workspace and all its data.")
-                }
-                .confirmationDialog(
-                    "Remove this Mac?",
-                    isPresented: $showUnregisterConfirm,
-                    titleVisibility: .visible
-                ) {
-                    Button("Remove", role: .destructive) {
-                        Task { await deps.agentService.unregister(accountId: target.accountId) }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("This Mac's credential is revoked and it stops running assigned issues. It re-registers automatically the next time you open the app.")
                 }
             } else {
                 ProgressView().frame(maxHeight: .infinity)
@@ -442,48 +383,6 @@ struct MacWorkspaceSettingsView: View {
                         }
                     }
                 }
-            }
-        }
-    }
-
-    // "This Mac" as a desktop device: registered automatically (account-level)
-    // when signed in, a member of every workspace the owner belongs to.
-    @ViewBuilder
-    private func agentSection(_ model: MacWorkspaceSettingsModel) -> some View {
-        let agent = deps.agentService
-        let aid = target.accountId
-        Section("This Mac") {
-            if agent.isRegistered(accountId: aid) {
-                let id = agent.identity(accountId: aid)
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(agent.isOnline(accountId: aid) ? Color.green : Color.secondary)
-                        .frame(width: 8, height: 8)
-                    Text(id?.name ?? "This Mac")
-                    Spacer()
-                    Text(agent.isOnline(accountId: aid) ? "Online" : "Connecting…")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Text("Runs coding agents on issues assigned to it across all your workspaces, while the app is open.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let base = deps.auth.accounts.first(where: { $0.id == aid })?.instanceUrl,
-                   let url = URL(string: "\(base)/account/integrations") {
-                    Button("Connect GitHub in browser") { Platform.open(url) }
-                    Text("Connect GitHub once in the web app; this Mac fetches the token to clone & push.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Remove this Mac", role: .destructive) { showUnregisterConfirm = true }
-                    .disabled(agent.busy)
-            } else {
-                Text("This Mac registers itself automatically when you're signed in.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Register this Mac") {
-                    Task { await agent.register(accountId: aid) }
-                }
-                .disabled(agent.busy)
-            }
-            if let err = agent.lastError {
-                Text(err).font(.caption).foregroundStyle(.red)
             }
         }
     }

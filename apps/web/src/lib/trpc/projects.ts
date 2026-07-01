@@ -57,13 +57,6 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        // Optional "owner/repo" to link at creation. The agent-first path picks
-        // a repo up front; trusting the string here (no GitHub round-trip)
-        // keeps create fast — the agent run degrades gracefully if unresolvable.
-        repo: z
-          .string()
-          .regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/, `Expected "owner/repo"`)
-          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -84,7 +77,6 @@ export const projectsRouter = router({
             slug: slugify(input.name),
             prefix: input.prefix.toUpperCase(),
             color: input.color ?? `#6366f1`,
-            githubRepo: input.repo ?? null,
           })
           .returning()
 
@@ -151,54 +143,6 @@ export const projectsRouter = router({
         await tx.delete(projects).where(eq(projects.id, input.projectId))
         return { ok: true, txId }
       })
-    }),
-
-  linkGithubRepo: authedProcedure
-    .input(
-      z.object({
-        projectId: z.string().uuid(),
-        repo: z
-          .string()
-          .regex(
-            /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/,
-            `Expected "owner/repo"`
-          ),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const projectRecord = await assertProjectMember(
-        ctx.session.user.id,
-        input.projectId
-      )
-      await assertWorkspaceOwner(
-        ctx.session.user.id,
-        projectRecord.workspaceId
-      )
-      const [project] = await ctx.db
-        .update(projects)
-        .set({ githubRepo: input.repo })
-        .where(eq(projects.id, input.projectId))
-        .returning()
-      return { project }
-    }),
-
-  unlinkGithubRepo: authedProcedure
-    .input(z.object({ projectId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const projectRecord = await assertProjectMember(
-        ctx.session.user.id,
-        input.projectId
-      )
-      await assertWorkspaceOwner(
-        ctx.session.user.id,
-        projectRecord.workspaceId
-      )
-      const [project] = await ctx.db
-        .update(projects)
-        .set({ githubRepo: null })
-        .where(eq(projects.id, input.projectId))
-        .returning()
-      return { project }
     }),
 
   // Writes ONLY the display mirror (`projects.preview_config`). The canonical

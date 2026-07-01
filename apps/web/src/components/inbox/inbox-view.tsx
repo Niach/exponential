@@ -5,9 +5,9 @@ import {
   Bell,
   CheckCircle2,
   CircleDot,
+  GitMerge,
   GitPullRequest,
   MessageSquare,
-  Sparkles,
   UserPlus,
 } from "lucide-react"
 import type { Issue, Notification, Project } from "@/db/schema"
@@ -29,6 +29,8 @@ const typeIcon: Record<string, typeof Bell> = {
   issue_comment: MessageSquare,
   issue_mention: MessageSquare,
   issue_status_changed: CircleDot,
+  pr_opened: GitPullRequest,
+  pr_merged: GitMerge,
 }
 
 function relativeTime(value: Date | string): string {
@@ -100,18 +102,15 @@ export function InboxView({
     )
   }, [notifications, issueMap, projectMap])
 
-  // "Needs your review": issues in this workspace with a plan awaiting approval
-  // or an open PR (pr_state populated by the agent). Independent of the
+  // "Needs your review": issues in this workspace with an open PR (pr_state
+  // populated by the open_pr flow + merge webhook). Independent of the
   // notification feed.
   const reviewIssues = useMemo(() => {
     return (issues ?? [])
       .filter((i) => {
         const project = projectMap.get((i as Issue).projectId)
         if (!project || project.workspaceId !== workspaceId) return false
-        return (
-          (i as Issue).agentPlanState === `awaiting_approval` ||
-          (i as Issue).prState === `open`
-        )
+        return (i as Issue).prState === `open`
       })
       .map((i) => ({ issue: i as Issue, project: projectMap.get((i as Issue).projectId)! }))
   }, [issues, projectMap, workspaceId])
@@ -239,15 +238,7 @@ export function InboxView({
                   {issue.title}
                 </span>
                 <Badge variant="secondary" className="ml-auto shrink-0 gap-1">
-                  {issue.agentPlanState === `awaiting_approval` ? (
-                    <>
-                      <Sparkles className="h-3 w-3" /> Plan
-                    </>
-                  ) : (
-                    <>
-                      <GitPullRequest className="h-3 w-3" /> PR
-                    </>
-                  )}
+                  <GitPullRequest className="h-3 w-3" /> PR
                 </Badge>
               </div>
             </Link>

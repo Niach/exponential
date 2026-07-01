@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, issues, issueLabels, labels, projects } from "@/db/schema"
+import { attachments, issues, issueLabels, labels } from "@/db/schema"
 import { eq, inArray } from "drizzle-orm"
 import {
   resolveWorkspaceAccess,
@@ -43,15 +43,20 @@ import {
   type AttachmentCopyOp,
 } from "@/lib/issue-recurrence"
 import {
-  fireAndForgetDelete,
-  fireAndForgetSync,
-} from "@/lib/integrations/google-calendar"
-import {
   fireAndForgetAssignmentNotify,
   fireAndForgetStatusChangeNotify,
 } from "@/lib/integrations/notifications"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+
+// Extract `owner/repo` from a GitHub PR URL
+// (https://github.com/owner/repo/pull/123). Returns null if it doesn't match.
+function repoFromPrUrl(prUrl: string): string | null {
+  const match = prUrl.match(
+    /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/
+  )
+  return match ? match[1] : null
+}
 
 function assertRecurrencePair(
   interval: number | null | undefined,
@@ -180,9 +185,6 @@ export const issuesRouter = router({
         return { issue, txId }
       })
 
-      if (result.issue.dueDate) {
-        fireAndForgetSync(ctx.session.user.id, result.issue)
-      }
       fireAndForgetAssignmentNotify({
         issueId: result.issue.id,
         actorUserId: ctx.session.user.id,
@@ -206,6 +208,9 @@ export const issuesRouter = router({
         endTime: timeOnlySchema.nullable().optional(),
         recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
         recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
+        // Canonical issue this one duplicates (pairs with status='duplicate').
+        // Plain pass-through for now — no mark-as-duplicate UX yet.
+        duplicateOfId: z.string().uuid().nullable().optional(),
         archivedAt: z
           .union([z.string().datetime({ offset: true }), z.string().datetime()])
           .transform((s) => new Date(s))
@@ -245,7 +250,7 @@ export const issuesRouter = router({
       const attachmentCopies: AttachmentCopyOp[] = []
 
       let previousAssigneeId: string | null = null
-      const { issue, clonedIssue, statusChange } = await ctx.db.transaction(async (tx) => {
+      const { issue, statusChange } = await ctx.db.transaction(async (tx) => {
         let statusChange: { from: string; to: string } | null = null
         const [currentIssue] = await tx
           .select({
@@ -272,7 +277,11 @@ export const issuesRouter = router({
         previousAssigneeId = currentIssue.assigneeId
         const setValues: Record<string, unknown> = { ...updates }
 
-        if (updates.status === `done` || updates.status === `cancelled`) {
+        if (
+          updates.status === `done` ||
+          updates.status === `cancelled` ||
+          updates.status === `duplicate`
+        ) {
           setValues.completedAt = new Date()
         } else if (updates.status) {
           setValues.completedAt = null
@@ -437,10 +446,6 @@ export const issuesRouter = router({
       await deleteStorageObjects(deletedStorageKeys)
       await copyRecurrenceAttachments(attachmentCopies)
 
-      fireAndForgetSync(ctx.session.user.id, issue)
-      if (clonedIssue) {
-        fireAndForgetSync(ctx.session.user.id, clonedIssue)
-      }
       fireAndForgetAssignmentNotify({
         issueId: issue.id,
         actorUserId: ctx.session.user.id,
@@ -471,14 +476,16 @@ export const issuesRouter = router({
       const [row] = await ctx.db
         .select({
           prNumber: issues.prNumber,
-          githubRepo: projects.githubRepo,
+          prUrl: issues.prUrl,
         })
         .from(issues)
-        .innerJoin(projects, eq(projects.id, issues.projectId))
         .where(eq(issues.id, input.issueId))
         .limit(1)
 
-      if (!row?.prNumber || !row.githubRepo) {
+      // Derive owner/repo from the PR URL (repos no longer live on projects —
+      // they moved to the server-only repositories registry).
+      const repo = row?.prUrl ? repoFromPrUrl(row.prUrl) : null
+      if (!row?.prNumber || !repo) {
         return { repo: null as string | null, prNumber: null, files: [] }
       }
 
@@ -486,10 +493,10 @@ export const issuesRouter = router({
         const token = await resolveRepoToken({
           actorUserId: ctx.session.user.id,
           workspaceId,
-          repo: row.githubRepo,
+          repo,
         })
-        const files = await fetchPullFiles(row.githubRepo, row.prNumber, token)
-        return { repo: row.githubRepo, prNumber: row.prNumber, files }
+        const files = await fetchPullFiles(repo, row.prNumber, token)
+        return { repo, prNumber: row.prNumber, files }
       } catch (err) {
         throw new TRPCError({
           code: `BAD_GATEWAY`,
@@ -507,7 +514,6 @@ export const issuesRouter = router({
       await assertIssueAccess(ctx.session.user.id, input.id, `delete`)
 
       const storageKeys: Array<string> = []
-      let googleCalendarEventId: string | null = null
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -519,10 +525,7 @@ export const issuesRouter = router({
         const deleted = await tx
           .delete(issues)
           .where(eq(issues.id, input.id))
-          .returning({
-            id: issues.id,
-            googleCalendarEventId: issues.googleCalendarEventId,
-          })
+          .returning({ id: issues.id })
 
         if (deleted.length === 0) {
           throw new TRPCError({
@@ -531,15 +534,10 @@ export const issuesRouter = router({
           })
         }
 
-        googleCalendarEventId = deleted[0].googleCalendarEventId
         return { txId, id: deleted[0].id }
       })
 
       await deleteStorageObjects(storageKeys)
-
-      if (googleCalendarEventId) {
-        fireAndForgetDelete(ctx.session.user.id, googleCalendarEventId)
-      }
 
       return result
     }),

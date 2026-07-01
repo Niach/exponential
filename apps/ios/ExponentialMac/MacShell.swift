@@ -424,24 +424,6 @@ struct MacShell: View {
                 Label("Workspace Settings…", systemImage: "gearshape")
             }
         }
-        Button { openAgentSetup() } label: {
-            Label("Set up coding agent…", systemImage: "cpu")
-        }
-        .disabled(activeAccount == nil)
-    }
-
-    // Open workspace settings (where the agent register flow lives) scoped to the
-    // user's own private workspace, so a coding agent never registers against a
-    // shared/public workspace. Falls back to the active workspace.
-    private func openAgentSetup() {
-        guard let account = activeAccount else { return }
-        if let uid = deps.auth.userId,
-           let pool = try? deps.db.pool(forAccountId: account.id),
-           let owned = resolveDefaultOwnedWorkspace(pool: pool, userId: uid) {
-            settingsTarget = WorkspaceSettingsTarget(accountId: account.id, workspaceId: owned.id)
-        } else if let aw = activeWorkspace {
-            settingsTarget = WorkspaceSettingsTarget(accountId: aw.accountId, workspaceId: aw.workspace.id)
-        }
     }
 
     // Identity name + email are PLAIN views (same reason as the header); the

@@ -33,9 +33,10 @@ export function useWorkspaceBySlug(workspaceSlug: string) {
 }
 
 // A workspace is "solo" when it is non-public and has at most one human member.
-// Agents (role 'agent') are excluded so registering a coding agent — the hero
-// flow — never reveals the workspace concept. Defaults to `true` while data
-// loads to avoid a flash of workspace chrome in the common solo case.
+// Bot users (users.isAgent — the widget helpdesk bot) are excluded from the
+// count so a widget config on a private workspace never makes it look shared.
+// Defaults to `true` while data loads to avoid a flash of workspace chrome in
+// the common solo case.
 export function useIsSolo(workspaceId?: string): boolean {
   const { data: members } = useLiveQuery(
     (query) =>
@@ -57,14 +58,21 @@ export function useIsSolo(workspaceId?: string): boolean {
     [workspaceId]
   )
 
+  const { data: allUsers } = useLiveQuery((query) =>
+    query.from({ users: userCollection })
+  )
+
   return useMemo(() => {
     if (!members || !workspaces) return true
     if (workspaces[0]?.isPublic) return false
+    const botUserIds = new Set(
+      (allUsers ?? []).filter((user) => user.isAgent).map((user) => user.id)
+    )
     const humanMembers = members.filter(
-      (member) => member.role !== `agent`
+      (member) => !botUserIds.has(member.userId)
     ).length
     return humanMembers <= 1
-  }, [members, workspaces])
+  }, [members, workspaces, allUsers])
 }
 
 // Count of non-public workspaces the user OWNS (role 'owner'). Drives the

@@ -4,7 +4,6 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte } from "drizzle-or
 import { db } from "@/db/connection"
 import {
   comments,
-  agentRuns,
   issueLabels,
   issues,
   labels,
@@ -368,7 +367,7 @@ export function registerExponentialTools(
     `exponential_issues_get`,
     {
       title: `Get issue`,
-      description: `Get a single issue by id, including its label ids, agent-plan fields, and the latest comments on the thread (newest first). The recentComments array is capped at ${`50`}; pass commentsLimit to override.`,
+      description: `Get a single issue by id, including its label ids and the latest comments on the thread (newest first). The recentComments array is capped at ${`50`}; pass commentsLimit to override.`,
       inputSchema: {
         id: z.string().uuid(),
         commentsLimit: z.number().int().min(0).max(200).optional(),
@@ -399,22 +398,10 @@ export function registerExponentialTools(
           .where(eq(comments.issueId, id))
           .orderBy(desc(comments.createdAt))
           .limit(commentsLimit ?? 50)
-        // Structured agent plan/question text (server-only; not on the issue
-        // row). The daemon reads these instead of parsing plan/question comments.
-        const [agentState] = await db
-          .select({
-            agentPlanText: agentRuns.planText,
-            agentQuestion: agentRuns.question,
-          })
-          .from(agentRuns)
-          .where(eq(agentRuns.issueId, id))
-          .limit(1)
         return ok({
           ...issue,
           labelIds: labelRows.map((r) => r.labelId),
           recentComments,
-          agentPlanText: agentState?.agentPlanText ?? null,
-          agentQuestion: agentState?.agentQuestion ?? null,
         })
       } catch (e) {
         return err(e)
@@ -705,7 +692,7 @@ export function registerExponentialTools(
     `exponential_comments_create`,
     {
       title: `Comment on an issue`,
-      description: `Post a regular comment on an issue authored by the MCP user. Body is plain text. To ask the owner a question, call exponential_agent_plan_submit with state='awaiting_answer' instead — do NOT post questions as comments.`,
+      description: `Post a regular comment on an issue authored by the MCP user. Body is plain text.`,
       inputSchema: {
         issueId: z.string().uuid(),
         bodyText: z.string().min(1).max(10_000),
@@ -718,155 +705,6 @@ export function registerExponentialTools(
           body: bodyText,
         })
         return ok(result.comment)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_agent_plan_submit`,
-    {
-      title: `Submit an agent plan`,
-      description: `Write the latest agent plan or open question onto an issue. Use state='awaiting_approval' with the full plan when it's ready for the owner to approve. Use state='awaiting_answer' and pass your questions in the 'question' field (markdown) when you need the owner to answer before continuing — do NOT post questions as comments. The revision counter bumps automatically; any prior approval is cleared. Caller must be an agent member of the issue's workspace.`,
-      inputSchema: {
-        issueId: z.string().uuid(),
-        plan: z.string().max(50_000),
-        state: z.enum([`awaiting_approval`, `awaiting_answer`]),
-        question: z.string().max(50_000).optional(),
-      },
-    },
-    async ({ issueId, plan, state, question }) => {
-      try {
-        const result = await caller(user, request).agentPlan.submitPlan({
-          issueId,
-          plan,
-          state,
-          question,
-        })
-        return ok(result.issue)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_agent_plan_mark_started`,
-    {
-      title: `Mark agent plan as started`,
-      description: `Flip the issue's agent_plan_state to 'drafting' so the UI shows an "Agent has started" spinner the moment the pipeline engages. Only takes effect when the current state is NULL — never overrides awaiting_approval, approved, etc. Caller must be an agent member of the issue's workspace.`,
-      inputSchema: {
-        issueId: z.string().uuid(),
-      },
-    },
-    async ({ issueId }) => {
-      try {
-        const result = await caller(user, request).agentPlan.markStarted({
-          issueId,
-        })
-        return ok(result.issue)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_agent_plan_reset`,
-    {
-      title: `Reset agent plan state`,
-      description: `Clear all agent-plan fields on an issue (state, revision, approval). Called by the daemon when an issue is hard-reset (typically after re-assignment). Caller must be an agent member of the issue's workspace.`,
-      inputSchema: {
-        issueId: z.string().uuid(),
-      },
-    },
-    async ({ issueId }) => {
-      try {
-        const result = await caller(user, request).agentPlan.resetPlan({
-          issueId,
-        })
-        return ok(result.issue)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_agent_open_pr`,
-    {
-      title: `Open the pull request for an issue`,
-      description: `Open a GitHub PR for the branch the agent just pushed. The SERVER creates the PR using the agent owner's connected GitHub token (the agent no longer holds a GitHub API credential), then records pr_url/pr_number/pr_state + emits pr_opened. Pass the pushed head branch and the base branch (the repo's default). Caller must be an agent member of the issue's workspace.`,
-      inputSchema: {
-        issueId: z.string().uuid(),
-        branch: z.string().max(255),
-        base: z.string().max(255),
-        title: z.string().max(255).optional(),
-        body: z.string().max(4000).optional(),
-      },
-    },
-    async ({ issueId, branch, base, title, body }) => {
-      try {
-        const result = await caller(user, request).agentPlan.openPr({
-          issueId,
-          branch,
-          base,
-          title,
-          body,
-        })
-        return ok(result.issue)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_agent_report_pr`,
-    {
-      title: `Report the pull request for an issue`,
-      description: `Record the agent's PR onto an issue (one issue = one PR). Sets the synced pr_url/pr_number/pr_state/branch columns and emits a pr_opened / pr_merged activity event on transition. Use state='open' when the PR is created, 'merged'/'closed' when it resolves. Caller must be an agent member of the issue's workspace.`,
-      inputSchema: {
-        issueId: z.string().uuid(),
-        prUrl: z.string().url(),
-        prNumber: z.number().int().positive(),
-        prState: z.enum([`open`, `closed`, `merged`, `draft`]),
-        branch: z.string().max(255).optional(),
-        mergedAt: z.string().datetime().optional(),
-      },
-    },
-    async ({ issueId, prUrl, prNumber, prState, branch, mergedAt }) => {
-      try {
-        const result = await caller(user, request).agentPlan.reportPr({
-          issueId,
-          prUrl,
-          prNumber,
-          prState,
-          branch,
-          mergedAt,
-        })
-        return ok(result.issue)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_agent_report_error`,
-    {
-      title: `Report an agent error`,
-      description: `Record a terminal agent error on an issue. Emits an agent_error activity event so the UI can offer a Retry. Post the full error text as a comment separately. Caller must be an agent member of the issue's workspace.`,
-      inputSchema: {
-        issueId: z.string().uuid(),
-        message: z.string().max(2000),
-      },
-    },
-    async ({ issueId, message }) => {
-      try {
-        await caller(user, request).agentPlan.reportError({ issueId, message })
-        return ok({ ok: true })
       } catch (e) {
         return err(e)
       }

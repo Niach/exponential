@@ -17,14 +17,16 @@ pub const Option = struct {
 
 // Glyphs/colors approximate the lucide icons (web) and SF Symbols (iOS):
 // backlog dashed circle, todo empty circle, in_progress half circle, done
-// filled, cancelled cross; priority none dash, urgent warning, high/low arrows,
-// medium equals — coloured to match the zinc/yellow/green/red/orange palette.
+// filled, cancelled cross, duplicate copy glyph; priority none dash, urgent
+// warning, high/low arrows, medium equals — coloured to match the
+// zinc/yellow/green/red/orange palette.
 pub const statuses = [_]Option{
     .{ .value = "backlog", .label = "Backlog", .glyph = "◌", .color = "#9aa0aa" },
     .{ .value = "todo", .label = "Todo", .glyph = "○", .color = "#d4d4d8" },
     .{ .value = "in_progress", .label = "In Progress", .glyph = "◑", .color = "#eab308" },
     .{ .value = "done", .label = "Done", .glyph = "●", .color = "#22c55e" },
     .{ .value = "cancelled", .label = "Cancelled", .glyph = "✕", .color = "#9aa0aa" },
+    .{ .value = "duplicate", .label = "Duplicate", .glyph = "⧉", .color = "#9aa0aa" },
 };
 
 pub const priorities = [_]Option{
@@ -36,7 +38,7 @@ pub const priorities = [_]Option{
 };
 
 /// Group display order (matches contract.generated.zig display orders).
-pub const status_display_order = [_][]const u8{ "in_progress", "todo", "backlog", "done", "cancelled" };
+pub const status_display_order = [_][]const u8{ "in_progress", "todo", "backlog", "done", "cancelled", "duplicate" };
 pub const priority_display_order = [_][]const u8{ "urgent", "high", "medium", "low", "none" };
 
 /// Project/label colour palette — mirrors apps/web/src/lib/label-colors.ts.

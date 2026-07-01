@@ -3,7 +3,7 @@
 //! dedicated preview pane (preview_panel.zig). Everything runs on the developer's
 //! machine; nothing executes on the cloud.
 //!
-//! HARD RULES (inherited from terminal.zig / agent_manager.zig):
+//! HARD RULES (inherited from terminal.zig):
 //!   - GTK is touched ONLY on the main thread. Builds/boots/health-polls run on
 //!     worker threads and marshal results back via the thread-safe `g_idle_add`.
 //!   - The controller OWNS every child it spawns (dev server, emulator) and runs

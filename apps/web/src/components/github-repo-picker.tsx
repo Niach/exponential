@@ -103,8 +103,7 @@ export function GithubRepoPicker({
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
           <Github className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            Connect the Exponential GitHub App to pick a repository. The agent
-            works in the repo you connect.
+            Connect the Exponential GitHub App to pick a repository to code in.
           </span>
         </div>
         <div className="flex items-center gap-2">

@@ -1,12 +1,7 @@
 import {
-  AlertTriangle,
   CircleDot,
-  CornerDownLeft,
   GitMerge,
   GitPullRequest,
-  HelpCircle,
-  Play,
-  Sparkles,
   Tag,
   UserPlus,
 } from "lucide-react"
@@ -16,7 +11,7 @@ function statusLabel(s: string): string {
   return s.replace(/_/g, ` `)
 }
 
-// A compact, single-line activity entry (status/assignee/label/PR/plan/error).
+// A compact, single-line activity entry (status/assignee/label/PR).
 export function EventRow({
   event,
   userMap,
@@ -79,22 +74,6 @@ export function EventRow({
       )
       break
     }
-    case `plan_ready`:
-      Icon = Sparkles
-      text = <>posted a plan for review</>
-      break
-    case `agent_started`:
-      Icon = Play
-      text = <>started working</>
-      break
-    case `agent_question`:
-      Icon = HelpCircle
-      text = <>asked a question</>
-      break
-    case `agent_answer`:
-      Icon = CornerDownLeft
-      text = <>answered the agent</>
-      break
     case `pr_opened`:
       Icon = GitPullRequest
       text = <>opened a pull request</>
@@ -102,10 +81,6 @@ export function EventRow({
     case `pr_merged`:
       Icon = GitMerge
       text = <>merged the pull request</>
-      break
-    case `agent_error`:
-      Icon = AlertTriangle
-      text = <>hit an error</>
       break
     default:
       return null

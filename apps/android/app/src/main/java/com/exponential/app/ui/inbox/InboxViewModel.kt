@@ -28,7 +28,6 @@ data class InboxGroup(
 
 data class InboxState(
     val groups: List<InboxGroup> = emptyList(),
-    val reviewIssues: List<IssueEntity> = emptyList(),
     val totalUnread: Int = 0,
 )
 
@@ -67,10 +66,7 @@ class InboxViewModel @Inject constructor(
         val groups = byIssue.map { (iid, ns) ->
             InboxGroup(issueMap.getValue(iid), ns, ns.count { it.readAt == null })
         }
-        val review = issues.filter {
-            it.agentPlanState == "awaiting_approval" || it.prState == "open"
-        }
-        InboxState(groups, review, groups.sumOf { it.unread })
+        InboxState(groups, groups.sumOf { it.unread })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 
     fun markGroupRead(group: InboxGroup) {

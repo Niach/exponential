@@ -1,9 +1,9 @@
 {
   "$schema": "./schema.json",
-  "description": "Canonical enum values shared by the web, iOS, and Android clients. Regenerate the per-language constants with `bun run --filter @exp/domain-contract generate`. The committed generated files (apps/ios/.../Domain.generated.swift, apps/android/.../Domain.generated.kt) are checked in so mobile builds don't need a Node runtime.",
+  "description": "Canonical enum values shared by the web, iOS, and Android clients. Regenerate the per-language constants with `bun run --filter @exp/domain-contract generate`. The committed generated files (apps/ios/.../DomainContract.generated.swift, apps/android/.../DomainContract.generated.kt, apps/linux/.../contract.generated.zig) are checked in so native builds don't need a Node runtime.",
   "issueStatus": {
-    "values": ["backlog", "todo", "in_progress", "done", "cancelled"],
-    "displayOrder": ["in_progress", "todo", "backlog", "done", "cancelled"]
+    "values": ["backlog", "todo", "in_progress", "done", "cancelled", "duplicate"],
+    "displayOrder": ["in_progress", "todo", "backlog", "done", "cancelled", "duplicate"]
   },
   "issuePriority": {
     "values": ["none", "urgent", "high", "medium", "low"],
@@ -13,7 +13,7 @@
     "values": ["day", "week", "month"]
   },
   "workspaceRole": {
-    "values": ["owner", "member", "agent"]
+    "values": ["owner", "member"]
   },
   "publicWritePolicy": {
     "values": ["members", "everyone"]
@@ -21,39 +21,27 @@
   "commentKind": {
     "values": ["regular"]
   },
-  "agentPlanState": {
-    "values": [
-      "drafting",
-      "awaiting_approval",
-      "awaiting_answer",
-      "approved",
-      "coding",
-      "planning",
-      "in_review",
-      "pushed"
-    ]
-  },
   "notificationType": {
     "values": [
       "issue_assigned",
       "issue_comment",
       "issue_status_changed",
       "issue_mention",
-      "agent_plan_review",
-      "agent_question"
+      "pr_opened",
+      "pr_merged"
     ]
   },
   "prState": {
     "values": ["open", "closed", "merged", "draft"]
   },
-  "runMode": {
-    "values": ["background", "interactive"]
+  "codingSessionStatus": {
+    "values": ["running", "ended"]
   },
   "platform": {
     "values": ["web", "android", "ios"]
   },
   "subscriberSource": {
-    "values": ["creator", "assignee", "commenter", "manual", "mention"]
+    "values": ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
   },
   "issueEventType": {
     "values": [
@@ -62,12 +50,7 @@
       "label_added",
       "label_removed",
       "pr_opened",
-      "pr_merged",
-      "plan_ready",
-      "agent_error",
-      "agent_started",
-      "agent_question",
-      "agent_answer"
+      "pr_merged"
     ]
   },
   "recurrenceIntervals": [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30],
@@ -81,10 +64,5 @@
     "recurrenceInterval",
     "recurrenceUnit",
     "archivedAt"
-  ],
-  "agentPipeline": {
-    "nonTerminalStatuses": ["queued", "claimed", "planning", "awaiting_approval", "coding", "pushed"],
-    "reentryStatuses": ["queued", "cancelled", "failed", "awaiting_approval", "needs_human"],
-    "planRevisionCap": 8
-  }
+  ]
 }
