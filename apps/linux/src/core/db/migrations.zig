@@ -26,6 +26,13 @@ pub fn run(conn: *sqlite.Conn) !void {
     if (!tableHasColumn(conn, "users", "is_agent")) {
         try conn.exec("ALTER TABLE users ADD COLUMN is_agent INTEGER");
     }
+    // projects.preview_config — the display-only mirror of the preview run
+    // targets + feedback routing target (jsonb server-side, TEXT here). Without
+    // it, the projects shape carrying preview_config fails to UPSERT on an
+    // upgraded cache.
+    if (!tableHasColumn(conn, "projects", "preview_config")) {
+        try conn.exec("ALTER TABLE projects ADD COLUMN preview_config TEXT");
+    }
 }
 
 const IssueColumn = struct { name: []const u8, ddl: [:0]const u8 };
@@ -119,6 +126,7 @@ const schema_sql =
     \\  sort_order REAL NOT NULL DEFAULT 0,
     \\  archived_at TEXT,
     \\  github_repo TEXT,
+    \\  preview_config TEXT,
     \\  created_at TEXT NOT NULL,
     \\  updated_at TEXT NOT NULL
     \\);

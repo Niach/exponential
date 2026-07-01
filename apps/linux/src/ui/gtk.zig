@@ -186,10 +186,13 @@ pub extern fn gtk_text_buffer_create_child_anchor(buffer: Object, iter: ?*anyopa
 pub extern fn gtk_text_view_add_child_at_anchor(text_view: Object, child: Object, anchor: Object) void;
 
 // Inline images: bytes → GdkTexture → GtkPicture.
+pub const CONTENT_FIT_CONTAIN: c_int = 1;
 pub const CONTENT_FIT_SCALE_DOWN: c_int = 3;
 pub extern fn g_bytes_new(data: [*]const u8, size: usize) Object;
 pub extern fn g_bytes_unref(bytes: Object) void;
 pub extern fn gdk_texture_new_from_bytes(bytes: Object, @"error": ?*anyopaque) Object;
+pub extern fn gdk_texture_get_width(texture: Object) c_int;
+pub extern fn gdk_texture_get_height(texture: Object) c_int;
 pub extern fn gtk_picture_new() Object;
 pub extern fn gtk_picture_new_for_paintable(paintable: Object) Object;
 pub extern fn gtk_picture_set_paintable(self: Object, paintable: Object) void;
@@ -343,3 +346,137 @@ pub extern fn gtk_css_provider_new() Object;
 pub extern fn gtk_css_provider_load_from_string(self: Object, string: [*:0]const u8) void;
 pub extern fn gdk_display_get_default() Object;
 pub extern fn gtk_style_context_add_provider_for_display(display: Object, provider: Object, priority: c_uint) void;
+
+// =========================================================================
+// Preview pane FFI (WS4): annotation overlay (Cairo draw + GdkPixbuf flatten),
+// the dedicated preview pane (GtkOverlay / AdwOverlaySplitView), the web
+// backend (WebKitGTK 6), and the Android native-window reparent (X11).
+// =========================================================================
+
+// --- GtkOverlay: base preview surface + a transparent annotation overlay. ---
+pub extern fn gtk_overlay_new() Object;
+pub extern fn gtk_overlay_set_child(overlay: Object, child: Object) void;
+pub extern fn gtk_overlay_add_overlay(overlay: Object, widget: Object) void;
+pub extern fn gtk_overlay_remove_overlay(overlay: Object, widget: Object) void;
+
+// --- GtkDrawingArea: the annotation canvas. draw-func renders via Cairo. ---
+pub const DrawFunc = ?*const fn (area: Object, cr: Object, width: c_int, height: c_int, user_data: gpointer) callconv(.c) void;
+pub extern fn gtk_drawing_area_new() Object;
+pub extern fn gtk_drawing_area_set_draw_func(self: Object, draw_func: DrawFunc, user_data: gpointer, destroy: ?*const fn (gpointer) callconv(.c) void) void;
+pub extern fn gtk_drawing_area_set_content_width(self: Object, width: c_int) void;
+pub extern fn gtk_drawing_area_set_content_height(self: Object, height: c_int) void;
+
+// --- GtkGestureDrag: pointer drags → image-space annotation shapes. ---
+pub extern fn gtk_gesture_drag_new() Object;
+pub extern fn gtk_gesture_drag_get_start_point(gesture: Object, x: *f64, y: *f64) c_int;
+pub extern fn gtk_gesture_drag_get_offset(gesture: Object, x: *f64, y: *f64) c_int;
+
+// --- GtkToggleButton: the rect/pen/arrow tool toolbar. ---
+pub extern fn gtk_toggle_button_new() Object;
+pub extern fn gtk_toggle_button_new_with_label(label: [*:0]const u8) Object;
+pub extern fn gtk_toggle_button_set_active(self: Object, is_active: c_int) void;
+pub extern fn gtk_toggle_button_get_active(self: Object) c_int;
+pub extern fn gtk_toggle_button_set_group(self: Object, group: Object) void;
+pub extern fn gtk_button_set_icon_name(button: Object, icon_name: [*:0]const u8) void;
+
+// --- AdwOverlaySplitView: the dedicated resizable preview pane (sidebar=the
+//     existing content, content=the preview). Separate from the terminal dock. ---
+pub extern fn adw_overlay_split_view_new() Object;
+pub extern fn adw_overlay_split_view_set_content(self: Object, content: Object) void;
+pub extern fn adw_overlay_split_view_set_sidebar(self: Object, sidebar: Object) void;
+pub extern fn adw_overlay_split_view_set_sidebar_position(self: Object, position: c_int) void;
+pub extern fn adw_overlay_split_view_set_collapsed(self: Object, collapsed: c_int) void;
+pub extern fn adw_overlay_split_view_set_show_sidebar(self: Object, show: c_int) void;
+pub extern fn adw_overlay_split_view_get_show_sidebar(self: Object) c_int;
+pub extern fn adw_overlay_split_view_set_max_sidebar_width(self: Object, width: f64) void;
+pub extern fn adw_overlay_split_view_set_min_sidebar_width(self: Object, width: f64) void;
+pub const PACK_END: c_int = 1; // GtkPackType.GTK_PACK_END (sidebar on the trailing edge)
+
+// --- GdkTexture from a GdkPaintable (for showing a captured frame). ---
+pub extern fn gtk_picture_set_filename(self: Object, filename: ?[*:0]const u8) void;
+
+// --- Cairo: annotation overlay draw path. The GtkDrawingArea hands us a
+//     cairo_t*; we stroke/fill in image space after scaling to widget space. ---
+pub extern fn cairo_save(cr: Object) void;
+pub extern fn cairo_restore(cr: Object) void;
+pub extern fn cairo_scale(cr: Object, sx: f64, sy: f64) void;
+pub extern fn cairo_translate(cr: Object, tx: f64, ty: f64) void;
+pub extern fn cairo_set_source_rgb(cr: Object, r: f64, g: f64, b: f64) void;
+pub extern fn cairo_set_source_rgba(cr: Object, r: f64, g: f64, b: f64, a: f64) void;
+pub extern fn cairo_set_line_width(cr: Object, width: f64) void;
+pub const CAIRO_LINE_CAP_ROUND: c_int = 1;
+pub const CAIRO_LINE_JOIN_ROUND: c_int = 1;
+pub extern fn cairo_set_line_cap(cr: Object, line_cap: c_int) void;
+pub extern fn cairo_set_line_join(cr: Object, line_join: c_int) void;
+pub extern fn cairo_move_to(cr: Object, x: f64, y: f64) void;
+pub extern fn cairo_line_to(cr: Object, x: f64, y: f64) void;
+pub extern fn cairo_curve_to(cr: Object, x1: f64, y1: f64, x2: f64, y2: f64, x3: f64, y3: f64) void;
+pub extern fn cairo_rectangle(cr: Object, x: f64, y: f64, width: f64, height: f64) void;
+pub extern fn cairo_arc(cr: Object, xc: f64, yc: f64, radius: f64, angle1: f64, angle2: f64) void;
+pub extern fn cairo_close_path(cr: Object) void;
+pub extern fn cairo_new_path(cr: Object) void;
+pub extern fn cairo_stroke(cr: Object) void;
+pub extern fn cairo_fill(cr: Object) void;
+pub extern fn cairo_paint(cr: Object) void;
+
+// Cairo image surface (offscreen flatten target → GdkPixbuf → PNG/JPEG bytes).
+pub const CAIRO_FORMAT_ARGB32: c_int = 0;
+pub extern fn cairo_image_surface_create(format: c_int, width: c_int, height: c_int) Object;
+pub extern fn cairo_surface_destroy(surface: Object) void;
+pub extern fn cairo_create(target: Object) Object;
+pub extern fn cairo_destroy(cr: Object) void;
+pub extern fn cairo_surface_flush(surface: Object) void;
+
+// --- GdkPixbuf: render a texture into a pixbuf for the flatten, and encode the
+//     flattened surface to PNG/JPEG bytes. ---
+pub extern fn gdk_pixbuf_get_from_surface(surface: Object, src_x: c_int, src_y: c_int, width: c_int, height: c_int) Object;
+pub extern fn gdk_pixbuf_new_from_file(filename: [*:0]const u8, @"error": ?*?*anyopaque) Object;
+pub extern fn gdk_pixbuf_get_width(pixbuf: Object) c_int;
+pub extern fn gdk_pixbuf_get_height(pixbuf: Object) c_int;
+// gdk_pixbuf_save_to_bufferv(pixbuf, &buffer, &size, type, keys, values, &error)
+pub extern fn gdk_pixbuf_save_to_bufferv(
+    pixbuf: Object,
+    buffer: *?[*]u8,
+    buffer_size: *usize,
+    @"type": [*:0]const u8,
+    option_keys: ?[*:null]const ?[*:0]const u8,
+    option_values: ?[*:null]const ?[*:0]const u8,
+    @"error": ?*?*anyopaque,
+) c_int;
+// Render a pixbuf as the cairo source at (x,y) — used to composite the base
+// screenshot under the annotation strokes during flatten.
+pub extern fn gdk_cairo_set_source_pixbuf(cr: Object, pixbuf: Object, pixbuf_x: f64, pixbuf_y: f64) void;
+
+// --- WebKitGTK 6 (web preview backend). WebKitWebView is a GtkWidget. These
+//     symbols only resolve when -Dwebkit is on; all call sites are guarded by
+//     build_options.enable_webkit so `check`/no-webkit builds never reference
+//     them. ---
+pub extern fn webkit_web_view_new() Object;
+pub extern fn webkit_web_view_load_uri(web_view: Object, uri: [*:0]const u8) void;
+pub extern fn webkit_web_view_reload(web_view: Object) void;
+pub extern fn webkit_web_view_get_uri(web_view: Object) ?[*:0]const u8;
+pub extern fn webkit_web_view_stop_loading(web_view: Object) void;
+
+// --- X11 native-window reparent (Android preview embed). gdk_x11_surface_get_xid
+//     is exported by gtk4; XReparentWindow + property reads need libX11. Guarded
+//     by build_options.enable_x11. ---
+pub const XID = c_ulong;
+pub const Atom = c_ulong;
+pub extern fn gdk_x11_surface_get_xid(surface: Object) XID;
+pub extern fn gdk_x11_display_get_xdisplay(display: Object) ?*anyopaque; // Display*
+// Xlib: locate + reparent the emulator's top-level window into our embed socket.
+pub extern fn XReparentWindow(display: ?*anyopaque, w: XID, parent: XID, x: c_int, y: c_int) c_int;
+pub extern fn XMoveResizeWindow(display: ?*anyopaque, w: XID, x: c_int, y: c_int, width: c_uint, height: c_uint) c_int;
+pub extern fn XMapWindow(display: ?*anyopaque, w: XID) c_int;
+pub extern fn XFlush(display: ?*anyopaque) c_int;
+pub extern fn XSync(display: ?*anyopaque, discard: c_int) c_int;
+// Xlib tree-walk to locate the emulator's top-level window (match _NET_WM_PID /
+// the window name) before reparenting it.
+pub const XA_CARDINAL: Atom = 6;
+pub const XA_STRING: Atom = 31;
+pub extern fn XDefaultRootWindow(display: ?*anyopaque) XID;
+pub extern fn XInternAtom(display: ?*anyopaque, atom_name: [*:0]const u8, only_if_exists: c_int) Atom;
+pub extern fn XQueryTree(display: ?*anyopaque, w: XID, root_return: *XID, parent_return: *XID, children_return: *?[*]XID, nchildren_return: *c_uint) c_int;
+pub extern fn XGetWindowProperty(display: ?*anyopaque, w: XID, property: Atom, long_offset: c_long, long_length: c_long, delete: c_int, req_type: Atom, actual_type_return: *Atom, actual_format_return: *c_int, nitems_return: *c_ulong, bytes_after_return: *c_ulong, prop_return: *?[*]u8) c_int;
+pub extern fn XFetchName(display: ?*anyopaque, w: XID, window_name_return: *?[*:0]u8) c_int;
+pub extern fn XFree(data: ?*anyopaque) c_int;

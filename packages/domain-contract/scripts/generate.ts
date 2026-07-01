@@ -32,6 +32,7 @@ interface Contract {
   notificationType: Section
   prState: Section
   runMode: Section
+  platform: Section
   subscriberSource: Section
   issueEventType: Section
   recurrenceIntervals: number[]
@@ -154,6 +155,7 @@ ${swiftStringArray("agentPlanStateValues", contract.agentPlanState.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("runModeValues", contract.runMode.values)}
+${swiftStringArray("platformValues", contract.platform.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${swiftStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
@@ -166,6 +168,7 @@ ${swiftNamedValues("agentPlanState", contract.agentPlanState.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
 ${swiftNamedValues("runMode", contract.runMode.values)}
+${swiftNamedValues("platform", contract.platform.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 }
@@ -186,6 +189,7 @@ ${kotlinStringArray("agentPlanStateValues", contract.agentPlanState.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("runModeValues", contract.runMode.values)}
+${kotlinStringArray("platformValues", contract.platform.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${kotlinStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
@@ -198,6 +202,7 @@ ${kotlinNamedValues("agentPlanState", contract.agentPlanState.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
 ${kotlinNamedValues("runMode", contract.runMode.values)}
+${kotlinNamedValues("platform", contract.platform.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 }
@@ -225,6 +230,7 @@ ${rustStrSlice("agentPlanStateValues", contract.agentPlanState.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("runModeValues", contract.runMode.values)}
+${rustStrSlice("platformValues", contract.platform.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 ${rustStrSlice("moderationRestrictedFields", contract.moderationRestrictedFields)}
@@ -237,6 +243,7 @@ ${rustNamedValues("agentPlanState", contract.agentPlanState.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("runMode", contract.runMode.values)}
+${rustNamedValues("platform", contract.platform.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
 
@@ -259,6 +266,7 @@ ${zigStrArray("agentPlanStateValues", contract.agentPlanState.values)}
 ${zigStrArray("notificationTypeValues", contract.notificationType.values)}
 ${zigStrArray("prStateValues", contract.prState.values)}
 ${zigStrArray("runModeValues", contract.runMode.values)}
+${zigStrArray("platformValues", contract.platform.values)}
 ${zigStrArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${zigStrArray("issueEventTypeValues", contract.issueEventType.values)}
 ${zigStrArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
@@ -271,6 +279,7 @@ ${zigNamedValues("agentPlanState", contract.agentPlanState.values)}
 ${zigNamedValues("notificationType", contract.notificationType.values)}
 ${zigNamedValues("prState", contract.prState.values)}
 ${zigNamedValues("runMode", contract.runMode.values)}
+${zigNamedValues("platform", contract.platform.values)}
 ${zigNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${zigNamedValues("issueEventType", contract.issueEventType.values)}
 `

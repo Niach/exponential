@@ -34,6 +34,10 @@ final class MacAppDependencies: @unchecked Sendable {
     let terminalDock: MacTerminalDock
     let agentService: MacAgentService
     let toastCenter: MacToastCenter
+    // The local device-preview runtime (build/run/embed the selected run target
+    // in the dedicated Preview pane). Single active preview, retained here so it
+    // survives issue navigation like the terminal dock.
+    let previewController: MacPreviewController
 
     init() {
         let keychain = KeychainStore()
@@ -90,6 +94,7 @@ final class MacAppDependencies: @unchecked Sendable {
         self.terminalDock = terminalDock
         let toastCenter = MainActor.assumeIsolated { MacToastCenter() }
         self.toastCenter = toastCenter
+        self.previewController = MainActor.assumeIsolated { MacPreviewController() }
         // @State initializes this composition root on the main actor, so it's safe
         // to construct the MainActor-isolated agent service here (it starts
         // heartbeats for any already-registered workspaces).

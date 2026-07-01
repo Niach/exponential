@@ -49,6 +49,9 @@
   "runMode": {
     "values": ["background", "interactive"]
   },
+  "platform": {
+    "values": ["web", "android", "ios"]
+  },
   "subscriberSource": {
     "values": ["creator", "assignee", "commenter", "manual", "mention"]
   },

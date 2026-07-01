@@ -15,6 +15,7 @@ const trpc = @import("../core/api/trpc.zig");
 const Database = @import("../core/db/database.zig").Database;
 const registration = @import("../core/agent/registration.zig");
 const identity_store = @import("../core/agent/identity_store.zig");
+const api_projects = @import("../core/api/projects.zig");
 
 const policy_options = [_:null]?[*:0]const u8{ "members", "everyone" };
 
@@ -212,6 +213,9 @@ fn rebuild(ctx: *Ctx) void {
     // --- Projects ---
     projectsSection(ctx, a);
 
+    // --- Run Targets & Preview ---
+    previewSection(ctx, a);
+
     // --- Labels ---
     labelsSection(ctx, a);
 
@@ -302,6 +306,176 @@ fn projectsSection(ctx: *Ctx, a: std.mem.Allocator) void {
         gtk.gtk_box_append(row, del);
         gtk.gtk_box_append(ctx.content, row);
     }
+}
+
+// --- Run Targets & Preview section ------------------------------------------
+//
+// Edits the DB MIRROR only (display metadata + the feedback issue routing
+// target). The build/run commands live in the repo's .exponential/config.json
+// and are never shown/edited here — only the named targets (read-only) and the
+// feedbackProjectId picker. Owner-gated server-side via projects.updatePreviewConfig.
+
+/// Per-project preview-config edit context (the feedback-project picker), freed
+/// when its row is destroyed.
+const PreviewRowCtx = struct {
+    ctx: *Ctx,
+    gpa: std.mem.Allocator,
+    project_id: [:0]u8,
+    feedback_dd: gtk.Object = null,
+    // Parallel to the dropdown entries: index 0 = "(this project)", then the
+    // workspace's projects. gpa-owned id strings.
+    option_ids: std.ArrayListUnmanaged([:0]u8) = .empty,
+    // The mirror's current target list (id/name/platform), re-sent on save so we
+    // don't clobber what the desktop discovered from the repo.
+    target_ids: std.ArrayListUnmanaged([:0]u8) = .empty,
+    target_names: std.ArrayListUnmanaged([:0]u8) = .empty,
+    target_platforms: std.ArrayListUnmanaged([:0]u8) = .empty,
+};
+
+fn freePreviewRow(p: gtk.gpointer) callconv(.c) void {
+    const prc: *PreviewRowCtx = @ptrCast(@alignCast(p));
+    const gpa = prc.gpa;
+    gpa.free(prc.project_id);
+    for (prc.option_ids.items) |s| gpa.free(s);
+    prc.option_ids.deinit(gpa);
+    for (prc.target_ids.items) |s| gpa.free(s);
+    prc.target_ids.deinit(gpa);
+    for (prc.target_names.items) |s| gpa.free(s);
+    prc.target_names.deinit(gpa);
+    for (prc.target_platforms.items) |s| gpa.free(s);
+    prc.target_platforms.deinit(gpa);
+    gpa.destroy(prc);
+}
+
+fn previewSection(ctx: *Ctx, a: std.mem.Allocator) void {
+    const projects = ctx.db.listProjects(a, ctx.ws_id) catch &[_]Database.ProjectRow{};
+    gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Run Targets & Preview"));
+    const hint = gtk.gtk_label_new("Build/run commands live in .exponential/config.json in each repo. Here you only route preview feedback.");
+    gtk.gtk_widget_add_css_class(hint, "dim-label");
+    gtk.gtk_label_set_wrap(hint, 1);
+    gtk.gtk_label_set_xalign(hint, 0);
+    gtk.gtk_box_append(ctx.content, hint);
+
+    for (projects) |p| {
+        // Parse the mirror (display-only). Skip projects with no preview config.
+        if (p.preview_config.len == 0) continue;
+        const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, p.preview_config, .{}) catch continue;
+        const obj = switch (parsed) {
+            .object => |o| o,
+            else => continue,
+        };
+
+        const card = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 4);
+        gtk.gtk_widget_set_margin_top(card, 8);
+        const title = gtk.gtk_label_new(null);
+        if (a.dupeZ(u8, p.name)) |z| gtk.gtk_label_set_text(title, z.ptr) else |_| {}
+        gtk.gtk_widget_add_css_class(title, "heading");
+        gtk.gtk_widget_set_halign(title, gtk.ALIGN_START);
+        gtk.gtk_box_append(card, title);
+
+        const prc = ctx.gpa.create(PreviewRowCtx) catch continue;
+        prc.* = .{ .ctx = ctx, .gpa = ctx.gpa, .project_id = ctx.gpa.dupeZ(u8, p.id) catch {
+            ctx.gpa.destroy(prc);
+            continue;
+        } };
+
+        // Read-only target badges + capture the target list for re-send.
+        const targets_row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
+        if (obj.get("targets")) |tv| if (tv == .array) {
+            for (tv.array.items) |t| {
+                const to = switch (t) {
+                    .object => |o| o,
+                    else => continue,
+                };
+                const id = jsonStr(to, "id") orelse continue;
+                const name = jsonStr(to, "name") orelse id;
+                const platform = jsonStr(to, "platform") orelse "web";
+                prc.target_ids.append(ctx.gpa, ctx.gpa.dupeZ(u8, id) catch continue) catch {};
+                prc.target_names.append(ctx.gpa, ctx.gpa.dupeZ(u8, name) catch continue) catch {};
+                prc.target_platforms.append(ctx.gpa, ctx.gpa.dupeZ(u8, platform) catch continue) catch {};
+                const badge_txt = std.fmt.allocPrintSentinel(a, "{s} · {s}", .{ name, platform }, 0) catch continue;
+                const badge = gtk.gtk_label_new(badge_txt.ptr);
+                gtk.gtk_widget_add_css_class(badge, "exp-chip");
+                gtk.gtk_box_append(targets_row, badge);
+            }
+        };
+        gtk.gtk_box_append(card, targets_row);
+
+        // Feedback project picker: "(this project)" + every project in the ws.
+        const fb_row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+        const fb_lbl = gtk.gtk_label_new("File feedback into:");
+        gtk.gtk_widget_add_css_class(fb_lbl, "dim-label");
+        gtk.gtk_box_append(fb_row, fb_lbl);
+
+        var names = std.ArrayListUnmanaged(?[*:0]const u8).empty;
+        names.append(a, "(this project)") catch {};
+        // Index 0 = "(this project)" → empty id (means "no explicit routing").
+        if (ctx.gpa.dupeZ(u8, "")) |empty_id| {
+            prc.option_ids.append(ctx.gpa, empty_id) catch ctx.gpa.free(empty_id);
+        } else |_| {}
+        const current_fb = jsonStr(obj, "feedbackProjectId");
+        var selected_idx: c_uint = 0;
+        for (projects, 0..) |pp, i| {
+            const z = a.dupeZ(u8, pp.name) catch continue;
+            names.append(a, z.ptr) catch {};
+            prc.option_ids.append(ctx.gpa, ctx.gpa.dupeZ(u8, pp.id) catch continue) catch {};
+            if (current_fb) |fb| if (std.mem.eql(u8, fb, pp.id)) {
+                selected_idx = @intCast(i + 1);
+            };
+        }
+        names.append(a, null) catch {};
+        const fb_dd = gtk.gtk_drop_down_new_from_strings(@ptrCast(names.items.ptr));
+        gtk.gtk_drop_down_set_selected(fb_dd, selected_idx);
+        prc.feedback_dd = fb_dd;
+        gtk.gtk_box_append(fb_row, fb_dd);
+
+        const save = gtk.gtk_button_new_with_label("Save");
+        gtk.gtk_widget_add_css_class(save, "flat");
+        gtk.g_object_set_data_full(save, "exp-prc", @ptrCast(prc), @ptrCast(&freePreviewRow));
+        _ = gtk.g_signal_connect_data(save, "clicked", @ptrCast(&onPreviewSave), prc, null, 0);
+        gtk.gtk_box_append(fb_row, save);
+
+        gtk.gtk_box_append(card, fb_row);
+        gtk.gtk_box_append(ctx.content, card);
+    }
+}
+
+fn onPreviewSave(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const prc: *PreviewRowCtx = @ptrCast(@alignCast(data orelse return));
+    const ctx = prc.ctx;
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Resolve the chosen feedback project id (index 0 = "(this project)" → null).
+    const sel: usize = @intCast(gtk.gtk_drop_down_get_selected(prc.feedback_dd));
+    var feedback_id: ?[]const u8 = null;
+    if (sel < prc.option_ids.items.len) {
+        const id = prc.option_ids.items[sel];
+        if (id.len > 0) feedback_id = id;
+    }
+
+    // Re-send the existing target list (display metadata) unchanged.
+    var targets = std.ArrayList(api_projects.MirrorTarget).empty;
+    const n = @min(@min(prc.target_ids.items.len, prc.target_names.items.len), prc.target_platforms.items.len);
+    for (0..n) |i| {
+        targets.append(a, .{
+            .id = prc.target_ids.items[i],
+            .name = prc.target_names.items[i],
+            .platform = prc.target_platforms.items[i],
+        }) catch {};
+    }
+
+    _ = api_projects.updatePreviewConfig(ctx.gpa, ctx.instance, ctx.token, prc.project_id, targets.items, feedback_id);
+    rebuild(ctx);
+}
+
+fn jsonStr(o: std.json.ObjectMap, key: []const u8) ?[]const u8 {
+    const v = o.get(key) orelse return null;
+    return switch (v) {
+        .string => |s| s,
+        else => null,
+    };
 }
 
 // --- Labels section ---------------------------------------------------------

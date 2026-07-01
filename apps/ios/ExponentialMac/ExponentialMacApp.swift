@@ -27,7 +27,12 @@ struct ExponentialMacApp: App {
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
                     let deps = deps
-                    MacAppDelegate.onTerminate = { deps.agentService.shutdownAll() }
+                    MacAppDelegate.onTerminate = {
+                        // Tear the preview down first (kills emulator/serve-sim/dev
+                        // server + frees ports) so no orphan child survives the app.
+                        deps.previewController.shutdown()
+                        deps.agentService.shutdownAll()
+                    }
                 }
         }
         .commands {

@@ -6,6 +6,7 @@ import {
   workspaceMembers,
   workspaces,
 } from "@/db/schema"
+import type { ProjectPreviewMirror } from "@exp/db-schema/domain"
 import { users } from "@/db/auth-schema"
 import { invalidatePublicWorkspaceCache } from "@/lib/workspace-membership"
 import { emailEnabled } from "@/lib/email"
@@ -123,6 +124,85 @@ async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
   })
 }
 
+const DOGFOOD_PROJECT_SLUG = `exponential`
+const DOGFOOD_PROJECT_NAME = `Exponential`
+const DOGFOOD_PROJECT_PREFIX = `EXP`
+
+// Display mirror seeded for the dogfood project. The canonical build/run shell
+// commands live in the repo's committed `.exponential/config.json` (read only
+// from the cloned working tree by the desktop apps) — this mirror is the safe
+// metadata the web settings UI + pre-clone discovery read, and matches the
+// targets that file declares. Feedback routes back into this same project.
+const DOGFOOD_TARGETS: ProjectPreviewMirror[`targets`] = [
+  { id: `web`, name: `Web`, platform: `web` },
+  { id: `android`, name: `Android`, platform: `android` },
+  { id: `ios-staging`, name: `iOS Staging`, platform: `ios` },
+  { id: `ios-prod`, name: `iOS Prod`, platform: `ios` },
+]
+
+// Dogfood: configure the Exponential monorepo as its own project inside the
+// public feedback workspace, linked to the repo named by DOGFOOD_REPO, so the
+// team previews + tests Exponential inside Exponential and files straight into
+// this project. Cloud-only + gated behind DOGFOOD_REPO (self-hosters never
+// inherit a repo binding). Idempotent: it creates the project + seeds the
+// preview mirror once, and never clobbers a hand-edited previewConfig later.
+async function ensureDogfoodProject(publicWorkspaceId: string) {
+  const repo = process.env.DOGFOOD_REPO?.trim()
+  if (!repo) return
+
+  const [existing] = await db
+    .select({ id: projects.id, previewConfig: projects.previewConfig })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, publicWorkspaceId),
+        eq(projects.slug, DOGFOOD_PROJECT_SLUG)
+      )
+    )
+    .limit(1)
+
+  if (existing) {
+    // Keep the repo link aligned, but never overwrite a hand-edited mirror —
+    // only seed the preview config if it's still missing.
+    if (!existing.previewConfig) {
+      await db
+        .update(projects)
+        .set({
+          githubRepo: repo,
+          previewConfig: {
+            targets: DOGFOOD_TARGETS,
+            feedbackProjectId: existing.id,
+          },
+        })
+        .where(eq(projects.id, existing.id))
+    }
+    return
+  }
+
+  await db.transaction(async (tx) => {
+    const [project] = await tx
+      .insert(projects)
+      .values({
+        workspaceId: publicWorkspaceId,
+        name: DOGFOOD_PROJECT_NAME,
+        slug: DOGFOOD_PROJECT_SLUG,
+        prefix: DOGFOOD_PROJECT_PREFIX,
+        githubRepo: repo,
+      })
+      .returning({ id: projects.id })
+
+    await tx
+      .update(projects)
+      .set({
+        previewConfig: {
+          targets: DOGFOOD_TARGETS,
+          feedbackProjectId: project.id,
+        },
+      })
+      .where(eq(projects.id, project.id))
+  })
+}
+
 async function addAdminsAsPublicWorkspaceOwners(publicWorkspaceId: string) {
   const adminRows = await db
     .select({ id: users.id })
@@ -196,6 +276,7 @@ export function bootstrapCloud(): Promise<void> {
         const publicWorkspaceId = await ensurePublicWorkspace()
         await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
         await ensureFeedbackWidgetConfig(publicWorkspaceId)
+        await ensureDogfoodProject(publicWorkspaceId)
       }
     } catch (err) {
       console.error(`[bootstrap-cloud] failed:`, err)

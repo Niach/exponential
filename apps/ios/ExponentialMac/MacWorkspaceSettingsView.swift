@@ -219,6 +219,7 @@ struct MacWorkspaceSettingsView: View {
     @State private var showDeleteConfirm = false
     @State private var showUnregisterConfirm = false
     @State private var repoPickerProject: ProjectEntity?
+    @State private var previewSettingsProject: ProjectEntity?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -291,6 +292,15 @@ struct MacWorkspaceSettingsView: View {
                 installBaseURL: deps.auth.accounts.first(where: { $0.id == target.accountId })
                     .flatMap { URL(string: $0.instanceUrl) }
             )
+            .preferredColorScheme(.dark)
+        }
+        .sheet(item: $previewSettingsProject) { project in
+            MacProjectPreviewSettingsView(
+                accountId: target.accountId,
+                project: project,
+                workspaceProjects: (model?.projects ?? []).filter { $0.id != project.id }
+            )
+            .environment(deps)
             .preferredColorScheme(.dark)
         }
     }
@@ -414,6 +424,21 @@ struct MacWorkspaceSettingsView: View {
                             }
                             .buttonStyle(.borderless)
                             .font(.caption)
+                        }
+                    }
+                    // Run targets & preview routing (the display-only mirror).
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.rectangle")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        let targetCount = MacPreviewConfig.parseMirror(project.previewConfig)?.targets.count ?? 0
+                        Text(targetCount == 0 ? "No run targets" : "\(targetCount) run target\(targetCount == 1 ? "" : "s")")
+                            .font(.caption).foregroundStyle(targetCount == 0 ? .tertiary : .secondary)
+                        Spacer()
+                        if model.isOwnerOrAdmin {
+                            Button("Run targets & preview…") { previewSettingsProject = project }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
                         }
                     }
                 }

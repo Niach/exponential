@@ -31,6 +31,11 @@ struct MacShell: View {
     @State private var showCreateWorkspace = false
     @State private var showInbox = false
     @State private var ensuredDefault = false
+    // The dedicated Preview pane (build/run/embed the selected run target). A
+    // resizable trailing pane, separate from the bottom terminal dock (which
+    // stays for build/run logs).
+    @State private var showPreview = false
+    @State private var previewWidth: CGFloat = 420
     // The workspace the sidebar is currently scoped to (web shows ONE workspace's
     // projects at a time, switched via the dropdown — not every workspace flat).
     @State private var selectedWorkspace: WorkspaceRef?
@@ -68,6 +73,37 @@ struct MacShell: View {
         activeWorkspaceBlock.map { ($0.accountId, $0.block.workspace) }
     }
 
+    // The full ProjectEntity for the current selection (needed to bind the
+    // preview controller — repo + previewConfig mirror live on the row).
+    private var selectedProjectEntity: ProjectEntity? {
+        guard let sel = selectedProject else { return nil }
+        for group in (projectLoader?.groups ?? []) where group.accountId == sel.accountId {
+            for block in group.workspaceBlocks {
+                if let project = block.projects.first(where: { $0.id == sel.projectId }) {
+                    return project
+                }
+            }
+        }
+        return nil
+    }
+
+    // Equatable digest of the preview-relevant project fields, so `.onChange`
+    // can rebind when the repo link / previewConfig mirror syncs in.
+    private var selectedProjectPreviewKey: String? {
+        guard let project = selectedProjectEntity else { return nil }
+        return "\(project.id)|\(project.githubRepo ?? "")|\(project.previewConfig ?? "")"
+    }
+
+    /// (Re)bind the preview controller to the current selection. Idempotent; a
+    /// no-op selection still resolves to nothing.
+    private func bindPreview() {
+        guard let project = selectedProjectEntity, let sel = selectedProject else {
+            deps.previewController.shutdown()
+            return
+        }
+        deps.previewController.bind(accountId: sel.accountId, project: project)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             splitView
@@ -86,34 +122,52 @@ struct MacShell: View {
         } detail: {
             // Two-pane layout mirroring the web app: a project sidebar + a content
             // area that navigates from the issue list into a full issue detail
-            // (push), rather than an always-present third detail column.
-            NavigationStack(path: $issuePath) {
-                Group {
-                    if showInbox {
-                        MacInboxView(
-                            accountId: activeAccount?.id ?? "",
-                            onOpenIssue: { issueId in
-                                if let aid = activeAccount?.id {
-                                    issuePath.append(IssueRef(accountId: aid, issueId: issueId))
+            // (push), rather than an always-present third detail column. A dedicated
+            // Preview pane can be opened to the trailing edge (resizable).
+            HStack(spacing: 0) {
+                NavigationStack(path: $issuePath) {
+                    Group {
+                        if showInbox {
+                            MacInboxView(
+                                accountId: activeAccount?.id ?? "",
+                                onOpenIssue: { issueId in
+                                    if let aid = activeAccount?.id {
+                                        issuePath.append(IssueRef(accountId: aid, issueId: issueId))
+                                    }
                                 }
-                            }
+                            )
+                        } else if let selectedProject {
+                            MacIssueListView(
+                                accountId: selectedProject.accountId,
+                                projectId: selectedProject.projectId
+                            )
+                            .id(selectedProject)
+                        } else {
+                            emptyState
+                        }
+                    }
+                    .navigationDestination(for: IssueRef.self) { ref in
+                        MacIssueDetailView(
+                            accountId: ref.accountId,
+                            issueId: ref.issueId,
+                            onDelete: { issuePath.removeAll { $0 == ref } }
                         )
-                    } else if let selectedProject {
-                        MacIssueListView(
-                            accountId: selectedProject.accountId,
-                            projectId: selectedProject.projectId
-                        )
-                        .id(selectedProject)
-                    } else {
-                        emptyState
                     }
                 }
-                .navigationDestination(for: IssueRef.self) { ref in
-                    MacIssueDetailView(
-                        accountId: ref.accountId,
-                        issueId: ref.issueId,
-                        onDelete: { issuePath.removeAll { $0 == ref } }
-                    )
+                .frame(maxWidth: .infinity)
+                if showPreview, selectedProject != nil {
+                    previewPane
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showPreview.toggle()
+                    } label: {
+                        Label("Preview", systemImage: showPreview ? "play.rectangle.fill" : "play.rectangle")
+                    }
+                    .help(showPreview ? "Hide preview" : "Show preview")
+                    .disabled(selectedProject == nil)
                 }
             }
         }
@@ -135,10 +189,18 @@ struct MacShell: View {
         }
         .onChange(of: deps.auth.accounts) { _, _ in projectLoader?.refresh() }
         // Switching projects returns to that project's list (pop any open detail).
+        // The preview is per-project — rebind (tears the old one down).
         .onChange(of: selectedProject) { _, new in
             issuePath.removeAll()
             if new != nil { showInbox = false }
+            bindPreview()
         }
+        // The project row may sync in (repo / previewConfig) after selection;
+        // rebinding when those fields resolve keeps the picker current. Tracked
+        // via an equatable key since ProjectEntity isn't Equatable.
+        .onChange(of: selectedProjectPreviewKey) { _, _ in bindPreview() }
+        // Bind on first open of the pane (the project was already selected).
+        .onChange(of: showPreview) { _, shown in if shown { bindPreview() } }
         // A selection from the previous account points at another account's DB
         // pool — clear it so the list/detail never query the wrong account.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
@@ -146,6 +208,7 @@ struct MacShell: View {
             selectedWorkspace = nil
             showInbox = false
             issuePath.removeAll()
+            deps.previewController.shutdown()
         }
         .sheet(item: $settingsTarget) { target in
             MacWorkspaceSettingsView(target: target)
@@ -172,6 +235,31 @@ struct MacShell: View {
                     .environment(deps)
                     .preferredColorScheme(.dark)
             }
+        }
+    }
+
+    // MARK: - Preview pane
+
+    // A resizable trailing pane (separate from the bottom terminal dock). The
+    // draggable divider on its leading edge adjusts the width; the controller is
+    // bound to the selected project by bindPreview().
+    @ViewBuilder
+    private var previewPane: some View {
+        HStack(spacing: 0) {
+            Divider()
+                .frame(width: 6)
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                }
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            previewWidth = min(900, max(300, previewWidth - value.translation.width))
+                        }
+                )
+            MacPreviewPane(controller: deps.previewController)
+                .frame(width: previewWidth)
         }
     }
 

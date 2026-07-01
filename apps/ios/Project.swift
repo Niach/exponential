@@ -29,6 +29,10 @@ let sharedDependencies: [TargetDependency] = [
 // Foundation/GRDB/Security/CryptoKit/os only — NO cmark/MarkdownUI/Firebase/SwiftUI.
 let expCoreSources: SourceFilesList = ["ExpCore/Sources/**"]
 let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
+// ExpCore unit tests — currently the annotation-geometry parity gate that locks
+// AnnotationGeometry.swift to the TS source of truth (shapes.test.ts) and the
+// Linux Zig port.
+let expCoreTestSources: SourceFilesList = ["ExpCore/Tests/**"]
 
 // ExpUI: cross-platform SwiftUI layer (theme, glass modifiers, status/priority
 // colors, WorkspaceAvatar, CrossPlatform shims) shared by the iOS and macOS apps.
@@ -225,6 +229,16 @@ let project = Project(
             settings: .settings(base: baseSettings)
         ),
         .target(
+            name: "ExpCoreTests",
+            destinations: [.iPhone, .iPad, .mac],
+            product: .unitTests,
+            bundleId: "at.exponential.core.tests",
+            deploymentTargets: .multiplatform(iOS: "17.4", macOS: "14.0"),
+            sources: expCoreTestSources,
+            dependencies: [.target(name: "ExpCore")],
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
             name: "ExpUI",
             destinations: [.iPhone, .iPad, .mac],
             product: .framework,
@@ -334,7 +348,8 @@ let project = Project(
     schemes: [
         .scheme(
             name: "ExpCore",
-            buildAction: .buildAction(targets: ["ExpCore"])
+            buildAction: .buildAction(targets: ["ExpCore", "ExpCoreTests"]),
+            testAction: .targets(["ExpCoreTests"])
         ),
         .scheme(
             name: "ExpUI",

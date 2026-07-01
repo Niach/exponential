@@ -17,6 +17,17 @@ pub fn build(b: *std.Build) void {
     build_options.addOption([]const u8, "ghostty_resources_dir", b.fmt("{s}/share/ghostty", .{ghostty_install}));
     build_options.addOption([]const u8, "ghostty_terminfo_dir", b.fmt("{s}/share/terminfo", .{ghostty_install}));
 
+    // Preview embedding deps are optional so the app still builds where they're
+    // absent (e.g. dev boxes without WebKitGTK 6). `-Dwebkit=false` drops the
+    // webview backend (web preview falls back to "open in browser"); the
+    // X11 native-window reparent (Android embed) is gated by `-Dx11` (default on
+    // — the gdk-x11 symbols live in gtk4 itself; we additionally link libX11 for
+    // XReparentWindow). Both are read at comptime by src/ui/preview/*.zig.
+    const enable_webkit = b.option(bool, "webkit", "Embed WebKitGTK 6 for the web preview backend (default: on)") orelse true;
+    const enable_x11 = b.option(bool, "x11", "Enable X11 native-window reparent for the Android preview embed (default: on)") orelse true;
+    build_options.addOption(bool, "enable_webkit", enable_webkit);
+    build_options.addOption(bool, "enable_x11", enable_x11);
+
     // --- app executable (CLI + GTK GUI) ---
     const exe = b.addExecutable(.{
         .name = "exponential",
@@ -28,7 +39,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     linkCore(exe.root_module, build_options);
-    linkGui(exe.root_module);
+    linkGui(exe.root_module, enable_webkit, enable_x11);
     linkAgentCore(b, exe, optimize);
     linkLibghostty(b, exe);
     b.installArtifact(exe);
@@ -79,11 +90,24 @@ fn linkCore(mod: *std.Build.Module, build_options: *std.Build.Step.Options) void
     mod.linkSystemLibrary("curl", .{});
 }
 
-/// GUI C deps: GTK4 + libadwaita, plus gio for opening the OAuth URL.
-fn linkGui(mod: *std.Build.Module) void {
+/// GUI C deps: GTK4 + libadwaita, plus gio for opening the OAuth URL. Cairo +
+/// gdk-pixbuf back the annotation overlay draw + screenshot flatten; the optional
+/// WebKitGTK 6 (web preview) and libX11 (Android native-window reparent) are
+/// linked only when their build flag is on so the app still builds where they're
+/// absent.
+fn linkGui(mod: *std.Build.Module, enable_webkit: bool, enable_x11: bool) void {
     mod.linkSystemLibrary("gtk4", .{});
     mod.linkSystemLibrary("libadwaita-1", .{});
     mod.linkSystemLibrary("gio-2.0", .{});
+    // Annotation overlay rendering + screenshot flatten.
+    mod.linkSystemLibrary("cairo", .{});
+    mod.linkSystemLibrary("gdk-pixbuf-2.0", .{});
+    // Web preview backend. When off, src/ui/preview falls back to opening the
+    // dev URL in the default browser via the existing gio path.
+    if (enable_webkit) mod.linkSystemLibrary("webkitgtk-6.0", .{});
+    // Android preview embed: gdk_x11_surface_get_xid is exported by gtk4 itself;
+    // XReparentWindow + the property reads need libX11 directly.
+    if (enable_x11) mod.linkSystemLibrary("X11", .{});
 }
 
 /// Link the embeddable libghostty (built by scripts/build-libghostty.sh into
