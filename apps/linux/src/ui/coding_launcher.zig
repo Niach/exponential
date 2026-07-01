@@ -27,6 +27,8 @@ const storage = @import("../core/storage.zig");
 const credentials = @import("../core/credentials.zig");
 const git = @import("../core/git_worktree.zig");
 const prompt = @import("../core/coding_prompt.zig");
+const host_pty = @import("../core/steer/host_pty.zig");
+const steer_pub = @import("../core/steer/publisher.zig");
 const Database = @import("../core/db/database.zig").Database;
 
 /// Insert a ready ghostty terminal into the UI (main thread). `title` is a issue
@@ -206,8 +208,23 @@ fn worker(job: *Job) void {
     const session_id_opt = startSession(gpa, job);
     defer if (session_id_opt) |s| gpa.free(s);
 
+    // 6b. Live steer (masterplan §3): only when the relay subsystem is enabled
+    // on this instance AND we have a session row to key the relay room. Purely
+    // additive — disabled/unreachable ⇒ the plain local coding path, zero
+    // sockets, zero behavior change.
+    const steer = session_id_opt != null and steerEnabled(gpa, job);
+
     // 7. Marshal the terminal spawn back to the main thread.
-    scheduleMount(job, worktree, session_id_opt orelse "");
+    scheduleMount(job, worktree, session_id_opt orelse "", steer);
+}
+
+/// steer.config → { enabled, relayUrl } (false on any error/404 — graceful-off).
+fn steerEnabled(gpa: std.mem.Allocator, job: *Job) bool {
+    var resp = trpc.query(gpa, job.instance, "steer.config", job.token, 15) catch return false;
+    defer resp.deinit();
+    if (!resp.ok()) return false;
+    const obj = dataObject(&resp) orelse return false;
+    return trpc.objBool(obj, "enabled");
 }
 
 // --- step 1: repositories.forIssue ---
@@ -264,7 +281,7 @@ fn mintToken(gpa: std.mem.Allocator, job: *Job, repository_id: []const u8) ?Toke
 
 /// Returns the new `coding_sessions` row id (caller-owned; "" on failure).
 fn startSession(gpa: std.mem.Allocator, job: *Job) ?[]u8 {
-    const label = deviceLabel(gpa);
+    const label = credentials.hostDeviceLabel(gpa);
     defer gpa.free(label);
     const input = std.fmt.allocPrint(gpa, "{{\"issueId\":\"{s}\",\"deviceLabel\":\"{s}\"}}", .{ job.issue_id, label }) catch return null;
     defer gpa.free(input);
@@ -344,15 +361,6 @@ fn excludeInWorktree(gpa: std.mem.Allocator, worktree: []const u8) void {
     std.Io.Dir.cwd().writeFile(std.Io.Threaded.global_single_threaded.io(), .{ .sub_path = abs, .data = merged }) catch {};
 }
 
-fn deviceLabel(gpa: std.mem.Allocator) []u8 {
-    if (storage.readFileAlloc(gpa, "/etc/hostname")) |bytes| {
-        defer gpa.free(bytes);
-        const trimmed = std.mem.trim(u8, bytes, " \t\r\n");
-        if (trimmed.len > 0) return gpa.dupe(u8, trimmed) catch (gpa.dupe(u8, "Linux desktop") catch unreachable);
-    }
-    return gpa.dupe(u8, "Linux desktop") catch unreachable;
-}
-
 // --- main-thread marshaling ---
 
 const MountData = struct {
@@ -362,30 +370,35 @@ const MountData = struct {
     instance: []u8,
     token: ?[]u8,
     session_id: []u8, // "" ⇒ no coding_sessions.end call
+    issue_id: []u8, // for the publisher's hello frame
+    steer: bool, // relay enabled ⇒ host-PTY terminal + publisher
     cwd: []u8,
     command: []u8,
     title: [:0]u8,
 };
 
-fn scheduleMount(job: *Job, worktree: []const u8, session_id: []const u8) void {
-    buildMountData(job, worktree, session_id) catch {};
+fn scheduleMount(job: *Job, worktree: []const u8, session_id: []const u8, steer: bool) void {
+    buildMountData(job, worktree, session_id, steer) catch {};
 }
 
 /// Build the MountData incrementally so `errdefer` frees exactly what succeeded
 /// (a struct-literal `catch` can't free fields the struct hasn't taken yet).
-fn buildMountData(job: *Job, worktree: []const u8, session_id: []const u8) !void {
+fn buildMountData(job: *Job, worktree: []const u8, session_id: []const u8, steer: bool) !void {
     const gpa = job.gpa;
     const md = try gpa.create(MountData);
     errdefer gpa.destroy(md);
     md.gpa = gpa;
     md.mount = job.mount;
     md.mount_ctx = job.mount_ctx;
+    md.steer = steer;
     md.instance = try gpa.dupe(u8, job.instance);
     errdefer gpa.free(md.instance);
     md.token = if (job.token) |t| try gpa.dupe(u8, t) else null;
     errdefer if (md.token) |t| gpa.free(t);
     md.session_id = try gpa.dupe(u8, session_id); // "" ⇒ 0-len heap slice
     errdefer gpa.free(md.session_id);
+    md.issue_id = try gpa.dupe(u8, job.issue_id);
+    errdefer gpa.free(md.issue_id);
     md.cwd = try gpa.dupe(u8, worktree);
     errdefer gpa.free(md.cwd);
     // `sh .exp-run.sh` — two space-separated tokens, no intra-token spaces, so
@@ -413,10 +426,17 @@ fn onMountMain(data: gtk.gpointer) callconv(.c) c_int {
         gpa.free(md.instance);
         if (md.token) |t| gpa.free(t);
         gpa.free(md.session_id); // always heap (dup of "" when no row)
+        gpa.free(md.issue_id);
         gpa.free(md.cwd);
         gpa.free(md.command);
         gpa.free(md.title);
         gpa.destroy(md);
+    }
+
+    // Steer path: host-owned PTY + relay publisher (masterplan §3.3). Any
+    // failure falls through to the plain local path below.
+    if (md.steer and md.session_id.len > 0) {
+        if (mountSteerTerminal(md)) return 0;
     }
 
     // Wire the session-end call to the child exit (only when we have a row id).
@@ -520,4 +540,291 @@ fn dataObject(resp: *const trpc.Response) ?std.json.ObjectMap {
         if (trpc.asObject(inner)) |inner_obj| obj = inner_obj;
     }
     return obj;
+}
+
+// ---------------------------------------------------------------------------
+// Steer host-PTY session (masterplan §3.3)
+// ---------------------------------------------------------------------------
+//
+// When the relay is enabled, the launcher owns the `claude` child on a host
+// PTY instead of letting ghostty exec it: the PTY reader tees every output
+// chunk to (a) the local ghostty surface (manual-IO, marshalled to the GTK
+// main loop) and (b) the relay publisher (binary 0x01 frames). Local ghostty
+// keystrokes and remote steerer `input` frames are written to the SAME PTY
+// master fd. One SteerSession per terminal tab, keyed by coding_sessions.id.
+//
+// Lifetime: refcounted. The terminal widget holds the owner ref; every
+// cross-thread g_idle_add marshal holds one. Teardown (tab close) marks the
+// session ended, SIGKILLs the child group, and defers the joins to a follow-up
+// idle so libghostty's surface is fully freed first (destroyTerm frees the
+// surface right after firing on_exit).
+
+const SteerSession = struct {
+    gpa: std.mem.Allocator,
+    refs: std.atomic.Value(u32),
+    instance: []u8,
+    token: ?[]u8,
+    session_id: []u8,
+    pty: ?*host_pty.HostPty = null,
+    publisher: ?*steer_pub.Publisher = null,
+    area: gtk.Object = null,
+    term_alive: bool = false, // main thread only
+    ended: bool = false, // main thread only: codingSessions.end already fired
+    child_exited: bool = false, // main thread mirror
+    torn_down: bool = false, // main thread: final teardown already scheduled
+
+    fn ref(self: *SteerSession) void {
+        _ = self.refs.fetchAdd(1, .acq_rel);
+    }
+
+    fn unref(self: *SteerSession) void {
+        if (self.refs.fetchSub(1, .acq_rel) != 1) return;
+        const gpa = self.gpa;
+        gpa.free(self.instance);
+        if (self.token) |t| gpa.free(t);
+        gpa.free(self.session_id);
+        gpa.destroy(self);
+    }
+};
+
+/// Build the steer session + host PTY + publisher + manual-IO terminal and
+/// mount it. Returns false on any setup failure — the caller falls back to the
+/// plain exec-mode path (which then also owns the codingSessions.end call).
+fn mountSteerTerminal(md: *MountData) bool {
+    const gpa = md.gpa;
+
+    const instance = gpa.dupe(u8, md.instance) catch return false;
+    const token: ?[]u8 = if (md.token) |t| (gpa.dupe(u8, t) catch null) else null;
+    const session_id = gpa.dupe(u8, md.session_id) catch {
+        gpa.free(instance);
+        if (token) |t| gpa.free(t);
+        return false;
+    };
+    const session = gpa.create(SteerSession) catch {
+        gpa.free(instance);
+        if (token) |t| gpa.free(t);
+        gpa.free(session_id);
+        return false;
+    };
+    session.* = .{
+        .gpa = gpa,
+        .refs = std.atomic.Value(u32).init(1), // the terminal/main owner
+        .instance = instance,
+        .token = token,
+        .session_id = session_id,
+    };
+
+    // Publisher first (it dials out on its own thread; remote input lands on
+    // the PTY through the session). A null publisher is fine — the session
+    // simply runs local-only.
+    session.publisher = steer_pub.Publisher.create(gpa, .{
+        .instance = md.instance,
+        .token = md.token,
+        .session_id = md.session_id,
+        .issue_id = md.issue_id,
+        .on_input = onRemoteInput,
+        .on_kill = onRemoteKill,
+        .on_remote_resize = onRemoteResize,
+        .ctx = session,
+    });
+
+    session.pty = host_pty.HostPty.spawn(gpa, .{
+        .argv = &.{ "/bin/sh", ".exp-run.sh" },
+        .cwd = md.cwd,
+        .on_output = onPtyOutput,
+        .on_exit = onPtyExit,
+        .ctx = session,
+    }) catch {
+        if (session.publisher) |p| p.destroy();
+        session.publisher = null;
+        session.unref();
+        return false;
+    };
+
+    const term = terminal.create(gpa, .{
+        .cwd = md.cwd,
+        .manual_io = true,
+        .io_write = onLocalIoWrite,
+        .io_write_ctx = session,
+        .on_grid = onGridChanged,
+        .on_grid_ctx = session,
+        .on_exit = onSteerTermClosed,
+        .on_exit_ctx = session,
+    }) orelse {
+        // No terminal ⇒ kill the child and hand the session back to the
+        // fallback exec path (its EndCtx owns codingSessions.end from here).
+        if (session.pty) |p| p.destroy();
+        session.pty = null;
+        if (session.publisher) |p| p.destroy();
+        session.publisher = null;
+        session.unref();
+        return false;
+    };
+    session.area = term;
+    session.term_alive = true;
+    md.mount(md.mount_ctx, term, md.title.ptr);
+    return true;
+}
+
+/// Flip the coding_sessions row to ended + close the relay room. Main thread;
+/// the first caller's outcome wins.
+fn endSteerSession(session: *SteerSession, outcome: []const u8) void {
+    if (session.ended) return;
+    session.ended = true;
+    var arena = std.heap.ArenaAllocator.init(session.gpa);
+    defer arena.deinit();
+    if (std.fmt.allocPrint(arena.allocator(), "{{\"id\":\"{s}\"}}", .{session.session_id})) |json| {
+        mutate.fire(session.gpa, session.instance, session.token, "codingSessions.end", json);
+    } else |_| {}
+    if (session.publisher) |p| p.stop(outcome);
+}
+
+// --- callbacks from ghostty (local input / grid) ---
+
+/// ghostty io_write_cb: local keystrokes → the PTY master. May fire off the
+/// main thread; writeInput is thread-safe and no-ops after child exit.
+fn onLocalIoWrite(ctx: ?*anyopaque, data: [*c]const u8, len: usize) callconv(.c) void {
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    if (data == null or len == 0) return;
+    const pty = session.pty orelse return;
+    pty.writeInput(data[0..len]);
+}
+
+/// Main thread: the surface's cell grid changed — propagate to the PTY winsize
+/// (child gets SIGWINCH) and tell remote viewers to reflow.
+fn onGridChanged(ctx: ?*anyopaque, cols: u16, rows: u16) void {
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    if (session.pty) |p| p.setWinsize(cols, rows);
+    if (session.publisher) |p| p.sendResize(cols, rows);
+}
+
+// --- callbacks from the host PTY (reader thread) ---
+
+const FeedData = struct { session: *SteerSession, bytes: []u8 };
+
+/// PTY reader thread: tee one output chunk to the relay (direct — the
+/// publisher is thread-safe) and to the local surface (via the main loop).
+fn onPtyOutput(ctx: ?*anyopaque, bytes: []const u8) void {
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    if (session.publisher) |p| p.feed(bytes);
+
+    const fd = session.gpa.create(FeedData) catch return;
+    fd.* = .{
+        .session = session,
+        .bytes = session.gpa.dupe(u8, bytes) catch {
+            session.gpa.destroy(fd);
+            return;
+        },
+    };
+    session.ref();
+    _ = gtk.g_idle_add(@ptrCast(&feedTerminalIdle), fd);
+}
+
+fn feedTerminalIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const fd: *FeedData = @ptrCast(@alignCast(data));
+    const session = fd.session;
+    if (session.term_alive) terminal.feedOutput(session.area, fd.bytes);
+    session.gpa.free(fd.bytes);
+    session.gpa.destroy(fd);
+    session.unref();
+    return 0; // G_SOURCE_REMOVE
+}
+
+/// PTY reader thread: the child exited (naturally or killed).
+fn onPtyExit(ctx: ?*anyopaque, exit_code: i32) void {
+    _ = exit_code;
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    session.ref();
+    _ = gtk.g_idle_add(@ptrCast(&ptyExitIdle), session);
+}
+
+fn ptyExitIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const session: *SteerSession = @ptrCast(@alignCast(data));
+    session.child_exited = true;
+    endSteerSession(session, "ended");
+    session.unref();
+    return 0;
+}
+
+// --- callbacks from the relay publisher (socket thread) ---
+
+/// Steerer keystrokes → the same PTY master local keys use. Socket thread;
+/// safe because the pty struct outlives the publisher (teardown order).
+fn onRemoteInput(ctx: ?*anyopaque, bytes: []const u8) void {
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    const pty = session.pty orelse return;
+    pty.writeInput(bytes);
+}
+
+fn onRemoteKill(ctx: ?*anyopaque) void {
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    session.ref();
+    _ = gtk.g_idle_add(@ptrCast(&remoteKillIdle), session);
+}
+
+fn remoteKillIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const session: *SteerSession = @ptrCast(@alignCast(data));
+    // End first so the outcome reads "killed", then nuke the child group; the
+    // PTY exit path handles the rest. The terminal tab stays open showing the
+    // final output (matching the local-exit behavior).
+    endSteerSession(session, "killed");
+    if (session.pty) |p| p.kill(host_pty.SIGKILL);
+    session.unref();
+    return 0;
+}
+
+fn onRemoteResize(ctx: ?*anyopaque, cols: u16, rows: u16) void {
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    const rd = session.gpa.create(RemoteResizeData) catch return;
+    rd.* = .{ .session = session, .cols = cols, .rows = rows };
+    session.ref();
+    _ = gtk.g_idle_add(@ptrCast(&remoteResizeIdle), rd);
+}
+
+const RemoteResizeData = struct { session: *SteerSession, cols: u16, rows: u16 };
+
+fn remoteResizeIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const rd: *RemoteResizeData = @ptrCast(@alignCast(data));
+    const session = rd.session;
+    // Update the PTY winsize only — the local GTK grid keeps following its own
+    // widget size (the remote view is a viewer, not the owner of the layout).
+    if (session.pty) |p| p.setWinsize(rd.cols, rd.rows);
+    session.gpa.destroy(rd);
+    session.unref();
+    return 0;
+}
+
+// --- teardown (terminal widget destroyed = tab closed / sign-out) ---
+
+/// Fired by destroyTerm's fallback (manual-IO mode has no ghostty child), on
+/// the main thread, exactly once per terminal.
+fn onSteerTermClosed(ctx: ?*anyopaque, exit_code: i32) void {
+    _ = exit_code;
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    if (session.torn_down) return;
+    session.torn_down = true;
+    session.term_alive = false;
+    session.area = null;
+    endSteerSession(session, "closed");
+    // Signal-only here: destroyTerm frees the ghostty surface right after this
+    // callback, so the joins are deferred to a follow-up idle. The master fd
+    // stays open until then, keeping any concurrent PTY write harmless.
+    if (session.pty) |p| p.kill(host_pty.SIGKILL);
+    session.ref();
+    _ = gtk.g_idle_add(@ptrCast(&steerTeardownIdle), session);
+}
+
+fn steerTeardownIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const session: *SteerSession = @ptrCast(@alignCast(data));
+    // Ordered quiesce: (1) join the PTY reader (no more feeds/marshals), then
+    // (2) join the publisher socket (no more remote input), then (3) free the
+    // pty (nobody left who could write to the master fd).
+    if (session.pty) |p| p.shutdown();
+    if (session.publisher) |p| p.destroy();
+    session.publisher = null;
+    if (session.pty) |p| p.destroy();
+    session.pty = null;
+    session.unref(); // this idle's ref
+    session.unref(); // the terminal/main owner ref
+    return 0;
 }

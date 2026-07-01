@@ -277,7 +277,6 @@ pub const Database = struct {
         id: [:0]const u8,
         name: [:0]const u8,
         workspace_id: [:0]const u8,
-        github_repo: [:0]const u8, // "" when none
         color: [:0]const u8, // "#rrggbb"; defaults to indigo when unset
         preview_config: [:0]const u8, // raw JSON mirror; "" when none. Display-only, never executed.
     };
@@ -564,7 +563,7 @@ pub const Database = struct {
     pub fn listProjects(self: *Database, arena: std.mem.Allocator, workspace_id: ?[]const u8) ![]ProjectRow {
         self.mutex.lock();
         defer self.mutex.unlock();
-        const cols = "SELECT id, name, workspace_id, COALESCE(github_repo,''), COALESCE(NULLIF(color,''),'#6366f1'), COALESCE(preview_config,'') FROM projects WHERE archived_at IS NULL";
+        const cols = "SELECT id, name, workspace_id, COALESCE(NULLIF(color,''),'#6366f1'), COALESCE(preview_config,'') FROM projects WHERE archived_at IS NULL";
         var stmt = if (workspace_id != null)
             try self.conn.prepare(cols ++ " AND workspace_id = ? ORDER BY sort_order, name;")
         else
@@ -578,9 +577,8 @@ pub const Database = struct {
                 .id = try arena.dupeZ(u8, stmt.columnText(0)),
                 .name = try arena.dupeZ(u8, stmt.columnText(1)),
                 .workspace_id = try arena.dupeZ(u8, stmt.columnText(2)),
-                .github_repo = try arena.dupeZ(u8, stmt.columnText(3)),
-                .color = try arena.dupeZ(u8, stmt.columnText(4)),
-                .preview_config = try arena.dupeZ(u8, stmt.columnText(5)),
+                .color = try arena.dupeZ(u8, stmt.columnText(3)),
+                .preview_config = try arena.dupeZ(u8, stmt.columnText(4)),
             });
         }
         return rows.toOwnedSlice(arena);

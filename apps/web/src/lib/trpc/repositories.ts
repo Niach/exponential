@@ -29,6 +29,41 @@ async function assertCanManageRepos(userId: string, workspaceId: string) {
   await assertWorkspaceMember(userId, workspaceId, [`owner`])
 }
 
+// Project → repo resolution: the primary link, else the sole link, else null
+// (multiple links with no primary is ambiguous). Shared by repositories.forIssue
+// and steer.startSession's repo-linked precondition.
+export async function resolveProjectRepository(projectId: string) {
+  const { db } = await import(`@/db/connection`)
+  const links = await db
+    .select({
+      repositoryId: projectRepositories.repositoryId,
+      isPrimary: projectRepositories.isPrimary,
+      fullName: repositories.fullName,
+      defaultBranch: repositories.defaultBranch,
+    })
+    .from(projectRepositories)
+    .innerJoin(
+      repositories,
+      eq(repositories.id, projectRepositories.repositoryId)
+    )
+    .where(
+      and(
+        eq(projectRepositories.projectId, projectId),
+        isNull(repositories.archivedAt)
+      )
+    )
+
+  if (links.length === 0) return null
+  const chosen =
+    links.find((l) => l.isPrimary) ?? (links.length === 1 ? links[0] : null)
+  if (!chosen) return null // multiple links, no primary → ambiguous
+  return {
+    repositoryId: chosen.repositoryId,
+    fullName: chosen.fullName,
+    defaultBranch: chosen.defaultBranch,
+  }
+}
+
 async function loadRepository(repositoryId: string) {
   const { db } = await import(`@/db/connection`)
   const [repo] = await db
@@ -283,35 +318,7 @@ export const repositoriesRouter = router({
     .query(async ({ ctx, input }) => {
       const issueCtx = await getIssueWorkspaceContext(input.issueId)
       await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
-
-      const links = await ctx.db
-        .select({
-          repositoryId: projectRepositories.repositoryId,
-          isPrimary: projectRepositories.isPrimary,
-          fullName: repositories.fullName,
-          defaultBranch: repositories.defaultBranch,
-        })
-        .from(projectRepositories)
-        .innerJoin(
-          repositories,
-          eq(repositories.id, projectRepositories.repositoryId)
-        )
-        .where(
-          and(
-            eq(projectRepositories.projectId, issueCtx.projectId),
-            isNull(repositories.archivedAt)
-          )
-        )
-
-      if (links.length === 0) return null
-      const chosen =
-        links.find((l) => l.isPrimary) ?? (links.length === 1 ? links[0] : null)
-      if (!chosen) return null // multiple links, no primary → ambiguous
-      return {
-        repositoryId: chosen.repositoryId,
-        fullName: chosen.fullName,
-        defaultBranch: chosen.defaultBranch,
-      }
+      return resolveProjectRepository(issueCtx.projectId)
     }),
 
   // Session-gated JIT push token for the native launcher's token-embedded git

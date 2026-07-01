@@ -25,6 +25,8 @@ const AccountStore = @import("../core/auth/account_store.zig").AccountStore;
 const ServerAccount = @import("../core/auth/server_account.zig").ServerAccount;
 const Database = @import("../core/db/database.zig").Database;
 const sync = @import("../core/electric/sync_manager.zig");
+const credentials = @import("../core/credentials.zig");
+const steer_control = @import("../core/steer/control_channel.zig");
 const terminal_dock = @import("terminal_dock.zig");
 const coding_launcher = @import("coding_launcher.zig");
 const preview_panel = @import("preview/preview_panel.zig");
@@ -54,6 +56,7 @@ const AppState = struct {
     db: ?Database = null,
     sync_engine: ?sync.SyncManager = null,
     sync_started: bool = false,
+    steer_ctrl: ?*steer_control.ControlChannel = null, // relay device presence (remote "Start on my desktop")
     instance: ?[]u8 = null, // duped; SyncManager borrows it
     token: ?[]u8 = null,
     issue_list: gtk.Object = null,
@@ -66,11 +69,10 @@ const AppState = struct {
     preview_ctrl: ?*preview.PreviewController = null, // owns the live preview lifecycle
     preview_split: gtk.Object = null, // horizontal GtkPaned: content | preview (toggle)
     preview_targets: std.ArrayListUnmanaged(PreviewTargetEntry) = .empty, // gpa-owned parsed targets for the active project
-    preview_repo_slug: ?[]u8 = null, // github_repo of the project whose targets are loaded
+    preview_repo_slug: ?[]u8 = null, // repositories-registry fullName ("owner/name") whose targets are loaded
     list_page: gtk.Object = null, // root AdwNavigationPage (the issue list)
     selected_project_id: ?[]u8 = null, // null = all issues
     selected_project_name: ?[]u8 = null, // for the create-issue default + title
-    selected_project_repo: ?[]u8 = null, // GitHub repo of the selected project ("" → none)
     detail_issue_id: ?[]u8 = null, // issue currently shown in the detail pane
     coding_btn: gtk.Object = null, // the current detail's "Start coding" button (nulled on destroy)
     coding_btn_issue: ?[]u8 = null, // gpa-owned issue id the coding_btn belongs to
@@ -82,7 +84,6 @@ const AppState = struct {
     workspace_ids: [][]u8 = &.{}, // gpa-owned; parallel to the switcher dropdown
     switcher_area: gtk.Object = null, // sidebar slot holding the workspace switcher
     switcher_popover: gtk.Object = null, // the switcher's dropdown popover (for popdown)
-    repo_banner: gtk.Object = null, // GitHub repo banner above the list (hidden when none)
 
     // filter bar
     active_tab: format.Tab = .all,
@@ -585,6 +586,71 @@ fn enterTracker(state: *AppState) void {
             state.sync_started = true;
         }
     }
+
+    startSteerControl(state);
+}
+
+/// Open the steer relay control channel (device presence + remote start). The
+/// channel itself gates on `steer.config` — relay unset ⇒ zero sockets and a
+/// slow recheck; this is purely additive to local coding.
+fn startSteerControl(state: *AppState) void {
+    if (state.steer_ctrl != null) return;
+    const inst = state.instance orelse return;
+    var cred = credentials.Store.open(state.gpa) catch return;
+    defer cred.deinit();
+    const label = credentials.hostDeviceLabel(state.gpa);
+    defer state.gpa.free(label);
+    state.steer_ctrl = steer_control.ControlChannel.create(
+        state.gpa,
+        inst,
+        state.token,
+        cred.deviceId(),
+        label,
+        &onSteerStartSession,
+        state,
+    );
+}
+
+/// Relay `start_session` routed here on the CONTROL-CHANNEL thread — dupe the
+/// id and hop to the GTK main loop (the same background→UI pattern as
+/// onSyncChanged) before touching any app state.
+fn onSteerStartSession(ctx: ?*anyopaque, issue_id: []const u8) void {
+    const state: *AppState = @ptrCast(@alignCast(ctx orelse return));
+    const rs = state.gpa.create(RemoteStart) catch return;
+    rs.* = .{
+        .state = state,
+        .issue_id = state.gpa.dupe(u8, issue_id) catch {
+            state.gpa.destroy(rs);
+            return;
+        },
+    };
+    _ = gtk.g_idle_add(@ptrCast(&onSteerStartIdle), rs);
+}
+
+const RemoteStart = struct { state: *AppState, issue_id: []u8 };
+
+fn onSteerStartIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const rs: *RemoteStart = @ptrCast(@alignCast(data));
+    const state = rs.state;
+    defer {
+        state.gpa.free(rs.issue_id);
+        state.gpa.destroy(rs);
+    }
+    // Signed out between the frame and this idle? Just drop it.
+    const inst = state.instance orelse return 0;
+    const db = if (state.db) |*d| d else return 0;
+    coding_launcher.start(.{
+        .gpa = state.gpa,
+        .instance = inst,
+        .token = state.token,
+        .db = db,
+        .issue_id = rs.issue_id,
+        .mount = codingMount,
+        .mount_ctx = state,
+        .on_error = codingError,
+        .error_ctx = state,
+    });
+    return 0; // G_SOURCE_REMOVE
 }
 
 fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
@@ -593,6 +659,10 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     // Stop sync — cancellable long-polls abort within ~1s, then threads join.
     if (state.sync_engine) |*se| se.stop();
     state.sync_started = false;
+    // Drop the relay control socket (device presence) — a blocked read is
+    // unblocked via socket shutdown, so this joins quickly.
+    if (state.steer_ctrl) |ctrl| ctrl.destroy();
+    state.steer_ctrl = null;
     if (state.db) |*d| d.close();
     state.db = null;
 
@@ -605,8 +675,6 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.selected_project_id = null;
     if (state.selected_project_name) |p| state.gpa.free(p);
     state.selected_project_name = null;
-    if (state.selected_project_repo) |p| state.gpa.free(p);
-    state.selected_project_repo = null;
     if (state.detail_issue_id) |p| state.gpa.free(p);
     state.detail_issue_id = null;
     // The button widget dies with the window content (its destroy-notify already
@@ -645,7 +713,6 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.sidebar_account = null;
     state.switcher_area = null;
     state.switcher_popover = null;
-    state.repo_banner = null;
     state.content_nav = null;
     state.list_page = null;
     state.search_entry = null;
@@ -840,17 +907,6 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.adw_toolbar_view_add_top_bar(list_toolbar, list_header);
 
     const center = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
-
-    // GitHub repo banner (shown when the selected project has a linked repo).
-    const repo_banner = gtk.gtk_button_new_with_label("");
-    gtk.gtk_widget_add_css_class(repo_banner, "flat");
-    gtk.gtk_widget_set_halign(repo_banner, gtk.ALIGN_START);
-    gtk.gtk_widget_set_margin_start(repo_banner, 12);
-    gtk.gtk_widget_set_margin_top(repo_banner, 4);
-    gtk.gtk_widget_set_visible(repo_banner, 0);
-    _ = gtk.g_signal_connect_data(repo_banner, "clicked", @ptrCast(&onRepoBannerClicked), state, null, 0);
-    gtk.gtk_box_append(center, repo_banner);
-    state.repo_banner = repo_banner;
 
     gtk.gtk_box_append(center, buildFilterBar(state));
     const pills = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
@@ -1414,10 +1470,10 @@ fn refreshSidebar(state: *AppState) void {
     }
 
     gtk.gtk_list_box_remove_all(sidebar);
-    gtk.gtk_list_box_append(sidebar, sidebarRow(null, "All issues", "", "", state));
+    gtk.gtk_list_box_append(sidebar, sidebarRow(null, "All issues", "", state));
 
     const projects = db.listProjects(a, state.active_workspace_id) catch return;
-    for (projects) |p| gtk.gtk_list_box_append(sidebar, sidebarRow(p.id, p.name, p.github_repo, p.color, state));
+    for (projects) |p| gtk.gtk_list_box_append(sidebar, sidebarRow(p.id, p.name, p.color, state));
 
     // Re-assert the active row's selection (lost by remove_all) so the current
     // project stays highlighted. index 0 = "All issues" (null selection).
@@ -1470,10 +1526,7 @@ fn switchWorkspace(state: *AppState, ws_id: []const u8) void {
     state.selected_project_id = null;
     if (state.selected_project_name) |p| state.gpa.free(p);
     state.selected_project_name = null;
-    if (state.selected_project_repo) |p| state.gpa.free(p);
-    state.selected_project_repo = null;
     if (state.switcher_popover) |pop| gtk.gtk_popover_popdown(pop);
-    updateRepoBanner(state);
     refreshSidebar(state); // rebuilds the switcher → frees the calling row's ctx
     refreshIssues(state);
 }
@@ -1490,10 +1543,10 @@ fn onNewWorkspaceClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     openWorkspaceDialog(state);
 }
 
-/// A sidebar row carrying its project id + name + repo (GLib-owned, freed on
-/// destroy); `id == null` means the "All issues" entry. Project rows lead with a
-/// small colour dot (matching the web sidebar); the "All issues" row has none.
-fn sidebarRow(id: ?[:0]const u8, name: [:0]const u8, repo: []const u8, color: []const u8, state: *AppState) gtk.Object {
+/// A sidebar row carrying its project id + name (GLib-owned, freed on destroy);
+/// `id == null` means the "All issues" entry. Project rows lead with a small
+/// colour dot (matching the web sidebar); the "All issues" row has none.
+fn sidebarRow(id: ?[:0]const u8, name: [:0]const u8, color: []const u8, state: *AppState) gtk.Object {
     const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
     gtk.gtk_widget_set_margin_top(row, 6);
     gtk.gtk_widget_set_margin_bottom(row, 6);
@@ -1512,12 +1565,6 @@ fn sidebarRow(id: ?[:0]const u8, name: [:0]const u8, repo: []const u8, color: []
         } else |_| {}
     }
     gtk.g_object_set_data_full(row, "exp-project-name", @ptrCast(gtk.g_strdup(name.ptr)), @ptrCast(&gtk.g_free));
-    if (repo.len > 0) {
-        if (state.gpa.dupeZ(u8, repo)) |tmp| {
-            defer state.gpa.free(tmp);
-            gtk.g_object_set_data_full(row, "exp-project-repo", @ptrCast(gtk.g_strdup(tmp.ptr)), @ptrCast(&gtk.g_free));
-        } else |_| {}
-    }
     return row;
 }
 
@@ -1528,7 +1575,6 @@ fn onProjectSelected(_: gtk.Object, row: gtk.Object, data: gtk.gpointer) callcon
     const child = gtk.gtk_list_box_row_get_child(row);
     const raw = gtk.g_object_get_data(child, "exp-project-id");
     const raw_name = gtk.g_object_get_data(child, "exp-project-name");
-    const raw_repo = gtk.g_object_get_data(child, "exp-project-repo");
 
     if (state.selected_project_id) |p| state.gpa.free(p);
     state.selected_project_id = if (raw == null)
@@ -1542,41 +1588,7 @@ fn onProjectSelected(_: gtk.Object, row: gtk.Object, data: gtk.gpointer) callcon
     else
         state.gpa.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(raw_name)))) catch null;
 
-    if (state.selected_project_repo) |p| state.gpa.free(p);
-    state.selected_project_repo = if (raw_repo == null)
-        null
-    else
-        state.gpa.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(raw_repo)))) catch null;
-
-    updateRepoBanner(state);
     refreshIssues(state);
-}
-
-/// Show the GitHub repo banner for the selected project (hidden otherwise).
-fn updateRepoBanner(state: *AppState) void {
-    const banner = state.repo_banner orelse return;
-    const repo = state.selected_project_repo orelse {
-        gtk.gtk_widget_set_visible(banner, 0);
-        return;
-    };
-    if (repo.len == 0) {
-        gtk.gtk_widget_set_visible(banner, 0);
-        return;
-    }
-    var buf: [256]u8 = undefined;
-    if (std.fmt.bufPrintZ(&buf, "‹/›  {s}", .{repo[0..@min(repo.len, buf.len - 8)]})) |z| {
-        gtk.gtk_button_set_label(banner, z.ptr);
-    } else |_| {}
-    gtk.gtk_widget_set_visible(banner, 1);
-}
-
-fn onRepoBannerClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const state: *AppState = @ptrCast(@alignCast(data));
-    const repo = state.selected_project_repo orelse return;
-    if (repo.len == 0) return;
-    var buf: [320]u8 = undefined;
-    const url = std.fmt.bufPrintZ(&buf, "https://github.com/{s}", .{repo}) catch return;
-    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
 }
 
 /// Open the instance's /feedback page in the browser (the web route forwards to
@@ -3876,20 +3888,32 @@ fn onPreviewToggle(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     if (total > 600) gtk.gtk_paned_set_position(split, total - 420);
 }
 
-/// Read the active project's `.exponential/config.json` from its clone and fill
-/// the picker. The DB mirror (preview_config column) only names targets; the
-/// commands come from the working-tree file — so a project with no clone yet
-/// shows an empty picker + a hint.
+/// Fill the picker for the active project. The repo that keys the clone dir now
+/// comes from the workspace `repositories` registry (tRPC, server-only — the
+/// projects shape no longer carries a repo column), so this resolves it on a
+/// worker thread first, then parses `.exponential/config.json` from the clone.
 fn loadPreviewTargets(state: *AppState) void {
     const pane = state.preview_pane orelse return;
     freePreviewTargets(state);
 
-    // The project's GitHub repo slug ("owner/name") keys the clone dir.
-    const repo = state.selected_project_repo orelse "";
-    if (repo.len == 0) {
-        pane.setMessage("This project has no linked GitHub repo — preview reads .exponential/config.json from the clone.");
+    const project_id = state.selected_project_id orelse {
+        pane.setMessage("Select a project to preview — repositories are linked per project.");
         return;
-    }
+    };
+    const ws_id = state.active_workspace_id orelse return;
+    const inst = state.instance orelse return;
+    pane.setMessage("Resolving the project's linked repository…");
+    startPreviewRepoResolve(state, inst, ws_id, project_id);
+}
+
+/// Parse the resolved repo's `.exponential/config.json` from its clone and fill
+/// the picker. The DB mirror (preview_config column) only names targets; the
+/// commands come from the working-tree file — so a project with no clone yet
+/// shows an empty picker + a hint.
+fn fillPreviewTargets(state: *AppState, repo: []const u8) void {
+    const pane = state.preview_pane orelse return;
+    freePreviewTargets(state);
+
     if (state.preview_repo_slug) |p| state.gpa.free(p);
     state.preview_repo_slug = state.gpa.dupe(u8, repo) catch null;
 
@@ -3898,7 +3922,7 @@ fn loadPreviewTargets(state: *AppState) void {
     var scratch = std.heap.ArenaAllocator.init(state.gpa);
     defer scratch.deinit();
     const cfg = preview_config.load(scratch.allocator(), repo) catch {
-        pane.setMessage("No .exponential/config.json found in the clone yet (clone the repo first).");
+        pane.setMessage("No .exponential/config.json found in the clone yet (start coding once to clone the repo).");
         return;
     };
 
@@ -3921,6 +3945,119 @@ fn loadPreviewTargets(state: *AppState) void {
     pane.setTargets(picker_entries.items);
     if (state.preview_targets.items.len == 0)
         pane.setMessage("No run targets declared in .exponential/config.json.");
+}
+
+// --- async preview repo resolve (repositories registry) ---
+
+const PreviewRepoJob = struct {
+    state: *AppState,
+    gpa: std.mem.Allocator,
+    instance: []u8,
+    token: ?[]u8,
+    workspace_id: []u8,
+    project_id: []u8,
+    full_name: ?[]u8 = null, // resolved "owner/name" (primary link, else sole link)
+};
+
+/// Resolve the project's repo fullName off the main thread: the project's
+/// primary `project_repositories` link wins, else its sole link, else null —
+/// mirroring the server's `repositories.forIssue` choice rule, but scoped by
+/// project (the preview pane has no issue context).
+fn startPreviewRepoResolve(state: *AppState, instance: []const u8, workspace_id: []const u8, project_id: []const u8) void {
+    const gpa = state.gpa;
+    const job = gpa.create(PreviewRepoJob) catch return;
+    job.* = .{
+        .state = state,
+        .gpa = gpa,
+        .instance = gpa.dupe(u8, instance) catch {
+            gpa.destroy(job);
+            return;
+        },
+        .token = if (state.token) |t| (gpa.dupe(u8, t) catch null) else null,
+        .workspace_id = gpa.dupe(u8, workspace_id) catch {
+            gpa.free(job.instance);
+            gpa.destroy(job);
+            return;
+        },
+        .project_id = gpa.dupe(u8, project_id) catch {
+            gpa.free(job.instance);
+            gpa.free(job.workspace_id);
+            gpa.destroy(job);
+            return;
+        },
+    };
+    const th = std.Thread.spawn(.{}, previewRepoWorker, .{job}) catch {
+        previewRepoWorker(job);
+        return;
+    };
+    th.detach();
+}
+
+fn previewRepoWorker(job: *PreviewRepoJob) void {
+    defer _ = gtk.g_idle_add(@ptrCast(&onPreviewRepoDone), job);
+    const gpa = job.gpa;
+    const input = std.fmt.allocPrint(gpa, "{{\"workspaceId\":\"{s}\"}}", .{job.workspace_id}) catch return;
+    defer gpa.free(input);
+    var resp = trpc.queryInput(gpa, job.instance, "repositories.list", input, job.token, 30) catch return;
+    defer resp.deinit();
+    if (!resp.ok()) return;
+    var dv = resp.data() orelse return;
+    // Unwrap a `{ json: … }` transformer layer if present.
+    if (trpc.asObject(dv)) |obj| {
+        if (obj.get("json")) |inner| dv = inner;
+    }
+    const repos = switch (dv) {
+        .array => |a| a,
+        else => return,
+    };
+    var sole: ?[]const u8 = null;
+    var linked_count: usize = 0;
+    for (repos.items) |rv| {
+        const repo = trpc.asObject(rv) orelse continue;
+        const full_name = trpc.objString(repo, "fullName") orelse continue;
+        const links = switch (repo.get("projectLinks") orelse continue) {
+            .array => |a| a,
+            else => continue,
+        };
+        for (links.items) |lv| {
+            const link = trpc.asObject(lv) orelse continue;
+            const pid = trpc.objString(link, "projectId") orelse continue;
+            if (!std.mem.eql(u8, pid, job.project_id)) continue;
+            if (trpc.objBool(link, "isPrimary")) {
+                job.full_name = gpa.dupe(u8, full_name) catch null;
+                return; // primary link wins outright
+            }
+            linked_count += 1;
+            sole = full_name;
+        }
+    }
+    if (linked_count == 1) {
+        if (sole) |s| job.full_name = gpa.dupe(u8, s) catch null;
+    }
+}
+
+fn onPreviewRepoDone(data: gtk.gpointer) callconv(.c) c_int {
+    const job: *PreviewRepoJob = @ptrCast(@alignCast(data));
+    const state = job.state;
+    defer {
+        const gpa = job.gpa;
+        gpa.free(job.instance);
+        if (job.token) |t| gpa.free(t);
+        gpa.free(job.workspace_id);
+        gpa.free(job.project_id);
+        if (job.full_name) |f| gpa.free(f);
+        gpa.destroy(job);
+    }
+    // Only apply if this project is still the selected one (and we're signed in).
+    const cur = state.selected_project_id orelse return 0;
+    if (!std.mem.eql(u8, cur, job.project_id)) return 0;
+    const pane = state.preview_pane orelse return 0;
+    if (job.full_name) |full| {
+        fillPreviewTargets(state, full);
+    } else {
+        pane.setMessage("This project has no linked repository — link one in workspace settings (a lone non-primary link also needs Primary set).");
+    }
+    return 0; // G_SOURCE_REMOVE
 }
 
 fn dupePreviewTarget(a: std.mem.Allocator, t: preview_config.RunTarget) !preview_config.RunTarget {

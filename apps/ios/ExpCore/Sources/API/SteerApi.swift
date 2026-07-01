@@ -33,14 +33,17 @@ public struct SteerTicket: Decodable, Sendable {
 
     public var isDisabled: Bool { disabled == true || ticket == nil || url == nil }
 
-    /// Dial URL with `?ticket=` appended — the relay reads the ticket from the
-    /// query string (browsers can't set WS headers; the desktop mirrors that).
-    /// Assumes `url` is the full `wss://<relay>/ws` endpoint.
+    /// Dial URL — the server returns `url` as the full
+    /// `ws(s)://<relay>/ws?ticket=<token>` (the relay reads the ticket from the
+    /// query string; browsers can't set WS headers and the desktop mirrors that).
+    /// Appends `ticket` only when the server URL doesn't already carry one.
     public func connectURL() -> URL? {
         guard let url, let ticket, var comps = URLComponents(string: url) else { return nil }
         var items = comps.queryItems ?? []
-        items.append(URLQueryItem(name: "ticket", value: ticket))
-        comps.queryItems = items
+        if !items.contains(where: { $0.name == "ticket" }) {
+            items.append(URLQueryItem(name: "ticket", value: ticket))
+            comps.queryItems = items
+        }
         return comps.url
     }
 }

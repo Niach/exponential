@@ -24,11 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
@@ -54,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -156,14 +153,6 @@ fun IssueListScreen(
                     item(key = "search") {
                         SearchField(query = query, onQueryChange = { query = it })
                         Spacer(Modifier.height(4.dp))
-                    }
-                    val currentRepo = state.project?.githubRepo?.takeIf { it.isNotBlank() }
-                    if (currentRepo != null) {
-                        // Read-only indicator; linking now lives in workspace settings.
-                        item(key = "repo") {
-                            GithubRepoBanner(currentRepo)
-                            Spacer(Modifier.height(4.dp))
-                        }
                     }
                     item(key = "pills") {
                         FilterPills(
@@ -470,48 +459,3 @@ internal fun IssueRow(
     }
 }
 
-// Surfaces the project's linked GitHub repo as a tappable banner (parity with
-// iOS). The OAuth device flow that wires the repo lives on the web app; mobile
-// can read but not change the link.
-@Composable
-private fun GithubRepoBanner(repo: String) {
-    val context = LocalContext.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassRow()
-            .clickable {
-                runCatching {
-                    val uri = android.net.Uri.parse("https://github.com/$repo")
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
-                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-                }
-            }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Filled.Code,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            repo,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.OpenInNew,
-            contentDescription = "Open on GitHub",
-            modifier = Modifier.size(13.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
-}

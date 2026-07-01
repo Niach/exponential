@@ -5,11 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.data.api.CreateLabelInput
-import com.exponential.app.data.api.GithubReposResult
-import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.api.LabelsApi
-import com.exponential.app.data.api.ProjectsApi
+import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.UpdateLabelInput
+import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.UpdateWorkspaceInput
 import com.exponential.app.data.api.WorkspaceInvitesApi
 import com.exponential.app.data.api.WorkspaceMembersApi
@@ -31,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -46,6 +46,8 @@ data class WorkspaceSettingsState(
     val invites: List<WorkspaceInviteEntity> = emptyList(),
     val labels: List<LabelEntity> = emptyList(),
     val projects: List<ProjectEntity> = emptyList(),
+    // Server-only repositories registry, loaded over tRPC (never synced).
+    val repos: List<WorkspaceRepo> = emptyList(),
     val currentUserId: String? = null,
     val transient: String? = null,
     val createdInviteToken: String? = null,
@@ -63,8 +65,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val invitesApi: WorkspaceInvitesApi,
     private val labelsApi: LabelsApi,
     private val workspacesApi: WorkspacesApi,
-    private val projectsApi: ProjectsApi,
-    private val integrationsApi: IntegrationsApi,
+    private val repositoriesApi: RepositoriesApi,
 ) : ViewModel() {
 
     // Reactive account scoping: a Settings → Workspaces tap on a different
@@ -94,7 +95,23 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val _transient = MutableStateFlow<String?>(null)
     private val _createdInviteToken = MutableStateFlow<String?>(null)
     private val _workspaceDeleted = MutableStateFlow(false)
+    private val _repos = MutableStateFlow<List<WorkspaceRepo>>(emptyList())
     val transient: StateFlow<String?> = _transient.asStateFlow()
+
+    init {
+        // Repositories aren't an Electric shape — (re)load the registry over
+        // tRPC whenever the active account or selected workspace changes.
+        viewModelScope.launch {
+            combine(auth.activeAccountId, selection.selectedId) { a, w -> a to w }
+                .collectLatest { (accountId, workspaceId) ->
+                    _repos.value = emptyList()
+                    if (accountId != null && workspaceId != null) {
+                        runCatching { repositoriesApi.list(accountId, workspaceId) }
+                            .onSuccess { _repos.value = it }
+                    }
+                }
+        }
+    }
 
     val state: StateFlow<WorkspaceSettingsState> = combine(
         listOf(
@@ -103,6 +120,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
             invitesFlow,
             labelsFlow,
             projectsFlow,
+            _repos,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             auth.userId,
             auth.instanceUrl,
@@ -122,18 +140,21 @@ class WorkspaceSettingsViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val projects = values[4] as List<ProjectEntity>
         @Suppress("UNCHECKED_CAST")
-        val users = values[5] as List<UserEntity>
-        val currentUserId = values[6] as String?
-        val instance = values[7] as String?
-        val transient = values[8] as String?
-        val invite = values[9] as String?
-        val deleted = values[10] as Boolean
+        val repos = values[5] as List<WorkspaceRepo>
+        @Suppress("UNCHECKED_CAST")
+        val users = values[6] as List<UserEntity>
+        val currentUserId = values[7] as String?
+        val instance = values[8] as String?
+        val transient = values[9] as String?
+        val invite = values[10] as String?
+        val deleted = values[11] as Boolean
         WorkspaceSettingsState(
             workspace = workspace,
             members = members.map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) },
             invites = invites,
             labels = labels,
             projects = projects,
+            repos = repos,
             currentUserId = currentUserId,
             transient = transient,
             createdInviteToken = invite,
@@ -216,25 +237,35 @@ class WorkspaceSettingsViewModel @Inject constructor(
             .onFailure { _transient.value = it.message }
     }
 
-    // Repos the user's GitHub App is installed on (for the connect-repo picker).
-    suspend fun loadGithubRepos(): GithubReposResult {
-        val accountId = auth.activeAccountId.value ?: return GithubReposResult()
-        return integrationsApi.githubRepos(accountId)
-    }
+    // --- Repositories registry (server-only; the list is re-fetched after
+    // every mutation because there is no Electric shape to sync it back). ---
 
-    // Link/unlink a project's repo (server enforces workspace-owner). Electric
-    // sync surfaces the updated project.githubRepo back into `state.projects`.
-    fun linkRepo(projectId: String, repo: String) = viewModelScope.launch {
+    fun refreshRepos() = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        runCatching { projectsApi.linkGithubRepo(accountId, projectId, repo) }
+        val workspaceId = selection.selectedId.value ?: return@launch
+        runCatching { repositoriesApi.list(accountId, workspaceId) }
+            .onSuccess { _repos.value = it }
             .onFailure { _transient.value = it.message }
     }
 
-    fun unlinkRepo(projectId: String) = viewModelScope.launch {
+    private fun repoMutation(block: suspend (accountId: String) -> Unit) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        runCatching { projectsApi.unlinkGithubRepo(accountId, projectId) }
+        runCatching { block(accountId) }
             .onFailure { _transient.value = it.message }
+        refreshRepos()
     }
+
+    fun removeRepo(repositoryId: String) =
+        repoMutation { repositoriesApi.remove(it, repositoryId) }
+
+    fun linkRepoToProject(projectId: String, repositoryId: String) =
+        repoMutation { repositoriesApi.linkProject(it, projectId, repositoryId) }
+
+    fun unlinkRepoFromProject(projectId: String, repositoryId: String) =
+        repoMutation { repositoriesApi.unlinkProject(it, projectId, repositoryId) }
+
+    fun setPrimaryRepo(projectId: String, repositoryId: String) =
+        repoMutation { repositoriesApi.setPrimary(it, projectId, repositoryId) }
 
     fun setPublic(isPublic: Boolean) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch

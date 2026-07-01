@@ -78,6 +78,10 @@ private final class ControlConnection {
     private var task: URLSessionWebSocketTask?
     private var stopped = false
     private var backoff: Double = 2
+    /// Steer disabled / router missing is a TERMINAL state, not a failure —
+    /// recheck slowly instead of hot-polling `steer.config` every ≤30s from
+    /// every running Mac app.
+    private static let disabledRecheckInterval: Double = 15 * 60
 
     init(accountId: String, steerApi: SteerApi, deviceId: String, onStartSession: @escaping @MainActor (String) -> Void) {
         self.accountId = accountId
@@ -98,12 +102,31 @@ private final class ControlConnection {
         guard !stopped else { return }
         Task { @MainActor in
             // Config gate: only dial when the relay is configured on this instance.
-            guard let config = try? await steerApi.config(accountId: accountId), config.enabled,
-                  let ticket = try? await steerApi.mintControlTicket(
-                      accountId: accountId, deviceLabel: Self.deviceLabel),
-                  !ticket.isDisabled, let url = ticket.connectURL()
+            let config: SteerConfig
+            do {
+                config = try await steerApi.config(accountId: accountId)
+            } catch let TrpcError.httpError(status, _) where status == 404 {
+                // The steer router isn't mounted on this instance (older server /
+                // router not deployed) — terminal, not transient. Recheck slowly.
+                scheduleRecheck(after: Self.disabledRecheckInterval)
+                return
+            } catch {
+                scheduleReconnect() // transient (network etc.) — normal backoff
+                return
+            }
+            guard config.enabled else {
+                // The instance explicitly reports steer off — same slow recheck.
+                scheduleRecheck(after: Self.disabledRecheckInterval)
+                return
+            }
+            guard let ticket = try? await steerApi.mintControlTicket(
+                      accountId: accountId, deviceLabel: Self.deviceLabel)
             else {
                 scheduleReconnect()
+                return
+            }
+            guard !ticket.isDisabled, let url = ticket.connectURL() else {
+                scheduleRecheck(after: Self.disabledRecheckInterval)
                 return
             }
             guard !stopped else { return }
@@ -149,6 +172,18 @@ private final class ControlConnection {
         task = nil
         let delay = backoff
         backoff = min(backoff * 2, 30)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            self?.attempt()
+        }
+    }
+
+    /// Slow re-attempt for the terminal disabled/NOT_FOUND state. Resets the
+    /// failure backoff so a later enable reconnects promptly.
+    private func scheduleRecheck(after delay: Double) {
+        guard !stopped else { return }
+        task = nil
+        backoff = 2
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             self?.attempt()

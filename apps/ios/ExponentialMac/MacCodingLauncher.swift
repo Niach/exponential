@@ -38,6 +38,15 @@ final class MacCodingLauncher {
     private var tails: [String: MacSteerPtyTail] = [:]
     private var rawFiles: [String: URL] = [:]
 
+    // steer.config cache per account: a local play-button start must never
+    // block on (or repeat) the config round-trip — steering is purely additive.
+    private struct CachedSteerConfig {
+        let enabled: Bool
+        let fetchedAt: Date
+    }
+    private var steerConfigCache: [String: CachedSteerConfig] = [:]
+    private static let steerConfigTTL: TimeInterval = 5 * 60
+
     init(
         auth: AuthRepository,
         repositoriesApi: RepositoriesApi,
@@ -75,6 +84,10 @@ final class MacCodingLauncher {
     }
 
     private func run(accountId: String, issueId: String) async {
+        // Kick the steer-config resolve off NOW so it races the repo/token/git
+        // prep below instead of adding a round-trip to the critical path.
+        let steerEnabledTask = resolveSteerEnabled(accountId: accountId)
+
         // Read the synced issue locally for the prompt (identifier/title/body).
         guard let pool = try? db.pool(forAccountId: accountId),
               let issue = try? await pool.read({ db in try IssueEntity.fetchOne(db, key: issueId) })
@@ -176,7 +189,10 @@ final class MacCodingLauncher {
         // we run `claude` under `script(1)` — it gives claude a real PTY AND tees
         // the verbatim terminal bytes to a file the publisher tails. Disabled ⇒ the
         // plain spawn (byte-identical to local-only coding).
-        let steerEnabled = ((try? await steerApi.config(accountId: accountId))?.enabled) ?? false
+        // The config resolve has been racing the git prep since the top of run();
+        // the bounded await means a hung endpoint can only cost ~2s, never hang
+        // the local start (on timeout we just start without the tee).
+        let steerEnabled = await Self.awaitBounded(steerEnabledTask, seconds: 2) ?? false
         let program: String
         let argv: [String]
         var rawFile: URL?
@@ -184,7 +200,10 @@ final class MacCodingLauncher {
             let file = Self.steerRawFile(sessionId: session.id)
             rawFile = file
             program = "/usr/bin/script"
-            argv = ["-q", file.path, settings.claudePath, "--dangerously-skip-permissions"]
+            // -q: no start/stop banners; -t 0: flush the typescript after every
+            // I/O event (BSD script's default flush is every 30s — useless for a
+            // live tail).
+            argv = ["-q", "-t", "0", file.path, settings.claudePath, "--dangerously-skip-permissions"]
         } else {
             program = settings.claudePath
             argv = ["--dangerously-skip-permissions"]
@@ -232,6 +251,17 @@ final class MacCodingLauncher {
             },
             onKill: { MacTerminalRunner.shared.terminate(runId: sessionId) }
         )
+        // Real terminal geometry: seed `hello` with the current ghostty grid and
+        // forward live grid changes as `resize` frames so remote viewers reflow.
+        // (Before the socket connects, sendResize just records cols/rows for hello.)
+        if dock.currentRunId == sessionId, let view = dock.terminalView {
+            view.onGridSizeChange = { [weak publisher] cols, rows in
+                publisher?.sendResize(cols: cols, rows: rows)
+            }
+            if let grid = view.gridSize() {
+                publisher.sendResize(cols: grid.cols, rows: grid.rows)
+            }
+        }
         let tail = MacSteerPtyTail(path: rawFile.path) { [weak publisher] data in
             Task { @MainActor in publisher?.feed(data) }
         }
@@ -240,6 +270,44 @@ final class MacCodingLauncher {
         rawFiles[issueId] = rawFile
         publisher.start()
         tail.start()
+    }
+
+    /// Resolve whether steering is enabled for this account without putting the
+    /// `steer.config` round-trip on the start critical path: fresh cache hit ⇒
+    /// no fetch at all; otherwise one fetch runs concurrently with the git prep
+    /// and lands in the cache for the next start. Failures (incl. the router
+    /// not being deployed yet — NOT_FOUND) count as disabled until the TTL.
+    private func resolveSteerEnabled(accountId: String) -> Task<Bool, Never> {
+        if let cached = steerConfigCache[accountId],
+           Date().timeIntervalSince(cached.fetchedAt) < Self.steerConfigTTL {
+            let enabled = cached.enabled
+            return Task { enabled }
+        }
+        let api = steerApi
+        return Task { @MainActor [weak self] in
+            let enabled = ((try? await api.config(accountId: accountId))?.enabled) ?? false
+            self?.steerConfigCache[accountId] = CachedSteerConfig(enabled: enabled, fetchedAt: Date())
+            return enabled
+        }
+    }
+
+    /// Await a task's value for at most `seconds`; nil on timeout. The underlying
+    /// task keeps running (and populates the config cache) even when we stop
+    /// waiting. First-wins continuation race rather than a task group: a group
+    /// would implicitly re-await the (non-cancellable) `task.value` child on
+    /// exit, defeating the bound.
+    private static func awaitBounded<T: Sendable>(_ task: Task<T, Never>, seconds: Double) async -> T? {
+        let once = ResumeOnce()
+        return await withCheckedContinuation { (cont: CheckedContinuation<T?, Never>) in
+            Task {
+                let value = await task.value
+                if once.claim() { cont.resume(returning: value) }
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                if once.claim() { cont.resume(returning: nil) }
+            }
+        }
     }
 
     /// Per-session raw PTY-tee file under the app-support dir.
@@ -284,6 +352,20 @@ final class MacCodingLauncher {
         ]
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted])
         try data.write(to: worktree.appendingPathComponent(".mcp.json"))
+    }
+
+    /// First-wins guard for `awaitBounded`'s continuation race (defined outside
+    /// the generic function — Swift forbids types nested in generic contexts).
+    private final class ResumeOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var resumed = false
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if resumed { return false }
+            resumed = true
+            return true
+        }
     }
 
     /// The plan-first prompt written to `PROMPT.md`. `claude` is launched with

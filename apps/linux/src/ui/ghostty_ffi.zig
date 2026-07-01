@@ -189,6 +189,10 @@ pub extern fn ghostty_surface_set_size(Surface, u32, u32) void;
 pub extern fn ghostty_surface_size(Surface) surface_size_s;
 pub extern fn ghostty_surface_key(Surface, input_key_s) bool;
 pub extern fn ghostty_surface_text(Surface, [*]const u8, usize) void;
+// Manual-IO mode (SURFACE_IO_MANUAL): the host owns the child + PTY and feeds
+// terminal output bytes into the surface for rendering; local keystrokes come
+// back out through the surface config's io_write_cb.
+pub extern fn ghostty_surface_process_output(Surface, [*]const u8, usize) void;
 pub extern fn ghostty_surface_mouse_button(Surface, c_int, c_int, c_int) bool;
 pub extern fn ghostty_surface_mouse_pos(Surface, f64, f64, c_int) void;
 pub extern fn ghostty_surface_mouse_scroll(Surface, f64, f64, c_int) void;

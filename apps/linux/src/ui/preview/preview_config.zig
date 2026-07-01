@@ -3,9 +3,11 @@
 //! The CANONICAL build/run commands live ONLY in the committed
 //! `.exponential/config.json` in the cloned working tree — never in the synced
 //! DB mirror (`projects.preview_config`), which is display-only and never
-//! executed. This module reads the repo file from the clone under
-//! `storage.configDir()/repos/<owner>/<name>` and parses it into typed
-//! `RunTarget`s (mirrors `packages/db-schema/src/domain.ts`).
+//! executed. This module reads the repo file from the coding launcher's shared
+//! clone under `<reposRoot>/<owner>/<name>` (see core/git_worktree.zig; the
+//! root defaults to `~/Exponential/repos`, overridable in desktop settings)
+//! and parses it into typed `RunTarget`s (mirrors
+//! `packages/db-schema/src/domain.ts`).
 //!
 //! Trust gate: commands are agent-editable and travel with the repo, so the Run
 //! button is gated behind a one-time "Trust preview commands for owner/name?"
@@ -19,6 +21,7 @@
 
 const std = @import("std");
 const storage = @import("../../core/storage.zig");
+const credentials = @import("../../core/credentials.zig");
 const contract = @import("../../core/domain/contract.generated.zig");
 
 pub const Platform = enum {
@@ -86,13 +89,22 @@ pub const Config = struct {
 
 pub const Error = error{ NotFound, ParseFailed, OutOfMemory };
 
-/// `<configDir>/repos/<repo_slug>` — the agent-core clones the GitHub repo here
-/// (matches app.zig's `reposRoot`). `repo_slug` is the project's `github_repo`
-/// ("owner/name"). Caller owns the returned path.
+/// `<reposRoot>/<repo_slug>` — the coding launcher's shared clone
+/// (git_worktree.clonePath). `repo_slug` is the repositories-registry
+/// `fullName` ("owner/name"). Caller owns the returned path.
 pub fn repoCloneDir(gpa: std.mem.Allocator, repo_slug: []const u8) ![]u8 {
-    const dir = try storage.configDir(gpa);
-    defer gpa.free(dir);
-    return std.fs.path.join(gpa, &.{ dir, "repos", repo_slug });
+    var cred = credentials.Store.open(gpa) catch return credentialLessCloneDir(gpa, repo_slug);
+    defer cred.deinit();
+    const root = try cred.reposRoot(gpa);
+    defer gpa.free(root);
+    return std.fs.path.join(gpa, &.{ root, repo_slug });
+}
+
+/// Fallback when the desktop-settings store can't be opened: the default root.
+fn credentialLessCloneDir(gpa: std.mem.Allocator, repo_slug: []const u8) ![]u8 {
+    const root = try credentials.defaultReposRoot(gpa);
+    defer gpa.free(root);
+    return std.fs.path.join(gpa, &.{ root, repo_slug });
 }
 
 /// Absolute path to a clone's `.exponential/config.json`. Caller owns it.

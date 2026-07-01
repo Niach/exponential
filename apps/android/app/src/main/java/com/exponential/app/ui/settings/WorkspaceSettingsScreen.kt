@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,11 +21,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,10 +61,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.domain.DomainContract
@@ -66,6 +76,7 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
 
 private enum class WsTab(val label: String) { General("General"), Members("Members"), Labels("Labels") }
@@ -129,9 +140,8 @@ fun WorkspaceSettingsScreen(
 @Composable
 private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettingsViewModel) {
     var confirmDelete by remember { mutableStateOf(false) }
-    var repoTarget by remember { mutableStateOf<ProjectEntity?>(null) }
-    // Repo connect/unlink is owner-only (the server enforces workspace-owner on
-    // linkGithubRepo/unlinkGithubRepo); everyone else sees the linked repo read-only.
+    // Repository management is owner-only (the server enforces workspace-owner
+    // on the `repositories` router mutations); everyone else reads the registry.
     val isOwner = state.currentUserId != null && state.members.any {
         it.member.userId == state.currentUserId &&
             it.member.role == DomainContract.workspaceRoleOwner
@@ -184,32 +194,6 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                         Box(Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
                         Spacer(Modifier.width(10.dp))
                         Text(project.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val repo = project.githubRepo?.takeIf { it.isNotBlank() }
-                        if (isOwner) {
-                            TextButton(onClick = { repoTarget = project }) {
-                                Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    repo ?: "Connect",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 120.dp),
-                                )
-                            }
-                        } else if (repo != null) {
-                            val meta = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = meta)
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                repo,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = meta,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 120.dp),
-                            )
-                        }
                         IconButton(onClick = { viewModel.deleteProject(project.id) }) {
                             Icon(Icons.Filled.Delete, contentDescription = "Delete project")
                         }
@@ -217,6 +201,8 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                 }
             }
         }
+
+        RepositoriesSection(state, viewModel, isOwner)
 
         OutlinedButton(onClick = { confirmDelete = true }) {
             Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
@@ -241,22 +227,186 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
+}
 
-    repoTarget?.let { project ->
-        GithubRepoPickerSheet(
-            projectName = project.name,
-            currentRepo = project.githubRepo?.takeIf { it.isNotBlank() },
-            loadRepos = { viewModel.loadGithubRepos() },
-            onPick = { repo ->
-                viewModel.linkRepo(project.id, repo)
-                repoTarget = null
-            },
-            onUnlink = {
-                viewModel.unlinkRepo(project.id)
-                repoTarget = null
-            },
-            onDismiss = { repoTarget = null },
-        )
+// The server-only repositories registry (masterplan §7a): lists connected repos
+// with their project links; owners can remove repos and link/unlink projects +
+// set the primary clone target. Connecting NEW repos (the GitHub-App install
+// flow) is web-only — we link out to the web workspace settings for that.
+@Composable
+private fun RepositoriesSection(
+    state: WorkspaceSettingsState,
+    viewModel: WorkspaceSettingsViewModel,
+    isOwner: Boolean,
+) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader("Repositories")
+        Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+            if (state.repos.isEmpty()) {
+                Text(
+                    "No repositories connected.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+            state.repos.forEachIndexed { i, repo ->
+                if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                RepositoryRow(
+                    repo = repo,
+                    projects = state.projects,
+                    isOwner = isOwner,
+                    viewModel = viewModel,
+                )
+            }
+        }
+        if (isOwner) {
+            val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
+                state.workspace?.slug?.let { slug -> "$base/w/$slug/settings" }
+            }
+            TextButton(
+                onClick = {
+                    webSettingsUrl?.let { url ->
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        }
+                    }
+                },
+                enabled = webSettingsUrl != null,
+            ) {
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Connect repositories on the web", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RepositoryRow(
+    repo: WorkspaceRepo,
+    projects: List<ProjectEntity>,
+    isOwner: Boolean,
+    viewModel: WorkspaceSettingsViewModel,
+) {
+    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                repo.fullName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(repo.defaultBranch, style = MaterialTheme.typography.labelSmall, color = tertiary)
+            if (repo.isPrivate) {
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
+            }
+            if (isOwner) {
+                IconButton(onClick = { viewModel.removeRepo(repo.id) }) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Remove repository")
+                }
+            }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (repo.projectLinks.isEmpty()) {
+                Text(
+                    "No projects linked",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tertiary,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+            repo.projectLinks.forEach { link ->
+                val project = projects.firstOrNull { it.id == link.projectId }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.glassRow().padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    // The star is the primary-clone-target marker (web parity):
+                    // owners tap it to promote the link to primary.
+                    Icon(
+                        if (link.isPrimary) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = if (link.isPrimary) "Primary repo" else "Make primary",
+                        modifier = Modifier
+                            .size(14.dp)
+                            .then(
+                                if (isOwner && !link.isPrimary) {
+                                    Modifier.clickable { viewModel.setPrimaryRepo(link.projectId, repo.id) }
+                                } else Modifier,
+                            ),
+                        tint = if (link.isPrimary) MaterialTheme.colorScheme.primary else tertiary,
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        project?.name ?: "Unknown project",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 140.dp),
+                    )
+                    if (isOwner) {
+                        Spacer(Modifier.width(5.dp))
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Unlink project",
+                            modifier = Modifier
+                                .size(13.dp)
+                                .clickable { viewModel.unlinkRepoFromProject(link.projectId, repo.id) },
+                            tint = tertiary,
+                        )
+                    }
+                }
+            }
+            val linkedIds = repo.projectLinks.map { it.projectId }.toSet()
+            val unlinked = projects.filter { it.id !in linkedIds }
+            if (isOwner && unlinked.isNotEmpty()) {
+                var linkMenu by remember { mutableStateOf(false) }
+                Box {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .glassRow()
+                            .clickable { linkMenu = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(13.dp), tint = secondary)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Link project", style = MaterialTheme.typography.labelMedium, color = secondary)
+                    }
+                    DropdownMenu(expanded = linkMenu, onDismissRequest = { linkMenu = false }) {
+                        unlinked.forEach { project ->
+                            DropdownMenuItem(
+                                text = { Text(project.name) },
+                                leadingIcon = {
+                                    Box(Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
+                                },
+                                onClick = {
+                                    linkMenu = false
+                                    viewModel.linkRepoToProject(project.id, repo.id)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

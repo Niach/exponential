@@ -147,7 +147,7 @@ apps/web/src/
 │   ├── shape-route.ts            # createShapeRouteHandler — shared auth-gated shape proxy builder
 │   ├── filters.ts                # IssueFilters, tab presets, matchesFilters()
 │   ├── trpc.ts / trpc-client.ts  # tRPC server setup / client hooks
-│   ├── trpc/                     # Routers: issues, projects, workspaces, labels, issue-labels, comments, notifications, subscriptions, workspace-members, workspace-invites, users, push-tokens, integrations, billing, admin, onboarding
+│   ├── trpc/                     # Routers: issues, projects, workspaces, labels, issue-labels, comments, notifications, subscriptions, workspace-members, workspace-invites, users, push-tokens, integrations, billing, admin, onboarding, repositories, coding-sessions, widgets, steer
 │   ├── integrations/             # mentions, notifications, fcm, activity, github-app, github-pr, pr-sync, subscriptions
 │   └── storage/                  # S3 attachments: issue-attachments, issue-image-upload, image-dimensions, cleanup
 ├── routes/

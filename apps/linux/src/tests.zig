@@ -14,6 +14,12 @@ test {
     _ = @import("core/credentials.zig");
     _ = @import("core/git_worktree.zig");
     _ = @import("core/coding_prompt.zig");
+    _ = @import("core/steer/util.zig");
+    _ = @import("core/steer/protocol.zig");
+    _ = @import("core/steer/ws_client.zig");
+    _ = @import("core/steer/host_pty.zig"); // real-PTY tests (VM has /bin/sh)
+    _ = @import("core/steer/control_channel.zig");
+    _ = @import("core/steer/publisher.zig");
     _ = @import("core/db/database.zig");
     _ = @import("core/db/migrations.zig");
     _ = @import("core/annotate/geometry.zig");

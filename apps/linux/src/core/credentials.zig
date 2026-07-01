@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const storage = @import("storage.zig");
+const steer_util = @import("steer/util.zig");
 
 /// The default branch prefix — the launcher builds `<prefix><ISSUE-IDENTIFIER>`.
 pub const default_branch_prefix = "exp/";
@@ -35,6 +36,10 @@ pub const Data = struct {
     repos_root: ?[]const u8 = null,
     /// Branch prefix, or null for `exp/`.
     branch_prefix: ?[]const u8 = null,
+    /// Stable random id announced to the steer relay (`online{deviceId}`) so
+    /// the phone's "Start on my desktop" picker can target THIS machine.
+    /// Generated once on first use, then persisted.
+    device_id: ?[]const u8 = null,
 };
 
 pub const Store = struct {
@@ -74,6 +79,7 @@ pub const Store = struct {
             .claude_path = dupOpt(a, parsed.value.claude_path),
             .repos_root = dupOpt(a, parsed.value.repos_root),
             .branch_prefix = dupOpt(a, parsed.value.branch_prefix),
+            .device_id = dupOpt(a, parsed.value.device_id),
         };
     }
 
@@ -139,7 +145,37 @@ pub const Store = struct {
     pub fn personalKeyStart(self: *const Store) ?[]const u8 {
         return self.data.personal_api_key_start;
     }
+
+    /// The stable steer-relay device id. Generated (32 hex chars) and persisted
+    /// on first use; a failed save just means a fresh id next launch — the relay
+    /// treats a device id as ephemeral presence, so that's harmless.
+    pub fn deviceId(self: *Store) []const u8 {
+        if (self.data.device_id) |id| return id;
+        var raw: [16]u8 = undefined;
+        steer_util.fillRandom(&raw);
+        var hex: [32]u8 = undefined;
+        const alphabet = "0123456789abcdef";
+        for (raw, 0..) |b, i| {
+            hex[i * 2] = alphabet[b >> 4];
+            hex[i * 2 + 1] = alphabet[b & 0x0F];
+        }
+        const owned = self.arena.allocator().dupe(u8, &hex) catch return "linux-desktop";
+        self.data.device_id = owned;
+        self.save() catch {};
+        return owned;
+    }
 };
+
+/// Human device label for relay presence + `codingSessions.start`: the host
+/// name when readable, else a generic fallback. Caller owns the result.
+pub fn hostDeviceLabel(gpa: std.mem.Allocator) []u8 {
+    if (storage.readFileAlloc(gpa, "/etc/hostname")) |bytes| {
+        defer gpa.free(bytes);
+        const trimmed = std.mem.trim(u8, bytes, " \t\r\n");
+        if (trimmed.len > 0) return gpa.dupe(u8, trimmed) catch (gpa.dupe(u8, "Linux desktop") catch unreachable);
+    }
+    return gpa.dupe(u8, "Linux desktop") catch unreachable;
+}
 
 /// `$HOME/Exponential/repos` (caller owns it). Falls back to a relative path if
 /// `$HOME` is unset (never happens in practice; keeps this total).
@@ -180,6 +216,22 @@ test "effective defaults fold in when overrides are unset" {
     // Whitespace clears the override back to the default.
     store.setBranchPrefix("   ");
     try std.testing.expectEqualStrings("exp/", store.branchPrefix());
+}
+
+test "deviceId is generated once and stays stable in-process" {
+    const gpa = std.testing.allocator;
+    var store = Store{
+        .gpa = gpa,
+        .arena = std.heap.ArenaAllocator.init(gpa),
+        .path = "", // save() fails silently — id still cached in the arena
+    };
+    defer store.deinit();
+
+    const first = store.deviceId();
+    try std.testing.expectEqual(@as(usize, 32), first.len);
+    for (first) |ch| try std.testing.expect(std.ascii.isHex(ch));
+    const second = store.deviceId();
+    try std.testing.expectEqualStrings(first, second);
 }
 
 test "personal key round-trips through JSON" {

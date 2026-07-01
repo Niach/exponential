@@ -129,7 +129,6 @@ const schema_sql =
     \\  color TEXT NOT NULL DEFAULT '#6366f1',
     \\  sort_order REAL NOT NULL DEFAULT 0,
     \\  archived_at TEXT,
-    \\  github_repo TEXT,
     \\  preview_config TEXT,
     \\  created_at TEXT NOT NULL,
     \\  updated_at TEXT NOT NULL

@@ -9,8 +9,16 @@ final class MacSteerPtyTail: @unchecked Sendable {
     private let path: String
     private let onChunk: @Sendable (Data) -> Void
     private let queue = DispatchQueue(label: "at.exponential.steer.ptytail", qos: .userInitiated)
-    private var stopped = false
-    private var handle: FileHandle?
+    // `stopped` is lock-protected and set SYNCHRONOUSLY by stop(): loop()
+    // occupies the serial queue for the session's whole lifetime, so an
+    // enqueued stop block would never run (leaking the polling thread + fd).
+    private let lock = NSLock()
+    private var _stopped = false
+    private var stopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _stopped
+    }
 
     init(path: String, onChunk: @escaping @Sendable (Data) -> Void) {
         self.path = path
@@ -21,12 +29,12 @@ final class MacSteerPtyTail: @unchecked Sendable {
         queue.async { [weak self] in self?.loop() }
     }
 
+    /// Synchronous flag flip; the polling loop observes it within one poll
+    /// interval, closes its own file handle, and exits.
     func stop() {
-        queue.async { [weak self] in
-            self?.stopped = true
-            try? self?.handle?.close()
-            self?.handle = nil
-        }
+        lock.lock()
+        _stopped = true
+        lock.unlock()
     }
 
     private func loop() {
@@ -37,7 +45,7 @@ final class MacSteerPtyTail: @unchecked Sendable {
             waited += 1
         }
         guard !stopped, let h = FileHandle(forReadingAtPath: path) else { return }
-        handle = h
+        defer { try? h.close() } // the loop owns the fd; stop() never touches it
         // Poll-tail: FileHandle tracks the read offset, so once we hit EOF a later
         // read resumes from where the writer appended. Sleep on EOF to avoid a busy
         // loop without adding meaningful latency to live output.

@@ -29,8 +29,10 @@ import androidx.room.RoomDatabase
     // v6: hard cut — dropped agent_runs + agent/google-calendar issue columns,
     //     added coding_sessions (the new 14th shape) + issues.duplicate_of_id,
     //     issue_subscribers.user_id nullable + email.
+    // v7: dropped projects.github_repo — repos now live in the server-only
+    //     repositories registry (tRPC `repositories` router, never synced).
     // No Migration object — DatabaseHolder uses destructive fallback + resync.
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

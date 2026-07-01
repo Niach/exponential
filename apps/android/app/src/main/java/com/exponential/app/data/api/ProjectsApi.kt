@@ -12,20 +12,10 @@ data class CreateProjectInput(
     val name: String,
     val prefix: String,
     val color: String? = null,
-    val repo: String? = null,
 )
 
 @Serializable
 data class ProjectResult(val project: ProjectEntity)
-
-@Serializable
-data class LinkRepoInput(
-    @SerialName("projectId") val projectId: String,
-    val repo: String,
-)
-
-@Serializable
-data class UnlinkRepoInput(@SerialName("projectId") val projectId: String)
 
 @Singleton
 class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
@@ -36,24 +26,6 @@ class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
             path = "projects.create",
             input = input,
             inputSerializer = CreateProjectInput.serializer(),
-            outputSerializer = ProjectResult.serializer(),
-        ).project
-
-    suspend fun linkGithubRepo(accountId: String, projectId: String, repo: String): ProjectEntity =
-        trpc.mutation(
-            accountId,
-            path = "projects.linkGithubRepo",
-            input = LinkRepoInput(projectId, repo),
-            inputSerializer = LinkRepoInput.serializer(),
-            outputSerializer = ProjectResult.serializer(),
-        ).project
-
-    suspend fun unlinkGithubRepo(accountId: String, projectId: String): ProjectEntity =
-        trpc.mutation(
-            accountId,
-            path = "projects.unlinkGithubRepo",
-            input = UnlinkRepoInput(projectId),
-            inputSerializer = UnlinkRepoInput.serializer(),
             outputSerializer = ProjectResult.serializer(),
         ).project
 }

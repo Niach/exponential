@@ -14,6 +14,10 @@ final class MacGhosttyTerminalView: NSView {
     var onCommandFinished: ((Int16) -> Void)?
     var onProcessExit: (() -> Void)?
     var onTitleChange: ((String) -> Void)?
+    /// Fired when the terminal grid (columns × rows) changes — the steer
+    /// publisher forwards it as a `resize` frame so remote viewers reflow.
+    var onGridSizeChange: ((_ cols: Int, _ rows: Int) -> Void)?
+    private var lastGrid: (cols: Int, rows: Int)?
 
     private let command: String
     private let cwd: String?
@@ -95,6 +99,22 @@ final class MacGhosttyTerminalView: NSView {
         layer?.contentsScale = CGFloat(scale)
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, UInt32(sz.width), UInt32(sz.height))
+        notifyGridSizeChange()
+    }
+
+    /// The current terminal grid from libghostty, once the surface has a size.
+    func gridSize() -> (cols: Int, rows: Int)? {
+        guard let surface else { return nil }
+        let s = ghostty_surface_size(surface)
+        guard s.columns > 0, s.rows > 0 else { return nil }
+        return (cols: Int(s.columns), rows: Int(s.rows))
+    }
+
+    private func notifyGridSizeChange() {
+        guard let grid = gridSize() else { return }
+        if let last = lastGrid, last.cols == grid.cols, last.rows == grid.rows { return }
+        lastGrid = grid
+        onGridSizeChange?(grid.cols, grid.rows)
     }
 
     // MARK: - Focus

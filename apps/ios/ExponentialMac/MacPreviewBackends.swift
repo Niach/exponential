@@ -454,7 +454,7 @@ final class AndroidPreviewBackend: NSObject, PreviewBackend {
     private func setStatus(_ text: String) { statusLabel?.stringValue = text }
 
     // Poll `adb shell getprop sys.boot_completed` == 1 (after `adb wait-for-device`).
-    private static func waitForBoot(timeout: TimeInterval) -> Bool {
+    nonisolated private static func waitForBoot(timeout: TimeInterval) -> Bool {
         _ = PreviewShell.run("adb", ["wait-for-device"])
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -510,7 +510,8 @@ final class IOSSimPreviewBackend: NSObject, PreviewBackend {
             if let simulator = target.simulator { args += ["--simulator", simulator] }
             if let bundleId = target.bundleId { args += ["--bundle-id", bundleId] }
 
-            let result = await Self.background { PreviewShell.run("npx", args, cwd: root, env: env) }
+            let runArgs = args
+            let result = await Self.background { PreviewShell.run("npx", runArgs, cwd: root, env: env) }
             guard result.ok, let info = Self.parseServeSim(result.stdout) else {
                 onPhase(.error("serve-sim failed to start.\n\(result.stderr.isEmpty ? result.stdout : result.stderr)"))
                 return
@@ -575,7 +576,7 @@ final class IOSSimPreviewBackend: NSObject, PreviewBackend {
 
     /// Read the MJPEG multipart stream until the first complete JPEG (SOI..EOI)
     /// and return its bytes. Bounded read so a stalled stream can't block forever.
-    private static func grabMJPEGFrame(_ url: URL) -> Data? {
+    nonisolated private static func grabMJPEGFrame(_ url: URL) -> Data? {
         guard let stream = InputStream(url: url) else { return nil }
         stream.open()
         defer { stream.close() }

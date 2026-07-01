@@ -25,6 +25,7 @@ import {
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
+import { SteerTerminal } from "@/components/steer-terminal"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
 
@@ -349,6 +350,17 @@ export function IssueDetailView({
     />
   ) : null
 
+  // Live "coding now" badge + remote terminal watch/steer + "Start on my
+  // desktop" (masterplan §3.7), sitting where the PR/diff review lives.
+  const steerPanel = currentUserId ? (
+    <SteerTerminal
+      issueId={issue.id}
+      workspaceId={workspaceId}
+      currentUserId={currentUserId}
+      users={users}
+    />
+  ) : null
+
   if (isMobile) {
     return (
       <div className="flex flex-col h-full min-h-0">
@@ -358,6 +370,7 @@ export function IssueDetailView({
           {titleField}
           {editor}
           {attachmentRail}
+          {steerPanel}
           {timeline}
         </div>
       </div>
@@ -373,6 +386,7 @@ export function IssueDetailView({
             {titleField}
             {editor}
             {attachmentRail}
+            {steerPanel}
             {timeline}
           </div>
         </div>

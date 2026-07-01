@@ -164,9 +164,23 @@ pub const Options = struct {
     env: []const [2][]const u8 = &.{},
     /// Keep the surface open after the command exits so output stays visible.
     wait_after_command: bool = true,
-    /// Fired (on the main thread) when the child process exits.
+    /// Fired (on the main thread) when the child process exits. In manual-IO
+    /// mode there is no ghostty child — it fires only from the widget-destroy
+    /// fallback (-130), which callers use as the tab-closed signal.
     on_exit: ?*const fn (ctx: ?*anyopaque, exit_code: i32) void = null,
     on_exit_ctx: ?*anyopaque = null,
+
+    /// Host-PTY (steer) mode: the caller owns the child + PTY; ghostty only
+    /// renders. Output is fed via `feedOutput` (main thread); local keystrokes
+    /// are delivered to `io_write` — ghostty may invoke it OFF the main thread,
+    /// so the callback must only do thread-safe work (a PTY write(2) is).
+    manual_io: bool = false,
+    io_write: g.io_write_cb = null,
+    io_write_ctx: ?*anyopaque = null,
+    /// Fired on the main thread whenever the surface's cell grid changes size
+    /// (manual-IO callers propagate it to the PTY winsize + relay resize).
+    on_grid: ?*const fn (ctx: ?*anyopaque, cols: u16, rows: u16) void = null,
+    on_grid_ctx: ?*anyopaque = null,
 };
 
 /// Per-widget state, owned via g_object_set_data_full on the GtkGLArea.
@@ -179,6 +193,17 @@ const Term = struct {
     notified_exit: bool = false,
     on_exit: ?*const fn (ctx: ?*anyopaque, exit_code: i32) void = null,
     on_exit_ctx: ?*anyopaque = null,
+    // Manual-IO (host-PTY steer) mode.
+    manual_io: bool = false,
+    io_write: g.io_write_cb = null,
+    io_write_ctx: ?*anyopaque = null,
+    on_grid: ?*const fn (ctx: ?*anyopaque, cols: u16, rows: u16) void = null,
+    on_grid_ctx: ?*anyopaque = null,
+    last_cols: u16 = 0,
+    last_rows: u16 = 0,
+    /// Output that arrived before the surface existed (it's created lazily on
+    /// the first resize) — flushed into the surface at creation.
+    pending_output: std.ArrayListUnmanaged(u8) = .empty,
     // GLib timeout source ids (0 = inactive). The widget can be destroyed while
     // the child is alive (cancel/sign-out teardown), so destroyTerm must remove
     // any still-armed source or it fires on the freed Term. Each callback zeroes
@@ -219,7 +244,17 @@ pub fn create(gpa: std.mem.Allocator, opts: Options) ?gtk.Object {
     gtk.gtk_widget_set_vexpand(area, 1);
 
     const term = gpa.create(Term) catch return null;
-    term.* = .{ .gpa = gpa, .area = area, .on_exit = opts.on_exit, .on_exit_ctx = opts.on_exit_ctx };
+    term.* = .{
+        .gpa = gpa,
+        .area = area,
+        .on_exit = opts.on_exit,
+        .on_exit_ctx = opts.on_exit_ctx,
+        .manual_io = opts.manual_io,
+        .io_write = opts.io_write,
+        .io_write_ctx = opts.io_write_ctx,
+        .on_grid = opts.on_grid,
+        .on_grid_ctx = opts.on_grid_ctx,
+    };
 
     // Dupe config into owned null-terminated storage (read at first resize).
     if (opts.cwd) |c| term.cwd_z = gpa.dupeZ(u8, c) catch null;
@@ -283,6 +318,7 @@ fn destroyTerm(data: gtk.gpointer) callconv(.c) void {
     term.env_keys.deinit(gpa);
     term.env_vals.deinit(gpa);
     term.env_c.deinit(gpa);
+    term.pending_output.deinit(gpa);
     gpa.destroy(term);
 }
 
@@ -338,7 +374,20 @@ fn onResize(_: gtk.Object, width: c_int, height: c_int, data: gtk.gpointer) call
         g.ghostty_surface_set_content_scale(term.surface, scale, scale);
         // GTK4's resize passes physical pixels already — don't rescale.
         g.ghostty_surface_set_size(term.surface, @intCast(width), @intCast(height));
+        maybeNotifyGrid(term);
     }
+}
+
+/// Report a changed cell grid to the manual-IO caller (PTY winsize + relay).
+fn maybeNotifyGrid(term: *Term) void {
+    const cb = term.on_grid orelse return;
+    if (term.surface == null) return;
+    const size = g.ghostty_surface_size(term.surface);
+    if (size.columns == 0 or size.rows == 0) return;
+    if (size.columns == term.last_cols and size.rows == term.last_rows) return;
+    term.last_cols = size.columns;
+    term.last_rows = size.rows;
+    cb(term.on_grid_ctx, size.columns, size.rows);
 }
 
 fn onRender(_: gtk.Object, _: gtk.Object, data: gtk.gpointer) callconv(.c) c_int {
@@ -378,10 +427,18 @@ fn createSurface(term: *Term) void {
     config.userdata = term;
     config.scale_factor = @floatFromInt(gtk.gtk_widget_get_scale_factor(term.area));
     config.working_directory = if (term.cwd_z) |c| c.ptr else null;
-    config.command = if (term.command_z) |c| c.ptr else null;
     config.wait_after_command = true;
     config.context = g.SURFACE_CONTEXT_WINDOW;
-    config.io_mode = g.SURFACE_IO_EXEC;
+    if (term.manual_io) {
+        // Host-PTY (steer) mode: no ghostty child. Bytes in via
+        // ghostty_surface_process_output, keystrokes out via io_write_cb.
+        config.io_mode = g.SURFACE_IO_MANUAL;
+        config.io_write_cb = term.io_write;
+        config.io_write_userdata = term.io_write_ctx;
+    } else {
+        config.command = if (term.command_z) |c| c.ptr else null;
+        config.io_mode = g.SURFACE_IO_EXEC;
+    }
     if (term.env_c.items.len > 0) {
         config.env_vars = term.env_c.items.ptr;
         config.env_var_count = term.env_c.items.len;
@@ -394,6 +451,13 @@ fn createSurface(term: *Term) void {
     }
     term.surface = surface;
 
+    // Flush output that arrived before the surface existed (manual-IO mode:
+    // the PTY child starts producing immediately after spawn).
+    if (term.pending_output.items.len > 0) {
+        g.ghostty_surface_process_output(surface, term.pending_output.items.ptr, term.pending_output.items.len);
+        term.pending_output.clearAndFree(term.gpa);
+    }
+
     // Grace period: paint the background (not the half-initialized prompt) for
     // a beat, then enable real content. Avoids a flash of mispositioned text.
     gtk.gtk_gl_area_set_auto_render(term.area, 0);
@@ -403,7 +467,24 @@ fn createSurface(term: *Term) void {
     // when wait_after_command is set, so we poll ghostty_surface_process_exited
     // (true once the child is gone; by then the run wrapper has flushed its
     // capture files) and fire on_exit once. The window stays open for inspection.
-    if (term.on_exit != null) term.poll_source = gtk.g_timeout_add(250, pollExit, term);
+    // Manual-IO mode has no ghostty child — the host PTY reports exit instead.
+    if (term.on_exit != null and !term.manual_io) term.poll_source = gtk.g_timeout_add(250, pollExit, term);
+}
+
+/// Feed host-PTY output bytes into a manual-IO terminal for rendering. MAIN
+/// thread only (callers marshal from the PTY reader via g_idle_add). Bytes
+/// arriving before the lazily-created surface exists are buffered (bounded)
+/// and flushed at surface creation.
+pub fn feedOutput(area: gtk.Object, bytes: []const u8) void {
+    const data = gtk.g_object_get_data(area, "exp-term") orelse return;
+    const term: *Term = @ptrCast(@alignCast(data));
+    if (term.surface != null) {
+        g.ghostty_surface_process_output(term.surface, bytes.ptr, bytes.len);
+        return;
+    }
+    // Pre-surface: keep at most 1 MiB of early output (claude's banner etc.).
+    if (term.pending_output.items.len + bytes.len > 1024 * 1024) return;
+    term.pending_output.appendSlice(term.gpa, bytes) catch {};
 }
 
 fn pollExit(data: gtk.gpointer) callconv(.c) c_int {
