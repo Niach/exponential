@@ -14,9 +14,9 @@ Exponential is the ultimate Linear alternative — simpler and cheaper — that 
 
 Exponential is an issue tracker with the simplicity of Linear — and simplicity *is* the moat, not a limitation we apologize for. You get a fast, real-time tracker: issues, projects, labels, priorities, comments, My Issues, an inbox. Nothing you have to learn. Nothing you have to configure. It syncs live across web, iOS, Android, macOS, and Linux.
 
-But Exponential has a superpower Linear will never have: **the fix flow is built in.** Every issue can become a coding task. Point an AI agent at it, and it clones the repo into a git worktree, does the work, and opens a pull request. One issue = one PR = one worktree. The desktop app is a real IDE — an embedded terminal, JetBrains-style run configs with a play button, concurrent agent sessions, multi-window, and syntax-highlighted PR diff review. The web and mobile apps are the coordination and *remote-control* surface: you can create and triage issues, review diffs, and — the part nobody else does — **watch a live agent terminal running on your desktop and type into it, from your phone.**
+But Exponential has a superpower Linear will never have: **the fix flow is built in.** Every issue can become a coding task. Click **Start coding** on an issue and Claude opens right there in the desktop's embedded terminal — seeded with a plan-first prompt (issue title, description, relevant comments) and told to propose a concise plan, wait for your go-ahead, then implement. Permissions are bypassed, so you never babysit accept prompts; it's fully interactive from the first keystroke. It works in a dedicated git worktree, and when it's done it commits, pushes the `exp/<IDENTIFIER>` branch, and opens its own pull request. One issue = one PR = one worktree. The desktop app is a real IDE — an embedded terminal, JetBrains-style run configs with a play button, concurrent coding sessions, multi-window, and syntax-highlighted PR diff review. The web and mobile apps are the coordination and *remote-control* surface: you can create and triage issues, review diffs, and — the part nobody else does — **watch a live coding terminal running on your desktop and type into it, from your phone.**
 
-Because the fix flow lives at the center, Exponential is **coding-first**. Repositories are a first-class workspace entity. GitHub is effectively mandatory: if an issue has no linked repo, the agent can't fix it and honestly routes it to a human instead of pretending. That honesty runs through the whole product.
+Because the fix flow lives at the center, Exponential is **coding-first**. Repositories are a first-class workspace entity. GitHub is effectively mandatory: if an issue has no linked repo, there's nothing to code against, and Exponential honestly routes it to a human instead of pretending. That honesty runs through the whole product.
 
 And when work reaches an end-user — a bug filed through the embedded feedback widget — Exponential closes the loop with a **built-in one-way helpdesk**: the reporter becomes a subscriber and gets an automatic resolution email the moment their issue is done. Support, without buying a support tool.
 
@@ -30,21 +30,21 @@ The split is locked and load-bearing. The desktop is where code runs. The web an
 
 | Surface | Role | Has |
 | --- | --- | --- |
-| **Desktop** — macOS (SwiftUI, glass) · Linux (Zig/GTK4, web pixel-parity) | The **IDE**. Where agents and builds actually run. | Embedded libghostty terminal, JetBrains-style run configs + play button, concurrent agent sessions, multi-window (detached terminal/diff/preview), syntax-highlighted side-by-side diff review |
-| **Web** + **Mobile** — iOS (native glass) · Android (Compose) | The **coordination + remote-control** surface. | Create/triage/assign, comments, My Issues, Inbox, review the same diff, **watch + steer a live desktop agent session** — no local terminal, no local agent runtime, no bundled CLI |
+| **Desktop** — macOS (SwiftUI, glass) · Linux (Zig/GTK4, web pixel-parity) | The **IDE**. Where coding sessions and builds actually run. | Embedded libghostty terminal, JetBrains-style run configs + play button, concurrent coding sessions, multi-window (detached terminal/diff/preview), syntax-highlighted side-by-side diff review |
+| **Web** + **Mobile** — iOS (native glass) · Android (Compose) | The **coordination + remote-control** surface. | Create/triage/assign, comments, My Issues, Inbox, review the same diff, **watch + steer a live desktop coding session** — no local terminal, no local agent runtime, no bundled CLI |
 
-The desktop runs the interactive agent inside libghostty; the shared Rust `agent-core` runs the loop headless. Web and mobile stay pure coordination surfaces on purpose.
+The desktop runs Claude interactively inside libghostty — one terminal, one worktree, one child process per session. There is no headless loop and no shared runtime: each window is just its own terminal driving its own `claude` in its own worktree. Web and mobile stay pure coordination surfaces on purpose.
 
 ---
 
 ## The killer flow
 
-An issue arrives while you're out. Your desktop — agent-capable — is running at home.
+An issue arrives while you're out. Your desktop — signed in and online — is running at home.
 
 1. The issue **emails your phone** (email is a first-class delivery channel, free on every tier). You open it in the mobile app.
-2. From your phone, you **assign it to your desktop agent**. The agent resolves the clone target from the workspace repository registry, spins up a git worktree at home, and starts working: clone → AI → PR.
-3. You **watch the live terminal** stream from your desktop, on your phone — and when the agent asks a question or heads down the wrong path, you **type into it**. Full bidirectional steering, not read-only status. Electric syncs the record; the outbound relay carries the bytes.
-4. The agent opens a PR. You **review the syntax-highlighted side-by-side diff** on the same phone.
+2. From your phone, you tap **Start on my desktop**. A start-session command travels over the relay to your online desktop, which resolves the repo from the workspace repository registry, spins up a git worktree at home, and opens Claude in an embedded terminal — seeded with a plan-first prompt.
+3. You **watch the live terminal** stream from your desktop, on your phone. Claude proposes its plan and waits; you **type into it** to approve, redirect, or answer its questions. Full bidirectional steering, not read-only status. The relay carries the bytes; a live coding-session record tells every client the work is happening.
+4. Claude commits, pushes, and opens a PR itself. You **review the syntax-highlighted side-by-side diff** on the same phone.
 5. It merges. You never sat down at a computer.
 
 That's the moat in one story: an issue went from *reported while you were away* to *merged PR* — steered from your pocket. Linear can track the issue. Exponential fixes it.
@@ -54,12 +54,12 @@ That's the moat in one story: an issue went from *reported while you were away* 
 ## Core principles
 
 1. **Simpler than Linear is the moat.** The features we *refuse* to build are the product's competitive edge. Every "no" keeps the tool learnable in minutes and defensible for years.
-2. **One great flow, not a hundred features.** The clone → AI → PR loop is a frozen, proven runtime we extend and never rewrite. We polish the one path that matters instead of scattering shallow features.
-3. **Coding-first / GitHub-mandatory.** Repositories are first-class; an unlinked issue deterministically routes to a human. We'd rather be honest about what the agent can't fix than fake it.
+2. **One great flow, not a hundred features.** The clone → AI → PR loop is the one path we polish relentlessly and never scatter around. We invest in that single path instead of a hundred shallow features.
+3. **Coding-first / GitHub-mandatory.** Repositories are first-class; an unlinked issue deterministically routes to a human. We'd rather be honest about what can't be coded than fake it.
 4. **Nothing gets lost — and we never monetize on that.** In-app + push + email fan-out is table-stakes and **free on every tier**. We monetize agents, seats, repos, and workspace tier — never anxiety.
 5. **Self-hosted-first parity.** Every feature works self-hosted at full fidelity. The relay works LAN-only or outbound-friendly; email runs on SMTP or degrades to a clean no-op. Only billing degrades — to unlimited.
-6. **Outbound-only, storage-free, NAT-friendly.** The desktop dials out — to GitHub via the App token model (no stored secrets), to the relay for steering, to the push service. Agents work behind any NAT with zero inbound ports and zero friction.
-7. **Legible from phone to desktop.** One issue = one PR = one worktree = one steerable session, with `agent_runs` as the single synced source of truth. The fix stays readable on any screen.
+6. **Outbound-only, storage-free, NAT-friendly.** The desktop dials out — to GitHub via the App token model (no stored secrets; a JIT installation token is fetched per session), to the relay for steering, to the push service. It works behind any NAT with zero inbound ports and zero friction.
+7. **Legible from phone to desktop.** One issue = one PR = one worktree = one steerable session — coordination clients read the issue's PR plus a live coding session, so the fix stays readable on any screen.
 8. **Five-client Electric lockstep.** Parity is a discipline, not an aspiration. macOS stays glass; Linux reaches web pixel-parity and leaps ahead with a real diff view. The same shapes sync everywhere or they don't ship.
 
 ---
@@ -80,9 +80,10 @@ This list is a feature, and we're proud of it. If it's here, we will not build i
 - **No timeline / Gantt**
 - **No public roadmap share**
 - **No Linear import**
+- **No headless / background agents** — coding is interactive-in-the-terminal only; you watch and steer, nothing runs plan-only in the dark
 - **No Google Calendar** — fully excised, columns and sync paths gone
 
-We also delete our own past when it stops earning its keep: legacy agent-auth C symbols, the `companion.*` alias, and dead sync paths all go. Lean schema, lean surface.
+We also delete our own past when it stops earning its keep: the old Rust agent-core and its FFI bridges, the synthetic desktop-agent user and device registration, the assignment-trigger machinery, and dead sync paths all go. Lean schema, lean surface.
 
 What we **do** keep — the few high-leverage relational wins users genuinely loved:
 
@@ -94,7 +95,7 @@ What we **do** keep — the few high-leverage relational wins users genuinely lo
 
 ## Who it's for
 
-Small-to-mid engineering teams — and solo builders — who want Linear's speed and clarity without Linear's price, its per-seat billing, or its endlessly expanding surface area. People who ship code and are tired of tools that stop at *tracking* the work. People who want to self-host without losing features. People who want an issue to arrive, get assigned to an agent, and come back as a merged PR — steered from wherever they happen to be standing.
+Small-to-mid engineering teams — and solo builders — who want Linear's speed and clarity without Linear's price, its per-seat billing, or its endlessly expanding surface area. People who ship code and are tired of tools that stop at *tracking* the work. People who want to self-host without losing features. People who want an issue to arrive, hit **Start coding**, and come back as a merged PR — steered from wherever they happen to be standing.
 
 ---
 

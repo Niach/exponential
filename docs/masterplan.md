@@ -1,209 +1,217 @@
 # Exponential — Masterplan
 
-**The execution blueprint for the Fable 5 refactor.** Read [`vision.md`](./vision.md) first for the north star; this document is how we get there.
+**The execution blueprint for the Fable 5 refactor.** Read [`vision.md`](./vision.md) first for the north star; this is how we get there.
 
 ## Purpose & how to use this
 
-This masterplan turns the vision into an ordered, verifiable refactor, written for a strong implementer (Fable 5) to execute top-to-bottom. **Section 1 is the do-not-regress contract.** Sections 2–8 are the detailed workstream specs. **Section 9 is the sequenced phase plan — start there for ordering, and treat Sections 1–8 as the spec each phase references.**
+This masterplan turns the vision into an ordered, verifiable refactor, written for a strong implementer (Fable 5) to execute top-to-bottom. **Section 1 is the delete-list + the do-not-regress contract.** Sections 2–8 are the detailed workstream specs. **Section 9 is the sequenced phase plan — start there for ordering, and treat Sections 1–8 as the spec each phase references.**
 
-Every claim is grounded in real files under `apps/`, `packages/`, and `crates/`. Where the parallel drafters diverged, the **Editor's reconciliations** box below is authoritative and wins everywhere.
+This is a **hard-cut refactor.** All existing code is treated as 100% replaceable, the database is **greenfield** (no data to preserve, no migrations — reset and re-migrate), and one entire subsystem — the Rust `agent-core` — **is deleted outright.** Where the earlier plan hedged, this one cuts.
+
+## The core simplification
+
+The v1 plan carried a heavy agent runtime forward: a ~4,860-line Rust `agent-core` cdylib with a frozen C ABI, a `run_request`↔`submit_run_result` handshake, a headless pipeline, an assignment-triggered dispatcher, a synthetic per-device agent user, and structured plan/approval state in `agent_runs`. **All of that is gone.** With headless runs, assignment-dispatch, and synthetic identity cut, the C-ABI boundary buys nothing.
+
+The new coding flow is a small **native "Start coding" launcher** on each desktop:
+
+> Resolve the issue's repo from the workspace registry → fetch a JIT GitHub-App token from the server → create a git worktree + `exp/<IDENTIFIER>` branch with a token-embedded remote → write a `.mcp.json` pointing at the web MCP toolset → spawn **`claude --dangerously-skip-permissions`** in an embedded libghostty terminal with a **plan-first prefilled prompt**. From there it's fully interactive; Claude commits, pushes, and opens its own PR via the MCP `open_pr` tool.
+
+You work **as yourself**, not a bot. The "toolset" Claude uses is the existing web `/api/mcp` extended with `get_issue`/`update_status`/`open_pr` (all backed by the server's storage-free GitHub App). **Local dependencies are only `claude` + `git` — never `gh`.** Multi-window becomes trivially native (each tab/window is its own ghostty + Claude child in its own worktree — no shared slot pool, no core). The phone drives the same launcher remotely over the relay, and steers the live terminal bidirectionally.
 
 ## Where we stand today
 
-Exponential is **~70% of the way to the vision, and the remaining 30% is the load-bearing part.** It is already a genuinely good multi-platform Linear alternative: five clients (web, iOS, Android, macOS, Linux) sync the same fourteen Electric shapes, share a domain contract, and already run a working coding-agent pipeline (plan → approve → code → PR) driven by a frozen Rust `agent-core` C ABI, with libghostty terminals embedded on both desktops. Issues, comments, labels, the loved Inbox, subscriptions, @-mentions, the activity timeline, and a diff view are shipped. The GitHub App integration is storage-free and correct.
+Exponential is already a genuinely good multi-platform Linear alternative: five clients sync a shared set of Electric shapes, the issue/comment/label/**inbox**/subscription/@-mention/timeline/diff machinery is shipped, libghostty terminals are embedded on both desktops, and the GitHub App integration is storage-free and correct. The recent `a8826d2`/`084aa97` commits already built most of the host-side **run-config / play-button / preview** infra. What this refactor does is **subtract** the heavy agent runtime, **add** the thin native launcher + web-MCP toolset + the outbound remote-steer relay + first-class repositories + a free email channel, and **finish** Linux 1:1 parity. The macOS app and much of the iOS Swift remain **runtime-unverified** — a verify-and-polish track on real hardware (minus everything agent-core-related, which is deleted, not verified).
 
-What separates today from the vision is concentrated and structural:
-
-- **(a)** the IDE is half-built — agents launch, but there are no JetBrains-style run configs, no play button, and no multi-window;
-- **(b)** the phone→desktop **remote-steer** loop does not exist at all (a greenfield transport — Electric syncs rows, it cannot stream a PTY);
-- **(c)** **repositories** are a `text` column on `projects`, not a first-class workspace entity;
-- **(d)** there is **no email channel** anywhere, which blocks both the away/phone killer flow and the helpdesk loop;
-- **(e)** **Linux UI parity** is the biggest visual-quality gap (functionally complete, visually wrong).
-
-The single largest carry-forward caveat: the **entire macOS app and much of the iOS Swift are build-green but runtime-unverified** — that track is verify-and-polish, not build-from-scratch.
-
-## Locked decisions (this refactor)
+## Locked decisions (v2)
 
 | # | Decision | Choice |
 |---|---|---|
-| 1 | Remote agent control | **Full bidirectional** — watch + type into a live desktop agent terminal from web/mobile, via a new outbound relay (Electric can't stream a PTY) |
-| 2 | Repositories | **First-class workspace entity, many-to-many with projects**; GitHub coding-first; no repo → agent marks `needs_human` |
-| 3 | PR review | **Read-only syntax-highlighted diff on all platforms in v1**; schema anchored for later inline-comment / approve write-back |
-| 4 | Multi-window | **v1 requirement** on both desktops; forces the core's global interactive slot → per-`runId` pool |
-| 5 | Run configs | **JetBrains-style play button, host-side launch** (core stays agent-only); canonical config in git-committed `.exponential/config.json` |
-| 6 | Google Calendar | **Cut entirely** (columns + lib + flag) |
-| 7 | Helpdesk | **One-way resolution email** v1; reporter becomes a `widget_reporter` subscriber; modeled thread-ready |
-| 8 | Email + push | **Both free / table-stakes**; monetize on agents / seats / repos / tier, never on notifications |
-| 9 | Cut list | Kanban, saved filters, cycles, sub-issues/deps, time tracking, estimates, custom fields, bulk edit, templates, agent marketplace, MCP browser, presence, timeline/Gantt, roadmap share, Linear import — **all cut** |
-| 10 | Keep | **Issue-to-issue linking** (clickable pills, resolved like @mentions) + **duplicate** (`status='duplicate'` + `duplicateOfId`) |
-| 11 | My Issues | **First-class cross-project view** (assignee = me) on web + mobile |
-| 12 | Notification routing | Agent action-needed alerts route to **assignee + subscribers** (owners only as fallback), not hardcoded owners |
+| 1 | Rust `agent-core` | **Deleted entirely** (+ both host FFI bridges). No cdylib, no C-ABI, no `run_request`/`submit_run_result`, no dispatcher/pipeline/headless. libghostty embedding stays (separate native code). |
+| 2 | Database | **Greenfield** — clean target schema, no migrations/backfill; `backend:clear` + re-migrate. |
+| 3 | Agents | **Interactive-in-terminal only.** No headless / background runs. |
+| 4 | Identity & trigger | **No synthetic agent user, no registration, no assignment-trigger.** You code as yourself. A native **"Start coding" button** launches ghostty + `claude`. Drop `agent_registrations`, the `companion`/`agent` router, `expk_` keys, the `assigned-issues` shape. |
+| 5 | Permissions | Always **`--dangerously-skip-permissions`** — never make the user click accept. |
+| 6 | Toolset | **Web `/api/mcp`** extended (`get_issue`/`update_status`/`open_pr`), server-side via the GitHub App. No local core. Deps: `claude` + `git` only, **no `gh`**. |
+| 7 | Git auth / PR | Server mints a **JIT GitHub-App installation token**; the launcher configures a token-embedded remote for `git push`; the server opens the PR via the App. |
+| 8 | Desktop settings | JetBrains-SDK-style: **Claude CLI path + workspace/repos path** (prefilled, editable) + branch prefix + personal API key. |
+| 9 | Session state | **`agent_runs` deleted** → slim synced **`coding_sessions`** (live "coding now" badge + Watch/Steer). PR fields on `issues`. |
+| 10 | Remote control | Desktop holds an **outbound relay control connection** (device presence); phone **"Start on my desktop"** → relay → launcher. Full **bidirectional** watch + type; steer state in **relay memory** (no DB table). |
+| 11 | Repositories | **First-class workspace entity, many-to-many, tRPC-managed** (not a synced shape). No repo → "Start coding" disabled + CTA. |
+| 12 | Multi-window | **v1, trivially native** — each tab/window = its own ghostty + Claude child in its own worktree. No shared pool. |
+| 13 | PR review | **Read-only syntax-highlighted diff on all platforms**, schema-anchored for later write-back. |
+| 14 | Email + push | **Both free / table-stakes**; monetize on members/projects/repos/agents-capacity. |
+| 15 | Cut list | Kanban, saved filters, cycles, sub-issues/deps, time tracking, estimates, custom fields, bulk edit, templates, agent marketplace, MCP browser, presence, timeline/Gantt, roadmap share, Linear import, **Google Calendar** — all cut. |
+| 16 | Keep | **Issue-to-issue linking**, **duplicate** (`status='duplicate'` + `duplicateOfId`), **My Issues**, one-way widget **helpdesk**. |
 
-## Editor's reconciliations (authoritative)
+## Target shape count
 
-The eight workstreams were drafted in parallel and diverged on a few naming/scope points. These resolutions override any conflicting wording in the sections below:
-
-1. **Synced shape count → 15 synced / 16 proxies.** Only **`repositories`** becomes a new synced Electric shape. `project_repositories` (join), `agent_run_history`, `remote_steer_sessions`, `user_notification_prefs`, and `email_deliveries` are **server-only, not synced** — clients read the active run via `agent_runs.currentRunId` (which rides the existing `agent_runs` shape). This overrides the "[SYNCED]" / 17-shape wording in §2 and the "own proxy" note on `agent_run_history` in §2.3. Promote `agent_run_history` or `project_repositories` to synced later only if a client genuinely needs them live.
-2. **Duplicate = a dedicated `duplicate` status value + self-FK `issues.duplicateOfId`** (§2.7 wins over §5d's reuse-of-`cancelled`) — matches the user's "change status to duplicate" intent. The column name is **`duplicateOfId`** everywhere.
-3. **`remote_steer_sessions` uses the §3.3 shape** — the `steer_perm` pg enum (`view|steer`) and §3.3 column names — overriding §2.4's varchar / alternate names. Still server-only.
-4. **The reporter subscriber uses §6.4's model** — add a nullable `email` column to `issue_subscribers` and make `userId` nullable for `widget_reporter` rows (overrides §2.5's "only if `identify()` maps a known user"). The prefs table is **`user_notification_prefs`** (§6.1's name), superseding §2.6's `user_email_prefs`.
-5. **Relay env is `STEER_RELAY_URL` / `STEER_RELAY_SECRET`** and the service is **`apps/steer-relay` (`@exp/steer-relay`)** — overriding §8b's `REMOTE_STEER_RELAY_URL` naming.
-6. **`projects.github_repo` is kept for one release** as a read-through fallback (§7a) and dropped in **Phase 9** — it is NOT dropped in the Phase 1 migration.
+**14 synced Electric shapes:** workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, comments, attachments, notifications, issue_events, issue_subscribers, **coding_sessions**. Everything else — `repositories`, `project_repositories`, `user_notification_prefs`, `email_deliveries`, `widget_configs`, `widget_submissions` — is **server-only (tRPC)**. Steer state is **relay memory**, not a table.
 
 ## Table of contents
 
-1. Architecture invariants to carry forward — *the do-not-regress contract*
-2. Data-model & sync changes
-3. Remote agent steering (the outbound relay subsystem)
+1. What we carry forward, and what we delete — *the delete-list + do-not-regress contract*
+2. Target data model (greenfield)
+3. Remote start + steer (the outbound relay)
 4. Desktop IDE workstream (Linux + macOS)
 5. Coordination clients workstream (web + iOS + Android)
-6. Notifications, email & built-in helpdesk
+6. Notifications, email & one-way helpdesk
 7. GitHub, repositories & coding-first flow
 8. Billing moat, self-hosted parity & the cut list
 9. Sequenced execution plan for Fable
 
 ---
 
-## 1. Architecture invariants to carry forward
+## 1. What we carry forward, and what we delete
 
-This is the "do not regress" contract. The refactor **adds** remote-steer, repositories, run configs, email, issue-linking, and the CUT list — it does **not** rewrite the agent runtime, the sync topology, or the GitHub token model below. Every invariant here is load-bearing and already shipped; touching it without cause re-opens debugging that is already closed. Where a change is unavoidable (multi-window, the 15th+ shape), the exact seam and the mirror obligation are named.
+This refactor swaps the entire agent runtime for a **host-side launcher + interactive-terminal** model, on a **greenfield schema** (no prod data, no migrations, no backfill — dev resets via `bun run backend:clear` + re-migrate). Section 1 is two lists. Part A is the demolition manifest: everything that leaves. Part B is the do-not-regress contract: the invariants that survive because they were never about the agent core — sync topology, the storage-free GitHub App, the libghostty embedding, platform divergence, and the small gotchas that each already bit once.
 
-### 1.1 The agent-core frozen C ABI (`agent_core.h`)
+### 1.A What we DELETE
 
-`crates/agent-core/include/agent_core.h` is a **frozen, hand-maintained C ABI**; the impl is `crates/agent-core/src/ffi.rs`. Both desktop hosts bind to it: macOS via a clang module map + thin Swift wrapper, Linux via hand-declared `extern` (Zig `translate-c` cannot parse the header's transitive deps — do **not** try to switch Linux to `@cImport` on the full header). The boundary is synchronous and thread-safe: every call returns immediately, all work runs on the core's background runtime, and results flow back **exclusively** through the single event callback.
+Treat all of the following as removed in this refactor. Do not "keep for one release," do not leave an alias, do not preserve the column.
 
-**Rule: the Rust core is ONLY the agent loop.** The tracker data/sync layer is per-platform (macOS reuses the iOS Swift sync extracted into `ExpCore`; Linux has its own Zig sync engine under `apps/linux/src/core/`). Run configs (Decision 5) are **host-side and MUST NOT enter agent-core** — the desktop app spawns arbitrary build/test/dev commands directly into a terminal-dock tab, bypassing the core entirely. Do not add a `run_config` event vocabulary to the ABI.
+- **`crates/agent-core/` in its entirety** (~4,860 LOC Rust) — the cdylib, its dispatcher, `run_pipeline`, `agent_run`/`state`, the Rust Electric client, the Rust MCP client, and `pr_poll`.
+- **Both host FFI bridges.** Linux: `apps/linux/src/core/agent/*` (`agent_core_ffi.zig`, `agent_manager.zig`, `heartbeat.zig`, `identity_store.zig`, `registration.zig`). macOS: `apps/ios/ExponentialMac/MacAgentCore.swift`, `MacAgentRunner`/`MacAgentTerminalRunner`, `MacAgentRunMonitor.swift`, `MacAgentService.swift`, `MacAgentPanel.swift`, and the agent-wiring portions of `MacGhosttyApp.swift`. (The terminal-embedding parts of `MacGhosttyApp.swift` / `MacGhosttyTerminal.swift` / `MacTerminalDock.swift` stay — see 1.B.)
+- **The frozen C ABI and its handshake.** `agent_core.h`, every `agent_core_*` symbol, the `run_request` → `submit_run_result` protocol (incl. the 5-arg form and `session_id` resume plumbing), `request_interactive` / `approve_interactive`, and the borrowed-string / owned-out-param memory contract. All gone — there is no local core process to have an ABI with.
+- **`InteractiveSlot` and any slot pool.** No process-global interactive slot, no per-`runId` slot pool, no `maxConcurrent`, no claim-before-slow-I/O. Multi-window concurrency is now trivially native: each window/tab is its own ghostty surface + its own `claude` child in its own worktree, with no shared state to arbitrate.
+- **Headless / plan-only runs.** No in-core execution, no background dispatch. The flow is interactive-in-the-terminal only.
+- **The assignment-trigger + synthetic desktop-agent identity, whole.** `users.is_agent` as a desktop-agent concept, the `agent_registrations` and `workspace_agents` tables, `role=agent` membership, device registration/heartbeat, the `companion.*` / `agent.*` tRPC router (`register`/`heartbeat`/`pollControl`/`repoToken`/`setupStatus`), the long-lived `expk_` agent API keys, and the web-only `assigned-issues` Electric shape + its proxy (`apps/web/src/routes/api/shapes/assigned-issues.ts`). The person coding is the **real user** under their own session. (Exception: the widget helpdesk keeps a minimal per-widget system/bot user as issue creator for externally-filed reports — clearly separate from, and unrelated to, this deleted desktop-agent identity.)
+- **Structured plan/approval state and its UI.** The `agent_runs` table (drop it entirely — it is not the 14th shape anymore), `issues.agentPlanState`, the native Plan Panels, and `apps/web/src/lib/trpc/agent-plan.ts`'s approval state machine. Plan-and-wait is now a *prompt instruction* to Claude in the terminal, not a synced state machine you branch UI on.
+- **The desktop `pr_poll`.** It lived in the Rust core; it is deleted with it. Merge detection stays server-side (webhook + self-host cron — see 1.B).
+- **Google Calendar, entirely.** Drop all `issues.googleCalendar*` columns, `src/lib/google-calendar.ts`, `fireAndForgetSync`/`fireAndForgetDelete`, and the `/account/integrations` calendar-connect UI. No calendar invariant carries forward.
+- **The cut-list product features** (already agreed): sub-issues, issue relations beyond simple link + duplicate, and bulk-edit.
 
-Any change to a function signature, the event JSON shape, or an `agent_error` code is an ABI break and must be mirrored in **both** hosts plus `agent_core.h` in the same change. Frozen symbols:
+### 1.B What CARRIES FORWARD (do not regress)
 
-- `agent_core_create` / `_set_event_callback` / `_start` / `_stop` / `_free` — lifecycle.
-- `agent_core_claim_setup` / `_github_device_login` / `_uninstall` — setup/identity.
-- `agent_core_submit_run_result` / `_cancel_run` / `_cancel_issue` — run bridge.
-- `agent_core_request_interactive` / `_approve_interactive` — host-triggered sessions.
-- `agent_core_string_free` — the ONLY way to release a `char**` out-param.
+These invariants are load-bearing and orthogonal to the deleted agent core. Each survives; touching one without cause re-opens debugging that is already closed.
 
-**Memory contract (will re-bite if broken):** strings passed to the event callback are **BORROWED** — valid only for the duration of the call; the host **must copy** them before returning. Strings returned via `char**` out-params are **owned by the caller** and released with `agent_core_string_free()`.
+#### 1.B.1 Electric shape lockstep across five clients (14 synced shapes)
 
-### 1.2 The `run_request` / `submit_run_result` handshake
+The target is **14 synced Electric shapes** — `workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, comments, attachments, notifications, issue_events, issue_subscribers, coding_sessions`. (`coding_sessions` replaces `agent_runs` as the 14th; there is **no** `assigned-issues` proxy — the count is 14, not 15.) `repositories`, `project_repositories`, `user_notification_prefs`, and the widget/email tables are **server-only tRPC, never synced**. Remote-steer state is **relay memory, never a table**.
 
-The core **NEVER spawns the CLI for interactive runs.** For an interactive stage it emits a `run_request` event; the GUI launches `claude`/`codex` in a visible libghostty terminal and reports the exit via the **5-arg** `agent_core_submit_run_result(core, run_id, exit_code, final_text, session_id)`. `session_id` may be NULL (headless / core-pins-its-own via `--session-id`/`--resume`); `final_text` may be empty (plan/code results are verified out-of-band). Do not "simplify" this back to a 4-arg form — the 5th arg is what lets the host hand the CLI's session id back for resume.
+Every synced shape or column must be mirrored **in the same change** across all of:
 
-**Headless runs execute IN-CORE and never reach the host** — no `run_request` for them. Only interactive runs cross the boundary.
-
-Outbound event vocabulary (stable — extend, never rename):
-
-- `run_request` — blocks the pipeline thread; fields `runId, issueId, issueIdentifier, cwd, mode(plan|code), program, argv[], env{}, mcpConfigPath, systemPrompt, userPrompt, interactive, continueSessionId`.
-- `run_started` — `{issueId, issueIdentifier, runId, mode}`.
-- `run_finished` — `{issueId, runId, exitCode, outcome: ok|failed|cancelled}`.
-- `run_cancelled` — `{issueId?, runId}` → host tears down the matching terminal (destroying the surface kills the CLI child).
-- `agent_error` — `{issueId, code, message}`.
-- `log` — `{level, message}`.
-
-**Stable `agent_error` codes** (native Plan Panels branch on these — do not rename): `repo_not_linked`, `repo_token_unavailable`, `plan_not_submitted`, `no_commits`, `pipeline_failed`, `interactive_failed`, plus the informational rejections `interactive_session_active` and `run_already_in_flight` (a trigger refused because a session/run is already live — **nothing failed**). Decision 2 (repos mandatory) reuses `repo_not_linked` for the "no linked repo → needs-human" path; do not invent a new code.
-
-**Reference host bridge to mirror (do not reinvent):** `apps/linux/src/core/agent/agent_manager.zig` writes a per-run bash wrapper, runs it in the embedded terminal, submits the exit code, and tears down the terminal on `run_cancelled`. macOS mirror: `MacAgentRunner` / `MacAgentTerminalRunner`.
-
-### 1.3 Host-runs-interactive vs headless-in-core, and the interactive slot
-
-Today the core holds **one** process-global interactive slot: `run_pipeline::InteractiveSlot { owner: Mutex<Option<String>> }` in `crates/agent-core/src/run_pipeline.rs`, claimed before any slow I/O (MCP fetch, clone) so two near-simultaneous triggers can't both reach the worktree. Its doc comment asserts "both desktop hosts dock exactly ONE embedded terminal." **Decision 4 (multi-window / concurrent sessions) changes exactly this and nothing else in the runtime**: rework the single `InteractiveSlot` into a **per-session terminal-slot pool keyed by `runId`**. Invariants that survive the rework:
-
-- The claim-before-slow-I/O ordering (prevents the worktree double-press race) stays — now per-slot.
-- `interactive_session_active` becomes "this run's slot is busy," emitted only when a *specific* run's slot collides, never a blanket global refusal.
-- `agent_core_approve_interactive` remains **resume-only** — it assumes the host already approved the plan **with the human's session** (the agent credential cannot self-approve). See gotcha (g).
-- Concurrency respects `maxConcurrent` in `CoreConfigDto`.
-
-### 1.4 Agent identity + registration
-
-Agent identity is a **human-owned synthetic user**: `users.is_agent` (`packages/db-schema/src/auth-schema.ts`) + the `agent_registrations` table (`packages/db-schema/src/schema.ts`, `unique(owner_user_id, device_id)`, one row per physical desktop device). Registration is authorized by a **human session** through `companion.register`, now mounted as `agent.*` in `appRouter` (`apps/web/src/routes/api/trpc/$.ts`), with a **temporary `companion.*` alias to be dropped**. Registration mints a single long-lived `expk_` API key (Better Auth apiKey plugin) and fans the device user into every workspace the owner belongs to as `role=agent`.
-
-**Assigning an issue to the desktop-agent user ENQUEUES it** (v1 = desktop-app-open only, no headless daemon). The owner's running desktop picks it up via the **web-only `assigned-issues` Electric proxy** (`/api/shapes/assigned-issues`, `expk_`-gated) + the core dispatcher. Do not add a headless/systemd mode in this refactor.
-
-### 1.5 One issue = one PR = one branch/worktree; `agent_runs` is the plan-state shape
-
-Each issue maps to exactly **one PR, one branch, one worktree.** All agent run state — plan / question / revision / approval / session / PR / error — lives in the **`agent_runs` table = the 14th synced Electric shape.** Native Plan Panels read this shape **directly** (not via an `agentPlan.getState` round-trip; that proc is a drainable fallback). Plan approval also touches `issues.agent_plan_state` (`varchar(32)`, `packages/db-schema/src/schema.ts`) with the run details in `agent_runs`; server logic in `apps/web/src/lib/trpc/agent-plan.ts`. Remote-steer (Decision 1) rides **alongside** this — the steer session model is a new relay concern; run state stays in `agent_runs`. Do not fold PTY-stream state into `agent_runs` (Electric rows cannot carry a live PTY stream — that is the whole reason the relay exists).
-
-### 1.6 GitHub App storage-free token model + the 3 merge-detection triggers
-
-GitHub is a **storage-free GitHub App**: App JWT (RS256, `iss = app id`) → per-repo **installation token JIT** (`resolveRepoInstallationToken` / `installationToken` in `apps/web/src/lib/integrations/github-app.ts`), bot `[bot]` identity, install via `/account/integrations`. The server opens PRs and serves diffs (`issues.prFiles`); the desktop fetches JIT repo tokens (`companion.repoToken`, agent-gated) **ONLY for git transport**. **All GitHub token traffic is OUTBOUND**; only the webhook is inbound + optional. Decision 2 (repositories first-class) changes the **clone-target resolution** (per-issue from the workspace repo registry instead of `project.github_repo`) but **must not** change this token model.
-
-Merge detection is one idempotent function — `applyPrMergeState` (`apps/web/src/lib/integrations/pr-sync.ts`) — fed by **exactly three triggers**, all of which must keep working:
-
-1. **Desktop `pr_poll`** — outbound, always-on while the app is open (`crates/agent-core/src/pr_poll.rs`).
-2. **Cloud webhook** — `POST /api/webhooks/github`, HMAC-verified (`createHmac`/`timingSafeEqual`, `GITHUB_WEBHOOK_SECRET`).
-3. **Self-host cron** — gated on `GITHUB_POLLING=true` (`apps/web/src/lib/bootstrap-self-hosted.ts`), decoupled from `SELF_HOSTED`.
-
-### 1.7 Electric shape discipline — lockstep across five clients
-
-Today: **14 synced shapes** (`workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, comments, attachments, notifications, issue_events, issue_subscribers, agent_runs`) + **1 web-only `assigned-issues` proxy** = **15 proxies**. This refactor adds shapes (repositories + the project↔repo join, and whatever remote-steer/run-config mirror rows are synced). **Every new synced shape or column must be mirrored in the SAME change across all of:**
-
-- `CLAUDE.md` (the shape count + list).
-- `apps/web/src/lib/collections.ts` (collection def, **`columnMapper: snakeCamelMapper()` is mandatory** — without it `useLiveQuery` `where` filters on camelCase silently fail) **+ a new proxy** under `apps/web/src/routes/api/shapes/` built with `createShapeRouteHandler`.
+- `CLAUDE.md` — the shape count + list.
+- `apps/web/src/lib/collections.ts` — collection def (**`columnMapper: snakeCamelMapper()` is mandatory**; without it `useLiveQuery` `where` filters on camelCase silently fail) **+ a proxy** under `apps/web/src/routes/api/shapes/` built with `createShapeRouteHandler` (`apps/web/src/lib/shape-route.ts`).
 - Zig `apps/linux/src/core/electric/sync_manager.zig` `specs[]` (+ its `expectEqual` test).
 - iOS/Android entity + DAO lists.
-- `packages/electric-protocol/fixtures` + `packages/domain-contract` for cross-client alignment; when enum values change also run `bun run --filter @exp/domain-contract generate`.
+- `packages/electric-protocol/fixtures` + `packages/domain-contract`; when enum values change, run `bun run --filter @exp/domain-contract generate` to refresh Swift/Kotlin constants.
 
-### 1.8 The gotcha list (each has already bitten once)
+Client parity is across all five clients (web, iOS, Android, macOS, Linux). `isPublic` / `publicWritePolicy` field gating stays via the `WorkspacePermissions` mirror of `apps/web/src/hooks/use-workspace-permissions.ts`.
 
-- **(a) Native generic sync DROPS A WHOLE ROW** if the server adds a column the local table lacks. Guard with `apps/linux/src/core/db/database.zig`'s `tableColumnSet` + a migrations self-heal `ALTER` on **every** native client for **every** new column. This applies directly to the repositories / run-config / email-prefs columns this refactor adds.
-- **(b) ghostty surface inits lazily only at NONZERO size** — mount the terminal only while the dock is expanded at a real height. Multi-window (Decision 4) must honor this per detached window.
-- **(c) `GHOSTTY_ACTION_RENDER` must be handled** in the action callback (queue a redraw) or the terminal never paints.
-- **(d) libghostty is NEVER built from source on macOS** — link the prebuilt `GhosttyKit.xcframework`; Linux uses the GL shim from the `douglas/ghostty` fork.
-- **(e) tRPC error code is `PRECONDITION_FAILED`** (not `FAILED_PRECONDITION`).
-- **(f) Custom SQL triggers are NOT auto-applied** — `apps/web/src/db/out/custom/0001_triggers.sql` (and `0002_public_workspace.sql`) must be run manually after a fresh DB. Any new trigger this refactor adds inherits the same manual-apply obligation and must be documented in the release checklist.
-- **(g) "Approve & continue here" is a HUMAN action** — the agent credential cannot self-approve. The host approves with the **human session** and then calls `agent_core_approve_interactive` (resume only). Remote-steer permission tiers (view|steer) must preserve this: a steer viewer types into the terminal, but plan **approval** still routes through a human-session tRPC call, not the relay.
+#### 1.B.2 GitHub App — storage-free, server-side, outbound-only
 
-### 1.9 Platform-divergence and web-only rules (locked)
+GitHub is a **storage-free GitHub App** and stays 100% server-side. Local dependencies are only `claude` + `git` — **never `gh`, never personal creds.** App JWT (RS256, `iss = app id`) → per-repo **installation token JIT** (`installationToken` / `resolveRepoInstallationToken` in `apps/web/src/lib/integrations/github-app.ts`); bot `[bot]` identity; install via `/account/integrations`. Four server-side responsibilities persist:
 
-- **macOS keeps the glass aesthetic** (SwiftUI `.ultraThinMaterial`), aligning only the semantic status/priority tokens. Do **not** flatten it to match Linux.
-- **Linux must reach web 1:1 (pixel parity)** — button sizes, spacing, fonts, row virtualization; this is the biggest open UI-quality gap and may require hand-rolling native GTK widgets. The syntax-highlighted side-by-side diff (Decision 3) lands under this bar, replacing Linux's current plaintext diff.
+1. **Repo registry** — list/validate repos for the workspace `repositories` registry.
+2. **Diff serving** — `issues.prFiles` via `fetchPullFiles`, feeding the read-only side-by-side diff on all platforms.
+3. **JIT installation-token mint** — a **session-gated** tRPC proc (`repositories.installationToken({repositoryId})`, authorized by the human's session — **not** an `expk_` agent key). The desktop embeds the token in the worktree remote URL (`https://x-access-token:<token>@github.com/owner/repo.git`) so `git push` works with no `gh` and no personal creds.
+4. **Merge detection** — the idempotent `applyPrMergeState` (`apps/web/src/lib/integrations/pr-sync.ts`), now fed by **two** triggers (the desktop `pr_poll` is deleted): the cloud webhook `POST /api/webhooks/github` (HMAC-verified via `createHmac`/`timingSafeEqual`, `GITHUB_WEBHOOK_SECRET`), and the self-host cron gated on `GITHUB_POLLING=true` (`apps/web/src/lib/bootstrap-self-hosted.ts`, decoupled from `SELF_HOSTED`).
+
+PR↔issue linking is **deterministic** via the `exp/<IDENTIFIER>` branch name parsed on the webhook; the MCP `open_pr` tool also records the link. PR fields (`prUrl`, `prNumber`, `prState`, `branch`) live on `issues`. All GitHub token traffic is **outbound**; only the webhook is inbound + optional (self-host without a reachable webhook falls back to the cron).
+
+The **web MCP server** (`apps/web/src/routes/api/mcp.ts`, Streamable-HTTP) is the coding session's toolset: `get_issue`, `get_comments`, `update_status` (`in_progress`/`in_review`), `open_pr` (the **server** opens the PR via the App and links it), and optionally `add_comment`. The worktree's `.mcp.json` points Claude here, authenticated with the **user's personal** Better Auth apikey (minted once, stored in the desktop keychain/config) — not an agent credential.
+
+#### 1.B.3 libghostty embedding — the gotchas that survive
+
+The terminal embedding is **separate native code and is kept** (it is not part of the deleted Rust core). Linux: `apps/linux/src/ui/ghostty_ffi.zig` (GtkGLArea + GL shim from the `douglas/ghostty` fork). macOS: the prebuilt `GhosttyKit.xcframework` at `apps/ios/vendor/` (fetched by `apps/ios/scripts/setup-ghostty-macos.sh`, wired via `apps/ios/Project.swift`). Its gotchas still bite:
+
+- **(ghostty-a) Surface inits lazily only at NONZERO size** — mount the terminal only when its container is visible at a real height. Each detached window/tab must honor this independently.
+- **(ghostty-b) `GHOSTTY_ACTION_RENDER` must be handled** in the action callback (queue a redraw) or the terminal never paints.
+- **(ghostty-c) libghostty is NEVER built from source on macOS** — link the prebuilt `GhosttyKit.xcframework`; Linux uses the GL shim from the `douglas/ghostty` fork.
+
+`claude` is always spawned `--dangerously-skip-permissions` (never make the user click accept), cwd = the worktree, seeded with the prefilled prompt.
+
+#### 1.B.4 Platform-divergence and web-only rules (locked)
+
+- **macOS keeps the glass aesthetic** (SwiftUI `.ultraThinMaterial`), aligning only semantic status/priority tokens. Do not flatten it to match Linux.
+- **Linux must reach web 1:1 (pixel parity)** — button sizes, spacing, fonts, row virtualization; the biggest open UI-quality gap. The read-only syntax-highlighted side-by-side diff lands here, replacing Linux's plaintext diff.
 - **Admin console is WEB-ONLY.**
-- **Billing (Creem) is WEB-ONLY** — native clients show no billing UI (store-policy safe). Note Decision 6 **cuts Google Calendar entirely**; do not carry any calendar invariant forward.
-- **Self-hosted must fully support every feature** — including the remote-steer relay (LAN-only / outbound-friendly) and the email channel (SMTP or graceful degrade).
+- **Billing (Creem) is WEB-ONLY** — native clients show no billing UI (store-policy safe).
+- **Self-hosted must fully support every feature** — the relay is optional / LAN-outbound-friendly; the email channel degrades gracefully (SMTP / Resend / none).
 
-### 1.10 Verification debt (inherit as a track, not a footnote)
+#### 1.B.5 The gotcha list (each already bit once)
 
-The **entire macOS app** (roadmap phases A1–A5, Phase F, UI-parity, device-preview) and much of the blind-written iOS Swift are "build + launch green but never exercised on a real Mac / display." Treat the macOS + iOS Swift work as a **verify-and-polish effort on real hardware**, not build-from-scratch. Any invariant above that is only asserted on macOS by inspection (the ABI binding, the terminal-slot pool, the glass tokens) must be **exercised on a Mac** before it counts as done.
+- **(a) Native generic sync DROPS A WHOLE ROW** if the server adds a column the local table lacks. This forward-tolerance is the *one* piece of migration-defensiveness that survives the greenfield reset: guard with `apps/linux/src/core/db/database.zig`'s `tableColumnSet` + a self-heal `ALTER` on **every** native client for **every** new column. Applies directly to the `coding_sessions` and new `issues` columns this refactor adds.
+- **(b) tRPC error code is `PRECONDITION_FAILED`** (not `FAILED_PRECONDITION`).
+- **(c) Custom SQL triggers are NOT auto-applied** — `apps/web/src/db/out/custom/0001_triggers.sql` and `0002_public_workspace.sql` must be run manually after a fresh DB. Any new trigger inherits the same manual-apply obligation and must be documented in the release checklist.
+- **(d) `snakeCamelMapper()` is mandatory** on every collection in `collections.ts` (restated because it is the single most common silent-failure).
+- **(e) Use `and()`/`or()` from `@tanstack/react-db`** in `useLiveQuery` (never JS `&&`/`||`); return `undefined` (not `false`) to skip a query.
 
 ### Definition of done
 
-- [ ] `agent_core.h` and `ffi.rs` remain byte-frozen except the deliberate `InteractiveSlot` → per-`runId` slot-pool change; every remaining symbol/signature/event/`agent_error` code is unchanged and any change is mirrored in both hosts.
-- [ ] `submit_run_result` stays 5-arg; borrowed-callback-string and owned-out-param memory contracts are still honored in both hosts.
-- [ ] Interactive stays host-run, headless stays in-core; multi-window uses a per-`runId` slot pool with claim-before-slow-I/O preserved and `approve_interactive` still resume-only.
-- [ ] Agent identity remains a human-owned `is_agent` synthetic user via `agent_registrations`; assignment-enqueues-via-`assigned-issues` is intact; `companion.*` alias removal is tracked (not silently kept).
-- [ ] One-issue-one-PR-one-worktree holds; `agent_runs` is still the authoritative plan-state shape read directly by native Plan Panels; no PTY state leaked into it.
-- [ ] GitHub App token model stays storage-free + outbound-only (JIT installation tokens); all 3 merge triggers still feed the idempotent `applyPrMergeState`; repo-registry change touches only clone-target resolution.
-- [ ] Every new shape/column added by the refactor is mirrored in lockstep across the 8 sites in 1.7, with `snakeCamelMapper` and the `tableColumnSet` self-heal guard applied.
-- [ ] All eight gotchas remain respected in new code paths (esp. (a) row-drop guard for new columns, (f) manual-trigger docs for any new trigger, (g) human-session approval under remote-steer).
-- [ ] macOS-glass / Linux-1:1 divergence, admin-web-only, and billing-web-only rules are upheld; Google Calendar is fully removed; self-hosted parity (relay + email) is preserved.
-- [ ] macOS/iOS invariants are re-verified on a real Mac, not assumed from a green build.
+- [ ] `crates/agent-core/` and both FFI bridges (`apps/linux/src/core/agent/*`, `apps/ios/ExponentialMac/MacAgent*.swift` + the agent wiring in `MacGhosttyApp.swift`) are deleted; no `agent_core_*` symbol, `agent_core.h`, or `run_request`/`submit_run_result` reference remains anywhere in the tree.
+- [ ] No `InteractiveSlot` / slot pool / `maxConcurrent` / headless-run path survives; multi-window concurrency is native (one ghostty + one `claude` + one worktree per window), with nothing shared to arbitrate.
+- [ ] The synthetic desktop-agent identity is fully removed: no `users.is_agent` (desktop sense), `agent_registrations`, `workspace_agents`, `role=agent`, `companion.*`/`agent.*` router, `expk_` agent keys, or `assigned-issues` shape/proxy. The widget bot user is the only remaining system user and is clearly scoped to the helpdesk.
+- [ ] `agent_runs` and `issues.agentPlanState` are dropped and the native Plan Panels + `agent-plan.ts` approval machine are gone; plan-and-wait is a prompt instruction, and `coding_sessions` is the slim synced state (id, issueId, workspaceId, userId, deviceLabel, status, startedAt, endedAt).
+- [ ] Google Calendar (columns, `google-calendar.ts`, fire-and-forget sync, connect UI) is fully removed; no calendar invariant carried forward.
+- [ ] The schema is greenfield — no migration/backfill/keep-column code; the only migration-defensiveness kept is the native `tableColumnSet` forward-tolerance (gotcha a).
+- [ ] Synced-shape count is **14** (`coding_sessions` as the 14th, no `assigned-issues`); every synced shape/column is mirrored in lockstep across the sites in 1.B.1 with `snakeCamelMapper` applied; `repositories`/`project_repositories`/prefs/widget tables stay server-only; steer state stays relay-memory.
+- [ ] GitHub stays storage-free, server-side, outbound-only: JIT installation-token mint is **session-gated** (not agent-keyed), diff serving via `issues.prFiles`, and `applyPrMergeState` is fed by the **two** surviving triggers (webhook + self-host cron); PR↔issue linking is deterministic via `exp/<IDENTIFIER>`.
+- [ ] The web MCP server exposes `get_issue`/`get_comments`/`update_status`/`open_pr` (+ optional `add_comment`); the worktree `.mcp.json` authenticates with the user's personal apikey; local deps are only `claude` + `git` (never `gh`).
+- [ ] libghostty embedding is preserved with its three gotchas respected; macOS links the prebuilt `GhosttyKit.xcframework` (never builds from source); `claude` is always spawned `--dangerously-skip-permissions`.
+- [ ] macOS-glass / Linux-1:1 divergence, admin-web-only, billing-web-only, and self-hosted parity (optional relay + degradable email) all hold; the five remaining gotchas (a–e) are respected in new code paths.
+- [ ] macOS/iOS remain a verify-and-polish track on real hardware — minus everything agent-core/FFI (deleted, not verified).
 
 ---
 
-## 2. Data-model & sync changes
+## 2. Target data model (greenfield)
 
-All schema lives in `packages/db-schema/src/schema.ts`; all enum value arrays live in `packages/db-schema/src/domain.ts` and are mirrored into `packages/domain-contract/contract.json` (regenerate Swift/Kotlin constants with `bun run --filter @exp/domain-contract generate`). Every new column or table below is defined against those files. Migrations are generated with `bun run migrate:generate && bun run migrate`; custom trigger SQL in `apps/web/src/db/out/custom/0001_triggers.sql` is **not** auto-applied and must be re-run after the migration (see the denormalization triggers below).
+This is the **clean target schema**, defined directly — not a migration off the current tables. There is no production data to preserve: dev resets with `bun run backend:clear` then `bun run migrate`. Every table below is the initial shape; there are no `ALTER TYPE` steps, no backfills, no "keep the column for one release." The only forward-evolution defensiveness we keep is that native clients **tolerate unknown/extra server columns** (the generic sync + `tableColumnSet` self-heal), so later additive columns don't drop rows — but the schema we ship first is fresh.
 
-### 2.0 The lockstep checklist (applies to EVERY new synced shape or synced column)
+All schema lives in `packages/db-schema/src/schema.ts`; every enum value array lives in `packages/db-schema/src/domain.ts`, mirrored into `packages/domain-contract/contract.json` (regenerate Swift/Kotlin constants with `bun run --filter @exp/domain-contract generate`). Helpers: `uuidPk()` (UUID PK via `gen_random_uuid()`) and the shared `timestamps` object (`createdAt`/`updatedAt`, both `withTimezone`), both already in `schema.ts`.
 
-This is the standing contract for any change in this section marked **[SYNCED]**. Skipping any step silently corrupts a client (see gotcha "row-drop on unknown column"):
+### 2.1 The two tiers
 
-1. **Schema** — add the table/column in `packages/db-schema/src/schema.ts`; add the `select…Schema` (and `create…Schema` where mutated) + `InferSelectModel` type export at the bottom of that file.
-2. **Enum contract** — if the change adds/extends an enum, edit the `…Values` array in `domain.ts`, mirror it into `packages/domain-contract/contract.json`, and run `bun run --filter @exp/domain-contract generate`.
-3. **Web collection** — add a `createCollection(electricCollectionOptions({…}))` block in `apps/web/src/lib/collections.ts` (import the new `select…Schema`, use `columnMapper: snakeCamelMapper()`, `parser: shapeParser`, `getKey`).
-4. **Web shape proxy** — add `apps/web/src/routes/api/shapes/<name>.ts` built with `createShapeRouteHandler` (`apps/web/src/lib/shape-route.ts`), workspace-scoped `where`.
-5. **Zig sync** — add a `ShapeSpec` entry to the `specs` array in `apps/linux/src/core/electric/sync_manager.zig` and bump the count assertion in the test `"shape registry: 14 shapes with matching tables"`; add the SQLite `CREATE TABLE` + column set in `apps/linux/src/core/db/migrations.zig`.
-6. **Zig self-heal** — extend `tableColumnSet` handling in `apps/linux/src/core/db/database.zig` and add the idempotent `ALTER TABLE … ADD COLUMN` in `migrations.zig` so an older local DB self-heals rather than dropping whole rows.
-7. **iOS/macOS** — add the entity in `apps/ios/ExpCore/Sources/DB/Entities.swift`, register it in `apps/ios/ExpCore/Sources/DB/DatabaseManager.swift`, and add the shape to `apps/ios/ExpCore/Sources/Electric/SyncManager.swift`.
-8. **Android** — add the entity in `apps/android/app/src/main/java/com/exponential/app/data/db/Entities.kt`, the DAO in `.../data/db/Daos.kt`, register it in `.../data/db/ExponentialDatabase.kt` (bump the Room version), and add the shape to `.../data/electric/SyncManager.kt`.
-9. **CLAUDE.md + memory** — bump the synced-shape count and the client-parity list.
+**SYNCED — 14 Electric shapes** (one proxy + one client collection + native DAO each):
 
-Net shape count after this section: the current **14 synced shapes** become **17** (`+ repositories`, `+ project_repositories`, `+ agent_run_history`) and proxies go **15 → 18**. `run_configs`, `remote_steer_sessions`, `user_email_prefs`, and `email_deliveries` are **server-only, NOT synced** (justified per table below), so they do NOT touch steps 3–8.
+| # | Shape | Notes |
+| --- | --- | --- |
+| 1 | `workspaces` | |
+| 2 | `projects` | drops `githubRepo` (moved to the `repositories` registry, §2.3); keeps `previewConfig` display mirror |
+| 3 | `issues` | core fields + PR fields + `duplicateOfId` self-FK (§2.4) |
+| 4 | `labels` | |
+| 5 | `issue_labels` | |
+| 6 | `users` | no `isAgent` desktop-agent concept; the widget bot user is an ordinary row (§2.7) |
+| 7 | `workspace_members` | roles `owner`/`member` only — **no `agent` role** |
+| 8 | `workspace_invites` | |
+| 9 | `comments` | |
+| 10 | `attachments` | |
+| 11 | `notifications` | |
+| 12 | `issue_events` | |
+| 13 | `issue_subscribers` | gains nullable `userId` + nullable `email` for widget-reporter rows (§2.7) |
+| 14 | **`coding_sessions`** | **the one new/renamed shape — replaces the deleted `agent_runs`** (§2.5) |
 
----
+`agent_runs`, `agent_registrations`, `workspace_agents`, and the `assigned-issues` proxy are **deleted** (there is no headless agent, no synthetic desktop-agent user, no device registration). Net: **14 synced shapes, 14 proxies** (the extra `assigned-issues` proxy is gone, so proxy count == shape count).
 
-### 2.1 Repositories as a first-class workspace entity (Decision 2) **[SYNCED]**
+**SERVER-ONLY — tRPC / relay, never Electric-synced** (no proxy, no client collection, no native DAO):
 
-Two new tables plus a data migration off `projects.githubRepo`.
+- `repositories` — workspace repo registry (§2.3)
+- `project_repositories` — many-to-many project↔repo join (§2.3)
+- `user_notification_prefs` — per-user email/channel prefs + digest + unsubscribe token (§2.6)
+- `email_deliveries` — email audit / idempotency ledger (§2.6)
+- `widget_configs` / `widget_submissions` — the one-way feedback helpdesk (unchanged intent; §2.7)
+
+Remote steer/viewer presence is **relay memory, not a table** — there is deliberately no `remote_steer_sessions`. The relay is ephemeral; who is watching/steering a live terminal is a relay frame, claimed and released in process.
+
+### 2.2 The lockstep checklist (SYNCED shapes only)
+
+This is the standing contract for the **14 synced shapes**. Skipping a step silently corrupts a client (see the "row-drop on unknown column" gotcha). Server-only tables (§2.3, §2.6) are tRPC-only and touch **none** of steps 3–8.
+
+1. **Schema** — add the table in `packages/db-schema/src/schema.ts`; add the `select…Schema` (+ `create…Schema` where mutated) and the `InferSelectModel` type export at the bottom of the file.
+2. **Enum contract** — if it adds/extends an enum, edit the `…Values` array in `domain.ts`, mirror into `contract.json`, and run `bun run --filter @exp/domain-contract generate`.
+3. **Web collection** — add a `createCollection(electricCollectionOptions({…}))` block in `apps/web/src/lib/collections.ts` (`columnMapper: snakeCamelMapper()`, `parser: shapeParser`, `getKey`).
+4. **Web shape proxy** — add `apps/web/src/routes/api/shapes/<name>.ts` via `createShapeRouteHandler` (`apps/web/src/lib/shape-route.ts`), workspace-scoped `where`.
+5. **Zig sync** — add a `ShapeSpec` to the `specs` array in `apps/linux/src/core/electric/sync_manager.zig`, bump the count assertion in the `"shape registry: 14 shapes with matching tables"` test, and add the SQLite `CREATE TABLE` in `apps/linux/src/core/db/migrations.zig`.
+6. **Zig self-heal** — extend `tableColumnSet` in `apps/linux/src/core/db/database.zig` and add the idempotent `ALTER TABLE … ADD COLUMN` in `migrations.zig` so an older local DB self-heals rather than dropping rows.
+7. **iOS/macOS** — add the entity in `apps/ios/ExpCore/Sources/DB/Entities.swift`, register it in `DatabaseManager.swift`, add the shape to `apps/ios/ExpCore/Sources/Electric/SyncManager.swift`.
+8. **Android** — add the entity in `.../data/db/Entities.kt`, the DAO in `Daos.kt`, register it in `ExponentialDatabase.kt` (bump the Room version), add the shape to `.../data/electric/SyncManager.kt`.
+9. **CLAUDE.md + memory** — the synced-shape count is **14** and the client-parity list names `coding_sessions` (not `agent_runs`).
+
+> The Zig test name literally reads "14 shapes" — with `coding_sessions` swapped in for `agent_runs` the count stays 14, so the assertion constant does not move; only the table name in the spec changes.
+
+### 2.3 Repositories registry (server-only)
+
+Repositories are a **first-class workspace entity**, tRPC-managed, **not** a synced shape (the desktop launcher and web settings read them over tRPC; native coordination clients don't need every repo row streamed). GitHub stays 100% server-side via the storage-free GitHub App.
 
 **`repositories`** — workspace-scoped, one row per linked GitHub repo:
 
@@ -212,16 +220,16 @@ export const repositories = pgTable(
   `repositories`,
   {
     id: uuidPk(),
-    workspaceId: uuid(`workspace_id`).notNull()
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
-    // GitHub coordinates, split (was the packed `owner/name` TEXT on projects).
-    owner: varchar({ length: 255 }).notNull(),
-    name: varchar({ length: 255 }).notNull(),
+    owner: varchar({ length: 255 }).notNull(),          // GitHub org/user
+    name: varchar({ length: 255 }).notNull(),           // repo name
     defaultBranch: varchar(`default_branch`, { length: 255 }).notNull().default(`main`),
-    // Cached GitHub App installation id for JIT token resolution; nullable — the
-    // App JWT can still look it up on demand (github-app.ts is storage-free).
+    // Cached GitHub App installation id for JIT installation-token minting;
+    // nullable — the App JWT can still resolve it on demand (github-app.ts is
+    // storage-free).
     installationId: bigint(`installation_id`, { mode: `number` }),
-    // Per-repo agent settings.
     branchPrefix: varchar(`branch_prefix`, { length: 64 }).notNull().default(`exp/`),
     mergeStrategy: varchar(`merge_strategy`, { length: 16 }).notNull().default(`squash`), // squash|merge|rebase
     ...timestamps,
@@ -233,7 +241,7 @@ export const repositories = pgTable(
 )
 ```
 
-`mergeStrategy` uses a plain `varchar` with a documented value set (`squash`/`merge`/`rebase`) rather than a pg enum — it is web-settings-only display metadata and never needs cross-client enum constants. (If a native picker is later added, promote it to a `merge_strategy` enum via the step-2 flow.)
+`mergeStrategy` is a documented `varchar` value set (`squash`/`merge`/`rebase`), not a pg enum — it is web-settings display metadata with no native picker and no cross-client constants.
 
 **`project_repositories`** — many-to-many join (a repo may back several projects; a project may span several repos):
 
@@ -241,14 +249,18 @@ export const repositories = pgTable(
 export const projectRepositories = pgTable(
   `project_repositories`,
   {
-    projectId: uuid(`project_id`).notNull()
+    projectId: uuid(`project_id`)
+      .notNull()
       .references(() => projects.id, { onDelete: `cascade` }),
-    repositoryId: uuid(`repository_id`).notNull()
+    repositoryId: uuid(`repository_id`)
+      .notNull()
       .references(() => repositories.id, { onDelete: `cascade` }),
-    workspaceId: uuid(`workspace_id`).notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }), // denormalized for the shape filter
-    // Which repo the agent clones when an issue in this project has no explicit
-    // override. Exactly one primary per project (partial unique index below).
+    // Denormalized project→workspace for a cheap workspace-scoped tRPC filter.
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    // The repo the launcher clones for an issue in this project by default.
+    // Exactly one primary per project (partial unique index below).
     isPrimary: boolean(`is_primary`).notNull().default(false),
     ...timestamps,
   },
@@ -260,179 +272,114 @@ export const projectRepositories = pgTable(
 )
 ```
 
-Add a partial unique index (raw SQL in the migration, drizzle can't express it inline): `CREATE UNIQUE INDEX uniq_project_primary_repo ON project_repositories (project_id) WHERE is_primary;`.
+Because these are server-only, `workspaceId` here is a plain convenience denorm set by the writing tRPC procedure — it needs **no** Electric-scoping trigger.
 
-**Data migration (in the generated migration file, after the two `CREATE TABLE`s):** for every `projects` row where `github_repo IS NOT NULL`, split on `/` → insert a `repositories` row `(workspaceId, owner, name)` (upsert on the unique constraint so shared repos dedupe), then insert a `project_repositories` row with `is_primary = true`. Then **drop `projects.github_repo`** (Decision 2 — it is replaced by the registry). Keep the drop in the same migration so no code reads the stale column.
+Add the partial unique index in the generated migration (Drizzle can't express it inline):
+`CREATE UNIQUE INDEX uniq_project_primary_repo ON project_repositories (project_id) WHERE is_primary;`
 
-**Agent clone-target resolution (Decision 2):** the dispatcher resolves the clone target per-issue as: issue's project → its `is_primary` `project_repositories` row → `repositories`. If a project has **no** linked repo, the agent must mark the issue `needs_human` and emit `agent_error` code `repo_not_linked` (already a stable code in the vocabulary) — do not fall back to `project.github_repo` (gone). This resolution replaces every current read of `projects.githubRepo` in `apps/web/src/lib/trpc/companion/` and `apps/web/src/lib/integrations/github-app.ts` / `pr-sync.ts`.
+**Resolution:** `repositories.forIssue({issueId})` walks issue → project → its `is_primary` `project_repositories` row → `repositories`, returning `{ owner, name, defaultBranch, repositoryId }`. `repositories.installationToken({repositoryId})` is a session-gated proc minting a JIT installation token for the host git remote. If a project has no linked repo, `forIssue` returns "not linked" and the desktop surfaces "Link a repo in workspace settings" — there is no fallback (no `projects.githubRepo` exists anymore).
 
-**Denormalization triggers:** `project_repositories.workspace_id` is denormalized from project→workspace; add a `populate_project_repository_workspace_id` trigger to `0001_triggers.sql` mirroring the existing `populate_issue_subscriber_workspace_id` pattern, so the Electric shape filter stays workspace-scoped (stable, no 409 churn).
+### 2.4 `issues` additions
 
-Both tables are **[SYNCED]** — run the full 2.0 checklist for `repositories` (proxy `/api/shapes/repositories`) and `project_repositories` (proxy `/api/shapes/project-repositories`). Web repo-registry settings UI (workspace settings → Repositories) is the primary editor.
-
----
-
-### 2.2 Run configs (Decision 5) — host-side canonical, DB display mirror only (**NOT synced**)
-
-Run configs are **host-side**: the desktop app (Zig/Swift) spawns arbitrary build/test/dev commands directly into a terminal-dock tab, bypassing agent-core (honoring "core is ONLY the agent loop"). The canonical source is the committed **`.exponential/config.json`** working-tree file — the same file that already carries `ProjectPreviewConfig` (`packages/db-schema/src/domain.ts`). **Extend that file's schema rather than adding a new file.**
-
-Add a `runConfigs` array to `ProjectPreviewConfig` in `domain.ts`:
+`issues` already carries the PR linkage columns in the current tree; they stay in the target schema as the canonical, synced PR state (one issue = one PR = one branch/worktree):
 
 ```ts
-export interface RunConfig {
-  id: string            // stable key for last-selected memory + play-button menu
-  name: string          // display label ("Dev server", "Unit tests")
-  program: string       // argv[0]
-  args?: string[]
-  cwd?: string          // repo-relative; rejected if it contains ".."
-  env?: Record<string, string>  // PATH/LD_PRELOAD/DYLD_* stripped host-side
-}
-export interface ProjectPreviewConfig {
-  version: 1
-  targets: RunTarget[]
-  runConfigs?: RunConfig[]   // NEW
-}
-```
-Add `runConfigSchema` + extend `projectPreviewConfigSchema` in `domain.ts`.
-
-**DB mirror for cross-client display** — extend the existing display-only `ProjectPreviewMirror` (already on `projects.preview_config`, jsonb, never executed) rather than adding a table. This mirror is synced via the existing `projects` shape, so web/mobile can *show* the available run configs (and drive remote-launch RPC) without a new shape:
-
-```ts
-export interface ProjectPreviewMirror {
-  targets: { id: string; name: string; platform: Platform }[]
-  runConfigs?: { id: string; name: string }[]   // NEW — id+name only, never commands
-  feedbackProjectId?: string
-}
-```
-Update `projectPreviewMirrorSchema`. The desktop populates `runConfigs` into the mirror after it clones + parses `.exponential/config.json` (same flow that fills `targets`). **No new table, no new shape** — this rides the `projects` shape already in the checklist. Exit code + output history is captured host-side per run in the terminal-dock tab; it is not persisted server-side in v1.
-
----
-
-### 2.3 `agent_run_history` — append-only per-run log (Decision 4) **[SYNCED]**
-
-Today `agent_runs` is keyed by `issueId` (PRIMARY KEY on `issue_id`, verified `schema.ts:353-393`) = **current-state only, one row per issue**. Concurrent multi-window runs (Decision 4) and a per-`runId` terminal-slot pool need a stable run UUID and a history. Introduce an append-only sibling:
-
-```ts
-export const agentRunHistory = pgTable(
-  `agent_run_history`,
-  {
-    id: uuidPk(), // the run UUID (the runId the desktop keys its terminal-slot pool by)
-    issueId: uuid(`issue_id`).notNull()
-      .references(() => issues.id, { onDelete: `cascade` }),
-    workspaceId: uuid(`workspace_id`).notNull()
-      .references(() => workspaces.id, { onDelete: `cascade` }), // denormalized (trigger)
-    // The desktop device that executed this run.
-    hostDeviceId: text(`host_device_id`),
-    mode: runModeEnum(`mode`), // background|interactive (reuse existing run_mode enum)
-    status: varchar({ length: 32 }).notNull(), // queued|planning|awaiting_approval|coding|pushed|merged|cancelled|failed|needs_human
-    sessionId: text(`session_id`),   // claude/codex session for --continue
-    prUrl: text(`pr_url`),
-    prNumber: integer(`pr_number`),
-    lastError: text(`last_error`),
-    startedAt: timestamp(`started_at`, { withTimezone: true }),
-    finishedAt: timestamp(`finished_at`, { withTimezone: true }),
-    ...timestamps,
-  },
-  (table) => [
-    index(`idx_agent_run_history_issue`).on(table.issueId),
-    index(`idx_agent_run_history_workspace`).on(table.workspaceId),
-    index(`idx_agent_run_history_device`).on(table.hostDeviceId),
-  ]
-)
+prUrl:    text(`pr_url`),
+prNumber: integer(`pr_number`),
+prState:  prStateEnum(`pr_state`),   // open|closed|merged|draft
+branch:   text(`branch`),            // exp/<IDENTIFIER>
+prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
 ```
 
-**Decided:** keep `agent_runs` as-is (the hot current-state row every Plan Panel reads directly) and add `agent_run_history` alongside it — do NOT re-key `agent_runs`. `agent_runs` gains one column, `currentRunId uuid` (FK → `agent_run_history.id`, `on delete set null`), so a client can jump from the live badge to the active history row. This is the minimal change that unblocks the per-session terminal-slot pool (agent-core keys slots by the history `id`) without rewriting the existing Plan Panel read path on four clients. `status` is a documented `varchar` (mirrors `agentPipeline.nonTerminalStatuses`/`reentryStatuses` in `contract.json`) rather than a new pg enum, matching how `agentPlanState` is already stored.
+PR↔issue linking is **deterministic** via the `exp/<IDENTIFIER>` branch parsed on the GitHub webhook (and recorded by the MCP `open_pr` tool). **Dropped from `issues`** vs. the old tree: `googleCalendarEventId`, `googleCalendarLastSyncedAt`, `googleCalendarLastSyncError` (Calendar is cut — Google OAuth *login* is unaffected), and `agentPlanState` (no structured plan-approval state; you watch the terminal).
 
-**[SYNCED]** — full 2.0 checklist; proxy `/api/shapes/agent-run-history`; workspace-scoped filter; add `populate_agent_run_history_workspace_id` trigger to `0001_triggers.sql`. The `currentRunId` column addition to `agent_runs` is also **[SYNCED]** (rides the existing `agent-runs` shape — just add the column + self-heal ALTER on native clients).
-
----
-
-### 2.4 `remote_steer_sessions` — bidirectional remote steer (Decision 1) — **NOT synced**
-
-Governs who is watching/steering a live desktop terminal session over the outbound relay. **Not synced via Electric** — the relay service (its own workstream) owns the live session lifecycle over its socket; this table is the durable session ledger + permission source, read/written via tRPC. Electric cannot carry a PTY stream, so it must not be the transport here.
+**New — duplicate resolution.** Add a self-FK plus a new status value:
 
 ```ts
-export const remoteSteerSessions = pgTable(
-  `remote_steer_sessions`,
+duplicateOfId: uuid(`duplicate_of_id`).references(
+  (): AnyPgColumn => issues.id, { onDelete: `set null` }
+),
+```
+
+and add `duplicate` to `issueStatusValues` in `domain.ts`. "Duplicate" is a **resolution**, not a relation graph: 1:1, terminal-ish (hidden from active lists like `done`/`cancelled`), and it drops straight into the existing `matchesFilters()` / status-group machinery. Both fields ride the already-synced `issues` shape — no new proxy. (Issue-to-issue *references* stay inline in GFM markdown as `#MET-1153` identifier tokens, resolved server-side like `@email` mentions — zero schema surface.)
+
+### 2.5 `coding_sessions` — the live "coding now" shape (SYNCED)
+
+The single synced record of an in-flight terminal coding session, so every coordination client shows a live "coding now" badge and a Watch/Steer button. This is the entire replacement for the deleted `agent_runs` — no structured plan/approval state, no run history, no slot pool.
+
+```ts
+export const codingSessions = pgTable(
+  `coding_sessions`,
   {
     id: uuidPk(),
-    runId: uuid(`run_id`).references(() => agentRunHistory.id, { onDelete: `cascade` }),
-    issueId: uuid(`issue_id`).notNull()
+    issueId: uuid(`issue_id`)
+      .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
-    workspaceId: uuid(`workspace_id`).notNull()
+    // Denormalized issue→project→workspace so the Electric shape filter stays
+    // workspace-scoped (populated by a trigger, mirroring issue_subscribers).
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
-    hostDeviceId: text(`host_device_id`).notNull(), // desktop streaming frames
-    viewerUserId: text(`viewer_user_id`).notNull()
+    // The real user driving the session under their own auth — NOT a synthetic
+    // agent identity.
+    userId: text(`user_id`)
+      .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    permission: varchar({ length: 8 }).notNull().default(`view`), // view|steer
-    claimedUntil: timestamp(`claimed_until`, { withTimezone: true }), // steer-claim window
+    // Human label of the host device ("Dennis's MacBook"), shown on the badge.
+    deviceLabel: varchar(`device_label`, { length: 255 }),
+    status: codingSessionStatusEnum(`status`).notNull().default(`running`), // running|ended
+    startedAt: timestamp(`started_at`, { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp(`ended_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
-    index(`idx_remote_steer_run`).on(table.runId),
-    index(`idx_remote_steer_viewer`).on(table.viewerUserId),
-    index(`idx_remote_steer_device`).on(table.hostDeviceId),
+    index(`idx_coding_sessions_issue`).on(table.issueId),
+    index(`idx_coding_sessions_workspace`).on(table.workspaceId),
+    index(`idx_coding_sessions_user`).on(table.userId),
   ]
 )
 ```
 
-`permission` is a documented `varchar` value set `view|steer`. Enforcement: only one live row per `runId` may hold `permission='steer'` with `claimedUntil > now()` (a steer claim); others are `view`. The relay checks this table (or a cached projection) before forwarding an input RPC. Self-hosted: the relay is outbound/LAN-friendly; this table works identically regardless of relay reachability.
+**Status** is a small pg enum `coding_session_status` (`running`/`ended`) — only two states, native badge logic keys off it, so it earns a real enum + generated constants. Multi-window is trivially native: each window = its own ghostty + its own `claude` child in its own worktree, so several `running` rows can coexist for one issue/user (no shared slot pool, no `runId` bookkeeping). PR outcome is **not** duplicated here — it lives on `issues` (`prUrl`/`prNumber`/`prState`/`branch`). Add a `populate_coding_session_workspace_id` trigger to `0001_triggers.sql`, mirroring `populate_issue_subscriber_workspace_id`. Full 2.2 lockstep; proxy `/api/shapes/coding-sessions`.
 
----
+### 2.6 Notifications + email (server-only)
 
-### 2.5 Helpdesk — one-way reporter resolution (Decisions 7 & 8)
+Email is a **delivery channel**, not a notification type — no `notification_type` value is added for it. In-app + push + email are the three free channels; the fan-out is plain user-to-user (issue created / assigned / commented / mentioned / pr-opened / pr-merged). No agent-action special-casing (there's no headless agent posting plan-ready/questions). Cloud uses Resend (`RESEND_API_KEY`/`EMAIL_FROM`); self-hosted uses SMTP or degrades to a logged no-op with no creds.
 
-**Reuse `issue_subscribers`** for the reporter (Decision 7) — add a new subscriber source. In `domain.ts`, `subscriberSourceValues` becomes:
-
-```ts
-export const subscriberSourceValues = [
-  `creator`, `assignee`, `commenter`, `manual`, `mention`,
-  `widget_reporter`, // NEW
-] as const
-```
-Mirror into `contract.json` `subscriberSource.values` and regenerate constants. Because `subscriber_source` is a **pg enum** (`subscriberSourceEnum`, `schema.ts:93`), the migration must `ALTER TYPE subscriber_source ADD VALUE 'widget_reporter'` (drizzle emits this; it cannot run inside a transaction with other DDL on some PG setups — verify the generated migration splits it).
-
-**Reporter email** already has a home: `widget_submissions.reporterEmail` (`schema.ts:603`). When a widget submission creates an issue, also insert an `issue_subscribers` row `source='widget_reporter'` for the reporter. But `issue_subscribers.userId` is a **non-null FK to `users`** — a widget reporter is not a member. Two options; **decided:** reuse the config's existing synthetic `widgetUserId` agent user as the subscriber `userId` is wrong (it's the creator, not the reporter). Instead, the resolution email is keyed off `widget_submissions.reporterEmail` directly (no `users` row needed for an external reporter), and the `issue_subscribers` `widget_reporter` row is only inserted **if** `identify()` maps the reporter to an existing workspace user. For the common external-reporter case, the email path reads `widget_submissions.reporterEmail` at close-time. This keeps the FK honest and still models the reporter as a subscriber when they happen to be a known user. (Future two-way threads can add a nullable-user reporter table without reshaping this.)
-
-**Trigger (Decision 7):** when an issue tied to a `widget_submissions` row transitions to `done`/`cancelled` (a resolution), enqueue a resolution email to `reporterEmail` via the email-delivery path (2.6). One-way only in v1; the description-metadata block already carries context.
-
----
-
-### 2.6 Email as a delivery channel (Decision 8) — **NOT synced**
-
-Email is a **delivery channel**, not a notification type — do **not** add a `notification_type` value. In-app + push + email are the three fanned channels; email + push are free/table-stakes. Cloud uses Resend (`RESEND_API_KEY`/`EMAIL_FROM` already wired); self-hosted uses SMTP or degrades gracefully (no creds → email path is a no-op, logged).
-
-**`user_email_prefs`** — per-user channel prefs + digest opt-in (server-only):
+**`user_notification_prefs`** — per-user channel prefs + per-type toggles + digest + unsubscribe token:
 
 ```ts
-export const userEmailPrefs = pgTable(`user_email_prefs`, {
+export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
   userId: text(`user_id`).primaryKey()
     .references(() => users.id, { onDelete: `cascade` }),
   emailEnabled: boolean(`email_enabled`).notNull().default(true),
+  // Per-type opt-outs; a type absent from the map defaults to on. Keys are
+  // notification_type values (issue_assigned, issue_comment, …).
+  typePrefs: jsonb(`type_prefs`).$type<Partial<Record<NotificationType, boolean>>>()
+    .notNull().default(sql`'{}'::jsonb`),
   digest: varchar({ length: 16 }).notNull().default(`off`), // off|daily|weekly
-  // Stable per-user secret embedded in unsubscribe links (one-click list-unsubscribe).
+  // Stable per-user secret embedded in one-click List-Unsubscribe links.
   unsubscribeToken: varchar(`unsubscribe_token`, { length: 64 }).notNull().unique(),
   ...timestamps,
 })
 ```
 
-**`email_deliveries`** — audit + idempotency + per-message unsubscribe (server-only):
+**`email_deliveries`** — audit + idempotency + a home for external-reporter mail (no `users` row required):
 
 ```ts
 export const emailDeliveries = pgTable(
   `email_deliveries`,
   {
     id: uuidPk(),
-    // Nullable: external widget reporters have no users row (2.5).
+    // Nullable: external widget reporters have no users row.
     userId: text(`user_id`).references(() => users.id, { onDelete: `cascade` }),
     toEmail: varchar(`to_email`, { length: 320 }).notNull(),
-    // Ties a delivery to the notification/event that spawned it (idempotency key).
+    // Idempotency key: one delivery per notification row.
     notificationId: uuid(`notification_id`).references(() => notifications.id, { onDelete: `set null` }),
     issueId: uuid(`issue_id`).references(() => issues.id, { onDelete: `set null` }),
-    kind: varchar({ length: 32 }).notNull(), // notification|digest|widget_resolution
+    kind: varchar({ length: 32 }).notNull(),                 // notification|digest|widget_resolution
     status: varchar({ length: 16 }).notNull().default(`queued`), // queued|sent|failed
-    provider: varchar({ length: 16 }), // resend|smtp
+    provider: varchar({ length: 16 }),                        // resend|smtp
     providerMessageId: text(`provider_message_id`),
     error: text(),
     sentAt: timestamp(`sent_at`, { withTimezone: true }),
@@ -446,815 +393,927 @@ export const emailDeliveries = pgTable(
 )
 ```
 
-Neither table is synced (delivery/audit concerns, not client state). The email fan-out hooks the existing notification pipeline (`apps/web/src/lib/integrations/notifications.ts` + `fcm.ts`): after a notification row is created, if the recipient's `user_email_prefs.emailEnabled` and `digest='off'`, enqueue an `email_deliveries` row and send. Digest modes batch. Unsubscribe route resolves `unsubscribeToken` → flips `emailEnabled=false`.
+Neither is synced (delivery/audit concerns, not client state). The fan-out hooks the existing notification pipeline (`apps/web/src/lib/integrations/notifications.ts` + `fcm.ts`): after a notification row is created, if the recipient's `user_notification_prefs.emailEnabled` and `digest='off'` and the type isn't opted out, enqueue an `email_deliveries` row and send. Digest modes batch. The unsubscribe route resolves `unsubscribeToken` → flips `emailEnabled=false`. `digest`, `kind`, and `status` are documented varchars (server-only logic, no native constants).
 
----
+### 2.7 Widget helpdesk (server-only, unchanged intent)
 
-### 2.7 Issue-to-issue links + duplicate (Decision 10) **[SYNCED, partly]**
+`widget_configs` / `widget_submissions` stay exactly as the current one-way feedback path. The **one** identity exception the v2 cuts preserve: each config owns a minimal per-widget **bot/system user** as the issue `creator_id` (so external reporters can file issues) — this is clearly separate from and unrelated to the deleted desktop-agent identity. **Never delete that user** (`issues.creator_id` cascades); `widget_configs.widgetUserId` uses `onDelete: restrict`.
 
-Two things wanted: (a) clickable **issue references** inside descriptions/comments, and (b) a **duplicate-of** resolution.
+**Reporter as subscriber.** `issue_subscribers` gains two nullable columns and a new source so an external reporter can be modeled directly without a fake `users` row:
 
-**(a) References — no new table.** Issue references are authored inline in the GFM markdown (mirroring the `@<email>` mention contract), so they round-trip as plain text and need **no schema change**. The interchange form is the issue identifier token `#MET-1153` (or `[[MET-1153]]`); the server resolves it against workspace issues at save time (a new `apps/web/src/lib/integrations/issue-refs.ts`, mirroring `mentions.ts`), fires no notification in v1 (out of scope) but records nothing extra. Clients render a known identifier as an issue pill — same rendering hook the `@email` pill uses. This keeps references inside the single markdown interchange contract with zero sync surface.
-
-**(b) Duplicate — DECIDED: dedicated columns on `issues`, not a generic `issue_links` table.**
-
-Add to `issues`:
 ```ts
-duplicateOfIssueId: uuid(`duplicate_of_issue_id`).references(
-  (): AnyPgColumn => issues.id, { onDelete: `set null` }
-),
+// on issue_subscribers — userId becomes NULLABLE (was notNull):
+userId: text(`user_id`).references(() => users.id, { onDelete: `cascade` }), // null for widget reporters
+email: varchar({ length: 320 }),  // set for widget_reporter rows; null for member rows
 ```
-and add `duplicate` to `issueStatusValues` in `domain.ts` (→ `contract.json` `issueStatus.values` + `displayOrder`, regenerate; and `ALTER TYPE issue_status ADD VALUE 'duplicate'`).
 
-**Justification (vs. a generic `issue_links` relation table):** Decision 9 explicitly cuts sub-issues/dependencies/relations — a generic link table is exactly the relation-graph surface we are removing, and it would re-open bulk relation UX. "Duplicate" is a *resolution* (a terminal-ish status pointing at one canonical issue), not a relation graph: it is 1:1 (`duplicateOfIssueId`), it changes the issue's lifecycle (hidden from active lists like `done`/`cancelled`), and it fits the existing `matchesFilters()`/status-group machinery for free. A `status='duplicate'` + self-FK is the minimal model, stays within the "simpler than Linear" moat, and both fields ride the **already-synced `issues` shape** — so the only per-client work is the self-heal ALTER for the new column and rendering the "Duplicate of MET-x" pill. Both changes are **[SYNCED]** on the existing `issues` shape (no new proxy); native clients need the `tableColumnSet` self-heal ALTER for `duplicate_of_issue_id` and enum-decode tolerance for the new `duplicate` status.
+- Member subscriptions: `userId` set, `email` null, `source ∈ {creator, assignee, commenter, manual, mention}`.
+- Widget reporter: `userId` null, `email = reporter's address`, `source = 'widget_reporter'`.
+- The `unique(issueId, userId)` constraint must move to a form that tolerates null userId — use two partial unique indexes: `(issue_id, user_id) WHERE user_id IS NOT NULL` and `(issue_id, email) WHERE email IS NOT NULL` (raw SQL in the migration).
 
----
+When a widget submission creates an issue, insert a `widget_reporter` subscriber (email from `widget_submissions.reporterEmail`). On resolution — the issue transitions to `done`/`cancelled` — enqueue a one-way resolution email (`email_deliveries.kind = 'widget_resolution'`, `userId` null, `toEmail` = the reporter). `issue_subscribers` is a synced shape, so the two new columns run the full 2.2 lockstep on native clients (self-heal ALTER for `email`, nullable-`userId` decode).
 
-### 2.8 Cut Google Calendar (Decision 6) **[SYNCED — column removal]**
-
-Drop from `issues` (`schema.ts:261-267`): `googleCalendarEventId`, `googleCalendarLastSyncedAt`, `googleCalendarLastSyncError`. Delete `apps/web/src/lib/integrations/google-calendar.ts` and every `fireAndForgetSync`/`fireAndForgetDelete` call in `apps/web/src/lib/trpc/issues.ts`; remove the `googleCalendarEnabled` flag + the Google-Calendar linking UI in `apps/web/src/routes/_authenticated/account/integrations.tsx` and the calendar branch of `apps/web/src/lib/trpc/integrations.ts`; drop the calendar scope from the Better Auth `linkSocial` config (`apps/web/src/lib/auth/config.ts`, `index.ts`). Note: **Google OAuth login stays** — only Calendar is cut. Update `GOOGLE_CALENDAR_ENABLED` references and the CLAUDE.md integrations section. Because these are synced columns on the `issues` shape, native clients must **not** choke on their disappearance — the generic sync + `tableColumnSet` self-heal already tolerates *extra* server columns; dropping columns the client still lists is safe (client just stops populating them), but remove the fields from iOS `Entities.swift` / Android `Entities.kt` in the same change to keep the mappers clean.
-
----
-
-### 2.9 Enum additions — consolidated
+### 2.8 Enum changes (consolidated)
 
 | Enum (`domain.ts` array → `contract.json`) | Storage | Change |
 | --- | --- | --- |
-| `subscriberSourceValues` (`subscriber_source` **pg enum**) | pg enum | **+`widget_reporter`** — needs `ALTER TYPE … ADD VALUE` |
-| `issueStatusValues` (`issue_status` **pg enum**) | pg enum | **+`duplicate`** — needs `ALTER TYPE … ADD VALUE` + add to `displayOrder` |
-| `runModeValues` (`run_mode` pg enum) | pg enum | **reused unchanged** by `agent_run_history.mode` — no new value |
-| `platformValues` | varchar (contract-only) | **NOT extended.** `platform` describes preview run-target device backends (`web`/`android`/`ios`), *not* the desktop host OS. Desktop host OS (`macos`/`linux`) is NOT modeled as a domain enum — it lives as free `hostDeviceId` text on `agent_run_history`/`remote_steer_sessions` and in `agent_registrations`. Do **not** add `macos`/`linux` to `platformValues`. |
-| notification **delivery channel** | — | **NOT an enum in the DB / not a `notification_type`.** Modeled as `user_email_prefs` flags + the `email_deliveries.kind` varchar. Do not add a channel enum. |
+| `subscriberSourceValues` | pg enum `subscriber_source` | **+ `widget_reporter`** |
+| `issueStatusValues` | pg enum `issue_status` | **+ `duplicate`** (add to `issueStatusOrder` / `displayOrder`, place after `cancelled`) |
+| `codingSessionStatusValues` (**new**) | pg enum `coding_session_status` | new: `running`, `ended` |
+| `workspaceRoleValues` | pg enum | **drop `agent`** — only `owner`, `member` remain (no agent-role membership) |
+| `notificationTypeValues` | pg enum | **drop `agent_plan_review`, `agent_question`** (no headless agent notifications) |
+| `agentPlanStateValues` | — | **deleted** (no structured plan state on issues) |
+| `runModeValues` | — | **deleted** (`run_mode` had one consumer, `agent_runs`, now gone) |
+| `issueEventTypeValues` | pg enum | keep timeline kinds; **drop the agent-only ones** (`plan_ready`, `agent_error`, `agent_started`, `agent_question`, `agent_answer`); keep `status_changed`, `assignee_changed`, `label_added`, `label_removed`, `pr_opened`, `pr_merged` |
+| `platformValues` | varchar (contract-only) | **unchanged** (`web`/`android`/`ios` preview run-target backends; desktop host OS is free `deviceLabel` text, not a domain enum) |
 
-`merge_strategy`, `agent_run_history.status`, `remote_steer_sessions.permission`, `user_email_prefs.digest`, `email_deliveries.kind`/`status` are all documented **varchars** (web/host-only display or logic), deliberately NOT pg enums — matching the existing precedent of `agentPlanState`/`agentPipeline` statuses which are varchars kept in sync via `contract.json` prose, avoiding an `ALTER TYPE` per tweak and cross-client constant regeneration for values no native picker consumes.
-
----
+Since the schema is greenfield, all of the above are just the initial enum definitions — no `ALTER TYPE`, no split-migration ceremony. `merge_strategy`, `email_deliveries.kind`/`status`, and `user_notification_prefs.digest` stay documented varchars (server-only, no native pickers).
 
 ### Definition of done
 
-- [ ] `repositories` + `project_repositories` tables added, `projects.github_repo` data migrated into rows then the column dropped; partial unique index on primary repo; `populate_project_repository_workspace_id` trigger in `0001_triggers.sql`.
-- [ ] Both repo tables run the full 2.0 lockstep (collections.ts, `/api/shapes/repositories` + `/api/shapes/project-repositories`, Zig `specs`+test+migrations+self-heal, iOS/Android entity+DAO, CLAUDE.md); synced-shape count updated 14→17, proxies 15→18.
-- [ ] Agent clone-target resolution reads the repo registry; unlinked project → `needs_human` + `agent_error:repo_not_linked`; no reads of `projects.githubRepo` remain.
-- [ ] `.exponential/config.json` schema (`ProjectPreviewConfig`) extended with `runConfigs`; `ProjectPreviewMirror` + `projectPreviewMirrorSchema` extended with id/name-only `runConfigs`; no new table/shape for run configs.
-- [ ] `agent_run_history` table added (run-UUID PK, append-only) + `agent_runs.currentRunId` FK; both synced; `agent_runs` current-state read path NOT re-keyed; workspace-id trigger added.
-- [ ] `remote_steer_sessions`, `user_email_prefs`, `email_deliveries` added as **server-only** (not synced), with the single-steer-claim invariant and idempotent per-notification email delivery.
-- [ ] `subscriber_source` gains `widget_reporter` (enum ALTER + contract + regenerate); widget resolution email path keyed off `widget_submissions.reporterEmail`; resolution enqueue on `done`/`cancelled`.
-- [ ] Email delivery channel wired into the existing notification fan-out with per-user prefs + unsubscribe tokens; degrades gracefully with no Resend/SMTP creds.
-- [ ] Issue references resolved inline in markdown (`issue-refs.ts`, no schema); `duplicate` status value + `issues.duplicateOfIssueId` added and synced on the `issues` shape (self-heal ALTER on native clients).
-- [ ] Google Calendar columns dropped from `issues`; `google-calendar.ts` + all `fireAndForgetSync` calls + the flag + the linking UI removed; native `Entities` cleaned; Google login left intact.
-- [ ] `contract.json` regenerated (`bun run --filter @exp/domain-contract generate`); `bun run typecheck` + `bun run test` green; migration applied and `0001_triggers.sql` re-run.
+- [ ] Greenfield schema in `schema.ts` migrates cleanly from empty (`bun run backend:clear && bun run migrate`); no `ALTER TYPE`/backfill blocks in the generated migration.
+- [ ] Exactly **14 synced shapes**: `agent_runs` replaced by `coding_sessions`; `agent_registrations`, `workspace_agents`, and the `assigned-issues` proxy are absent; proxy count == 14.
+- [ ] `coding_sessions` runs the full 2.2 lockstep (collections.ts, `/api/shapes/coding-sessions`, Zig spec + `"14 shapes"` test still green + SQLite migration + self-heal, iOS/Android entity+DAO); `populate_coding_session_workspace_id` trigger in `0001_triggers.sql`; `coding_session_status` enum + generated constants.
+- [ ] `repositories` + `project_repositories` exist as **server-only** tables (no proxy/collection/native DAO); partial unique index on the primary repo; `repositories.forIssue` + `repositories.installationToken` tRPC procs resolve clone target + JIT token; **no `projects.githubRepo` column exists**.
+- [ ] `issues` carries `prUrl`/`prNumber`/`prState`/`branch`/`prMergedAt` + `duplicateOfId` self-FK; `issue_status` includes `duplicate`; **no `googleCalendar*` columns**, **no `agentPlanState`**.
+- [ ] `user_notification_prefs` + `email_deliveries` exist as server-only; per-user email prefs + per-type toggles + digest + unsubscribe token; idempotent per-notification delivery; graceful no-op without Resend/SMTP.
+- [ ] `issue_subscribers.userId` is nullable and `email` added; two partial unique indexes replace `unique(issueId, userId)`; `subscriber_source` includes `widget_reporter`; widget resolution email enqueued on `done`/`cancelled`.
+- [ ] Enum set matches §2.8: `workspace_member_role` has no `agent`; `notification_type` and `issue_event_type` drop the agent-only kinds; `run_mode` and `agentPlanState` are gone.
+- [ ] Widget bot/system user retained per config with `onDelete: restrict`; no other synthetic-user or `isAgent` desktop-agent identity anywhere.
+- [ ] `contract.json` regenerated (`bun run --filter @exp/domain-contract generate`); `bun run typecheck` + `bun run test` green; `0001_triggers.sql` re-run after migrate; CLAUDE.md updated to **14 synced shapes** naming `coding_sessions`.
 
 ---
 
-## 3. Remote agent steering (the outbound relay subsystem)
+## 3. Remote start + steer (the outbound relay)
 
-The killer flow: an issue arrives while I'm away, my agent-capable desktop is running at home, and I trigger clone→AI→PR **and fully steer it from my phone** — watching the live agent terminal and typing into it. This is the single biggest net-new subsystem in the refactor. Electric syncs rows and cannot carry a live PTY byte stream, so remote steering needs a **new standalone relay service** that the desktop connects to **outbound** and that web/mobile viewers subscribe to.
+The killer flow: an issue lands while I'm away, my desktop is running at home, and from my phone I press **"Start on my desktop"** — the desktop spins up the native Start-coding launcher (clone → worktree → `claude --dangerously-skip-permissions` in an embedded ghostty terminal, see §4/§5) and I **watch and type into the live terminal from my phone**. Electric syncs rows and cannot carry a live PTY byte stream, so remote start + steering needs a **standalone relay service** that the desktop connects to **outbound** and that web/mobile viewers subscribe to.
 
-### 3.0 Why a new service, and why outbound-from-desktop
+There is **no Rust core, no agent-core, no runId, no dispatcher** anywhere in this path. The person coding is the real user under their own session. The desktop is the only place a `claude` child ever runs; web and mobile are pure remote viewers/steerers of a desktop-hosted PTY.
 
-- **Electric can't carry the PTY.** Electric is a Postgres shape-log replicator: it delivers ordered row snapshots + change deltas. A terminal is a high-frequency, ephemeral, ordered byte stream (thousands of small frames/sec at their peak, worthless once consumed) with a **reverse input channel**. Persisting every frame as a Postgres row would trash the WAL and the shape log, and Electric has no viewer→writer RPC path. Terminal transport must be a separate, non-persisted, bidirectional channel. `agent_runs` (the 14th synced shape) stays the **control-plane** record (who's steering, session liveness, PR/plan state); the relay is the **data-plane** for bytes only.
-- **Outbound-from-desktop is mandatory for self-hosted / NAT.** The desktop runs on a laptop at home behind NAT with no inbound reachability — exactly the constraint that already forced the push-relay (`apps/push-relay`) and the GitHub App (outbound App-JWT → installation token, only the webhook is inbound + optional) to be outbound-only. The desktop therefore **dials out** to the relay and holds a persistent socket; the relay fans bytes to viewers. Viewers (web/mobile) also dial the relay (a public/reachable host). Nothing ever connects *into* the desktop. Self-hosted deploys the relay next to the web app (or LAN-only); if no relay is configured, steering degrades gracefully to non-existent (see 3.6) while the agent still runs headlessly and syncs plan/PR state over Electric as today.
+### 3.0 Why a separate service, and why outbound-from-desktop
+
+- **Electric can't carry the PTY.** Electric is a Postgres shape-log replicator: ordered row snapshots + change deltas. A terminal is a high-frequency, ephemeral byte stream (thousands of tiny frames/sec at peak, worthless once consumed) with a **reverse input channel**. Persisting frames as rows would trash the WAL, and Electric has no viewer→writer RPC path. Terminal transport must be a separate, non-persisted, bidirectional channel. The synced `coding_sessions` row (the 14th Electric shape) is the **control-plane** record — "device D is coding on issue X right now," `running → ended`; the relay is the **data-plane** for bytes only.
+- **Outbound-from-desktop is mandatory for self-hosted / NAT.** The desktop runs on a laptop at home behind NAT with no inbound reachability — the same constraint that already forced the push-relay (`apps/push-relay`) and the GitHub App (outbound App-JWT → installation token; only the webhook is inbound + optional) to be outbound-only. The desktop therefore **dials out** and holds a persistent control socket (device presence) plus, per session, a publisher socket. Viewers (web/mobile) also dial the relay (a reachable host). Nothing ever connects *into* the desktop.
 
 ### 3.1 New service: `apps/steer-relay`
 
-Model it **exactly** on `apps/push-relay` — standalone Hono/Bun, separately deployed, its own Coolify app and `Dockerfile.steer-relay` (context `.`). Same shape as `apps/push-relay/src/index.ts`: a lazy-singleton, `/healthz` unauth check for the Docker HEALTHCHECK, per-IP token-bucket rate limiting, `MAX_BODY_BYTES` guard, `PORT` from env. Add it as a bun workspace `@exp/steer-relay`.
+Model it **exactly** on `apps/push-relay` — standalone Hono/Bun, separately deployed, its own Coolify app and `Dockerfile.steer-relay` (context `.`). Reuse its skeleton verbatim (`apps/push-relay/src/index.ts`): lazy singleton, `/healthz` unauth check for the Docker HEALTHCHECK, per-IP token-bucket rate limiting with the periodic sweep, `MAX_BODY_BYTES` guard, `clientIp()` X-Forwarded-For hardening, `PORT` from env. Add it as bun workspace `@exp/steer-relay`.
 
-Differences from push-relay: push-relay is a stateless request/response FCM forwarder; steer-relay is a **stateful WebSocket hub** (Bun's native `Bun.serve` `websocket` handler, not Hono's fetch-only path — export `{ port, fetch, websocket }`). It holds an in-memory registry of **rooms** keyed by `runId` (== `agent_runs.issueId`, since one issue = one run = one PR). Each room has:
+The one structural difference from push-relay: push-relay is a stateless request/response FCM forwarder; steer-relay is a **stateful WebSocket hub**. Use Bun's native `Bun.serve` `websocket` handler (export `{ port, fetch, websocket }`) rather than Hono's fetch-only path. The relay holds two in-memory registries:
 
-- exactly one **publisher** socket (the desktop hosting that run),
-- zero-or-more **viewer** sockets (web/mobile),
-- a small **ring buffer** of the most recent N KB of terminal output (the "scrollback replay" so a viewer that connects mid-session sees current screen state, not a blank pane).
+1. **Device presence** — a map of `(userId → { deviceLabel, controlSocket, connectedAt })` for every desktop that currently holds an outbound control socket. This is what powers the phone's "Start on my desktop" device picker.
+2. **Session rooms** — keyed by **`sessionId` (== `coding_sessions.id`, a desktop-generated UUID)**, NOT any runId. Each room has:
+   - exactly one **publisher** socket (the desktop hosting that ghostty PTY),
+   - zero-or-more **viewer** sockets (web/mobile),
+   - a small **ring buffer** of the most recent N KB of terminal output (scrollback replay so a mid-session viewer sees current screen state, not a blank pane).
 
-The relay is a **dumb pipe with auth + a session ledger**. It does not parse terminal escape codes, does not persist bytes, and holds no DB connection for the byte path. Session bookkeeping that must survive a relay restart lives in Postgres (`remote_steer_sessions`, 3.3) written by the web app over tRPC, not by the relay.
+The relay is a **dumb pipe with auth + ephemeral presence**. It does not parse terminal escape codes, does not persist bytes, and holds no DB connection. **All steer state — device presence, viewer presence, and the single-steerer claim — lives in relay memory.** There is **no `remote_steer_sessions` table** (removed); the only durable session record is the synced `coding_sessions` row, written by the desktop over tRPC when it starts/ends a session.
 
 Env vars (mirror push-relay naming):
 ```
 STEER_RELAY_URL        # public relay base (wss://steer.exponential.at) — desktop + clients dial this
-STEER_RELAY_SECRET     # shared secret: web app ↔ relay for the token-mint/verify path
+STEER_RELAY_SECRET     # shared HS256 secret: web app mints tickets, relay verifies
 PORT                   # default 4002
 ```
-Add `STEER_RELAY_URL` to the web env and to the desktop `CoreConfigDto`-adjacent host config (the relay URL is a **host-app** concern, not agent-core — see 3.4).
+`STEER_RELAY_URL` goes into the web env and into the desktop host config (JetBrains-SDK-style settings, §7) — the relay URL is a **host-app** concern.
 
-### 3.2 Transport & wire protocol
+### 3.2 Two channels: device control + session data
 
-One WebSocket per participant. **Auth happens on connect**, before joining a room, via a short-lived **relay ticket** minted by the web app (never send raw `expk_`/session tokens to the relay). Framing: length-prefixed binary frames on the wire; the control channel is JSON, the terminal byte channel is raw binary to avoid base64 bloat.
+Every desktop, while the app is open, holds **one outbound control socket** to the relay. Each active coding session additionally opens **one publisher socket**. Viewers open **one viewer socket per session** they watch.
 
-**Connect handshake (both roles).** Client opens `wss://<relay>/v1/steer?ticket=<jwt>`. The ticket is a compact signed token minted by the web app tRPC (`steer.mintTicket`, `authedProcedure`) after it verifies the caller's session/`expk_` AND their permission (3.5). Ticket claims: `{ runId, workspaceId, userId, role: "publisher"|"viewer", perm: "view"|"steer", exp }`, signed with `STEER_RELAY_SECRET` (HS256). The relay verifies signature + `exp` only — all authorization was already decided by the web app at mint time. Publisher tickets are minted by the **desktop** calling `steer.mintTicket` with its `expk_` key (agent-gated, like `companion.repoToken`); it always gets `role: "publisher"`.
+**Auth on connect.** Before joining anything, the client presents a short-lived **relay ticket** minted by the web app — never send raw session cookies or personal API keys to the relay. Tickets are compact HS256 tokens signed with `STEER_RELAY_SECRET`, minted by `steer.mintTicket` (a tRPC proc gated by session **or** the user's personal Better Auth apikey), which first verifies the caller's permission (§3.5). The relay verifies signature + `exp` only; all authorization was decided at mint time. Ticket claims:
+```
+{ userId, workspaceId, deviceLabel?, sessionId?, role: "control"|"publisher"|"viewer",
+  perm: "view"|"steer", exp }
+```
+- **control** ticket → desktop registers device presence (no `sessionId` yet).
+- **publisher** ticket → desktop attaches as the publisher for a specific `sessionId` (it always gets `role:"publisher"` for sessions it started).
+- **viewer** ticket → web/mobile joins a `sessionId`; `perm` is `view` or `steer` per §3.5.
 
-**Message types (JSON control frames, `{t, ...}`):**
+Framing: JSON for control frames; **raw binary** for terminal output (opcode byte `0x01` + payload) to avoid base64 bloat on the hot path.
+
+**Wire protocol (JSON control frames `{t, ...}`):**
 
 | `t` | dir | payload | meaning |
 | --- | --- | --- | --- |
-| `hello` | pub→relay | `{runId, cols, rows, sessionId}` | desktop registers as publisher; relay creates/attaches room |
-| `join` | view→relay | `{runId}` | viewer subscribes; relay replays ring buffer then live-tails |
+| `hello` | pub→relay | `{sessionId, issueId, cols, rows}` | desktop publisher registers; relay creates/attaches the room |
+| `online` | desktop→relay | `{deviceLabel}` | desktop control socket announces device presence for `userId` |
+| `start_session` | phone→relay→desktop | `{issueId, deviceId?}` | remote **Start on my desktop**; relay routes to the chosen online control socket |
+| `join` | view→relay | `{sessionId}` | viewer subscribes; relay replays ring buffer then live-tails |
 | `resize` | pub→relay→view | `{cols, rows}` | terminal geometry changed (viewers reflow) |
-| `input` | view→relay→pub | `{bytes}` (utf8) | keystrokes from a **steer**-perm viewer, injected into the PTY |
-| `presence` | relay→all | `{viewers:[{userId,name,perm}], steererId}` | who is watching/steering (drives the UI avatars) |
-| `claim` | view→relay→pub | `{until}` | request the exclusive steer token (see 3.3 claim model) |
+| `input` | view→relay→pub | `{bytes}` (utf8) | keystrokes from the **steer**-holding viewer, injected into the PTY |
+| `presence` | relay→all | `{viewers:[{userId,name,perm}], steererId}` | who's watching/steering (drives UI avatars) |
+| `claim` | view→relay | `{}` | request the exclusive steer token (§3.4) |
 | `release` | view→relay | `{}` | give up steer |
-| `kill` | view→relay→pub | `{}` | **kill-switch**: owner force-terminates the session (3.5) |
+| `kill` | view→relay→pub | `{}` | **kill-switch**: force-terminate the session (§3.5) |
 | `bye` | pub→relay | `{outcome}` | session ended; relay closes room, evicts viewers |
 
-**Terminal output** is a raw **binary** frame (opcode byte `0x01` + payload) pub→relay→all-viewers — the ghostty surface's byte output (3.4). Keeping it binary and out of the JSON envelope is what keeps the hot path cheap.
+**Terminal output** is the binary `0x01` frame pub→relay→all-viewers — verbatim ghostty PTY bytes (§3.3), so xterm.js on the web renders identically to the local terminal.
 
-**Backpressure.** The desktop is the fast producer; a phone on cellular is the slow consumer. The relay MUST NOT buffer unboundedly per viewer. Policy: each viewer socket has a bounded send queue; on overflow the relay **coalesces** by dropping intermediate output frames and forcing a **full-screen resync** (the desktop, on a `resync` request the relay sends when it evicts a viewer's backlog, re-emits current screen state — ghostty can dump the full visible grid). Control frames (`input`, `claim`, `resize`, `kill`) are **never** dropped. Bun's `ws.send()` returns backpressure signals; when a viewer stays saturated past a timeout the relay drops that viewer with a `slow_consumer` close code (the client shows "reconnecting"). The publisher is never throttled by a slow viewer.
+**Remote start path.** Phone sends `start_session{issueId, deviceId?}` (over a viewer/control ticket scoped to the workspace). The relay looks up the target desktop's control socket (the user's only online device, or the picked `deviceId`) and forwards `start_session`. The desktop runs the native Start-coding launcher (§4/§5): resolve repo, fetch JIT installation token, worktree + `exp/<IDENTIFIER>` branch, write `.mcp.json`, spawn `claude --dangerously-skip-permissions` in an embedded ghostty terminal, insert the `coding_sessions` row (`running`), then open its publisher socket with `hello{sessionId,…}` and start teeing PTY bytes. The phone, watching `coding_sessions` over Electric, sees the new `running` row and joins by `sessionId`.
 
-**Reconnect.** Viewers reconnect with a fresh ticket and re-`join` (ring-buffer replay covers the gap). If the **publisher** socket drops, the relay marks the room `stale` and starts a grace timer; the web app sees `agent_runs.interactiveClaimedExpiresAt` lapse via Electric and shows "desktop disconnected." The desktop re-`hello`s on reconnect and resumes the same room.
+**Backpressure.** The desktop is the fast producer; a phone on cellular is the slow consumer. The relay MUST NOT buffer unboundedly per viewer. Policy: each viewer socket has a bounded send queue; on overflow the relay **coalesces** by dropping intermediate output frames and requesting a **full-screen resync** from the publisher (ghostty dumps its current visible grid). Control frames (`input`, `claim`, `resize`, `kill`) are **never** dropped. Bun's `ws.send()` surfaces backpressure; a viewer saturated past a timeout is dropped with a `slow_consumer` close code (client shows "reconnecting"). The publisher is never throttled by a slow viewer.
 
-### 3.3 Session model: `remote_steer_sessions` + the claim/permission/until model
+**Reconnect.** Viewers reconnect with a fresh ticket and re-`join` (ring-buffer replay covers the gap). If the **publisher** socket drops, the relay marks the room `stale` and starts a grace timer; the desktop re-`hello`s on reconnect and resumes the same `sessionId`. If the desktop control socket drops, its device presence is evicted and it disappears from the phone's device picker.
 
-Reuse and extend the interactive bookkeeping that already exists on `agent_runs` (`packages/db-schema/src/schema.ts`): `sessionId`, `runMode` (`run_mode` enum `background|interactive`), `interactiveClaimedAt`, `interactiveClaimedExpiresAt`, `lastError`. Those already model "a desktop interactive session owns this issue, bounded by an expiry." The remote-steer layer sits **on top** of that: the desktop owning the PTY is the publisher; the steer session governs **who among the humans may type**.
+### 3.3 The publisher = a native host component (Zig / Swift)
 
-Add a new server-only table (NOT Electric-synced — it changes too often and viewers learn presence over the relay `presence` frame, not sync):
+The publisher is **native host code** — there is no Rust core involved. It sits beside the terminal embedding already present on each desktop: Linux `apps/linux` (GtkGLArea wrapping a ghostty surface) and macOS `apps/ios/ExponentialMac` (GhosttyKit.xcframework). Per active session the host runs a `SteerPublisher`:
 
-```
-remote_steer_sessions
-  id            uuid pk
-  run_id / issue_id  uuid  → agent_runs.issue_id (cascade)
-  workspace_id  uuid  → workspaces (cascade)      # for permission scoping
-  viewer_id     text  → users.id                  # the human
-  perm          steer_perm enum: 'view' | 'steer'
-  claimed_at    timestamptz                        # when steer was granted
-  claim_until   timestamptz                        # bounded exclusive-steer window
-  released_at   timestamptz null
-  created_at / updated_at
-```
-Add enum `steer_perm` to `packages/db-schema/src/domain.ts` (`steerPermValues = ['view','steer']`) alongside `subscriberSourceValues`, mirror into `packages/domain-contract/contract.json`, and run `bun run --filter @exp/domain-contract generate`.
+- **Tee the ghostty PTY output.** The `claude` child's PTY master is host-owned (the launcher spawns it, §5). Tee the PTY read stream → (a) the ghostty surface feed for local display **and** (b) the relay binary `0x01` frame. These are verbatim terminal bytes, so a remote xterm.js renders pixel-identically.
+- **Full-screen resync/replay.** On `join`/`resync`, emit ghostty's current visible grid as an ANSI reconstruction (or compact cell snapshot) so a late viewer gets current state, then switch to live PTY bytes.
+- **Inject remote input.** The relay forwards `input{bytes}` only from the socket currently holding the steer claim. The host writes those bytes into the **same PTY master write** the local keyboard writes to — i.e. into stdin, not the ghostty input API — so `claude` sees them as normal keystrokes. This is the single point where local + remote input merge on one stream.
+- **Kill-switch.** On a `kill` frame, the host tears down the session's terminal (destroying the ghostty surface kills the `claude` child), flips `coding_sessions.status = 'ended'`, and closes the room with `bye`.
 
-**Claim model (single-steerer, cooperative).** Multiple viewers may `view` concurrently; **at most one** holds `steer` at a time (a terminal has one input cursor — two people typing is chaos). Steer is a **claim with an `until` window** (default 10 min, renewable): the first requester gets it; others queue and see "X is steering." The claim auto-expires at `claim_until` (so an idle steerer doesn't lock everyone out); a heartbeat from the active steerer's client renews it via `steer.renewClaim`. The **owner can always preempt** (`steer.forceClaim`) — owner intent beats a stranger's claim. The relay enforces the runtime rule (only forward `input` frames from the socket whose `userId == steererId`); Postgres is the durable ledger (`steer.claim`/`renewClaim`/`release` tRPC procs write `remote_steer_sessions` + mirror the active steerer's window into `agent_runs.interactiveClaimedExpiresAt` so Electric-synced clients show a "steered by" indicator without joining the relay).
+**Multi-window is trivially native.** Each window/tab is its own ghostty surface + its own `claude` child in its own worktree + its own `SteerPublisher` keyed by its own `sessionId`. **No shared slot pool, no `maxConcurrent` gate, no core** — concurrency falls out of running independent OS processes. One relay room per `sessionId` maps 1:1 to one terminal tab / detached window.
 
-**Local user coexistence.** The desktop's local human is *always* able to type into the terminal directly (it's their machine) — local input is never gated by the relay. The relay-forwarded remote `input` and local keystrokes both feed the same ghostty PTY (3.4). To avoid a fight, the desktop shows a small "remote steering active — <name>" banner and the local user can hit **Take over** (a local button that calls `steer.forceClaim` on their own behalf via the desktop's key, revoking the remote claim).
+### 3.4 The claim model (single-steerer, in relay memory)
 
-### 3.4 Desktop host changes (Zig + Swift): publish the surface, inject remote input, per-session slot pool
+Multiple viewers may `view` concurrently; **at most one** holds `steer` at a time (a terminal has one input cursor — two people typing is chaos). The claim is **relay memory only**:
 
-Today the terminal dock is grounded in `apps/linux/src/ui/terminal.zig` (a `GtkGLArea` wrapping a lazily-created `ghostty_surface`) and `apps/linux/src/core/agent/agent_manager.zig` (spawns the CLI in that surface on a `run_request`, reads back the exit, calls `agent_core_submit_run_result`). macOS mirrors this with `MacAgentTerminalRunner`. The steer publisher is a **host-app** component (agent-core stays "only the agent loop" — the locked rule), sitting beside `agent_manager.zig`:
+- First `claim` from a `steer`-perm viewer wins and becomes `steererId`; others see "X is steering" via `presence`.
+- The relay forwards `input` frames **only** from the socket whose `userId == steererId`; everyone else's input is dropped.
+- `release` (or that viewer disconnecting) frees the claim.
+- **The local desktop user always types** into the terminal directly — local input is their machine and is never gated by the relay. When a remote steerer is active the desktop shows a small "remote steering — <name>" banner with a **Take over** button; pressing it sends a local `release`-then-`claim` on the user's own behalf (their machine wins immediately).
 
-- **New `SteerPublisher` (per run).** On `run_request` with `interactive:true`, after the terminal mounts, the host opens a publisher WebSocket to `STEER_RELAY_URL` (ticket from `steer.mintTicket` over the existing agent `expk_`), sends `hello{runId, cols, rows, sessionId}`, and **tees the ghostty surface output** into the relay socket. ghostty already invokes the host on output/render; add a byte tap. Two viable taps, pick per platform:
-  1. **Byte tee at the PTY** — the cleanest: the CLI child's PTY master is already host-owned in the run wrapper (`agent_manager.zig` writes the per-run bash wrapper); tee the PTY read stream → (a) ghostty `ghostty_surface_*` feed for local display AND (b) the relay binary frame. This is verbatim terminal bytes, so xterm.js on the web renders identically.
-  2. **Screen-grid snapshot** — for `resync`/`join` replay, dump ghostty's current visible grid as an ANSI-reconstruction (or a compact cell snapshot) so a late viewer gets current state. Emit this on `join`/`resync`, then switch to live PTY bytes.
-- **Inject remote input.** The relay forwards `input{bytes}` (only from the active steerer). The host feeds those bytes into the **same PTY master write** the local keyboard writes to (in `terminal.zig` the input controllers already forward to `ghostty_surface_*`; remote input takes the identical path — write to the PTY, not the ghostty input API, so the CLI sees it as normal stdin). This is the point where local + remote input merge on one stream (3.3).
-- **Kill-switch.** On a `kill` control frame (owner), the host tears down the run's terminal exactly like `run_cancelled` today (`destroyTerminal` in `agent_manager.zig` — destroying the surface kills the CLI child) and calls `agent_core_cancel_issue`.
+No `until`/expiry table, no `renewClaim`/`forceClaim` procs, no `interactiveClaimedExpiresAt` mirror — the whole claim is ephemeral. If the relay restarts, every socket reconnects and re-`claim`s; nothing durable is lost because nothing durable existed.
 
-**Per-session terminal-slot pool (the multi-window rework).** agent-core today has a **process-global** `InteractiveSlot` (`crates/agent-core/src/run_pipeline.rs`): `try_claim(issue_id)` allows exactly **one** interactive session process-wide; the FFI header says so (`at most ONE interactive session is live at a time`), and `agent_core_request_interactive` refuses a second with `interactive_session_active`. Multi-window v1 requires **concurrent** agent sessions, so this must become a **per-run slot pool keyed by runId**:
+### 3.5 Security, permissions, kill-switch
 
-- Replace the single `interactive_slot: Arc<InteractiveSlot>` in `ffi.rs` / `run_pipeline.rs` with an `InteractiveSlotPool` (a `Mutex<HashMap<runId, SlotGuard>>` with a `maxConcurrent` cap, default 2 → make it configurable, matching `CoreConfigDto.maxConcurrent`). `try_claim(runId)` succeeds unless *that run* is already live or the pool is at cap (returns `Retry`/`run_already_in_flight` as today). `build_pipeline`'s `slot.try_claim(&issue.id)` becomes a pool claim.
-- The `run_request`/`run_cancelled`/`run_finished` events already carry `runId` — the host already keys its terminal registry by run (`agent_manager.zig` runs registry). Each `SteerPublisher` is likewise keyed by `runId`. So one relay room per run maps 1:1 to one terminal-dock tab / detached window.
-- This is a **frozen-ABI-adjacent** change: the C ABI signatures (`agent_core_request_interactive(issue_id)`, `submit_run_result(run_id,…)`) don't change; only the internal slot semantics and the informational `interactive_session_active` gate (now per-run, not global) do. Update the header comment block accordingly and the `ffi.rs` tests (`agent_core_approve_interactive` test around `run_pipeline` lines 550+).
-
-### 3.5 Security, permissions, audit
-
-- **Who can view / steer.** Minting a ticket (`steer.mintTicket`) checks: caller is authenticated (session or `expk_`), is a member of the run's `workspace_id`, and — the default rule — **only the run owner (the agent's `owner_user_id`) and workspace members with role `owner`/`admin` may `steer`; other members get `view`; non-members and `role=agent`/`role=member` on a public workspace get nothing.** Reuse the workspace-permission helper (`apps/web/src/hooks/use-workspace-permissions.ts` semantics; server-side membership in `apps/web/src/lib/auth/membership.ts`/`policies.ts`). The desktop publisher is implicitly the owner's machine.
-- **No raw creds to the relay.** The relay only ever sees signed tickets; it verifies the HS256 signature with `STEER_RELAY_SECRET` and enforces `exp`. Compromising the relay leaks live terminal bytes of *active* sessions only (no persisted data, no DB), and cannot mint new access.
-- **Kill-switch.** Owner can `kill` any session from any client → relay forwards → host tears down the terminal + `agent_core_cancel_issue`. Also a hard server path: `steer.killSession` sets `agent_runs.interactiveClaimedExpiresAt = now()` and the desktop, watching that over Electric, aborts even if the relay is unreachable.
-- **Audit.** Every claim/steer/kill writes an `issue_events` row so it shows in the Linear-style timeline. Add event types to `issueEventTypeValues` in `domain.ts`: `steer_started`, `steer_ended`, `steer_killed` (mirror to contract.json + regenerate). The `remote_steer_sessions` rows are the durable ledger (who steered, when, until when).
-- **Rate-limit + origin.** Relay applies the push-relay-style per-IP token bucket on connects; ticket `exp` is short (60s to connect, then the socket lives on its own). Reject `input` frames larger than a small cap.
+- **Who can view / steer.** `steer.mintTicket` checks: caller is authenticated (session or personal apikey) and is a member of the session's `workspace_id`. Default rule — **workspace members with role `owner`/`admin` may `steer`; other members get `view`; non-members get nothing.** Reuse the server-side membership + permission helpers (`apps/web/src/lib/auth/membership.ts` and `apps/web/src/lib/auth/access.ts`), mirroring the client `WorkspacePermissions` semantics in `apps/web/src/hooks/use-workspace-permissions.ts`. The desktop publisher is implicitly the session owner's own machine, keyed to their `userId`.
+- **No raw creds to the relay.** The relay only ever sees signed tickets; it verifies the HS256 signature with `STEER_RELAY_SECRET` and enforces a short `exp` (60s to connect; the socket then lives on its own). Compromising the relay leaks live terminal bytes of *active* sessions only — no persisted data, no DB, no ability to mint new access.
+- **Kill-switch.** Any `steer`-perm member can `kill` a session from any client → relay forwards to the publisher → host tears down the terminal and flips `coding_sessions.status = 'ended'`. The desktop also watches its own `coding_sessions` row over Electric, so a server-side `steer.killSession` that sets `status='ended'` aborts the run even if the relay is unreachable.
+- **Rate-limit + origin.** The relay applies the push-relay per-IP token bucket on connects and rejects `input` frames larger than a small cap.
 
 ### 3.6 Self-hosted & graceful degradation
 
-- **Config.** `STEER_RELAY_URL` unset → the whole subsystem is **off**: `steer.mintTicket` returns a `disabled` result, the desktop never opens a publisher socket, and the web/mobile UI shows "Live steering unavailable on this instance" (the agent still runs, plans and PRs still sync over Electric — steering is additive, never load-bearing). This mirrors how `PUSH_RELAY_URL` unset disables push in `fcm.ts` without breaking anything.
-- **LAN-only.** Self-hosters can point `STEER_RELAY_URL` at a LAN address (e.g. `ws://relay.lan:4002`); because both desktop and clients dial *out* to it, it works with zero inbound firewall rules on the desktop. Ship the relay in the same `docker-compose.yaml` as an optional service and document it beside the push relay in CLAUDE.md's infra list.
+- **Config.** `STEER_RELAY_URL` unset → the whole subsystem is **off**: `steer.mintTicket` returns a `disabled` result, the desktop never opens a control or publisher socket, and web/mobile show "Remote start & live steering unavailable on this instance." Local coding on the desktop still works fully (launcher, ghostty, PR via MCP) — the relay is purely additive, never load-bearing. This mirrors how `PUSH_RELAY_URL` unset disables push without breaking anything.
+- **LAN-only.** Self-hosters can point `STEER_RELAY_URL` at a LAN address (e.g. `ws://relay.lan:4002`); because both desktop and clients dial *out*, it works with zero inbound firewall rules on the desktop. Ship the relay in `docker-compose.yaml` as an optional service and document it beside the push relay in CLAUDE.md's infra list.
 - **Cloud.** New Coolify app `exponential-steer-relay` cloning the repo and building `Dockerfile.steer-relay` (context `.`), holding `STEER_RELAY_SECRET`; `/healthz` gates the HEALTHCHECK. Same manual-deploy posture as the other Coolify apps.
 
 ### 3.7 Web & mobile viewer UI
 
-- **Web:** add `@xterm/xterm` (+ `@xterm/addon-fit`) to `apps/web` (not currently a dep). A new `<SteerTerminal>` component on the issue / agent-run screen (beside the agent Plan Panel and `diff-view.tsx`): when `agent_runs.runMode === 'interactive'` and steering is enabled, show a **"Watch live" / "Take steering"** button. It calls `trpc.steer.mintTicket`, opens the viewer WebSocket, `join`s, pipes binary output frames into the xterm write path, and (if `perm === 'steer'` and it holds the claim) forwards xterm `onData` keystrokes as `input` frames. Show a presence bar (avatars from `presence`) and the claim/until countdown.
-- **Mobile:** iOS renders bytes into a lightweight native terminal view (SwiftTerm or a minimal VT parser fed from the WebSocket); Android a Compose terminal surface. Read-only "watch" is the primary mobile use; "steer" sends keystrokes from the soft keyboard. Both reuse the same ticket-mint tRPC and the same relay wire protocol. The connection UI lives on the issue/agent-run detail screen next to the plan/diff, gated on the same permission + `STEER_RELAY_URL`-enabled flag delivered via a small `steer.config` proc.
-- **No local runtime.** Per the locked platform roles, web/mobile have **no** local terminal/agent runtime — they are pure remote viewers/steerers of a desktop-hosted PTY.
+- **Web:** add `@xterm/xterm` (+ `@xterm/addon-fit`) to `apps/web`. A `<SteerTerminal>` component on the issue detail screen (beside the read-only PR diff): when a `running` `coding_sessions` row exists for the issue and steering is enabled, show **"Watch live"** / **"Take steering"**. It calls `trpc.steer.mintTicket`, opens the viewer WebSocket, `join`s by `sessionId`, pipes binary output frames into the xterm write path, and (if `perm === 'steer'` and it holds the claim) forwards xterm `onData` keystrokes as `input` frames. Show a presence bar (avatars from `presence`) and a "Start on my desktop" button when the user has an online device (sends `start_session`).
+- **Mobile:** iOS/Android render bytes into a **lightweight native VT** (minimal parser fed from the WebSocket; SwiftTerm-class on iOS, a Compose terminal surface on Android). Read-only "watch" is the primary mobile use; "steer" sends soft-keyboard keystrokes as `input`. The phone is also the primary place to press **"Start on my desktop."** Both reuse the same `steer.mintTicket` proc and the same wire protocol, gated on the same permission + a `steer.config` proc that reports whether `STEER_RELAY_URL` is set.
+- **No local runtime on web/mobile.** They have no terminal/agent runtime of their own — pure remote viewers/steerers of a desktop-hosted PTY.
 
 ### Definition of done
 
-- [ ] `apps/steer-relay` (Hono/Bun, `@exp/steer-relay`) ships with `/healthz`, per-IP rate limit, `MAX_BODY_BYTES`, room registry keyed by `runId`, ring-buffer replay, and Bun-native WebSocket hub; `Dockerfile.steer-relay` + Coolify `exponential-steer-relay` app + `docker-compose.yaml` service.
-- [ ] Wire protocol implemented on all four surfaces: `hello/join/resize/input/presence/claim/release/kill/bye` control frames + binary output frames, with drop-non-input backpressure and slow-consumer eviction.
-- [ ] `remote_steer_sessions` table + `steer_perm` enum in `domain.ts`; `steer_started/steer_ended/steer_killed` added to `issueEventTypeValues`; mirrored into `contract.json` and regenerated (Swift/Kotlin); migration generated + applied.
-- [ ] `steer` tRPC router: `mintTicket` (session/`expk_`, permission-checked, HS256 ticket via `STEER_RELAY_SECRET`), `claim`/`renewClaim`/`release`/`forceClaim`, `killSession`, `config`. Steer window mirrored into `agent_runs.interactiveClaimedExpiresAt`.
-- [ ] agent-core: process-global `InteractiveSlot` replaced by per-`runId` `InteractiveSlotPool` (cap = `maxConcurrent`); `interactive_session_active` gate is now per-run; C ABI signatures unchanged; header comment + `ffi.rs` tests updated; concurrent interactive runs verified green.
-- [ ] Desktop hosts (Zig `agent_manager.zig`/`terminal.zig`; macOS `MacAgentTerminalRunner`): `SteerPublisher` per run tees the ghostty PTY bytes to the relay, injects remote `input` into the same PTY write as local keys, honors `kill`, and is keyed by `runId` alongside the terminal registry. Local user can always type + "Take over."
-- [ ] Web `<SteerTerminal>` (xterm.js) + iOS/Android native terminal viewers on the issue/agent-run screen, with watch/steer buttons, presence bar, claim countdown, gated on permission + relay-enabled config.
-- [ ] `STEER_RELAY_URL` unset degrades cleanly everywhere (no publisher socket, UI shows "unavailable", agent + Electric sync unaffected); LAN-only outbound config documented in CLAUDE.md.
+- [ ] `apps/steer-relay` (Hono/Bun, `@exp/steer-relay`) ships with `/healthz`, per-IP rate limit, `MAX_BODY_BYTES`, a Bun-native WebSocket hub, **device-presence registry** `(userId → deviceLabel/socket)`, **session rooms keyed by `sessionId` (== `coding_sessions.id`)**, and ring-buffer replay; `Dockerfile.steer-relay` + Coolify `exponential-steer-relay` app + optional `docker-compose.yaml` service.
+- [ ] Wire protocol implemented on all four surfaces: control frames `hello / online / start_session / join / resize / input / presence / claim / release / kill / bye` + binary `0x01` output frames, with drop-non-input backpressure and slow-consumer eviction.
+- [ ] `steer` tRPC router: `mintTicket` (session **or** personal apikey, workspace-permission-checked via `membership.ts` + `access.ts`, HS256 ticket signed with `STEER_RELAY_SECRET`), `killSession`, `config`. **No** `claim/renewClaim/release/forceClaim` procs (claim is relay-memory only). **No `remote_steer_sessions` table and no `steer_perm` enum** — removed.
+- [ ] Native `SteerPublisher` on both desktops (Zig `apps/linux`; Swift `apps/ios/ExponentialMac`): tees the ghostty PTY bytes to the relay, injects remote `input` into the same PTY write as local keys, serves resync snapshots, honors `kill`, and is keyed by `sessionId` alongside its own ghostty surface + `claude` child. Multi-window = independent publishers, no shared slot pool.
+- [ ] Remote-start path end-to-end: desktop holds an outbound control socket announcing device presence; phone `start_session{issueId,deviceId?}` → relay → chosen desktop runs the native launcher (§5), inserts `coding_sessions` (`running`), and starts publishing; phone joins by `sessionId` off the synced row.
+- [ ] Single-steerer claim enforced in relay memory (only the `steererId` socket's `input` is forwarded); local desktop user always types + "Take over."
+- [ ] Web `<SteerTerminal>` (xterm.js) + iOS/Android native VT viewers on the issue detail screen, with watch/steer + "Start on my desktop" buttons, presence bar, gated on permission + relay-enabled `steer.config`.
+- [ ] `STEER_RELAY_URL` unset degrades cleanly everywhere (no control/publisher sockets, UI shows "unavailable", local coding + Electric sync unaffected); LAN-only outbound config documented in CLAUDE.md.
 
 ---
 
 ## 4. Desktop IDE workstream (Linux + macOS)
 
-The two desktops are the IDE surface: embedded libghostty terminal, JetBrains-style run configs with a play button, coding-agent launch, PR diff review, and — new in this refactor — multi-window operation with concurrent agent sessions. Linux (`apps/linux`, Zig + GTK4) must reach web 1:1 pixel parity; macOS (`apps/ios/ExponentialMac`, SwiftUI) keeps its glass aesthetic but is fundamentally a **verify-and-polish** track on a real Mac. All four deliverables below respect the frozen agent-core C ABI (`crates/agent-core/include/agent_core.h`) and the libghostty gotchas.
+The two desktops are the IDE surface: an embedded libghostty terminal, JetBrains-style run configs with a play button, a **native "Start coding" launcher** that spawns the `claude` CLI against an issue, read-only PR diff review, and multi-window operation. There is **no Rust agent-core and no FFI** in this design — `crates/agent-core`, the C ABI, and both host bridges (`apps/linux/src/core/agent/*`, `apps/ios/ExponentialMac/MacAgentCore.swift` + the agent parts of `MacGhosttyApp.swift`) are **deleted**. What survives is purely native: the libghostty terminal embedding (Linux `GtkGLArea` + GL shim in `apps/linux/src/ui/terminal.zig` / `ghostty_ffi.zig`; macOS prebuilt `GhosttyKit.xcframework` in `MacGhosttyTerminal.swift`), the preview/run-target infrastructure, and the sync/UI layers. Linux (`apps/linux`, Zig + GTK4) must reach web 1:1 pixel parity; macOS (`apps/ios/ExponentialMac`, SwiftUI) keeps its glass aesthetic and is a **verify-and-polish** track on a real Mac.
 
-### 4a. Run configs + play button (host-side arbitrary process launch)
+The launcher and settings share one design, implemented twice (Zig + Swift). Local dependencies are **only** the `claude` CLI and `git` — **never `gh`**. All of GitHub stays server-side (the storage-free GitHub App), reached through tRPC and the web MCP server.
 
-**Decision (locked): run configs are HOST-SIDE.** The desktop app (Zig / Swift) spawns build/test/dev commands directly into a terminal-dock tab, bypassing agent-core entirely — the Rust core stays "only the agent loop." This mirrors the existing preview-config path, which already spawns preview backends host-side.
+### 4a. The "Start coding" launcher (native, no core, no FFI)
 
-**Canonical config = `.exponential/config.json`, extended.** The committed repo file is already the canonical source for run commands (`apps/linux/src/ui/preview/preview_config.zig`; schema in `packages/db-schema/src/domain.ts` — `RunTarget` discriminated union `webTargetSchema`/`androidTargetSchema`/`iosTargetSchema`, `projectPreviewConfigSchema`, DB mirror `ProjectPreviewMirror`). The current union is *preview-shaped* (web/android/ios launch semantics). Extend it with a fourth, generic run-config kind for arbitrary commands:
+**Decision (locked): the coding flow is a host-side native launcher.** A play/CLI button on an issue (local) OR a `start_session` command arriving over the relay (remote) runs the same sequence. There is no dispatcher, no assignment trigger, no plan-only headless run — the person coding is the **real signed-in user**, working interactively in the terminal. Steps (identical on both desktops):
 
-1. **Schema (`packages/db-schema/src/domain.ts`).** Add a `command` platform to `platformValues` and a `commandTargetSchema` in the discriminated union:
-   - `{ platform: 'command', id, name, argv: string[], cwd?: string (repo-relative, reject `..`), env?: Record<string,string> (strip PATH/LD_PRELOAD/DYLD_* server-side like the others) }`.
-   - Add it to `runTargetSchema` and to the `RunTarget` TS union. The DB mirror `ProjectPreviewMirror.targets` already carries only `{id,name,platform}`, so command configs surface in the web settings list and cross-client display for free.
-2. **Linux parser (`preview_config.zig`).** Add `command` to the `Platform` enum + `fromString`/`label`, add `argv: ?[]const []const u8` and reuse `root_dir`/`env` on `RunTarget`, and a `parseTarget` arm reading `argv` (array of strings) + `cwd`. Fold `argv`/`cwd` into `commandSetHash` so the existing trust gate re-prompts when an agent edits a launch command (the `.exponential/config.json` file is agent-editable and travels with the repo — the trust prompt is the security boundary; do NOT weaken it).
-3. **Host spawn (Zig).** Add a `run_launcher.zig` next to `terminal.zig` that, given a parsed command target and the repo clone dir (`preview_config.repoCloneDir`), spawns `argv` with `cwd`+`env` into a **new terminal-dock tab** (see 4b for the per-tab dock). Reuse the per-run bash-wrapper pattern from `apps/linux/src/core/agent/agent_manager.zig` (writes a wrapper, runs it in an embedded ghostty terminal) but WITHOUT any agent-core round-trip: capture the child exit code directly and record it in an in-memory run-history ring per target.
-4. **Play-button menu (top bar).** In `apps/linux/src/ui/app.zig`, add a play button to the content header (`adw_header_bar`). Clicking opens a `GtkPopoverMenu` with two groups: **Agent runs** (existing "AI" / plan actions that call `agent_core_request_interactive`) and **Run configs** (the parsed command + preview targets). Selecting a config launches it (or re-prompts trust). Show the last exit code + a spinner while running; a "Stop" entry destroys the tab's ghostty surface (which kills the child). Persist last-selected target id per repo (the trust store already keys per repo — add a sibling `last-run.json`).
-5. **macOS mirror.** `MacShell.swift` / `MacTerminalDock.swift` / `MacPreviewBackends.swift` already spawn preview backends. Add the same play-menu (a SwiftUI toolbar `Menu` grouping agent runs + run configs) and a `Process`-based launcher into a `MacGhosttyTerminal` tab; reuse the existing `.exponential/config.json` read path on that side.
+1. **Resolve the repo (tRPC).** Call `repositories.forIssue({ issueId })` → `{ repositoryId, owner, name, defaultBranch }`. Repos come from the workspace repositories registry (server-only tRPC, not a synced shape). If the issue's project has no linked repo, the play button is disabled with a "Link a repository" hint.
+2. **Mint a JIT push token (tRPC).** Call `repositories.installationToken({ repositoryId })` (session-gated). The server mints a short-lived GitHub App **installation token** for that repo (App JWT → per-repo installation token) and returns it. It is never persisted on the client beyond the life of the worktree remote.
+3. **Host-side git — clone + worktree + branch (NO `gh`).** Under the configured workspace/repos root (settings, 4b), ensure a bare-ish local clone of `owner/name` exists (clone if missing, `fetch` otherwise). Create a git **worktree** with a new branch `exp/<ISSUE-IDENTIFIER>` off `origin/<defaultBranch>`. Configure that worktree's `origin` remote with a **token-embedded URL** — `https://x-access-token:<token>@github.com/owner/name.git` — so a later `git push` works with no `gh` and no personal credentials. (On Linux, extend `preview_config.repoCloneDir` / add a `git_worktree.zig`; on macOS, a `GitWorktree.swift` helper shelling out to `git`.)
+4. **Write `.mcp.json` in the worktree.** Point Claude at the web MCP server (`<BASE_URL>/api/mcp`, Streamable-HTTP — the route in `apps/web/src/routes/api/mcp.ts`, server built by `apps/web/src/lib/mcp/server.ts`) authenticated with the **user's personal API key** (Better Auth apikey; managed in settings, 4b). Shape:
+   ```json
+   { "mcpServers": { "exponential": { "type": "http", "url": "<BASE_URL>/api/mcp",
+       "headers": { "Authorization": "Bearer <personal-api-key>" } } } }
+   ```
+5. **Compose a plan-first prefilled prompt.** Build a prompt from the issue identifier + title + markdown description + the most relevant comments (fetched via tRPC or left for Claude to pull with the `get_issue` / `get_comments` MCP tools). The prompt instructs Claude to **first propose a concise plan and wait for the user's go-ahead, then implement**; when done, commit, push branch `exp/<IDENTIFIER>`, and open a PR via the `open_pr` MCP tool. Write it to a prompt file in the worktree.
+6. **Spawn `claude` in an embedded ghostty terminal.** Launch `claude --dangerously-skip-permissions` (permissions **always** bypassed — the user never clicks accept), `cwd` = the worktree, seeded with the prefilled prompt (prompt file / arg). From there it is fully interactive: the local user (or a remote steerer) drives. Claude runs `git commit` / `git push` itself over the token remote and calls the `open_pr` MCP tool — **the server** opens the PR via the GitHub App and links it to the issue (deterministically, by parsing the `exp/<IDENTIFIER>` branch name; `open_pr` also records the link). PR fields (`prUrl`, `prNumber`, `prState`, `branch`) land on `issues`.
+7. **Record the session + tee the PTY.** Insert a `coding_sessions` row (`{ issueId, workspaceId, userId, deviceLabel, status: 'running', startedAt }`) so coordination clients show a live "coding now" badge and a Watch/Steer button; flip to `ended` (`endedAt`) when the child exits. Attach the section-3 **`SteerPublisher`**, keyed by the `coding_sessions.id`, which tees the ghostty PTY bytes to the relay and injects remote `input` into the same PTY write as local keys.
 
-**Output/history:** exit code + captured tail is host-side state only (not synced) for v1 — the play menu shows "last run: exit 0 · 2m ago" per config. No new Electric shape.
+**Trigger parity.** The local play/CLI button and the relay `start_session` command call the exact same launcher. The relay path (device presence, `start_session` fan-in) is owned by section 3; this section owns everything from "resolve repo" onward. One `coding_sessions` row ↔ one worktree ↔ one ghostty tab ↔ one relay steer room.
 
-### 4b. Multi-window + concurrent sessions (v1 requirement)
+### 4b. Desktop settings (JetBrains-SDK style)
 
-Two coupled changes: (i) the core's single interactive slot becomes a per-run pool, and (ii) both desktops gain detached windows.
+Both desktops surface a settings pane (Linux `apps/linux/src/ui/settings.zig`; macOS `MacSettingsView.swift`) with prefilled, editable defaults:
 
-**Core ABI implication — replace the process-global `InteractiveSlot` with a per-`runId` slot pool.** Today `crates/agent-core/src/run_pipeline.rs` defines `InteractiveSlot { owner: Mutex<Option<String>> }` with `try_claim` that admits exactly ONE interactive session process-wide; `ffi.rs` holds one `Arc<InteractiveSlot>` in `Runtime` and every entry point (`agent_core_request_interactive`, `agent_core_approve_interactive`, the dispatcher pipeline in `build_pipeline`) claims it, rejecting the second with `agent_error(interactive_session_active)`. That single-slot gate is exactly what blocks concurrency.
+1. **Claude CLI path** — default `claude` resolved on `PATH`; editable to an absolute path. A one-shot `claude --version` "doctor" check (mirrors the existing preview `doctor()` in `preview_config.zig`).
+2. **Workspace/repos root path** — where clones + worktrees live. Default `~/Exponential/repos` (macOS `~/Library/Application Support/...` or the same `~/Exponential/repos`), editable. Feeds step 3 of the launcher.
+3. **Default branch prefix** — default `exp/`, editable; the launcher builds `<prefix><ISSUE-IDENTIFIER>`.
+4. **Personal API key management** — mint once via Better Auth apikey and store in the desktop config / OS keychain (Linux already reads `apiKey` from the identity store, `settings.zig:878`; macOS Keychain). Show a "Generate / regenerate / copy" control and where it is written into `.mcp.json`. This replaces any deleted `expk_` agent-key concept — it is the **real user's** key.
 
-Rework it into a bounded pool:
+`git` is assumed present (no install management); the settings doctor just reports its version.
 
-1. **`run_pipeline.rs`:** replace `InteractiveSlot`/`InteractiveSlotGuard` with a `TerminalSlotPool { active: Mutex<HashMap<String /*issueId*/, ()>>, cap: usize }`. `try_claim(issue_id)` succeeds unless (a) that issue already has a live session (keeps the double-press race guard) or (b) `active.len() >= cap`. The guard's `Drop` removes the map entry. Keep `interactive_owned` per-issue semantics (the `IssuePatch { interactive_owned }` writes at run_pipeline.rs:306/361/411/456 are already per-issue — unchanged). The startup sweep `clear_interactive_owned_all()` in `ffi.rs::agent_core_start` stays.
-2. **`ffi.rs`:** `Runtime.interactive_slot: Arc<InteractiveSlot>` → `terminal_pool: Arc<TerminalSlotPool>`; build it with `cap = config.max_concurrent` (already parsed from `CoreConfigDto.max_concurrent`, default 2). The dispatcher already runs `max_concurrent` pipeline threads, so the pool cap and the dispatcher concurrency must be the same number. On a full pool the dispatcher pipeline returns `PipelineOutcome::Retry` (requeue), exactly as today.
-3. **ABI stays frozen — no header change.** `agent_core_request_interactive`/`approve_interactive`/`submit_run_result`/`cancel_run`/`cancel_issue` all already carry `run_id`/`issue_id`; the pool is an internal implementation change. **This is a pure Rust-internal rework — `include/agent_core.h` does not change**, so macOS (clang module map) and Linux (hand-declared externs in `apps/linux/src/ui/ghostty_ffi.zig` / core FFI) need NO re-binding. The only behavioral contract change: `interactive_session_active` now fires only when the pool is full or the same issue is re-triggered, not on the second distinct issue. Update the header comment near line 88–91 (single-terminal wording) and the `ffi.rs` doc comments accordingly, and update the FFI test `second_interactive_request_fails_fast_without_clobbering` to assert pool-cap behavior (2 distinct issues both mount; a 3rd at cap=2 is rejected).
+### 4c. Run configs + play button (host-side arbitrary process launch)
 
-**Linux detached windows.** Today `apps/linux/src/ui/app.zig` mounts one `adw_application_window` (`app.zig:244`, content set at 261/927) and a single bottom `TerminalDock` (`apps/linux/src/ui/terminal_dock.zig`) that mounts exactly one terminal (`current_term`, `mountTerminal` replaces the prior run). Rework:
+**Decision (locked): run configs are HOST-SIDE**, spawned by the desktop app directly into a terminal-dock tab. This infrastructure **already largely exists** from commits `a8826d2` + `084aa97` (preview/run-target config): `apps/linux/src/ui/preview/preview_config.zig`, the `Mac*Preview*` files, and the committed `.exponential/config.json`. **Extend it — don't rebuild it** — by adding a generic `command` run target alongside the existing preview-shaped web/android/ios targets.
 
-1. **Terminal dock → tabbed, per-run.** Replace `TerminalDock`'s single `term_slot`/`current_term` with an `AdwTabView`/`GtkNotebook` of terminal tabs keyed by `runId` (agent sessions) or run-config id. `mountForManager`/`unmountForManager` (the C-style hooks the agent manager calls) become add-tab / close-tab-by-key. Honor the ghostty gotchas: a surface inits lazily only at NONZERO size, so only realize a tab's ghostty GLArea when the dock is expanded at a real height (keep the `set_size_request(-1, 200)` floor and the paned-position logic in `expand()`).
-2. **Detach-to-window.** Add a "pop out" affordance on a tab that reparents its ghostty terminal into a new `adw_application_window` (a second top-level; `gtk_application` supports many windows — no single-window assumption is required by GTK, only by the current code). Because destroying a ghostty surface kills the CLI child, reparent (not recreate) the widget. Do the same for the **diff view** (4c) and the **preview webview** so users get detached terminal / diff / preview windows.
-3. Concurrent agent sessions now coexist because the core pool admits `max_concurrent` and each gets its own tab; the dispatcher already parallelizes.
+1. **Schema (`packages/db-schema/src/domain.ts`).** Add `command` to `platformValues` (currently `[web, android, ios]`, line 78) and a `commandTargetSchema` in the `runTargetSchema` discriminated union (line 356), added to the `RunTarget` TS union (line 294): `{ platform: 'command', id, name, argv: string[], cwd?: string (repo-relative, reject '..'), env?: Record<string,string> (strip PATH/LD_PRELOAD/DYLD_* like the other targets) }`. The DB mirror `ProjectPreviewMirror.targets` carries only `{id,name,platform}`, so command configs surface in web settings + cross-client for free.
+2. **Linux parser (`preview_config.zig`).** Add `command` to the `Platform` enum + `fromString`/`label` (lines 24–36), add `argv: ?[]const []const u8` reusing `root_dir`/env on `RunTarget` (line 50), and a `parseTarget` arm (line 145) reading `argv` + `cwd`. Fold `argv`/`cwd` into `commandSetHash` (line 217) so the existing repo-trust gate re-prompts when a command changes — `.exponential/config.json` is repo-carried and agent-editable, so the trust prompt is the security boundary; do **not** weaken it.
+3. **Host spawn (Zig).** Add a `run_launcher.zig` next to `terminal.zig` that, given a parsed `command` target and the repo clone dir (`preview_config.repoCloneDir`), spawns `argv` with `cwd`+`env` into a **new terminal-dock tab** (4e). Capture the child exit code directly (no core round-trip) and record it in an in-memory run-history ring per target.
+4. **Play-button menu (top bar).** In `apps/linux/src/ui/app.zig`, add a play button to the `adw_header_bar`. Clicking opens a `GtkPopoverMenu` with two groups: **Start coding** (the 4a launcher, per current issue) and **Run configs** (parsed command + preview targets). Selecting a config launches it (or re-prompts trust); show last exit code + a spinner; a "Stop" entry destroys the tab's ghostty surface (which kills the child). Persist last-selected target id per repo (sibling `last-run.json` beside the trust store).
+5. **macOS mirror.** `MacShell.swift` / `MacTerminalDock.swift` / `MacPreviewBackends.swift` already spawn preview backends. Add the same toolbar `Menu` (**Start coding** + **Run configs**) and a `Process`-based launcher into a `MacGhosttyTerminal` tab, reusing the `.exponential/config.json` read path (`MacPreviewConfig.swift`).
 
-**macOS detached windows.** `apps/ios/ExponentialMac/ExponentialMac/` has a single main scene (`ExponentialMacApp.swift`) and a single `MacTerminalDock.swift` bound to one `MacGhosttyTerminal`. Add a `WindowGroup(id:for:)` (or `Window`) scene for detached terminal/diff/preview windows keyed by `runId`, and make `MacTerminalDock` a tabbed host over `MacAgentService`'s now-multiple concurrent runs. Same rule: reparent the `GhosttyKit` surface into the detached window rather than tearing it down.
+**Output/history** is host-side state only (not synced) for v1 — the menu shows "last run: exit 0 · 2m ago" per config. No new Electric shape.
 
-### 4c. Linux 1:1 web parity (the #1 UI-quality gap)
+### 4d. Multi-window + concurrent sessions (v1) — now trivially native
 
-Linux is GTK/Adwaita-styled and visibly diverges from the web app. This is the biggest open UI-quality item. The fix is to **hand-roll native GTK widgets sized to the web's pixel dimensions** rather than accept Adwaita defaults. Concrete debt catalogue (read `apps/linux/src/ui/{app,gtk,widgets}.zig` + `format.zig`, styling in the app's CSS classes like `exp-sidebar`, `card`, `diff-line`):
+Without a Rust core there is **no shared slot pool and no ABI concurrency gate**. Each terminal tab / detached window is simply **one ghostty surface + one `claude` (or run-config) child in its own worktree**. Concurrency is inherent: N issues = N worktrees = N tabs. The only real constraints are the ghostty embedding gotchas.
 
-1. **Buttons too big / wrong metrics.** Adwaita buttons are taller and more padded than the web's shadcn buttons. Define an `exp-btn` CSS class matching shadcn's heights (default `h-9`=36px, sm `h-8`=32px, icon `h-5 w-5`), font-size, radius, and horizontal padding; apply it everywhere instead of bare `gtk_button_new_*`. Sidebar/nav rows must match the web sidebar row height and the 260px sidebar width is already pinned (`app.zig:698`).
-2. **Wrong components.** Audit `widgets.zig` for places using stock Adwaita rows/lists where the web uses a specific shadcn primitive (status/priority dropdowns, label pills, filter pills, the issue-row grid `grid-cols-[24px_72px_24px_1fr_auto]`). Rebuild the issue row as a fixed-column `GtkGrid`/`GtkBox` matching that template (priority icon · identifier · status · title · labels+due) with the same gaps.
-3. **Spacing / fonts.** Establish a token layer in CSS (spacing scale, the Inter font stack, OKLCH zinc colors, `--radius`) mirroring `apps/web/src/styles.css`, and replace ad-hoc `set_margin_*` calls with consistent tokens.
-4. **Plaintext-only diff → syntax-highlighted side-by-side.** Current `diffFileWidget` (`app.zig:2024`) renders each patch line as a `GtkLabel` with `diff-add`/`diff-del`/`diff-hunk` CSS — unified, plaintext, no syntax highlighting. The web `diff-view.tsx` is also only line-colored unified today, so **this deliverable pushes Linux AHEAD of web**: build a real side-by-side view. Use `GtkSourceView` (GtkSourceLanguageManager guesses language from the filename in `PullFile.filename`) with a two-column layout (old / new) driven by parsing the unified `patch` into hunks. Keep the `+N -N` header. The data source is unchanged (`issues.prFiles` via the same tRPC query the Zig side already calls in `prDiffWorker`). Read-only for v1 (locked), but structure the hunk model so line-anchored comments can attach later.
-5. **No row virtualization.** The issue list is a `gtk_list_box` inside a `gtk_scrolled_window` (`app.zig:867–873`) that materializes every row — janky on large workspaces. Move to `GtkListView` + `GtkSignalListItemFactory` backed by a `GListModel` (recycling), or `GtkColumnView` for the multi-column issue row. This is a structural rewrite of `refreshIssues`/`onIssueActivated`; keep the status-group collapse behavior (`state.collapsed[idx]`).
+**Linux — tabbed dock + detach.** Today `apps/linux/src/ui/terminal_dock.zig` holds one `term_slot`/`current_term` and `mountTerminal` replaces the prior run (`terminal_dock.zig:78`), driven from `apps/linux/src/ui/app.zig`'s single window. Rework:
 
-Deliver 4c as an incremental parity pass: (1) token+button CSS layer, (2) issue-row grid, (3) list virtualization, (4) side-by-side diff, verifying each against a side-by-side screenshot of the web app.
+1. **Terminal dock → tabbed.** Replace the single `term_slot`/`current_term` with an `AdwTabView` of terminal tabs keyed by `coding_sessions.id` (coding sessions) or run-config id. The `mountForManager`/`unmountForManager` hooks (`terminal_dock.zig:108/116`) become add-tab / close-tab-by-key. Honor the gotcha: a ghostty surface inits lazily **only at nonzero size**, so only realize a tab's `GtkGLArea` when the dock is expanded at a real height — keep the `set_size_request(-1, 200)` floor (`terminal_dock.zig:32`) and the paned split logic. And keep handling `GHOSTTY_ACTION_RENDER` in the action callback (`terminal.zig:115`, `ghostty_ffi.zig:62`).
+2. **Detach-to-window.** Add a "pop out" affordance that **reparents** a tab's ghostty terminal into a new `adw_application_window` (`gtk_application` supports many top-levels — the single-window assumption is only in the current code, not in GTK). Because destroying a ghostty surface kills the child, **reparent, never recreate**. Same for the diff view (4e) and the preview webview → detached terminal / diff / preview windows.
+3. Concurrent coding sessions coexist because each is its own worktree + tab; nothing is shared.
 
-### 4d. macOS: keep glass, verify-and-polish on a real Mac
+**macOS — multiple Window scenes.** `ExponentialMacApp.swift` has a single main scene and `MacTerminalDock.swift` binds one `MacGhosttyTerminalView`. Add a `WindowGroup(id:for:)` / `Window` scene for detached terminal/diff/preview windows keyed by `coding_sessions.id`, and make `MacTerminalDock` a tabbed host over concurrent sessions. Same rule: **reparent** the `GhosttyKit` surface into the detached window rather than tearing it down; respect the nonzero-size + `ACTION_RENDER` gotchas.
 
-The macOS app design divergence is LOCKED: keep the SwiftUI `.ultraThinMaterial` glass aesthetic, aligning only the semantic status/priority tokens with web — do NOT chase pixel parity here (that's Linux's job). The real work is **runtime verification**: per `docs/native-desktop-roadmap.md` (§6, §9 ledger), phases A1–A5 and the review-fix pass are "build + launch green but never exercised on a real Mac / display." Inherit this as a verification track, not a rebuild. Verify, against `next.exponential.at` on a real Mac:
+### 4e. Linux 1:1 web parity (the #1 UI-quality gap)
 
-- **A2 — login + read-only live sync:** sign in (Better Auth session), confirm all 14 Electric shapes populate workspaces/projects/issues (the one part §A2 flags as unverified).
-- **A3 — CRUD:** create/edit/status/priority/assignee/label toggle/comment mutations round-trip via tRPC + `generateTxId`, appear over Electric.
-- **A4 — markdown editor:** the NSTextView WYSIWYG description/comment editor round-trips the GFM markdown contract (bold/italic/strike/code/H1–H3/lists/task-lists/blockquote/code blocks/links/images/@mentions) byte-identically to web/iOS; attachment upload works.
-- **A5 M5 — agent identity:** `agent.register` from the Mac creates the synthetic device user and it appears in web `agents-section.tsx`.
-- **A5 M6 — agent loop:** link `libagent_core.dylib`, assign an issue to the Mac device user, confirm the pipeline runs, opens a PR, and `agent_runs` populates the native Plan Panel.
-- **A5 M7 — libghostty terminal:** GhosttyKit.xcframework surface actually renders on a display and accepts input; honor the ghostty gotchas — surface inits only at nonzero size (mount only when the dock is expanded), handle `GHOSTTY_ACTION_RENDER` in the action callback, and NEVER build libghostty from source on macOS (link the prebuilt `GhosttyKit.xcframework`).
-- **Concurrency + play button (this refactor):** after 4a/4b land, verify the pool admits concurrent sessions and the play menu launches run configs into `MacGhosttyTerminal` tabs; verify detached windows reparent surfaces without killing children.
-- **"Approve & continue here" is a HUMAN action:** confirm the host approves with the human session, THEN calls `agent_core_approve_interactive` (resume only) — the agent credential can't self-approve.
+Linux is Adwaita-styled and visibly diverges from web — the biggest open UI-quality item. The fix is **hand-rolled native GTK widgets sized to the web's pixel dimensions**, not Adwaita defaults. Debt catalogue (read `apps/linux/src/ui/{app,gtk,widgets,format}.zig` + the app's CSS classes `exp-sidebar`, `card`, `diff-line`):
 
-Ad-hoc-signing of the bundled `libagent_core.dylib` + hardened-runtime entitlements already ship; release-time notarization (Developer ID cert, real codesign, `notarytool submit`) stays a release-checklist item, not this workstream.
+1. **Buttons too big / wrong metrics.** Define an `exp-btn` CSS class matching shadcn heights (default `h-9`=36px, sm `h-8`=32px, icon `h-5 w-5`), font-size, radius, and horizontal padding; apply everywhere instead of bare `gtk_button_new_*`. Sidebar/nav rows match the web row height; the 260px sidebar width is already pinned (`app.zig:698`).
+2. **Wrong components / issue-row grid.** Audit `widgets.zig` for stock Adwaita rows/lists where web uses a specific shadcn primitive (status/priority dropdowns, label pills, filter pills). Rebuild the issue row as a fixed-column `GtkGrid`/`GtkBox` matching `grid-cols-[24px_72px_24px_1fr_auto]` (priority · identifier · status · title · labels+due) with the same gaps.
+3. **Spacing / fonts / tokens.** Establish a CSS token layer (spacing scale, Inter stack, OKLCH zinc colors, `--radius`) mirroring `apps/web/src/styles.css`; replace ad-hoc `set_margin_*` with tokens.
+4. **Row virtualization.** The list is a `gtk_list_box` in a `gtk_scrolled_window` (`app.zig:867–873`) that materializes every row — janky on large workspaces. Move to `GtkListView` + `GtkSignalListItemFactory` over a `GListModel` (recycling), or `GtkColumnView` for the multi-column row. Structural rewrite of `refreshIssues`/`onIssueActivated`; keep the status-group collapse behavior.
+5. **Plaintext diff → syntax-highlighted side-by-side.** The current `diffFileWidget` (`app.zig:2024`) renders each patch line as a `GtkLabel` with `diff-add`/`diff-del`/`diff-hunk` CSS — unified, plaintext. Build a real **side-by-side** view with `GtkSourceView` (`GtkSourceLanguageManager` guesses language from `PullFile.filename`), two columns (old / new) driven by parsing the unified `patch` into hunks; keep the `+N -N` header. Data source is unchanged (`issues.prFiles` via `fetchPullFiles`, the same query the Zig side already calls in `prDiffWorker`). Read-only for v1 (locked), but keep the hunk model line-anchored so comments can attach later.
+
+Deliver 4e as an incremental parity pass: (1) token+button CSS, (2) issue-row grid, (3) list virtualization, (4) side-by-side diff — each verified against a side-by-side web screenshot.
+
+### 4f. macOS: keep glass, verify-and-polish on a real Mac
+
+The macOS design divergence is LOCKED: keep the SwiftUI `.ultraThinMaterial` glass aesthetic, aligning only semantic status/priority tokens with web — do **not** chase pixel parity (that's Linux's job). The work is **runtime verification** on a real Mac against `next.exponential.at`, **minus everything agent-core/FFI** (deleted, so nothing there to verify — remove `MacAgentCore.swift`, the agent parts of `MacGhosttyApp.swift`, `MacAgentService.swift`/`MacAgentPanel.swift`/`MacAgentRunMonitor.swift` and their bindings):
+
+- **Login + read-only live sync:** sign in (Better Auth session); confirm all 14 Electric shapes populate (workspaces/projects/issues/…/`coding_sessions`).
+- **CRUD:** create/edit/status/priority/assignee/label-toggle/comment mutations round-trip via tRPC + `generateTxId` and appear over Electric.
+- **Markdown editor:** the WYSIWYG description/comment editor round-trips the GFM contract (bold/italic/strike/code/H1–H3/lists/task-lists/blockquote/code blocks/links/images/@mentions) byte-identically to web/iOS; attachment upload works.
+- **The NEW launcher (4a):** play button on an issue resolves the repo, mints the JIT token, builds the worktree + `exp/<IDENTIFIER>` branch with token remote, writes `.mcp.json` with the personal key, and spawns `claude --dangerously-skip-permissions` in a `MacGhosttyTerminal`; Claude's `git push` + `open_pr` MCP call opens a PR and links it; a `coding_sessions` row appears and ends.
+- **Run configs + play menu (4c):** the menu launches command run targets into `MacGhosttyTerminal` tabs; exit code recorded.
+- **Multi-window (4d):** multiple Window scenes; detached windows reparent `GhosttyKit` surfaces without killing children.
+- **Steer publisher (§3):** the per-session publisher streams the PTY to the relay and injects remote steer input; local user can always type + take over.
+- **libghostty terminal:** the `GhosttyKit.xcframework` surface renders on a real display and accepts input; honor the gotchas — surface inits only at nonzero size (mount only when expanded), handle `GHOSTTY_ACTION_RENDER` in the action callback, and **never build libghostty from source on macOS** (link the prebuilt xcframework).
+
+Release-time notarization (Developer ID cert, real `codesign`, `notarytool submit`) stays a release-checklist item, not this workstream.
 
 ### Definition of done
 
-- [ ] `.exponential/config.json` schema + Linux parser extended with a generic `command` run target (`argv`/`cwd`/`env`); `commandSetHash` covers the new fields so the trust gate re-prompts on command edits.
-- [ ] Host-side launcher spawns arbitrary run configs into a terminal-dock tab on both Linux and macOS (NO agent-core round-trip); exit code + last-run history captured per config.
-- [ ] Top-bar play button on both desktops opens a menu grouping **Agent runs** + **Run configs**, with per-repo last-selected memory and a Stop action.
-- [ ] `crates/agent-core/src/run_pipeline.rs` `InteractiveSlot` replaced by a per-`runId` `TerminalSlotPool` (cap = `max_concurrent`); `ffi.rs` `Runtime` updated; `include/agent_core.h` UNCHANGED (verified — no re-binding on either client); FFI concurrency test updated and green; `cargo test` passes with 0 warnings.
-- [ ] Linux terminal dock is tabbed per run; concurrent agent sessions coexist; detached terminal / diff / preview windows work by reparenting (not recreating) ghostty surfaces.
-- [ ] macOS gains detached windows + tabbed dock over concurrent `MacAgentService` runs.
-- [ ] Linux parity: shadcn-sized `exp-btn` CSS layer, issue-row fixed-column grid, `GtkListView`/`GtkColumnView` row virtualization, and a `GtkSourceView` side-by-side syntax-highlighted diff replacing `diffFileWidget`'s plaintext labels — each verified against a web screenshot.
-- [ ] macOS A2–A5 + M5–M7 runtime-verified on a real Mac against `next.exponential.at` (login/sync/CRUD/editor/agent identity/agent loop/ghostty render), respecting all ghostty gotchas; glass aesthetic preserved.
+- [ ] **Native "Start coding" launcher** on both desktops (Zig + Swift), no Rust core / no FFI: `repositories.forIssue` → `repositories.installationToken` → host-side git clone + worktree + `exp/<IDENTIFIER>` branch + token-embedded remote (NO `gh`) → `.mcp.json` (web `/api/mcp` + personal key) → plan-first prefilled prompt → `claude --dangerously-skip-permissions` in an embedded ghostty terminal (cwd = worktree).
+- [ ] Claude self-drives `git commit`/`push` (token remote) and calls the `open_pr` MCP tool; the **server** opens + links the PR; `issues.prUrl/prNumber/prState/branch` populate; a `coding_sessions` row goes `running` → `ended`.
+- [ ] Launcher is triggered by both the issue play/CLI button and a relay `start_session` command; the section-3 `SteerPublisher` is attached, keyed by `coding_sessions.id`.
+- [ ] **Desktop settings** (both): Claude CLI path, workspace/repos root, branch prefix (`exp/`), and personal API key management (minted once, stored in config/keychain, written into `.mcp.json`); with a `claude --version` / `git --version` doctor.
+- [ ] **Run configs:** `.exponential/config.json` schema + Linux parser extended with a generic `command` target (`argv`/`cwd`/`env`); `commandSetHash` covers the new fields so the trust gate re-prompts on command edits; host-side spawn into a terminal-dock tab on both desktops (exit code + per-config history captured).
+- [ ] Top-bar **play menu** on both desktops grouping **Start coding** + **Run configs**, per-repo last-selected memory, and a Stop action.
+- [ ] **Multi-window:** Linux tabbed `AdwTabView` dock + detach-by-reparenting (terminal/diff/preview); macOS multiple Window scenes + tabbed dock — concurrent coding sessions coexist, each its own ghostty + worktree, NO shared slot pool, honoring the nonzero-size + `ACTION_RENDER` gotchas (reparent, never recreate).
+- [ ] **Linux parity:** shadcn-sized `exp-btn` CSS + token layer, issue-row `grid-cols-[24px_72px_24px_1fr_auto]` fixed-column grid, `GtkListView`/`GtkColumnView` virtualization, and a `GtkSourceView` side-by-side syntax-highlighted diff replacing `diffFileWidget`'s plaintext labels — each verified against a web screenshot.
+- [ ] **macOS:** all agent-core/FFI code removed; login/sync/CRUD/editor + the new launcher + run configs + multi-window + steer publisher runtime-verified on a real Mac against `next.exponential.at`, honoring the ghostty gotchas; glass aesthetic preserved.
 
 ---
 
 ## 5. Coordination clients workstream (web + iOS + Android)
 
-These are the three **non-IDE** surfaces. They create/triage issues, comment, reassign, review agent progress, and **remotely watch + steer** a live desktop agent session — but they run **no local terminal and no agent runtime**. All of Section 2's Rust `agent-core`, run configs, and `claude`/`codex` spawning are desktop-only; web/mobile only read Electric rows and speak to the relay (Section 3) and tRPC. This decision is load-bearing and store-policy safe: nothing here shells out.
+These are the three **non-IDE** surfaces. They create/triage issues, comment, review PRs, **remote-start** a coding session on the user's own desktop, and **remotely watch + steer** that live desktop terminal — but they run **no local terminal, no CLI, and no agent runtime**. All `claude`/`git` spawning is desktop-only (Sections 2 + 4); web/mobile only read Electric rows, call tRPC, and speak to the relay (Section 3). This boundary is load-bearing and store-policy safe: nothing here shells out.
+
+There is **no assignment-to-agent concept anywhere in this workstream**. The person coding is the **real user** under their own session. "Start on my desktop" is a relay control command to that user's own online device — not an assignment, not a synthetic agent user, not a device-registration flow. Assignee stays a plain human-to-human field.
 
 Ground-truth files this workstream touches:
-- Web list/detail: `apps/web/src/components/issue-list.tsx`, `issue-detail-view.tsx`, `agent-panel.tsx`, `diff-view.tsx`, `mention-textarea.tsx`; sidebar `apps/web/src/components/workspace/sidebar.tsx`; routes under `apps/web/src/routes/w/$workspaceSlug/`.
-- iOS: `apps/ios/Exponential/UI/Issue/{IssueListView,IssueDetailView,DiffView,CommentThreadView}.swift`, `UI/Home/HomeView.swift`, `UI/Navigation/MobileTabBar.swift`, `UI/Markdown/MarkdownEditor.swift`.
-- Android: `apps/android/app/src/main/java/com/exponential/app/ui/issue/{IssueListScreen,IssueDetailScreen,PrDiffSection,CommentThread}.kt`, `ui/home/HomeScreen.kt`, `ui/markdown/`.
+- Web list/detail: `apps/web/src/components/issue-list.tsx`, `issue-detail-view.tsx`, `agent-panel.tsx` (repurposed → **session/steer panel**), `diff-view.tsx`; issue properties in `apps/web/src/components/issue-properties/`, row menu in `apps/web/src/components/issue-row-menu/`; sidebar `apps/web/src/components/workspace/sidebar.tsx`, mobile nav `apps/web/src/components/workspace/mobile-topbar.tsx`; routes under `apps/web/src/routes/w/$workspaceSlug/`.
+- iOS: `apps/ios/Exponential/UI/Issue/{IssueListView,IssueDetailView,DiffView,CommentThreadView,PickerSheet}.swift`, `UI/Home/`, `UI/Navigation/{MobileTabBar,AppNavigator}.swift`, `UI/Markdown/`. Note: `UI/Issue/AgentPlanPanel.swift` is **deleted** (no plan-panel model in v2) and replaced by a steer panel.
+- Android: `apps/android/app/src/main/java/com/exponential/app/ui/issue/{IssueListScreen,IssueDetailScreen,PrDiffSection,CommentThread,SwipeableIssueRow,IssuePickerSheet}.kt`, `ui/home/HomeScreen.kt`, `ui/markdown/`. Note: `ui/issue/AgentPlanPanel.kt` + `AgentPlanPanelViewModel.kt` are **deleted**, replaced by a steer panel.
 
 ### 5a. "My Issues" — first-class cross-project view (assignee = me)
 
-Decided: a top-level, cross-project view filtered to `assigneeId == currentUser`, present on **all three** coordination clients, above the per-project lists. No new column and no new shape — `issues.assigneeId` already exists and is indexed (`idx_issues_assignee` in `packages/db-schema/src/schema.ts`); the `issues` Electric shape already syncs everything needed. This is pure client work.
+Decided: a top-level, cross-project view filtered to `assigneeId == currentUser`, present on **all three** coordination clients, above the per-project lists. No new column and no new shape — `issues.assigneeId` already exists and is indexed; the `issues` Electric shape (one of the 14 synced shapes) already carries everything needed. Pure client work.
 
 **Web**
-1. New route `apps/web/src/routes/w/$workspaceSlug/my-issues/index.tsx`. Query the `issueCollection` (`apps/web/src/lib/collections.ts`) with `useLiveQuery`, `where eq(issue.assigneeId, session.user.id)` across the whole workspace (join issues→projects to scope by workspace; projects are already synced). Reuse `IssueList` + `IssueGroup` grouping from `lib/project-board.ts`; reuse `matchesFilters`/tab presets from `apps/web/src/lib/filters.ts`. Group by status like the project board, but prefix each row's identifier with its project (rows span projects). Row click → existing full-page detail route `projects/$projectSlug/issues/$issueIdentifier`.
-2. Sidebar entry: add a `SidebarMenuItem` in `workspace/sidebar.tsx` in the same nav group as Search/Inbox (around the `Inbox` item, gated on `isAuthed`), icon `User`/`CircleUser` from `lucide-react`, `Link to="/w/$workspaceSlug/my-issues"`. Place it above Inbox.
-3. Mobile: add "My Issues" to `WorkspaceMobileTopbar` (`workspace/mobile-topbar.tsx`) navigation.
+1. New route `apps/web/src/routes/w/$workspaceSlug/my-issues/index.tsx`. Query `issueCollection` (`apps/web/src/lib/collections.ts`) with `useLiveQuery`, `where eq(issue.assigneeId, session.user.id)` across the whole workspace (join issues→projects to scope by workspace; projects are already synced). Reuse the status grouping and reuse `matchesFilters` / tab presets from `apps/web/src/lib/filters.ts`. Group by status like the project board; prefix each row's identifier with its project since rows span projects. Row click → the existing full-page detail route `projects/$projectSlug/issues/$issueIdentifier`.
+2. Sidebar entry in `workspace/sidebar.tsx`: add a `SidebarMenuItem` in the same nav group as Search/Inbox, icon `CircleUser` from `lucide-react`, `Link to="/w/$workspaceSlug/my-issues"`, placed above Inbox.
+3. Mobile: add "My Issues" to `workspace/mobile-topbar.tsx` navigation.
 - Reminders: use `and()`/`or()` from `@tanstack/react-db` (never JS `&&`), return `undefined` (not `false`) to skip the query while `session` is loading, and rely on `snakeCamelMapper` (already set on the collection) so `assigneeId` resolves.
 
 **iOS**
-1. New `apps/ios/Exponential/UI/MyIssues/{MyIssuesView,MyIssuesViewModel}.swift`. The view model queries the local GRDB store for `assignee_id = activeUserId` across all projects in the active account (mirror `IssueListViewModel`'s fetch but drop the project predicate). Reuse the existing row cell from `IssueListView.swift`; show project prefix per row.
-2. Add a **My Issues** destination to `UI/Navigation/MobileTabBar.swift`. The pill currently holds Projects + Inbox; add a third tab (icon `person.crop.circle` / SF Symbol) so the order is Projects · My Issues · Inbox. Wire routing in `AppNavigator.swift`.
+1. New `apps/ios/Exponential/UI/MyIssues/{MyIssuesView,MyIssuesViewModel}.swift`. The view model queries the local GRDB store for `assignee_id = activeUserId` across all projects in the active account (mirror `IssueListViewModel`'s fetch, drop the project predicate). Reuse the existing row cell from `IssueListView.swift`; show a project prefix per row.
+2. Add a **My Issues** tab to `UI/Navigation/MobileTabBar.swift` (SF Symbol `person.crop.circle`) so the order is Projects · My Issues · Inbox; wire routing in `AppNavigator.swift`.
 
 **Android**
 1. New `ui/myissues/{MyIssuesScreen,MyIssuesViewModel}.kt`. View model observes the Room DAO with `assigneeId = currentUserId` across projects (mirror `IssueListViewModel`); reuse `SwipeableIssueRow`.
-2. Add the destination to the bottom navigation used by `HomeScreen.kt` (the app's nav host), matching the Projects/Inbox pattern with a person icon.
+2. Add the destination to the bottom navigation used by `HomeScreen.kt`, matching the Projects/Inbox pattern with a person icon.
 
-Cross-client parity note: keep the "assignee = me, all projects, grouped by status" semantics identical on the three clients; there is no saved-view or custom-filter machinery here (cut list, Decision 9) — My Issues is a fixed built-in view, not a saved filter.
+Cross-client parity note: keep "assignee = me, all projects, grouped by status" identical on all three; no saved-view or custom-filter machinery (cut list) — My Issues is a fixed built-in view.
 
-### 5b. Remote steer UI (watch + type into a live desktop agent session)
+### 5b. "Start on my desktop" — remote-start a coding session (no assignment, no agent user)
 
-Decided: the coordination clients render a **live terminal** for a running agent session and can type into it, driven entirely through the relay + remote-steer-session model from **Section 3**. Electric carries only rows; the PTY stream and input RPC ride the relay's WebSocket/SSE. Web/mobile are pure relay **clients** — they never spawn a PTY.
+Decided: from an issue, a **Start on my desktop** button sends a relay `start_session` control command to the user's **online desktop device**. The desktop then runs the host-side launcher (Section 2/3): resolve repo → mint JIT installation token → worktree + `exp/<IDENTIFIER>` branch → write `.mcp.json` → spawn `claude --dangerously-skip-permissions` in an embedded libghostty terminal, and begin publishing the PTY to the relay. **No assignment, no synthetic agent user, no run endpoint** — the desktop is the user's own machine, driven over the relay's outbound control channel.
 
-**The "start agent on my desktop" action is nearly free.** Triggering clone⇒AI⇒PR from a phone is just **assigning the issue to the desktop-agent user** — the same synthetic `users.is_agent` user surfaced in the assignee picker (`issue-properties/assignee-dropdown.tsx`, and the iOS/Android `PickerSheet`/`IssuePickerSheet`). The owner's running desktop already watches the `assigned-issues` Electric feed and its dispatcher picks the issue up (carry-forward architecture, unchanged). So the coordination clients need **no new "run" endpoint**; the only genuinely new surface is the **steering terminal**. Add a small affordance: when the assignee is the desktop-agent user, the assignee menu / agent panel shows "Run on my desktop" copy that just performs the assign (and, if no desktop is currently connected to the relay for this owner, a hint that the run will start when the desktop comes online).
+Device model (relay presence, no DB table):
+- Each open desktop app holds an **outbound control connection** to the relay, publishing presence "device D of user U is online" with a human `deviceLabel`. Presence lives in **relay memory** (a relay frame), not a synced row.
+- Coordination clients learn the user's online devices via a relay presence lookup (Section 3 exposes it through a tRPC proc, e.g. `relay.myDevices`, or a lightweight SSE presence subscription). The button is:
+  - **enabled** when ≥1 of the current user's own devices is online; a **device picker** appears when there are several (pick which desktop to run on);
+  - **disabled with a hint** ("No desktop online — open the Exponential desktop app to run here") when none are connected.
+- Sending: `relay.startSession({ issueId, deviceId })` → relay forwards `start_session` to that device → desktop launches. The command carries only `issueId` (+ optional branch prefix override); the desktop resolves everything else server-side.
 
-**Relay session contract (consumed here, defined in Section 3):** a remote-steer session row keyed to a `runId` (from `agent_runs`), with `permission ∈ {view, steer}` and a claim/until window governing who may type. Coordination clients:
-- discover the active session for an issue via `agent_runs` (the 14th synced shape — read it directly, no `agentPlan.getState` round-trip) plus a relay "is-live" lookup;
-- open a viewer that streams desktop→relay→client terminal frames;
-- when the user holds a `steer` claim, send keystrokes client→relay→desktop as input RPC.
+Where it lives in the UI:
+- **Web**: a primary button in `agent-panel.tsx` (now the **session/steer panel**) on the issue detail, plus a compact entry in the issue-row overflow (`issue-row-menu/`). The panel reflects device online/offline state live.
+- **iOS**: a button in `IssueDetailView.swift`'s session section; device picker as a `PickerSheet`.
+- **Android**: a button in `IssueDetailScreen.kt`; device picker reusing `IssuePickerSheet`-style sheet.
 
-**Web** — new `apps/web/src/components/remote-terminal.tsx` using **xterm.js** (`@xterm/xterm` + `@xterm/addon-fit`; add to `apps/web/package.json`). Mount it inside `agent-panel.tsx` beneath the PR/diff row when a live session exists (gate on `agent_runs` state + relay liveness). A "Take control" button requests a `steer` claim from the relay; while held, forward `onData` to the relay socket; render incoming frames via `term.write`. Read-only viewers get frames but no input. Also expose it on the full-page issue route so it survives navigation.
+Permission: gated by `WorkspacePermissions` (mirror of `apps/web/src/hooks/use-workspace-permissions.ts`) — only a member who may act on the issue can start a session; enforcement is relay/server-side, the UI just reflects it. Because the target device belongs to the requesting user, cross-user remote-start is not offered.
 
-**iOS** — new `apps/ios/Exponential/UI/Agent/RemoteTerminalView.swift`. There is no SwiftUI terminal primitive; render frames into a monospaced, scrollback text surface (a lightweight VT100-subset renderer is sufficient for v1 — the desktop side already runs the real terminal; mobile only mirrors output). A "Take control" button acquires the `steer` claim; a bottom input row sends keystrokes as input RPC over the relay socket. Surface it from `IssueDetailView.swift`'s agent section (next to `AgentPlanPanel`).
+### 5c. Remote steer UI (watch + type into the live desktop terminal)
 
-**Android** — new `ui/agent/RemoteTerminalScreen.kt`, same shape: a monospaced scrollback `Text`/`LazyColumn` fed by relay frames, a claim toggle, and an input field wired to the relay socket. Surface from `IssueDetailScreen.kt`.
+Decided: the coordination clients render a **live terminal** mirroring a running desktop coding session and can type into it, driven entirely through the relay. Electric carries only the `coding_sessions` row; the PTY frame stream and the input RPC ride the relay's WebSocket/SSE. Web/mobile are pure relay **clients** — they never spawn a PTY.
 
-Permissions: honor `WorkspacePermissions` (mirror of `apps/web/src/hooks/use-workspace-permissions.ts`) — only members who can act on the issue may request `steer`; public/read-only viewers get view-only or nothing. Enforcement is server/relay-side (Section 3); the UI just reflects the granted permission.
+Discovering the live session (two signals, both required):
+1. The synced **`coding_sessions`** shape (one of the 14) — read a row for this issue with `status = 'running'` (fields: `id, issueId, workspaceId, userId, deviceLabel, status, startedAt, endedAt`). This is the coordination anchor: it also drives a **"coding now" badge** on issue rows/detail and the **Watch/Steer** button across clients. No `agent_runs`, no structured plan state.
+2. A relay **liveness** check — confirm the desktop is still publishing (the row can lag a crash by a heartbeat). Only show the terminal when both agree.
 
-### 5c. Read-only PR diff review on all platforms
+Relay session contract (consumed here, defined in Section 3):
+- **`steer.mintTicket({ codingSessionId })`** → a short-lived ticket the client exchanges for a relay socket carrying PTY frames.
+- **Steer claim + viewer presence live in relay memory** (no `remote_steer_sessions` table). One holder may type at a time; others are view-only. The relay publishes a **presence frame** (who's watching, who holds the claim). A **presence bar** in the UI renders it.
+- While a client holds the claim, it forwards keystrokes client→relay→desktop; all clients receive frames desktop→relay→client.
 
-Decided: **read-only, syntax-highlighted, side-by-side** diff on every client for v1, but the data model stays **write-back-ready** so inline comments + approve/request-changes can be added later without a rewrite. All three clients already fetch patches via `trpc.issues.prFiles` → `issues.prFiles`; today they render a flat `<pre>` with +/−/@@ line coloring (web `diff-view.tsx`, iOS `DiffView.swift`, Android `PrDiffSection.kt`). Bring them to parity and upgrade rendering.
+**Web** — new `apps/web/src/components/steer-terminal.tsx` (`<SteerTerminal>`) using **xterm.js** (`@xterm/xterm` + `@xterm/addon-fit`; add to `apps/web/package.json`). Mount it inside `agent-panel.tsx` (the session/steer panel) when a running `coding_sessions` row + relay liveness exist. A **Take control** button requests the steer claim; while held, forward `onData` to the relay socket and `term.write` incoming frames. View-only clients get frames, no input. A presence bar shows watchers + current steerer. Also expose it on the full-page issue route so it survives navigation.
 
-1. **Schema-ready for write-back (do now, render later):** ensure the `prFiles` payload carries, per hunk/line, the stable anchors GitHub needs for future review comments — `path`, `sha`/`blob` refs, and per-line `side` (LEFT/RIGHT) + `position`/`line` — even though v1 discards them. This is a payload/shape concern owned with Section 4 (GitHub/PR); the clients must **thread these fields through their `PullFile`/`PrFile` types** (`diff-view.tsx` `PullFile`, iOS `PrFile`, Android `data/api/PullFile`) so a later inline-comment layer has anchors without a data migration. No comment UI in v1.
-2. **Web**: replace the flat `<pre>` in `diff-view.tsx` with a real side-by-side, syntax-highlighted view. Parse the unified patch into hunks (left/right columns), highlight with a lightweight tokenizer (`shiki` or `prism`, lazy-loaded), keep the existing add/del/context/hunk color language. Preserve the `agent-panel.tsx` "View changes" toggle entry point.
-3. **iOS**: upgrade `DiffView.swift` from the flat patch text to a two-column (or unified-with-gutter, given phone width) syntax-highlighted view; keep the glass aesthetic tokens. Reuse the same parse-hunks logic conceptually as web.
+**iOS** — new `apps/ios/Exponential/UI/Session/SteerTerminalView.swift` (lightweight VT viewer). No SwiftUI terminal primitive exists; render frames into a monospaced scrollback surface with a VT100-subset parser (sufficient for a mirror — the real terminal runs on the desktop). A **Take control** toggle acquires the claim; a bottom input row sends keystrokes over the relay socket. A compact presence bar at top. Surfaced from `IssueDetailView.swift`.
+
+**Android** — new `ui/session/SteerTerminalScreen.kt`, same shape: a monospaced scrollback `LazyColumn`/`Text` fed by relay frames, a claim toggle, an input field, and a presence bar. Surfaced from `IssueDetailScreen.kt`.
+
+Permissions: `WorkspacePermissions` gates who may request `steer`; public/read-only viewers get view-only or nothing. Enforcement is relay-side; the UI reflects the granted permission.
+
+### 5d. Read-only PR diff review on all platforms
+
+Decided: **read-only, syntax-highlighted, side-by-side** diff on every client, with the data model kept **write-back-ready** so inline comments + approve/request-changes can be added later without a rewrite. All three clients already fetch patches via `trpc.issues.prFiles` (backed by `issues.prFiles`, populated server-side via the GitHub App's `fetchPullFiles`); today they render a flat `<pre>` with +/−/@@ coloring (web `diff-view.tsx`, iOS `DiffView.swift`, Android `PrDiffSection.kt`). Bring them to parity and upgrade rendering.
+
+1. **Schema-anchored for write-back (do now, render later):** extend the `prFiles` payload's `PullFile` so each hunk/line carries the stable anchors GitHub needs for future review comments — `path`, `sha`/blob refs, per-line `side` (LEFT/RIGHT), and `line`/`position` — even though v1 discards them. The current web `PullFile` (`{ filename, status, additions, deletions, patch? }`) grows these fields; iOS `PrFile` and Android `data/api/PullFile` grow the matching fields. This payload concern is owned with Section 4 (GitHub/PR); the clients must **thread the fields through** so a later inline-comment layer has anchors with no rework. No comment UI in v1.
+2. **Web**: replace the flat `<pre>` in `diff-view.tsx` with a real side-by-side view. Parse the unified patch into hunks (left/right columns), syntax-highlight with a lazy-loaded lightweight tokenizer (`shiki` or `prism`), keep the existing add/del/context/hunk color language. Preserve the "View changes" entry point in the session panel.
+3. **iOS**: upgrade `DiffView.swift` to a two-column (or unified-with-gutter, given phone width) syntax-highlighted view; keep the glass tokens; reuse web's parse-hunks logic conceptually.
 4. **Android**: upgrade `PrDiffSection.kt` similarly (Compose two-pane on tablet width, unified on phone).
-5. Keep the loading/empty/error/binary-fallback states already present in all three (they match — do not regress the "No textual diff (binary or too large)" and "Renamed." messages).
+5. Keep the existing loading/empty/error/binary-fallback states in all three (do not regress "No textual diff (binary or too large)" / "Renamed.").
 
-### 5d. Issue-to-issue linking + duplicate-of
+### 5e. Issue-to-issue linking + duplicate-of
 
-Decided: two features, both wanted by the user (Decision 10).
+Decided: two features.
 
-**(1) Clickable issue-reference pills** in descriptions and comments, resolved like `@mentions`. Extend the **existing mentions pipeline**, do not fork it.
-- Markdown interchange form: references are written as the **issue identifier** token (e.g. `MET-1153`) — the same "single interchange form, round-trips as plain GFM text" rule the markdown contract uses for `@email` mentions. This keeps byte-parity across web/iOS/Android editors and the GFM contract intact.
-- Server resolution: extend `apps/web/src/lib/integrations/mentions.ts` with an `extractIssueRefs(text)` + `resolveIssueRefs(tx, text, workspaceId)` pair mirroring `extractMentionEmails`/`resolveMentions` — regex for the `{PREFIX}-{number}` identifier, resolved against `issues` joined to `projects` in the same workspace (so a ref only pills when the target is visible). Call these from `lib/trpc/comments.ts` (alongside `resolveMentions`, line ~84) and from `lib/trpc/issues.ts` on description save.
-- Client rendering: the markdown renderers already pill known `@email` mentions; add an issue-identifier pill renderer in the same place — web editor `apps/web/src/components/issue-editor/` (TipTap node/decoration, mirroring the mention pill) and the iOS/Android markdown renderers (`apps/ios/.../UI/Markdown/`, `apps/android/.../ui/markdown/`). A resolved pill is clickable → navigate to that issue's detail route; an unresolved token renders as plain text.
-- Editor autocomplete (web): mirror `mention-textarea.tsx` — trigger on a `#`-style or bare-identifier prefix, offer workspace issues (title + identifier), insert the `{PREFIX}-{number}` token. Mobile can ship pill **rendering** first and add the autocomplete affordance as a fast-follow.
-- No new notification type is required for a plain reference in v1 (keep it a link). If a "referenced-in" signal is wanted later it reuses the existing notification delivery (Section 6) — do not add it speculatively.
+**(1) Clickable issue-reference pills** in descriptions and comments, resolved like `@mentions`. Extend the **existing mentions pipeline** (`apps/web/src/lib/integrations/mentions.ts`), do not fork it.
+- Markdown interchange form: references are the **issue identifier** token (e.g. `MET-1153`) — the same "single interchange form, round-trips as plain GFM text" rule the contract uses for `@email` mentions. Byte-parity across web/iOS/Android editors stays intact.
+- Server resolution: add `extractIssueRefs(text)` + `resolveIssueRefs(tx, text, workspaceId)` mirroring the existing `extractMentionEmails` / `resolveMentions` (same `(tx, text, workspaceId)` signature). Regex `{PREFIX}-{number}`; resolve against `issues` joined to `projects` in the same workspace (a ref only pills when the target is visible). Call from `lib/trpc/comments.ts` (alongside `resolveMentions`) and from `lib/trpc/issues.ts` on description save.
+- Client rendering: the markdown renderers already pill known `@email` mentions; add an issue-identifier pill renderer in the same place — web editor (`apps/web/src/components/issue-editor/`, a TipTap node/decoration mirroring the mention pill) and the iOS/Android markdown renderers (`UI/Markdown/`, `ui/markdown/`). A resolved pill is clickable → navigate to that issue's detail route; an unresolved token renders as plain text.
+- Editor autocomplete (web): mirror the existing `@`-mention autocomplete — trigger on a `#`-style prefix, offer workspace issues (title + identifier), insert the `{PREFIX}-{number}` token. Mobile ships pill **rendering** first; autocomplete is a fast-follow.
+- No new notification type for a plain reference in v1 (keep it a link). A "referenced-in" signal, if wanted later, reuses the existing notification delivery (Section 6) — don't add it speculatively.
 
-**(2) Duplicate-of** — mark an issue as a duplicate of a canonical issue (a resolution).
-- Schema: add a self-referential nullable FK `issues.duplicateOfId text references issues(id) on delete set null` in `packages/db-schema/src/schema.ts`, migrate (`bun run migrate:generate && bun run migrate`), and **mirror it in lockstep** across every synced surface: the `issues` shape proxy passes it through automatically, but add the column to web `Issue` type usage, the Zig `sync_manager.zig` specs[] (+ its expectEqual test), and the iOS/Android issue entity + DAO column lists. Guard native clients with the `tableColumnSet` self-heal ALTER (gotcha a) so no row is dropped.
-- Behavior: marking duplicate sets `duplicateOfId` and moves status to `cancelled` (the existing "not active" terminal state — no new enum value; cut list forbids custom fields/new lifecycle). This is a resolution, so the update mutation in `lib/trpc/issues.ts` handles both fields atomically.
-- UX (all three clients): a "Mark as duplicate…" action in the issue row/overflow menu (`issue-row-menu/` web; iOS `PickerSheet`/context action; Android `SwipeableIssueRow`/overflow) opening an issue picker (reuse the ref-autocomplete list). On the detail view, when `duplicateOfId` is set, show a banner "Duplicate of {IDENTIFIER}" with a clickable pill to the canonical issue (reuse the 5d-(1) pill component). Provide an "unmark" affordance clearing the FK.
+**(2) Duplicate-of** — mark an issue as a duplicate of a canonical issue (a resolution). The greenfield schema bakes this in from day one — no migration, no backfill.
+- Schema (defined directly in `packages/db-schema/src/schema.ts`): `issues.duplicateOfId text references issues(id) on delete set null` (self-FK), and `issue_status` includes a **`duplicate`** value (added to `packages/domain-contract/contract.json`; run `bun run --filter @exp/domain-contract generate` to refresh the Swift/Kotlin constants). Both are part of the initial fresh schema, present across all synced surfaces from the start: the `issues` shape passes `duplicateOfId` through automatically; add the column/enum value to the web `Issue` type, the Zig `sync_manager.zig` specs[] (+ its expectEqual test), and the iOS/Android issue entity + DAO column lists. Native clients still tolerate an unknown column defensively (forward-evolution note), but no ALTER self-heal choreography is needed on greenfield.
+- Behavior: marking duplicate sets `duplicateOfId` **and** moves `status` to the new terminal `'duplicate'` value (distinct from `cancelled`, so "duplicate" reads as a real resolution). Handled atomically by the update mutation in `lib/trpc/issues.ts`.
+- UX (all three clients): a "Mark as duplicate…" action in the issue row/overflow menu (`issue-row-menu/` web; iOS `PickerSheet`/context action; Android `SwipeableIssueRow`/overflow) opening an issue picker (reuse the 5e-(1) ref-autocomplete list). On the detail view, when `duplicateOfId` is set, show a **canonical-issue banner** "Duplicate of {IDENTIFIER}" with a clickable pill (reuse the 5e-(1) pill component). Provide an "unmark" affordance clearing the FK and restoring status.
 
-### 5e. No local terminal / agent runtime on web or mobile (confirm)
+### 5f. No local terminal / agent runtime on web or mobile (confirm)
 
 Confirmed and enforced by construction:
-- The coordination clients contain **no** process spawning, **no** `claude`/`codex` invocation, **no** `agent-core`/FFI, and **no** run-config execution. Those belong exclusively to the desktop apps (Sections 2 + 4).
-- The only "run" action here is **assigning to the desktop-agent user** (5b), which enqueues work the owner's desktop executes.
-- The only terminal here is a **remote mirror** of a desktop PTY over the relay (5b) — receive frames, send keystrokes; never a local shell.
-- The diff (5c) is **read-only** on all clients in v1.
+- The coordination clients contain **no** process spawning, **no** `claude`/`git`/`gh` invocation, **no** run-config execution, and **no** agent runtime of any kind. Those belong exclusively to the desktop apps (Sections 2 + 4). There is no Rust core, no FFI, no C ABI anywhere in this stack (deleted entirely in v2).
+- The only "start" action here is **`relay.startSession`** (5b) — a control command to the user's own online desktop, not an assignment and not a local run.
+- The only terminal here is a **remote mirror** of a desktop PTY over the relay (5c) — receive frames, send keystrokes while holding the claim; never a local shell.
+- The diff (5d) is **read-only** on all clients in v1.
 Any PR that adds a spawn, a bundled CLI, or a local PTY to web/iOS/Android is out of scope and must be rejected.
 
 ### Definition of done
 
 - [ ] "My Issues" route + sidebar/tab entry live on web, iOS, and Android; filters issues by `assigneeId == me` across all projects in the workspace, grouped by status, rows clickable to detail. No new column/shape.
-- [ ] Remote terminal component on all three clients connects to the Section 3 relay, renders live desktop-agent PTY frames (view), and sends keystrokes when holding a `steer` claim; permission gating honored via `WorkspacePermissions`.
-- [ ] "Run on my desktop" surfaces as an assign-to-desktop-agent action (no new run endpoint); reflects relay liveness of the owner's desktop.
-- [ ] PR diff upgraded to syntax-highlighted side-by-side (web/iOS/Android), read-only, with loading/empty/error/binary states preserved; `PullFile`/`PrFile` types carry write-back anchors (path/sha/side/line) though no comment UI ships.
-- [ ] Issue-reference pills render and resolve in descriptions + comments on all clients via the extended `mentions.ts` pipeline; identifier token is the GFM interchange form; web editor autocomplete inserts it.
-- [ ] `issues.duplicateOfId` added, migrated, and mirrored across web/Zig/iOS/Android sync (with tableColumnSet self-heal); "mark as duplicate" UX + canonical-issue banner on all clients; marking sets `cancelled`.
-- [ ] Zero local terminal / agent runtime / CLI spawn on web or mobile; diff stays read-only in v1.
+- [ ] "Start on my desktop" button on all three clients sends `relay.startSession({ issueId, deviceId })` to the user's own online device; device picker when several; enabled/disabled + hint driven by live relay presence; **no assignment, no agent user, no run endpoint**.
+- [ ] `<SteerTerminal>` (web, xterm.js + addon-fit) and iOS/Android lightweight VT viewers connect via `steer.mintTicket`, render live PTY frames (view), and send keystrokes when holding the steer claim; presence bar renders relay presence; permission gated via `WorkspacePermissions`.
+- [ ] Live session discovered via the synced `coding_sessions` row (`status='running'`) + relay liveness; "coding now" badge + Watch/Steer button shown from that row. No `agent_runs`, no plan panels.
+- [ ] PR diff upgraded to syntax-highlighted side-by-side (web/iOS/Android), read-only, loading/empty/error/binary states preserved; `PullFile`/`PrFile` types carry write-back anchors (path/sha/side/line) though no comment UI ships.
+- [ ] Issue-reference pills render + resolve in descriptions + comments on all clients via the extended `mentions.ts` (`extractIssueRefs`/`resolveIssueRefs`); identifier token is the GFM interchange form; web editor autocomplete inserts it.
+- [ ] `issues.duplicateOfId` self-FK + `issue_status='duplicate'` in the greenfield schema and contract.json (regenerated constants), mirrored across web/Zig/iOS/Android sync; "mark as duplicate" UX + canonical-issue banner + unmark on all clients; marking sets status `'duplicate'`.
+- [ ] Deleted: `AgentPlanPanel.swift`, `AgentPlanPanel.kt` + `AgentPlanPanelViewModel.kt`, and any assign-to-agent affordance; `agent-panel.tsx` repurposed to the session/steer panel.
+- [ ] Zero local terminal / agent runtime / CLI spawn on web or mobile; the only terminal is a remote relay mirror; diff stays read-only in v1.
 
 ---
 
-## 6. Notifications, email & built-in helpdesk
+## 6. Notifications, email & one-way helpdesk
 
-This workstream turns notifications into a **multi-channel delivery layer** (in-app + push + **email**), fixes agent-notification mis-routing, wires the away/phone killer flow end-to-end, and ships a **one-way helpdesk**: widget reporters get a resolution email when their issue is closed. Email and push are **table-stakes and FREE** — the moat is agents/seats/repos/tier, never "nothing gets lost." Google Calendar (`google-calendar.ts`, the `fireAndForgetSync` calls, and the `issues.googleCalendar*` columns) is being deleted in a separate workstream; do not add email paths to any calendar code.
+This workstream turns notifications into a **three-channel delivery layer** — in-app + push + **email**, all three **free and un-gated** — wires the away/phone killer flow end-to-end, and ships a **one-way helpdesk**: an external widget reporter gets a clean resolution email when their reported issue is closed. Email and push are **table-stakes**; the moat is seats/repos/tier, never "nothing gets lost."
 
-### 6.1 The email primitive (delivery channel, NOT a new notification type)
+There is **no headless agent** in v2. The person coding is the real user working under their own session in an interactive terminal (see the coding-launcher workstream). So there is no plan-ready/question event to route to an approver, and **all agent-action-notify special-casing is deleted**. Notifications are ordinary user-to-user fan-out: created / assigned / commented / mentioned / pr-opened / pr-merged.
 
-The core rule: notifications keep their existing `notification_type` enum (`packages/db-schema/src/domain.ts` → `notificationTypeValues`; do not add `email_*` variants). **Email is a third fan-out target inside the existing `deliver()` function**, sitting beside the in-app row write and the push call in `apps/web/src/lib/integrations/notifications.ts`.
+Ground truth for this section: `apps/web/src/lib/integrations/notifications.ts` (the `deliver()` fan-out + the `fireAndForget*` callers), `apps/web/src/lib/email.ts` (the single sender), `apps/web/src/lib/integrations/fcm.ts` (`sendToUser`), `apps/web/src/lib/integrations/pr-sync.ts` (`applyPrMergeState`), and `apps/web/src/lib/widget/*` (submit pipeline + the per-widget bot user).
 
-**Extend `deliver()` (`notifications.ts:104`).** Today it (1) writes `notifications` rows, then (2) fires push gated on `canUsePush()`. Add a third leg after the row write:
+### 6.1 The email primitive (a delivery channel, not a notification type)
 
-- Add an `emailBody` (or reuse `body`) and a stable `deepLinkPath` to the `deliver` args so the email can render a real "Open in Exponential" button (e.g. `/w/{slug}/projects/{slug}/issues/{identifier}`). Resolve the workspace/project slugs in `loadIssueMeta` (extend its select — it already joins `projects`).
-- For each delivered recipient (the `deliveredIds` set returned by the dedupe insert — reuse it so email honors the same 30s dedupe window), resolve email eligibility and send. Fan email out with `Promise.all`, fully independent of the push branch. **Never let an email failure throw** — these are fire-and-forget; wrap per-recipient sends in try/catch and `console.error` only (mirror the existing `[notify]` logging).
+The core rule: notifications keep their `notification_type` enum (`packages/db-schema/src/domain.ts` → `notificationTypeValues`); do **not** add `email_*` variants. **Email is a third fan-out leg inside the existing `deliver()`**, beside the in-app row write and the push call in `notifications.ts`.
 
-**Decouple push AND email from plan gating.** Per decision 8, push and email are free. In `apps/web/src/lib/billing.ts`, `canUsePush()` (line 263) currently returns `limits.push`. Change the delivery layer so **push is no longer plan-gated**: either make `canUsePush` always return `true` (and drop the `limits.push` read) or, cleaner, stop calling it from `deliver()` entirely and always attempt push/email. Do **not** add a `canUseEmail`. Remove `push` from the plan-limits shape if nothing else reads it (grep `limits.push`); leave billing gating for seats/agents/repos/storage untouched.
+**Fix the notification-type enum for v2.** `notificationTypeValues` today is `issue_assigned`, `issue_comment`, `issue_status_changed`, `issue_mention`, plus the now-dead `agent_plan_review` and `agent_question`. **Remove `agent_plan_review` and `agent_question`** (no headless agent posts them) and **add `pr_opened` and `pr_merged`** as first-class notification types so PR events fan out on all three channels — today they only ride the push `data.type` discriminator and the activity feed. Mirror the change in `packages/domain-contract/contract.json` and run `bun run --filter @exp/domain-contract generate` to refresh the Swift/Kotlin constants. Because the DB is **greenfield** (no production data), this is just the initial enum definition — no `ALTER TYPE`, no migration gymnastics.
 
-**Send path — `apps/web/src/lib/email.ts` is the single sender.** It already implements the graceful-degradation contract: `sendEmail()` no-ops with a stderr log when `RESEND_API_KEY` is unset, and exports `emailEnabled`. Extend it, do not fork it:
+Also trim `PushType` in `notifications.ts` (lines 18–24): drop `plan_awaiting_approval` and `agent_error`; keep the notification types plus `pr_opened`/`pr_merged` (now themselves notification types, so `PushType` collapses toward `NotificationType`).
 
-- Add an **SMTP transport** alongside Resend for self-host (decision 8: cloud=Resend, self-host=SMTP or off). Introduce a small transport switch in `email.ts`: if `RESEND_API_KEY` set → Resend (existing fetch path); else if `SMTP_URL`/`SMTP_HOST` set → SMTP (use `nodemailer`); else → the existing logged no-op. Update `emailEnabled` to `Boolean(RESEND_API_KEY || SMTP_HOST)`. New env: `SMTP_URL` (or `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_SECURE`) + reuse `EMAIL_FROM`. Document all in `.env.example` and CLAUDE.md's env table.
-- Add notification email templates next to `actionEmailHtml`/`sendPasswordResetEmail`/`sendVerificationEmail`. Add `sendNotificationEmail({ to, subject, heading, body, actionLabel: "Open in Exponential", actionUrl, unsubscribeUrl })` reusing `actionEmailHtml` (extend it to append an unsubscribe footer line). The auth emails stay exactly as-is.
+**Extend `deliver()` (`notifications.ts:104`).** Today it (1) writes `notifications` rows, then (2) fires push. Add a third leg after the row write:
 
-**Per-user email prefs + unsubscribe tokens.** The `users` table (`packages/db-schema/src/auth-schema.ts:10`) is a Better Auth table; **do not add non-Better-Auth columns there** — create a dedicated server-only table instead:
+- Add a stable `deepLinkPath` (and reuse `body` as the email body) to the `deliver` args so the email renders a real "Open in Exponential" button, e.g. `/w/{slug}/projects/{slug}/issues/{identifier}`. Resolve the workspace/project slugs by extending `loadIssueMeta`'s select (it already joins `projects`).
+- For each **delivered** recipient (the `deliveredIds` set the dedupe insert `RETURNING`s — reuse it so email honors the same 30s dedupe window), resolve email eligibility and send. Fan email out with `Promise.all`, fully independent of the push branch. **Never let an email failure throw** — wrap per-recipient sends in try/catch with a `[notify]`-style `console.error` only.
 
-- New table `user_notification_prefs` (server-only, NOT Electric-synced): `userId text pk → users.id (cascade)`, one boolean per channel/type as needed — minimum `emailEnabled boolean default true`, plus optional per-type opt-outs (`emailOnComment`, `emailOnStatus`, `emailOnMention`, `emailOnAssigned`, `emailOnAgentAction`) and `digest` enum (`off`|`daily`, default `off`). Add `unsubscribeToken text unique` (opaque, `randomUUID`/`nanoid`, minted lazily on first send). Missing row ⇒ treat as all-defaults (email on).
-- Add a helper `emailRecipients(userIds)` in `notifications.ts` that joins `users` (to get `email`, skip agents/null email) and `user_notification_prefs`, returns `{ userId, email, unsubscribeToken }[]` filtered by the relevant per-type flag. `deliver()` calls this to build its email fan-out set.
-- **Unsubscribe route:** a public file route `apps/web/src/routes/api/email/unsubscribe.ts` (GET `?token=…`) that flips `emailEnabled=false` for the matching token and returns a small confirmation page. Every notification email's `unsubscribeUrl` points here (`${BETTER_AUTH_URL}/api/email/unsubscribe?token=…`). This is the CAN-SPAM/one-click requirement — non-optional.
-- **Settings UI (web-only, later polish acceptable):** a small "Email notifications" panel under account settings that toggles the same prefs via a tRPC `notifications.updateEmailPrefs` mutation. Native clients need no email-prefs UI for v1 (link to web, mirroring the billing/calendar web-only pattern).
+**Un-gate push AND email from billing (both free).** In `apps/web/src/lib/billing.ts` the plan-limits shape carries a `push: boolean` (line ~23) and `canUsePush()` (line 263) returns `limits.push`. Per decision, both push and email are free: stop calling `canUsePush()` from `deliver()` — always attempt push and email. Remove `push` from the plan-limits shape and delete `canUsePush` if nothing else reads it (grep `canUsePush`/`limits.push`; note `assertWithinStorageLimit` and seat/repo gating stay). The `pushed_at` stamp in the insert becomes unconditional (`now`, not `canPush ? now : null`). Do **not** add a `canUseEmail`.
 
-**Optional digest.** Model-only for v1 wiring: when `digest='daily'`, `deliver()` skips the immediate email and instead the events accumulate as `notifications` rows; a cron (self-host `GITHUB_POLLING`-style env `EMAIL_DIGEST=true`, cloud a scheduled task) batches each user's unread rows into one daily digest email via `sendNotificationEmail`. Ship the pref + the skip-immediate branch now; the cron can land last without a schema change.
+**Send path — `email.ts` is the single sender.** It already implements graceful degradation: `sendEmail()` no-ops with a stderr log when `RESEND_API_KEY` is unset, and exports `emailEnabled`. Extend it, don't fork it:
 
-### 6.2 Fix agent-notification routing (decision 12)
+- Add an **SMTP transport** alongside Resend for self-host. Chosen default: `RESEND_API_KEY` set → Resend (existing fetch path); else `SMTP_HOST` set → SMTP via `nodemailer`; else the existing logged no-op. Update `emailEnabled = Boolean(RESEND_API_KEY || SMTP_HOST)`. New env: `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_SECURE` (or a single `SMTP_URL`), reusing `EMAIL_FROM`. Document in `.env.example` + the CLAUDE.md env table.
+- Add `sendNotificationEmail({ to, subject, heading, body, actionLabel: "Open in Exponential", actionUrl, unsubscribeUrl })` next to `sendPasswordResetEmail`/`sendVerificationEmail`, reusing `actionEmailHtml` (extend it to append an unsubscribe footer line). The auth emails stay exactly as-is.
 
-`fireAndForgetAgentActionNotify()` (`notifications.ts:212`) currently calls `workspaceOwnerRecipients()` (line 194) — it hardcodes workspace **owners** as the recipients of `agent_plan_review` / `agent_question`. That is wrong for any multi-member or non-owner-assigned issue.
+**Per-user email prefs + unsubscribe.** `users` is a Better Auth table (`packages/db-schema/src/auth-schema.ts`) — do **not** add app columns there. Add a dedicated **server-only** table (per target schema §10, `user_notification_prefs` is server-only, NOT an Electric shape):
 
-- Replace the `workspaceOwnerRecipients(issue.workspaceId)` call with **assignee + active subscribers**: `subscriberRecipients(issueId, actorUserId=<system/null>)` (line 68 — already filters `unsubscribed=false` and de-dupes) **unioned with the issue's current `assigneeId`**. The assignee is auto-subscribed in most flows, but union explicitly so a just-reassigned issue still routes. Extend `loadIssueMeta` to also select `issues.assigneeId`, or read it inline.
-- Keep the agent-filter: `deliver()` already drops `isAgent` users via `withoutAgents()`, so the desktop-agent synthetic user never gets its own alert.
-- **Fallback:** if that set is empty (unassigned, no subscribers — a widget-created issue with no human yet), fall back to `workspaceOwnerRecipients()` so plan-ready/questions are never silently dropped. Keep `workspaceOwnerRecipients` for exactly this fallback; do not delete it.
-- No caller change needed (`agent-plan.ts:111` and the comments router keep calling the same function); the routing fix is entirely inside `notifications.ts`.
+- `user_notification_prefs`: `userId text pk → users.id (cascade)`, `emailEnabled boolean default true`, optional per-type opt-outs (`emailOnComment`, `emailOnStatus`, `emailOnMention`, `emailOnAssigned`, `emailOnPr`) and a `digest` enum (`off`|`daily`, default `off`). `unsubscribeToken text unique` (opaque `randomUUID`, minted lazily on first send). Missing row ⇒ all-defaults (email on). Defined in the greenfield schema; no backfill.
+- Add `emailRecipients(userIds)` in `notifications.ts` that joins `users` (for `email`, skipping the bot/null-email users) and `user_notification_prefs`, returning `{ userId, email, unsubscribeToken }[]` filtered by the relevant per-type flag. `deliver()` calls it to build its email fan-out set.
+- **Unsubscribe route:** a public file route `apps/web/src/routes/api/email/unsubscribe.ts` (GET `?token=…`) flips `emailEnabled=false` for the matching token and returns a small confirmation page. Every notification email's `unsubscribeUrl` is `${BETTER_AUTH_URL}/api/email/unsubscribe?token=…`. One-click / CAN-SPAM — non-optional.
+- **Settings UI (web-only):** a small "Email notifications" panel under account settings toggling the same prefs via a tRPC `notifications.updateEmailPrefs` mutation. Native clients get no email-prefs UI for v1 (link to web, mirroring the billing/calendar web-only pattern).
 
-### 6.3 The away/phone killer flow — end to end
+**Optional digest (model now, cron later).** When `digest='daily'`, `deliver()` skips the immediate email; a cron (self-host env `EMAIL_DIGEST=true`, cloud a scheduled task) batches each user's unread `notifications` rows into one daily digest via `sendNotificationEmail`. Ship the pref + the skip-immediate branch now; the cron lands last with no schema change.
 
-This is the north-star loop; this workstream owns only its **notification + email edges**, the rest is cross-referenced. Sequence:
+### 6.2 Normal user fan-out (created / assigned / commented / mentioned / pr-opened / pr-merged)
 
-1. **Issue arrives** (created, assigned, or a comment/mention). Existing `fireAndForget*Notify` callers fire from the tRPC mutations (`issues.ts:186/444/451`, `comments.ts:104`, `agent-plan.ts:111`).
-2. **`deliver()` fans out in-app + push + email** (6.1). On a phone that's asleep, the **email + push** are what actually reach the user while away — this is why they must be free and reliable.
-3. **Open on phone** → deep link (email button / push `data.issueId`+`identifier`) opens the native issue detail. Push already carries `type`/`issueId`/`identifier` (`notifications.ts:148`); ensure the email `actionUrl` uses the same identifier deep link.
-4. **Assign to the desktop agent** from the phone (assigning to the desktop-agent user enqueues the run — carry-forward architecture). This fires `fireAndForgetAssignmentNotify` to the agent user, which `withoutAgents()` correctly drops.
-5. **Watch/steer via the relay** — the live PTY stream is the **remote-steer relay** workstream (§ remote steer), NOT Electric and NOT this workstream. When the agent reaches plan-ready or a question, `fireAndForgetAgentActionNotify` (now correctly routed to the human assignee, 6.2) emails+pushes the phone so the user knows to jump into the relay session.
-6. **Review the diff** (read-only side-by-side — PR-review workstream) and **merge** → `applyPrMergeState` (`apps/web/src/lib/integrations/pr-sync.ts`) flips state and fires the `pr_merged` push type; add a `pr_merged` email here too so the away user gets the "it's merged" confirmation.
+All fan-out is ordinary subscriber/assignee routing — no owner-hardcoded approver set, no agent special-casing:
 
-This workstream's deliverable for the flow: **every step that should reach an away phone also emails** — assignment, mention, agent plan-ready, agent question, PR opened, PR merged. Verify each `fireAndForget*` path now produces an email when the recipient has `emailEnabled`.
+- **Assigned** — `fireAndForgetAssignmentNotify` (`notifications.ts:162`) is unchanged in shape: targets the new assignee, writes `issue_assigned`, now emails too.
+- **Commented / mentioned** — `fireAndForgetCommentNotify` (`notifications.ts:247`) is unchanged: mentioned users get `issue_mention`, other subscribers get `issue_comment` (mention wins), now with email.
+- **Status changed** — `fireAndForgetStatusChangeNotify` (`notifications.ts:301`) fans `issue_status_changed` to subscribers, now with email.
+- **Created** — creator auto-subscribes; assignment/mention at create time already fan out via the callers in `issues.ts` (create at line ~186).
+- **PR opened / merged** — new fan-out. The MCP `open_pr` tool records the PR (server-side GitHub App) and links it to the issue; add a `fireAndForgetPrNotify({ issueId, type: 'pr_opened' | 'pr_merged', actorUserId })` that fans to **assignee + active subscribers** (`subscriberRecipients`, which already filters `unsubscribed=false` and de-dupes, unioned with `issue.assigneeId`). Call it from the `open_pr` MCP path for `pr_opened`, and from `applyPrMergeState` (`pr-sync.ts`) for `pr_merged` — inside its existing idempotent open→merged guard so a phone user gets exactly one "it's merged" email. (The old `agent-plan.ts` that emitted these is deleted with the agent-core workstream; PR<->issue linking is now deterministic via the `exp/<IDENTIFIER>` branch name parsed on the GitHub webhook, plus the `open_pr` tool.)
 
-### 6.4 Helpdesk — one-way v1 (decision 7)
+**Delete `fireAndForgetAgentActionNotify` and `workspaceOwnerRecipients`** (`notifications.ts:194,212`) — the plan-review/question routing they served no longer exists. The comment router's note about "action-needed alerts go through fireAndForgetAgentActionNotify instead" (`comments.ts:102`) is removed with it.
 
-A widget reporter is an end user who is **not** a workspace member. v1 is one-way: they get a **resolution email** when their reported issue is closed. Model it thread-ready so a two-way reporter thread + public status page can be added later without a rewrite.
+**Keep a minimal bot-user filter.** The synthetic **desktop-agent** user is deleted (no `agent_registrations`, no `role=agent` device membership, no `expk_` keys). But the **widget helpdesk still owns one bot user per config** as the issue `creatorId` (`apps/web/src/lib/widget/widget-user.ts`) — that must stay out of the human fan-out. Keep a small "is this a system/bot user, skip it" filter in `deliver()` (today `withoutAgents` via `users.isAgent`), but reframe/rename it around the widget bot user specifically (e.g. `isBot`/`isSystem`), decoupled from the deleted desktop-agent identity. It only needs to drop the widget bot creator so it never receives its own notifications.
 
-**Capture the reporter as a subscriber on submit.** `createWidgetSubmission()` (`apps/web/src/lib/widget/service.ts:113`) already captures `reporterEmail` (from the widget form OR host `identify()`; schema `submitFieldsSchema.email`, line 60) and writes it to `widget_submissions.reporterEmail` (schema `packages/db-schema/src/schema.ts:603`). The submit transaction (line 209) today writes issue + attachment + `widget_submissions` row and explicitly does **not** create a subscriber. Change:
+### 6.3 The away/phone killer flow — notification edges
 
-- **Add subscriber source `widget_reporter`** to `subscriberSourceValues` (`packages/db-schema/src/domain.ts:82`). This is an enum change — follow the enum protocol: update `packages/domain-contract/contract.json` (`subscriberSource`, line 55) and run `bun run --filter @exp/domain-contract generate` to refresh Swift/Kotlin constants. Generate + apply a Drizzle migration for the `subscriber_source` pgenum (`ALTER TYPE … ADD VALUE`).
-- In the submit transaction, when `reporterEmail` is present, insert an `issue_subscribers` row with `source='widget_reporter'`, `unsubscribed=false`, `workspaceId=config.workspaceId`, `issueId`, and a `userId` — **but the reporter has no `users` row**. Two options; **chosen default: store the reporter email on the subscriber row, not a synthetic user.** Add a nullable `email varchar(320)` column to `issue_subscribers` used only for external (`widget_reporter`) rows, and make `userId` nullable **for that source only** (keep the existing FK for member subscribers). This avoids minting throwaway `users` rows and keeps the reporter out of member/agent fan-out. Reflect the nullable `userId`/new `email` column across the native mirrors per the shape-discipline rule (this table is the `issue_subscribers` synced shape — update Zig `sync_manager.zig` specs[], iOS/Android entity + DAO, and add the self-heal ALTER guard).
-- Reporter identity precedence: form email (`fields.data.email`) wins if provided; else host `identify()` email if the widget forwards it (currently `identify()` sets name/userId — extend the widget config/submit to also forward an identified email when present). Reuse the already-persisted `widget_submissions.reporterEmail`.
+This workstream owns only the **notification + email edges** of the north-star loop; the rest is cross-referenced:
 
-**Send the resolution email on close.** When an issue's status transitions to `done` (or `cancelled` = "closed"), notify external `widget_reporter` subscribers:
+1. **Issue arrives** — created, assigned, or a comment/mention. The `fireAndForget*Notify` callers fire from the tRPC mutations (`issues.ts` create ~186 / update assignment ~444 / status ~451, `comments.ts:104`).
+2. **`deliver()` fans out in-app + push + email** (6.1). On a sleeping phone, **push + email** are what reach the user while away — the reason both must be free and reliable.
+3. **Open on phone** — the push `data.issueId`/`identifier` (already carried, `notifications.ts:148`) and the email `actionUrl` both deep-link the native issue detail. Use the same `identifier` deep link for both.
+4. **"Start on my desktop"** — from the phone, the user triggers a `start_session` command over the relay to their online desktop device; the desktop runs the host-side coding launcher (worktree + branch `exp/<IDENTIFIER>` + `claude --dangerously-skip-permissions` in a libghostty terminal) and begins publishing the PTY. This is the **remote-start-and-steer relay** workstream — NOT this one. A live `coding_sessions` row (synced) surfaces the "coding now" badge + Watch/Steer button.
+5. **Watch / steer** — the live PTY stream is relay memory (viewer/steer presence is a relay frame, no DB table). This workstream contributes nothing to the stream; it only got the user to the phone.
+6. **Review the diff & merge** — the read-only side-by-side PR diff (PR-review workstream). On merge, the GitHub webhook (or the self-host cron) calls `applyPrMergeState`, which flips `prState='merged'`, emits the `pr_merged` activity event, **and now fires `fireAndForgetPrNotify(type:'pr_merged')`** so the away user gets the in-app + push + **email** "it's merged" confirmation.
 
-- Hook the issue-status-change path in `apps/web/src/lib/trpc/issues.ts` (the same place `fireAndForgetStatusChangeNotify` fires, line 451). Add `fireAndForgetReporterResolution({ issueId, toStatus })` in `notifications.ts` that: guards on `toStatus ∈ {done, cancelled}`; loads external subscribers (`issue_subscribers.source='widget_reporter'`, `unsubscribed=false`, non-null `email`); and for each sends a **plain reporter-facing email** via `email.ts` — a new `sendReporterResolutionEmail({ to, issueTitle, resolutionNote?, unsubscribeUrl })`. **Do not** create in-app/push rows for reporters (they have no inbox and no account). Copy: "Your report '{title}' has been resolved." No internal metadata, no assignee names — reporters must not see the sensitive workspace context (see dogfood note).
-- **Idempotency:** a reopen→re-close must not double-email. Add a `resolvedNotifiedAt timestamptz` to `widget_submissions` (or a per-subscriber flag) and skip if already set for the current close; clear it on reopen if you want re-notification. Chosen default: set-once per submission (`resolvedNotifiedAt`), don't re-notify on reopen churn.
-- **Thread-ready modeling** (build the shape, not the feature): the resolution email already carries a stable issue reference. Reserve a per-reporter reply token on the subscriber/submission row (unused in v1) and keep the reporter's contact on the durable `widget_submissions` row so a future inbound reply route can attach a reporter comment. Do **not** build inbound parsing, a public status page, or reporter auth now.
+Deliverable for the flow: **every step that should reach an away phone also emails** — assignment, mention, comment, PR opened, PR merged. Verify each `fireAndForget*` path produces an email when the recipient has `emailEnabled`.
 
-### 6.5 Dogfood (decision e)
+### 6.4 One-way helpdesk (external reporter → resolution email)
 
-Exponential embeds **its own** feedback widget on a public feedback workspace with GitHub preconfigured. This already exists — extend, don't rebuild:
+A widget reporter is an end user who is **not** a workspace member and has **no account, no inbox, no push**. v1 is one-way: they get a **resolution email** when their reported issue is closed. Model it thread-ready so a two-way reporter thread + public status page can be added later without a rewrite.
 
-- `apps/web/src/lib/bootstrap-cloud.ts` creates the public `feedback` workspace (`isPublic:true`, `publicWritePolicy:everyone`, slug `feedback`), the `Exponential App` widget config (`FEEDBACK_WIDGET_NAME`), and `ensureDogfoodProject()` links the dogfood project to `DOGFOOD_REPO` via `projects.githubRepo` + `previewConfig`. `findDogfoodWidgetKey()` (`apps/web/src/lib/widget/dogfood.ts`) resolves the key for the in-app FeedbackButton.
-- **GitHub preconfigured:** the repositories-as-first-class-entity workstream migrates `projects.githubRepo` into repository rows via a join table. When it lands, update `ensureDogfoodProject` to link the dogfood project to a **repository row** (not the TEXT `githubRepo`) so the agent can resolve a clone target and coding-first dogfooding works end-to-end. Cross-ref that workstream.
-- **Owner-only sensitive data:** widget submissions carry reporter email/page/UA/customData (`widget_submissions`, server-only, not Electric-synced, read via the `widgets` tRPC router). Keep it that way — reporter PII must stay owner-visible only. The resolution email to the reporter (6.4) must **never** leak the internal metadata block that `buildWidgetDescription` embeds in the issue description; render a clean reporter-facing template.
+**Capture the reporter as a subscriber on submit.** `createWidgetSubmission()` (`apps/web/src/lib/widget/service.ts:113`) already parses `reporterEmail` (form field or host `identify()`; `submitFieldsSchema.email`, line 60) and writes it to `widget_submissions.reporterEmail`. The submit transaction (line 209) writes issue + attachment + `widget_submissions` and explicitly creates no subscriber. Change:
 
-### 6.6 Self-hosted email/relay optionality (decision f)
+- **Add subscriber source `widget_reporter`** to `subscriberSourceValues` (`packages/db-schema/src/domain.ts:82`, alongside `creator`/`assignee`/`commenter`/`manual`/`mention`). Enum protocol: update `packages/domain-contract/contract.json` (`subscriberSource`) and run `bun run --filter @exp/domain-contract generate`. Greenfield schema, so no `ALTER TYPE` migration — it's part of the initial enum.
+- **`issue_subscribers` gets a nullable external identity.** Today `userId` is `text NOT NULL → users.id` (`schema.ts:497`) and the unique is `(issueId, userId)`. For external reporters make `userId` **nullable** and add a nullable `email varchar(320)`; `widget_reporter` rows carry `email` and null `userId`, member rows keep `userId` and null `email`. Adjust the `(issueId, userId)` unique so it doesn't collapse multiple external reporters (chosen default: partial unique on `(issueId, userId) where userId is not null`, plus `(issueId, email) where email is not null`). This avoids minting throwaway `users` rows and keeps reporters out of member fan-out. Reflect the nullable `userId` + new `email` column across the native mirrors of the `issue_subscribers` shape (Zig `sync_manager.zig` specs, iOS/Android entity + DAO) — native clients tolerate the extra column, but the shape spec must include it.
+- In the submit transaction, when `reporterEmail` is present, insert an `issue_subscribers` row: `source='widget_reporter'`, `unsubscribed=false`, `userId=null`, `email=reporterEmail`, `workspaceId=config.workspaceId`, `issueId`. Reporter identity precedence: form email wins; else the host `identify()` email if the widget forwards it (extend the widget/submit to forward an identified email when present). Reuse the already-persisted `widget_submissions.reporterEmail`.
 
-- **Email degrades gracefully.** With neither `RESEND_API_KEY` nor `SMTP_*` set, `email.ts` no-ops with a log (existing contract) — in-app + push still work, and the helpdesk resolution email is simply skipped. Never throw from a fire-and-forget notify path on a self-host box without email. The web UI hides email-only affordances via `emailEnabled` (extend beyond the current forgot-password gating to the email-prefs panel).
+**Send the resolution email on close.** When status transitions to `done` or `cancelled` (both "closed"; note the target `issue_status` also gains `duplicate` — treat `duplicate` as closed too for resolution purposes if desired), email external reporters:
+
+- Hook the status-change path in `issues.ts` where `fireAndForgetStatusChangeNotify` fires (~451). Add `fireAndForgetReporterResolution({ issueId, toStatus })` in `notifications.ts` that guards on `toStatus ∈ {done, cancelled}`, loads external subscribers (`issue_subscribers.source='widget_reporter'`, `unsubscribed=false`, non-null `email`), and for each sends a **plain reporter-facing** email via a new `sendReporterResolutionEmail({ to, issueTitle, unsubscribeUrl })`. **No in-app/push rows for reporters** (no account). Copy: "Your report '{title}' has been resolved." **No internal metadata** — no assignee names, no page/UA/customData, none of the `buildWidgetDescription` block. Reporters must never see workspace-internal context (see 6.5).
+- **Idempotency:** a reopen→re-close must not double-email. Chosen default: set-once per submission via `widget_submissions.resolvedNotifiedAt timestamptz`; skip if already set; do not clear on reopen (no re-notify on churn).
+- **Thread-ready modeling** (shape only, not the feature): the durable reporter contact lives on `widget_submissions`; reserve a per-reporter reply token on the subscriber/submission row (unused in v1) so a future inbound-reply route can attach a reporter comment. Do **not** build inbound parsing, a public status page, or reporter auth now. (`widget_submissions` stays server-only per target schema §10.)
+
+### 6.5 Dogfood widget + reporter-PII containment
+
+Exponential embeds **its own** feedback widget on a public feedback workspace. This already exists — extend, don't rebuild:
+
+- `apps/web/src/lib/bootstrap-cloud.ts` creates the public `feedback` workspace (`isPublic:true`, `publicWritePolicy:everyone`, slug `feedback`), the `Exponential App` widget config, and `ensureDogfoodProject()` links the dogfood project (gated behind `DOGFOOD_REPO`). `findDogfoodWidgetKey()` (`apps/web/src/lib/widget/dogfood.ts`) resolves the key for the in-app FeedbackButton.
+- **Link a repository row, not `projects.githubRepo`.** Repositories are first-class in v2 (workspace-level, tRPC-managed, server-only — NOT a synced shape; `repositories` + `project_repositories` per target schema §10). Update `ensureDogfoodProject` to link the dogfood project to a **repository row** so the coding launcher can resolve a clone target and dogfood coding works end-to-end. Cross-ref the repositories workstream.
+- **Reporter PII stays owner-only.** `widget_submissions` (reporter email / page / UA / customData) is server-only, read via the `widgets` tRPC router — keep it owner-visible only. The reporter resolution email (6.4) must render the clean template only, never the `buildWidgetDescription` metadata block.
+
+### 6.6 Self-hosted email / relay optionality
+
+- **Email degrades gracefully.** With neither `RESEND_API_KEY` nor `SMTP_HOST` set, `email.ts` no-ops with a log (existing contract) — in-app + push still work and the helpdesk resolution email is simply skipped. No fire-and-forget path throws on a self-host box without email. The web UI hides email-only affordances via `emailEnabled` (extend beyond forgot-password to the email-prefs panel).
 - **Push is optional too:** `sendToUser` (`fcm.ts`) already no-ops when `PUSH_RELAY_URL` is unset. Keep that.
-- **The remote-steer relay** (live PTY) is a separate service and a separate workstream; its self-host LAN-only/outbound-friendly requirement is documented there. This workstream only guarantees that the **notification edges** (email/push telling you to go steer) degrade cleanly when a self-hoster runs without email or without the relay.
+- **The remote-start/steer relay** (device presence + live PTY + `start_session`) is a separate service and workstream; its LAN-only / outbound-friendly self-host requirement is documented there. This workstream only guarantees the **notification edges** (the push/email that tell you to go steer) degrade cleanly when a self-hoster runs without email or without the relay.
 
 ### Definition of done
 
-- [ ] `deliver()` in `notifications.ts` fans out to a **third email channel** off the same deduped recipient set; push and email are **no longer plan-gated** (`canUsePush`/`limits.push` removed from the delivery path).
-- [ ] `email.ts` supports Resend (cloud) **and** SMTP (self-host) with a graceful logged no-op fallback; `emailEnabled` reflects both; new `SMTP_*` env documented in `.env.example` + CLAUDE.md.
-- [ ] `user_notification_prefs` table + `notifications.updateEmailPrefs` mutation + one-click unsubscribe route (`/api/email/unsubscribe`) shipped; missing-row defaults to email-on; digest pref modeled (immediate-skip branch in place).
-- [ ] `fireAndForgetAgentActionNotify` routes to **assignee + subscribers** (owners only as empty-set fallback); verified on a non-owner-assigned issue.
-- [ ] Away/phone flow emails on assignment, mention, agent plan-ready, agent question, PR opened, **and** PR merged (`applyPrMergeState`).
-- [ ] `subscriber_source` gains `widget_reporter` (enum + `contract.json` + generated Swift/Kotlin + migration); widget submit records the reporter as an external subscriber (nullable `userId` + `email` column, mirrored across native shapes with the self-heal ALTER guard).
-- [ ] Closing a widget-sourced issue emails the reporter a clean resolution notice (no internal metadata leak), idempotent via `resolvedNotifiedAt`; no in-app/push rows created for reporters.
-- [ ] Reporter thread-readiness reserved (durable contact + reply token) without building inbound/public-status.
-- [ ] Dogfood widget still resolves via `findDogfoodWidgetKey`; dogfood project relinked to a **repository row** once repos-as-entity lands; reporter PII stays owner-only.
+- [ ] `deliver()` fans out to a **third email channel** off the same deduped `deliveredIds` set; push and email are **no longer plan-gated** (`canUsePush`/`limits.push`/the `push` plan field removed from the delivery path; `pushed_at` stamped unconditionally).
+- [ ] `notification_type` enum drops `agent_plan_review`/`agent_question` and adds `pr_opened`/`pr_merged`; `contract.json` + generated Swift/Kotlin refreshed; `PushType` trimmed (no `plan_awaiting_approval`/`agent_error`).
+- [ ] `fireAndForgetAgentActionNotify` and `workspaceOwnerRecipients` deleted; no caller references them.
+- [ ] `email.ts` supports Resend (cloud) **and** SMTP (self-host) with a graceful logged no-op fallback; `emailEnabled` reflects both; `SMTP_*` env documented in `.env.example` + CLAUDE.md; `sendNotificationEmail` added, auth emails unchanged.
+- [ ] `user_notification_prefs` (server-only) + `notifications.updateEmailPrefs` + one-click unsubscribe route (`/api/email/unsubscribe`) shipped; missing-row defaults to email-on; digest pref + immediate-skip branch in place.
+- [ ] Fan-out emails fire on assignment, mention, comment, **pr-opened**, and **pr-merged**; `pr_merged` wired inside `applyPrMergeState`'s idempotent guard; `pr_opened` wired from the MCP `open_pr` path.
+- [ ] `subscriber_source` gains `widget_reporter` (enum + `contract.json` + generated constants); `issue_subscribers.userId` made nullable + nullable `email` column added, unique constraints adjusted, native shape mirrors updated.
+- [ ] Widget submit records the reporter as an external `widget_reporter` subscriber (null `userId`, `email` set); closing a widget-sourced issue emails the reporter a clean resolution notice (no internal metadata leak), idempotent via `widget_submissions.resolvedNotifiedAt`; no in-app/push rows for reporters.
+- [ ] Reporter thread-readiness reserved (durable contact + reply token) without building inbound / public-status.
+- [ ] Dogfood widget still resolves via `findDogfoodWidgetKey`; dogfood project linked to a **repository row**; reporter PII stays owner-only.
 - [ ] All paths no-op cleanly on a self-host instance with no email transport and no push relay; no fire-and-forget path throws.
 
 ---
 
 ## 7. GitHub, repositories & coding-first flow
 
-This workstream makes repositories a first-class workspace entity, hard-wires the "no repo => needs-human" rule so Exponential is coding-first, and ships a real syntax-highlighted diff on every client while keeping the door open for PR write-back later. Today a repo is a single `projects.github_repo TEXT` column (`packages/db-schema/src/schema.ts:222`), the agent resolves it per-project via `mcp::get_project` (`crates/agent-core/src/run_pipeline.rs:190`), and the Linux diff is plaintext. All three change here.
+This workstream makes repositories a first-class **workspace** entity, hard-wires the "no linked repo => can't code" rule so Exponential is coding-first, and ships a real syntax-highlighted read-only PR diff on every client while leaving the schema anchored for PR write-back later. GitHub stays **100% server-side** through the storage-free GitHub App (App JWT → JIT per-repo installation token). The only local dependencies for the coding flow are the `claude` CLI and `git` — **never `gh`, never a stored PAT**. The native "Start coding" launcher (Section 5) pulls its repo + a short-lived push token from the two tRPC procs defined here.
 
-### 7a. Repositories as a first-class workspace entity (many-to-many with projects)
+Greenfield schema: define these tables directly in `packages/db-schema/src/schema.ts`. No migration/backfill, no `projects.github_repo` fallback — that column does **not** exist in the target schema.
 
-**New tables.** Add to `packages/db-schema/src/schema.ts`:
+### 7a. Repositories as a first-class workspace entity (tRPC-managed, NOT synced)
+
+Repositories are **server-only** — read over tRPC, never an Electric shape. They change rarely, are owner/admin-managed, and don't need live fan-out to every client, so they stay out of the 14 synced shapes. Native clients read them via tRPC on demand (repo picker, launcher resolution), not through the sync engine.
+
+**New tables** (`packages/db-schema/src/schema.ts`):
 
 - `repositories` — one row per connected GitHub repo, workspace-scoped:
   - `id uuid pk`, `workspaceId uuid → workspaces.id (cascade)`, `fullName text notnull` (`owner/name`), `defaultBranch text notnull default 'main'`, `private boolean notnull default false`, `installationId bigint` (nullable; mirror of the GitHub App installation that grants access, from `listInstallationRepos`), `sortOrder doublePrecision`, `archivedAt timestamptz`, `...timestamps`.
-  - `unique().on(workspaceId, fullName)`; `index` on `workspaceId`.
-- `projectRepositories` — the join table (composite PK), so one repo can back many projects and one project can list many repos:
-  - `projectId uuid → projects.id (cascade)`, `repositoryId uuid → repositories.id (cascade)`, `workspaceId uuid → workspaces.id (cascade)` (denormalized for the shape filter — see the trigger note), `isPrimary boolean notnull default false` (the default clone target when an issue's project has more than one repo).
-  - `primaryKey({ columns: [projectId, repositoryId] })`; index on `repositoryId`, index on `workspaceId`; a partial unique index enforcing at most one `isPrimary=true` per project.
-- Add `Repository` / `ProjectRepository` `InferSelectModel` type exports and `selectRepositorySchema` / `selectProjectRepositorySchema`.
+  - `unique().on(workspaceId, fullName)`; index on `workspaceId`.
+- `projectRepositories` — the many-to-many join (composite PK), so one repo can back many projects and one project can list many repos:
+  - `projectId uuid → projects.id (cascade)`, `repositoryId uuid → repositories.id (cascade)`, `isPrimary boolean notnull default false` (the default clone/PR target when a project links more than one repo).
+  - `primaryKey({ columns: [projectId, repositoryId] })`; index on `repositoryId`; a partial unique index enforcing at most one `isPrimary = true` per project.
+- Export `Repository` / `ProjectRepository` (`InferSelectModel`) types and `selectRepositorySchema` / `selectProjectRepositorySchema`. No `workspace_id` denormalization trigger is needed here — these tables aren't synced, so tRPC queries just join `project_repositories → projects → workspaces` for the workspace scope.
 
-**Migration + backfill (decided).** Generate with `bun run migrate:generate`, then hand-author the data migration in the generated SQL file (Drizzle won't write it):
-1. For each `projects` row with a non-null `github_repo`, upsert a `repositories` row (`workspaceId` from the project, `fullName = github_repo`, `defaultBranch`/`private`/`installationId` best-effort from `listInstallationRepos` at migration time, else `'main'`/`false`/`null`), then insert a `project_repositories` row with `isPrimary = true`.
-2. **Keep `projects.github_repo` for one release as a read-through fallback**, then drop it in the following migration once every client reads the registry. This avoids a flag-day break of the running agent. Update the merge/diff read sites in the interim so they prefer the registry and fall back to `github_repo` (`agent-plan.ts:346`, `issues.ts:474`, `companion/identity.ts:34`, `companion/setup.ts:78`, `bootstrap-cloud.ts`, `bootstrap-self-hosted.ts`).
-3. Add the `workspace_id` denormalization trigger for `project_repositories` mirroring the existing `populate_issue_*_workspace_id` triggers in `apps/web/src/db/out/custom/0001_triggers.sql` (join `project → workspace`). Remember: custom triggers are **not** auto-applied — document the manual `docker exec … psql < 0001_triggers.sql` step in the release checklist.
+**tRPC — `repositories` router** (`apps/web/src/lib/trpc/repositories.ts`, mounted as `repositories` in `api/trpc/$.ts` alongside the existing routers):
 
-**tRPC.** New `repositories` router in `apps/web/src/lib/trpc/repositories.ts`, mounted in `api/trpc/$.ts`:
-- `list({ workspaceId })`, `add({ workspaceId, fullName, defaultBranch, private, installationId })` (owner/admin only; validates the App is installed on that repo via `installationIdForRepo`), `remove({ repositoryId })`, `linkProject({ projectId, repositoryId, isPrimary })`, `unlinkProject`, `setPrimary`.
-- Reuse `integrations.github.repos` (`github-app.ts` `listInstallationRepos`) to populate the picker; the registry `add` mutation persists the chosen repo as a `repositories` row.
+- `list({ workspaceId })` — member-readable; returns the workspace's repos with their project links.
+- `add({ workspaceId, fullName, defaultBranch, private, installationId })` — **owner/admin only**; validates the App is actually installed on that repo via `installationIdForRepo` (`github-app.ts`) before persisting.
+- `remove({ repositoryId })` — owner/admin; also clears its `project_repositories` links.
+- `linkProject({ projectId, repositoryId, isPrimary })` / `unlinkProject({ projectId, repositoryId })` / `setPrimary({ projectId, repositoryId })` — owner/admin; `setPrimary` flips the partial-unique `isPrimary` within the project.
+- `forIssue({ issueId })` — **the launcher's resolution proc**; session-gated, member-readable. Resolves the issue → project → primary `project_repositories` link (else the sole link, else `null`) and returns `{ repositoryId, fullName, defaultBranch } | null`. This is what the native "Start coding" launcher calls first to decide the clone target.
+- `installationToken({ repositoryId })` — see 7b.
 
-**Repositories management UI (all clients).** New workspace-settings section "Repositories" (owner/admin), parallel to the existing `projects-section.tsx`:
-- **Web**: `apps/web/src/components/workspace/repositories-section.tsx` — lists workspace repos, "Connect repository" opens the existing `GithubRepoPicker` (`apps/web/src/components/github-repo-picker.tsx`), and a per-project repo-link editor (multi-select of workspace repos with a primary star). Register it in the settings nav.
-- **iOS / macOS / Android / Linux**: a read + link surface in workspace settings backed by the new synced shape. Native clients don't need the GitHub-App install flow (link to web for install, mirroring the billing/calendar web-only pattern), but they must render the repo list and let an owner pick which repo backs a project. Linux must reach web 1:1 per the parity mandate.
+Reuse `integrations.github.repos` (backed by `listInstallationRepos` in `github-app.ts`) to populate the picker; the registry `add` mutation persists the chosen repo as a `repositories` row. The existing per-user repo cache in `integrations.ts` stays as-is.
 
-**New Electric shape (the 15th synced shape) — full lockstep checklist.** `repositories` becomes synced (the join `project_repositories` is small and client-derivable, so **sync `repositories` only**; expose the links through the projects/repositories join in queries, or add a 16th shape only if a client needs it live — default: don't). For `repositories`:
-1. `CLAUDE.md` + `vision.md` client-parity list: bump "fourteen shapes" → fifteen synced (+ `assigned-issues` = 16 proxies).
-2. **Web collections** — add `repositoryCollection` in `apps/web/src/lib/collections.ts` with `columnMapper: snakeCamelMapper()` (line 31 pattern) and `getShapeUrl('/api/shapes/repositories')`.
-3. **Web shape proxy** — `apps/web/src/routes/api/shapes/repositories.ts` copied from `projects.ts` (workspace-scoped `getWhere` via `getReadableWorkspaceIds` + `buildWhereClause('workspace_id', …)`).
-4. **Linux** — add `.{ .name = "repositories", .url_path = "/api/shapes/repositories", .table = "repositories" }` to `specs` in `apps/linux/src/core/electric/sync_manager.zig:19` (and its `expectEqual` count test), plus the `repositories` table DDL in `database.zig` and a self-heal `ALTER` (guard against the drop-whole-row-on-unknown-column gotcha via `tableColumnSet`).
-5. **iOS/macOS** — add the `Repository` entity + its DAO to the synced-table lists in the Swift sync layer (ExpCore).
-6. **Android** — add the `Repository` Room entity + DAO to the synced list.
-7. **Fixtures** — extend `packages/electric-protocol/fixtures` with a `repositories` shape fixture so cross-client alignment tests cover it.
+**Repositories management UI:**
 
-### 7b. Coding-first / GitHub effectively mandatory
+- **Web** (owner/admin): new workspace-settings section `apps/web/src/components/workspace/repositories-section.tsx`, parallel to `projects-section.tsx` and registered in the settings nav. Lists workspace repos; "Connect repository" opens the **existing** `GithubRepoPicker` (`apps/web/src/components/github-repo-picker.tsx`) — which already handles the App-not-configured / not-installed / searchable-list states and the inline install flow — and calls `repositories.add`. A per-project link editor (multi-select of workspace repos with a primary star) drives `linkProject`/`setPrimary`.
+- **Native (iOS / macOS / Android / Linux)**: a read + link surface in workspace settings via the `repositories` tRPC procs (no Electric shape to add). Native clients do **not** carry the GitHub-App install flow — they link to web for install, mirroring the billing/calendar web-only pattern. Linux must reach web 1:1 per the parity mandate (list + per-project link).
 
-**Formalize the null behavior into a first-class needs-human resolution.** The wiring already exists — `run_pipeline.rs` calls `ctx.needs_human(issue, ERROR_CODE_REPO_NOT_LINKED, …)` (`crates/agent-core/src/run_pipeline.rs:79,193`) and sets `status = needs_human`. This workstream makes it deterministic and registry-driven:
+### 7b. The JIT installation-token proc (native push, no gh, no stored secret)
 
-- **Change the agent's clone resolution to the workspace registry, per-issue.** In `resolve_handle` (`run_pipeline.rs:187`), replace `project.and_then(|p| p.github_repo)` with a repo resolved from the registry for the issue's project:
-  - Server side, add `agent.resolveIssueRepo({ issueId })` (or extend the MCP `get_project` response) returning the project's **primary** `project_repositories` repo (`isPrimary=true`, else the sole link, else `null`), including `fullName` + `defaultBranch`. Update `crates/agent-core/src/mcp.rs` `struct Project` (line 147) / `get_project` (line 154) — or add a dedicated `resolve_repo` call — so the core reads `fullName`/`defaultBranch` from the registry, not `githubRepo`.
-  - `null` repo => `needs_human` with `ERROR_CODE_REPO_NOT_LINKED` (unchanged code string — it's a frozen `agent_error` code). App installed-but-missing stays `ERROR_CODE_REPO_TOKEN_UNAVAILABLE`.
-- **Retarget `companion.repoToken`** (`apps/web/src/lib/trpc/companion/identity.ts:34`): the gate currently joins `projects.githubRepo = input.repo`. Change it to authorize `input.repo` if it matches any `repositories.fullName` in a workspace the agent device is a member of (join `repositories` ↔ `workspace_members` on `workspaceId`). Keep the `owner/name` regex and the `resolveRepoInstallationToken` mint. Bump `defaultBranch` sourcing (`github::get_repo`) to prefer the registry value, falling back to the live GitHub lookup.
-- **Surface "needs a repo" in the UI**: the agent-panel (`apps/web/src/components/agent-panel.tsx:75`, currently `project.githubRepo &&`) and the setup checklist (`companion/setup.ts:78` `repoLinked` signal, currently `isNotNull(projects.githubRepo)`) both switch to "does this issue's project have a linked repository?" Show a clear "Link a repository to let the agent code" CTA that deep-links to the new Repositories settings section. This is the coding-first funnel: an issue can't reach clone => AI => PR without a repo, and the product says so up front.
+`repositories.installationToken({ repositoryId })` — **session-gated** (the real signed-in user's session; there is no agent identity, no `expk_` key, no device gate). It:
 
-### 7c. PR review — read-only diff, schema-ready for write-back
+1. Loads the `repositories` row, verifies the caller is a member of its workspace.
+2. Mints a short-lived, repo-scoped token via `resolveRepoInstallationToken(fullName)` (`github-app.ts`) — the storage-free App JWT → installation-token path. GitHub caps these at ~1h; the App is granted only `contents` + `pull_requests`.
+3. Returns `{ token, fullName, defaultBranch, expiresAt }`, or a typed error if the App isn't installed on that repo (the launcher surfaces "reconnect this repo").
 
-**Keep the storage-free serving path.** The GitHub App (`apps/web/src/lib/integrations/github-app.ts`: App JWT RS256 → JIT per-repo installation token) and the diff endpoint (`issues.prFiles` → `fetchPullFiles` in `github-pr.ts:104`) stay as-is. `pr-sync.ts` remains **merge-detection only** (`applyPrMergeState`); it does not gain review state. No new inbound surface beyond the existing optional webhook.
+The native launcher (Section 5) uses this to build a token-embedded remote — `https://x-access-token:<token>@github.com/owner/repo.git` — on the worktree so `git push` works with no `gh` and no personal credentials. The token is never persisted; it's fetched per session and expires. This **replaces** the deleted `companion.repoToken` / `agent.repoToken` proc entirely.
 
-**Ship syntax-highlighted side-by-side on every platform.** Web's current `diff-view.tsx` is a single-column colored `<pre>` (`lineClass` on `+`/`-`/`@@`). Upgrade to a real side-by-side, syntax-highlighted view:
-- **Web (decided)**: render with a lightweight unified→split parser over `PullFile.patch` plus a token highlighter (Shiki or highlight.js keyed off the file extension). Two gutters (old/new line numbers), aligned hunks, intra-line add/remove background. Keep the existing "no textual diff (binary/too large)" fallback and the `+adds/-dels` header.
-- **Linux (the gap — priority)**: the Linux app has only a plaintext diff. Build a native GTK side-by-side diff widget in `apps/linux/src/ui/` reading the same `issues.prFiles` payload (fetched via the Linux tRPC client), with syntax highlighting (GtkSourceView language guessing by filename, or a hand-rolled tokenizer to hit web 1:1). This is part of the Linux pixel-parity mandate.
-- **iOS/macOS/Android**: side-by-side syntax-highlighted diff from the same `prFiles` payload; macOS keeps the glass aesthetic, others match web.
+### 7c. The MCP `open_pr` tool (server opens the PR, links it to the issue)
 
-**Design the model so write-back can land later without a rewrite (v1 = read-only, no tables built yet).** Do not build review tables now, but lock the shape:
-- A future `pr_review_comments` table (`issueId`, `prNumber`, `filename`, `side` (`old`|`new`), `line`, `body`, `authorId`, `githubCommentId` nullable, `state`) maps 1:1 onto GitHub's review-comment API. The diff parser must therefore key hunks by **`(filename, side, new/old line number)`** now, so inline anchors already exist when comments arrive.
-- A future `pr_reviews` row (`event: approve|request_changes|comment`, `submittedBy`, `githubReviewId`) will POST to `/repos/{repo}/pulls/{n}/reviews` using the same JIT installation token from `resolveRepoInstallationToken` — the auth path is already correct and outbound-only.
-- Extend `PullFile` return shape (`github-pr.ts`) to also carry `sha`/`previousFilename` (already available from the GitHub files API) so line-anchoring survives force-pushes. `pr-sync.ts` gains a review-state writer **later**; note in-code that it is intentionally merge-only today.
+The coding agent runs against the existing web MCP server (`/api/mcp`, Streamable-HTTP, `apps/web/src/lib/mcp/`), authenticated with the user's **personal** API key (Better Auth apikey) written into the worktree's `.mcp.json` by the launcher. The current MCP toolset already exposes issues/projects/comments/labels; this workstream extends it with the coding-flow tools and **removes the agent-plan / agent-report tools** (`exponential_agent_plan_*`, `exponential_agent_open_pr`, `exponential_agent_report_pr`, `exponential_agent_report_error`) that belonged to the deleted headless runtime.
+
+Target tools in `apps/web/src/lib/mcp/tools.ts` (naming aligned to the existing `exponential_*_*` convention; the agent-facing names are `get_issue` / `get_comments` / `update_status` / `open_pr` / `add_comment`):
+
+- `get_issue({ issueId | identifier })`, `get_comments({ issueId })`, `add_comment({ issueId, body })` — read/write context (mostly present today; ensure they resolve by human identifier too).
+- `update_status({ issueId, status })` — restricted to `in_progress` / `in_review` for the coding flow (`in_review` maps to the `issue_status` value used for "PR open, awaiting review").
+- `open_pr({ issueId, title, body, head?, base? })` — **the server** opens the PR via the GitHub App:
+  1. Resolves the issue's repo through the same `forIssue` logic (primary `project_repositories` link).
+  2. `head` defaults to the launcher's branch `exp/<ISSUE-IDENTIFIER>`; `base` defaults to the repo `defaultBranch`.
+  3. Mints an installation token (`resolveRepoInstallationToken`) and calls `createPullRequest` (`github-pr.ts`).
+  4. Writes the PR linkage onto the issue in one transaction — `prUrl`, `prNumber`, `prState = 'open'`, `branch = head` — and records a `pr_opened` issue event (`recordIssueEvent`), which fans out the pr-opened notification.
+
+PR ↔ issue linking is **deterministic two ways**: `open_pr` records it directly, and the merge webhook independently parses the `exp/<IDENTIFIER>` branch name (see 7e), so a PR opened out-of-band still links.
+
+### 7d. Coding-first: no linked repo ⇒ "Start coding" disabled
+
+The coding-first funnel is a single rule enforced everywhere the launcher can start: **an issue whose project has no linked repository cannot start a coding session.**
+
+- The native + web "Start coding" (play/CLI) button resolves through `repositories.forIssue({ issueId })`. `null` → the button renders **disabled** with a "Link a repository" CTA that deep-links to the workspace **Repositories** settings section (web) or the native equivalent.
+- The remote-start path (phone → relay → desktop, Section 8) performs the same `forIssue` check before spawning; a missing repo returns a "link a repository" error to the phone instead of starting.
+- There is no `needs_human` status, no `repo_not_linked` error code, no agent-panel gate — those belonged to the deleted assignment-triggered runtime. The check is purely "does `forIssue` return a repo?" at launch time.
+
+### 7e. PR review — read-only diff, schema-anchored for later write-back
+
+**Keep the storage-free serving path unchanged.** `issues.prFiles` served via `fetchPullFiles` (`github-pr.ts`) over a JIT installation token stays exactly as-is. `pr-sync.ts` (`applyPrMergeState`) remains **merge-detection only** — it gains no review state. No new inbound surface beyond the existing optional webhook.
+
+**Ship syntax-highlighted side-by-side on every platform.** Web's `diff-view.tsx` is today a single-column colored `<pre>`. Upgrade to real side-by-side:
+
+- **Web (decided)**: a lightweight unified→split parser over `PullFile.patch` plus a token highlighter (Shiki or highlight.js keyed off file extension). Two gutters (old/new line numbers), aligned hunks, intra-line add/remove backgrounds. Keep the existing "no textual diff (binary/too large)" fallback and the `+adds/−dels` header.
+- **Linux (the gap — priority)**: today only plaintext. Build a native GTK side-by-side diff widget in `apps/linux/src/ui/` reading the same `issues.prFiles` payload (fetched via the Linux tRPC client), with syntax highlighting (GtkSourceView language guessing by filename, or a hand-rolled tokenizer to hit web 1:1). Part of the Linux pixel-parity mandate.
+- **iOS / macOS / Android**: side-by-side syntax-highlighted diff from the same `prFiles` payload; macOS keeps the glass aesthetic, the others match web.
+
+**Anchor the model so write-back lands later without a rewrite (v1 = read-only, no review tables built yet).** Don't build review tables now, but lock the diff shape:
+
+- Extend the `PullFile` return in `github-pr.ts` to also carry `sha` and `previousFilename` (both already in the GitHub files API) so line anchoring survives force-pushes and renames.
+- The diff parser must key hunks by **`(filename, side, line)`** — `side ∈ {old, new}`, `line` = old/new line number — now, so inline-comment anchors already exist when review comments arrive.
+- Future `pr_review_comments` (`issueId`, `prNumber`, `filename`, `side`, `line`, `body`, `authorId`, `githubCommentId?`, `state`) and `pr_reviews` (`event: approve|request_changes|comment`, `submittedBy`, `githubReviewId`) will POST to `/repos/{repo}/pulls/{n}/reviews` (and the review-comments API) using the **same** `resolveRepoInstallationToken` path — the auth is already correct and outbound-only. Note in-code that `pr-sync.ts` is intentionally merge-only today.
+
+### 7f. Merge detection (webhook + self-host cron)
+
+Unchanged in spirit, minus the deleted desktop poller:
+
+- **Cloud**: the GitHub App webhook `/api/webhooks/github` on `pull_request` closed+merged → `applyPrMergeState` flips `prState = 'merged'`, stamps `prMergedAt`, and emits one idempotent `pr_merged` event. Match to the issue by exact `prUrl`, **and** (add) fall back to parsing the `exp/<IDENTIFIER>` head-branch name → issue, so merges of out-of-band-linked PRs still land.
+- **Self-host behind NAT**: the outbound merge cron (`GITHUB_POLLING`) using `fetchPullState` remains the webhook-less path, calling the same `applyPrMergeState`.
+- **Dropped**: the desktop `pr_poll` (it lived in the now-deleted Rust `agent-core`). Merge detection is server-side only.
 
 ### Definition of done
 
-- [ ] `repositories` + `project_repositories` tables added to `packages/db-schema/src/schema.ts` with types/zod schemas; migration generated and the `projects.github_repo` → `repositories` backfill written and run.
-- [ ] `workspace_id` denormalization trigger added for `project_repositories` in `0001_triggers.sql` and applied manually to local + deployed DBs.
-- [ ] `repositories` synced as the 15th shape: web collection + shape proxy, Linux `specs[]` (+ count test) + `database.zig` DDL/self-heal, iOS/macOS + Android entity+DAO, `electric-protocol` fixture, and `CLAUDE.md`/`vision.md` counts updated.
-- [ ] `repositories` tRPC router (list/add/remove/linkProject/setPrimary) mounted; Repositories management UI shipped on web (owner/admin) and readable on all native clients.
-- [ ] Agent clone resolution reads the workspace registry per-issue (primary repo of the issue's project); `crates/agent-core` `resolve_handle`/`mcp.rs` no longer keys off `project.github_repo`.
-- [ ] `companion.repoToken` gate + `agent-panel` + setup-checklist `repoLinked` all switch to the registry; `null` repo deterministically yields `needs_human` / `repo_not_linked`.
-- [ ] Syntax-highlighted side-by-side diff shipped on web, Linux (was plaintext), iOS, macOS, Android — all reading `issues.prFiles`.
+- [ ] `repositories` + `project_repositories` tables in `packages/db-schema/src/schema.ts` (greenfield — no migration/backfill, no `projects.github_repo` column) with `Repository`/`ProjectRepository` types + zod schemas.
+- [ ] `repositories` tRPC router mounted (`list` / `add` / `remove` / `linkProject` / `unlinkProject` / `setPrimary` / `forIssue` / `installationToken`), owner/admin-gated on writes, session-gated on `installationToken`/`forIssue`. **Not** an Electric shape — still 14 synced shapes.
+- [ ] Web Repositories settings section shipped (owner/admin) reusing `GithubRepoPicker`; native clients read + link repos via the `repositories` tRPC procs.
+- [ ] `repositories.installationToken({ repositoryId })` returns a JIT App installation token the native launcher uses for a token-embedded push remote — no `gh`, no stored secret. (Replaces the deleted `companion.repoToken`.)
+- [ ] MCP `open_pr` (+ `get_issue` / `get_comments` / `update_status` / `add_comment`) live in `tools.ts`; `open_pr` server-creates the PR via the GitHub App and writes `prUrl`/`prNumber`/`prState`/`branch` + a `pr_opened` event. The old `exponential_agent_plan_*` / `exponential_agent_*_pr` / `exponential_agent_report_error` tools removed.
+- [ ] "Start coding" is disabled with a "Link a repository" CTA (deep-linking to Repositories settings) whenever `repositories.forIssue` returns `null`, on both local and remote-start paths.
+- [ ] Syntax-highlighted side-by-side read-only diff shipped on web, Linux (was plaintext), iOS, macOS, Android — all reading `issues.prFiles`.
 - [ ] Diff parser anchors hunks by `(filename, side, line)` and `PullFile` carries `sha`/`previousFilename`, so inline-comment + approve/request-changes write-back can be added later without reworking the diff or auth path.
+- [ ] Merge detection is webhook + self-host cron only; the webhook links by `prUrl` **and** `exp/<IDENTIFIER>` branch parse. The desktop `pr_poll` is gone.
 
 ---
 
 ## 8. Billing moat, self-hosted parity & the cut list
 
-This workstream is where the product's positioning becomes code: **simpler and cheaper than Linear**, self-hostable to full parity, and ruthless about what it refuses to build. It touches billing (web-only), the self-hosted gating of every new feature this refactor adds, and the removal of everything that would make Exponential "just another Linear."
+This workstream is where the product's positioning becomes code: **simpler and cheaper than Linear**, self-hostable to full parity, and ruthless about what it refuses to build. It touches billing (web-only), the self-hosted gating of the features this refactor keeps, and — the headline of v2 — the mass deletion of the old agent runtime. The DELETE-NOW list below is the point: the codebase gets dramatically smaller and every remaining line is fully replaceable.
 
 ### 8a. The billing moat — workspace-flat-rate, value-based
 
-**Decided model: flat rate per workspace, not per seat.** Keep the existing three-tier shape (`free` / `pro` / `business` / `unlimited`) defined in `apps/web/src/lib/billing.ts` (`PLAN_LIMITS`, `PlanTier`) and priced in `apps/web/src/components/workspace/plan-comparison.tsx` (`TIERS`: $18/yr Pro, $60/yr Business, annual-only, FOUNDING 50%-off code). This is already flat-per-workspace — the moat is to **keep it that way** and never drift into per-seat metering.
+**Decided model: flat rate per workspace, not per seat.** Keep the existing tier shape (`free` / `pro` / `business` / `unlimited`) defined in `apps/web/src/lib/billing.ts` (`PLAN_LIMITS`, `PlanTier`) and priced in `apps/web/src/components/workspace/plan-comparison.tsx` (`TIERS`: $18/yr Pro, $60/yr Business, annual-only, `FOUNDING` 50%-off code). This is already flat-per-workspace — the moat is to **keep it that way** and never drift into per-seat metering.
 
-**Monetize on value, never on notifications.** Charge on the axes that scale with how much a team gets out of the coding-agent superpower: **agents / concurrent runs, seats (member cap), linked repositories, and workspace tier**. Do **not** monetize on delivery reliability — email and push are **both free / table-stakes** on every tier.
+**Monetize on value, never on notifications.** Charge on the axes that scale with how much a team gets out of the coding superpower: **seats (member cap), projects, linked repositories, and concurrent coding sessions (capacity)**. Do **not** monetize on delivery reliability — email and push are **both free / table-stakes** on every tier. (There is no headless agent to meter anymore — the paid capacity axis is concurrent human-driven `coding_sessions`, i.e. how many worktrees/terminals a workspace can have running at once, if a cap is wanted at all.)
 
-Concrete change required in `PLAN_LIMITS` (`apps/web/src/lib/billing.ts`):
+Concrete changes required in `PLAN_LIMITS` (`apps/web/src/lib/billing.ts`):
 
-- The `free` tier currently has `push: false`; `pro`/`business` have `push: true`. **Flip `push` on for every tier** (or remove the `push` limit entirely) — push is no longer a paywalled feature. `getWorkspacePlan().limits.push` is consumed by `isPushEnabledForWorkspace` (billing.ts) and by the notification path (`apps/web/src/lib/integrations/notifications.ts` gates a "plan-gated push"); both callers must stop treating push as paid.
-- **Email (the new delivery channel from §Email) is likewise never plan-gated.** Do not add an `email` boolean to `PlanLimits`.
-- Add the value axes instead as needed: a repositories cap (per §Repositories) and/or a concurrent-agent-runs cap belong in `PlanLimits` if a paid axis is wanted there — this is where new limits go, not on notifications.
-- Update `plan-comparison.tsx` `TIERS`: drop the "Push notifications" `FeatureRow` gate (show it enabled on all tiers, or move it out of the comparison as a baseline feature), and surface the real differentiators (members, projects, repositories, storage, AI agents / concurrent runs).
+- The `free` tier currently has `push: false`; `pro`/`business`/`unlimited` have `push: true`. **Flip `push` on for every tier** (or remove the `push` limit entirely) — push is no longer paywalled. `getWorkspacePlan().limits.push` is consumed by `isPushEnabledForWorkspace` (billing.ts, returns `limits.push`) and by the notification path (`apps/web/src/lib/integrations/notifications.ts`, which gates a "plan-gated push"); both callers must stop treating push as paid.
+- **Email (the delivery channel from §Email) is likewise never plan-gated.** Do not add an `email` boolean to `PlanLimits`.
+- Add the real value axes instead: a `repositories` cap (per §Repositories) and, optionally, a concurrent-`coding_sessions` cap belong in `PlanLimits`. This is where new paid limits go — not on notifications.
+- Update `plan-comparison.tsx` `TIERS` (`push` field on the `TierInfo` rows): drop the "Push notifications" `FeatureRow` gate — show it enabled on every tier or remove it as a baseline feature — and surface the real differentiators (members, projects, repositories, storage, concurrent coding sessions).
 
-**Make limits non-opaque + nudge on hit.** The billing surface already shows usage bars (`WorkspaceBillingSection` → `UsageBar` for members/projects/storage in `billing-section.tsx`) and a full `PlanComparison` with per-tier feature rows. Extend, don't rebuild:
+**Make limits non-opaque + nudge on hit.** The billing surface already shows usage bars (`WorkspaceBillingSection` → `UsageBar` for members/projects/storage in `billing-section.tsx`) and a full `PlanComparison`. Extend, don't rebuild:
 
-- Every server-side limit throw in `billing.ts` (`assertCanCreateWorkspace`, the project-count guard, `assertStorageWithinLimit`, etc.) already returns a `PRECONDITION_FAILED` (note: the tRPC code is `PRECONDITION_FAILED`, not `FAILED_PRECONDITION`) with a human message like "Your plan allows up to N …. Upgrade to …". **Standardize these** so the client can catch them and render an inline upgrade nudge (a small "Upgrade" CTA that deep-links to the workspace settings → billing section / `PlanComparison`) rather than a bare toast.
-- In `plan-comparison.tsx`, ensure each tier row states **what unlocks** at the next tier (it already lists members/projects/storage/agents per tier — keep that concrete, not "contact us"). The point of the moat is that a user always sees exactly what they get and what the next $ buys.
+- Every server-side limit throw in `billing.ts` (`assertCanCreateWorkspace`, the project-count guard, `assertStorageWithinLimit`, `assertWithinPlanLimits`, etc.) returns a `PRECONDITION_FAILED` (the tRPC code is `PRECONDITION_FAILED`, not `FAILED_PRECONDITION`) with a human message like "Your plan allows up to N …. Upgrade to …". **Standardize these** so the client catches them and renders an inline upgrade nudge (a small "Upgrade" CTA deep-linking to workspace settings → billing / `PlanComparison`) rather than a bare toast.
+- In `plan-comparison.tsx`, ensure each tier row states **what unlocks** at the next tier (concrete numbers, not "contact us"). The moat is that a user always sees exactly what they get and what the next dollar buys.
 - Add a repositories usage bar to `WorkspaceBillingSection` once the repositories entity lands (§Repositories), reading a new `usage.repositories` from `getWorkspaceUsage`.
 
-**Billing stays strictly WEB-ONLY.** No native client (iOS / Android / macOS / Linux) shows any billing UI — store-policy safe. The `billingRouter` (`apps/web/src/lib/trpc/billing.ts`) and Creem checkout/portal routes (`/api/auth/creem/*`) are web-only by construction; keep them out of the desktop agent surface. Native clients that hit a paid limit link to the web app, they do not render `PlanComparison`.
+**Billing stays strictly WEB-ONLY.** No native client (iOS / Android / macOS / Linux) shows any billing UI — store-policy safe. The `billingRouter` (`apps/web/src/lib/trpc/billing.ts`) and Creem checkout/portal routes (`/api/auth/creem/*`) are web-only by construction. Native clients that hit a paid limit link to the web app; they never render `PlanComparison`.
 
-### 8b. Self-hosted parity — every new feature has a self-hosted path
+### 8b. Self-hosted parity — every kept feature has a self-hosted path
 
-**Rule: self-hosted must fully support every feature.** Billing is the *only* thing that degrades on self-host — and it degrades to *unlimited*, not to disabled. The single gate is `process.env.SELF_HOSTED !== 'true'` via `isCloudInstance()` (`apps/web/src/lib/bootstrap-cloud.ts:264`); when self-hosted, `billingRouter.workspacePlan` / `.userPlan` short-circuit to `plan: 'unlimited'` with `Infinity` limits (`billing.ts` early returns), and `buildRuntimeConfig()` (`apps/web/src/lib/runtime-config.ts`) nulls the Creem product IDs so no checkout UI renders.
+**Rule: self-hosted fully supports every feature.** Billing is the *only* thing that degrades on self-host — and it degrades to *unlimited*, not to disabled. The single gate is `process.env.SELF_HOSTED !== 'true'` via `isCloudInstance()` (`apps/web/src/lib/bootstrap-cloud.ts`); when self-hosted, `getUserPlan` / `getWorkspacePlan` (`billing.ts`) early-return `plan: 'unlimited'` with `Infinity`/max limits, `billingRouter.workspacePlan` / `.userPlan` short-circuit, and `buildRuntimeConfig()` (`apps/web/src/lib/runtime-config.ts`) nulls the Creem product IDs so no checkout UI renders.
 
-The three features this refactor adds each need an explicit self-hosted path:
+The features this refactor keeps each need an explicit self-hosted path:
 
-- **Repositories (§Repositories):** the workspace repo registry + GitHub App integration is already storage-free and outbound-only (`apps/web/src/lib/integrations/github-app.ts` mints per-repo installation tokens JIT). Self-hosted works unchanged — it just needs a GitHub App configured via the existing `GITHUB_APP_ID` / `GITHUB_APP_SLUG` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` env vars. Merge detection on self-host uses the outbound cron (`GITHUB_POLLING=true`) since the inbound webhook may be NAT-blocked. **No repositories cap is enforced on self-host** (unlimited plan).
-- **Email delivery (§Email):** must degrade gracefully. Cloud uses Resend (existing `RESEND_API_KEY` / `EMAIL_FROM`). Self-hosted email is **optional** — configured via SMTP env (add e.g. `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM`) **or left unset**, in which case the email delivery channel is simply skipped and in-app + push still work. The email sender must probe config at startup and no-op (log, never throw) when neither Resend nor SMTP is configured — same fire-and-forget discipline the notification path already uses. Per-user email prefs + unsubscribe tokens + optional digest all work on self-host when email is configured.
-- **Remote-steer relay (§Remote-steer):** the relay must be **LAN-only / outbound-friendly** — mirror the push-relay + GitHub-App outbound-only insight. The desktop connects *outbound* to the relay; viewers connect to the relay; nothing requires an inbound port on the desktop. Self-hosted deploys the relay alongside the stack (like the existing standalone `apps/push-relay`), pointed at via a `REMOTE_STEER_RELAY_URL` env with a shared `REMOTE_STEER_RELAY_SECRET` (mirror `PUSH_RELAY_URL` / `PUSH_RELAY_SECRET`). If unset on self-host, remote-steer degrades to "watch on the desktop only" — the agent still runs, you just can't steer it from your phone.
+- **Repositories + coding flow (§Repositories, §Coding flow):** the workspace repo registry + GitHub App integration is storage-free and outbound-only (`apps/web/src/lib/integrations/github-app.ts` mints per-repo installation tokens JIT). The new desktop launcher pulls a JIT installation token from a session-gated tRPC proc (`repositories.installationToken`) and pushes with a token-embedded remote URL — **no `gh`, no personal creds**. Self-hosted works unchanged; it just needs a GitHub App configured via the existing `GITHUB_APP_ID` / `GITHUB_APP_SLUG` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` env vars. Merge detection on self-host uses the outbound cron (`GITHUB_POLLING=true`) since the inbound webhook may be NAT-blocked. PR↔issue linking is deterministic via the `exp/<IDENTIFIER>` branch name. **No repositories cap on self-host** (unlimited plan).
+- **Email delivery (§Email):** degrades gracefully. Cloud uses Resend (`RESEND_API_KEY` / `EMAIL_FROM`). Self-hosted email is **optional** — configured via SMTP env (add e.g. `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM`) **or left unset**, in which case the email channel is simply skipped and in-app + push still work. The sender probes config at startup and no-ops (logs, never throws) when neither Resend nor SMTP is configured — the same fire-and-forget discipline the notification path already uses. Per-user email prefs + unsubscribe tokens (server-only `user_notification_prefs` / `email_deliveries`) work on self-host when email is configured.
+- **Remote-start + steer relay (§Remote-steer):** the relay is **LAN-only / outbound-friendly** — mirror the push-relay + GitHub-App outbound-only insight. While the desktop app is open it holds an *outbound* control connection to the relay (device presence); the phone's "Start on my desktop" and viewer connections both go through the relay; nothing requires an inbound port on the desktop. Steer claim + viewer presence live in **relay memory** (a relay frame), never a DB table. Self-hosted deploys the relay alongside the stack (like the standalone `apps/push-relay`), pointed at via `STEER_RELAY_URL` + shared `STEER_RELAY_SECRET` (mirror `PUSH_RELAY_URL` / `PUSH_RELAY_SECRET`). If unset on self-host, remote-steer degrades to "watch/steer on the desktop only" — coding still works locally.
 - **Feedback widget dogfood** already has both paths (`runtime-config.ts`): cloud resolves the dogfood `expw_` key from the DB (`findDogfoodWidgetKey`), self-hosted points at the cloud via `FEEDBACK_WIDGET_SCRIPT_URL` + `FEEDBACK_WIDGET_KEY`, or runs its own config. No change needed — just don't regress it.
 
 **Enumerated `SELF_HOSTED` gating touch-points** (verify each still holds after this refactor):
 
 - `apps/web/src/lib/bootstrap-cloud.ts` — `isCloudInstance()` (`SELF_HOSTED !== 'true'`), the canonical gate.
 - `apps/web/src/lib/bootstrap-self-hosted.ts` — self-host bootstrap (feedback widget, etc.).
-- `apps/web/src/lib/runtime-config.ts` — `buildRuntimeConfig()` nulls Creem IDs + resolves feedback widget per deployment.
-- `apps/web/src/lib/billing.ts` — every `getUserPlan` / `getWorkspacePlan` early-returns `unlimited` when not cloud.
+- `apps/web/src/lib/runtime-config.ts` — `buildRuntimeConfig()` nulls Creem IDs + resolves the feedback widget per deployment.
+- `apps/web/src/lib/billing.ts` — every `getUserPlan` / `getWorkspacePlan` / `assert*` early-returns `unlimited` when not cloud.
 - `apps/web/src/lib/trpc/billing.ts` — `workspacePlan` / `userPlan` short-circuit when `!isCloudInstance()`.
-- New: the email sender's config probe (Resend vs SMTP vs none) and the relay URL resolution both belong to this list once built.
+- New: the email sender's config probe (Resend vs SMTP vs none) and the relay URL resolution both join this list once built.
 
-### 8c. The cut list — the competitive edge
+### 8c. The cut list — the competitive edge (NEVER build)
 
-**The refusal to build these IS the moat.** Every item below is something Linear (or a Linear clone) has; each one is deliberately *not* in Exponential because simplicity is the product. Do **not** build, and **remove any half-present remnants**, of:
+**The refusal to build these IS the moat.** Every item below is something Linear (or a Linear clone) has; each is deliberately *not* in Exponential because simplicity is the product. Do **not** build, and **remove any half-present remnants** of:
 
-- Kanban drag-drop board (there is a `project-board.test.ts` / board-adjacent code — audit and remove any board view; the issue list is grid-only per the existing UX conventions)
-- Saved filters / custom saved views (keep only the fixed tab presets in `apps/web/src/lib/filters.ts` — all/active/backlog; do not add a "save this filter" concept)
+- Kanban drag-drop board (there is board-adjacent test code — audit and remove any board view; the issue list is grid-only per the existing UX conventions)
+- Saved filters / custom saved views (keep only the fixed tab presets in `apps/web/src/lib/filters.ts` — all/active/backlog; no "save this filter")
 - Cycles / sprints
-- Sub-issues / dependencies (already cut per prior rebuild — keep it cut; no `issue_relations` parent/child, no dependency graph)
+- Sub-issues / dependencies (already cut — keep it cut; no parent/child, no dependency graph)
 - Time tracking
 - Estimates / story points
 - Custom fields
 - Bulk edit (multi-select-and-mutate)
 - Issue templates
 - Agent marketplace
-- MCP server browser (the agent uses a fixed MCP config; no in-app MCP discovery UI)
+- MCP server browser (the coding flow writes a fixed `.mcp.json`; no in-app MCP discovery UI)
 - Presence / typing indicators
 - Timeline / Gantt
 - Public roadmap share
 - Linear import
 
-**Dead code to delete now** (this refactor removes it, not "later"):
+### 8d. DELETE-NOW — the v2 amputation
 
-- **Google Calendar — cut entirely** (locked §Calendar). Delete: `apps/web/src/lib/integrations/google-calendar.ts`; the `fireAndForgetSync` / `fireAndForgetDelete` calls in `apps/web/src/lib/trpc/issues.ts`; the `googleCalendarEnabled` flag / `GOOGLE_CALENDAR_ENABLED` env handling in `apps/web/src/lib/auth/config.ts` and `apps/web/src/lib/trpc/integrations.ts`; the Calendar connect UI in `apps/web/src/routes/_authenticated/account/integrations.tsx`; and the schema columns `issues.googleCalendarEventId` / `googleCalendarLastSyncedAt` / `googleCalendarLastSyncError` (drop-column migration via `bun run migrate:generate && bun run migrate`, then mirror the column removal in every native client's table spec per the drop-a-row-on-unknown-column gotcha). Also scrub the `SELF_HOSTED` calendar mentions in `apps/web/src/lib/project-board.test.ts` / `context-menu.test.tsx` if they reference calendar.
-- **Legacy agent-auth C entry points.** Remove from `crates/agent-core/include/agent_core.h` and `crates/agent-core/src/ffi.rs`: `agent_core_claim_setup` (header line 64 / ffi.rs:312), `agent_core_github_device_login` (header 65 / ffi.rs:324, the device-flow login — superseded by web `linkSocial`), and `agent_core_uninstall` (header 66 / ffi.rs:332). Delete the associated **setupToken model** and its server route. Update the ffi test at `crates/agent-core/src/ffi.rs:503` that calls `agent_core_uninstall`. Because the C ABI is FROZEN, treat this as a coordinated ABI change: remove the symbols, bump/regenerate the macOS module map + Swift wrapper and the Linux hand-declared externs in lockstep so nothing links against the removed symbols.
-- **`companion.*` tRPC alias.** In `apps/web/src/routes/api/trpc/$.ts:44`, remove `companion: companionRouter` (keep `agent: companionRouter`). The router file stays at `lib/trpc/companion/` and is mounted as `agent.*`; only the temporary alias is dropped. Confirm no native client still calls `companion.*` before removing (grep the Zig/Swift/Kotlin agent code).
-- **`agentPlan.getState` fallback + comment-based agent-plan path.** The synced `agent_runs` shape is the source of truth; native Plan Panels read it directly. Remove the drainable `getState` procedure (`apps/web/src/lib/trpc/agent-plan.ts:558`) and any comment-based plan/question rendering path, once every native client reads `agent_runs` directly. This is a "migrate clients first, then delete" removal — gate it on client-parity confirmation.
+This is a **greenfield rebuild with no production data to preserve**, so these come out wholesale — no migrations, no backfill, no "keep the column for one release." The new coding flow is a host-side native launcher (play/CLI button → resolve repo → JIT token → worktree + `exp/<IDENTIFIER>` branch → `.mcp.json` → `claude --dangerously-skip-permissions` in an embedded libghostty terminal), driven entirely by the **real user's** session and the web `/api/mcp` toolset. Everything below existed to serve the old headless/assignment-triggered Rust runtime and is now dead weight:
 
-**KEEPs — explicitly wanted, do build** (out of scope for *this* section's implementation but must survive the cut):
+- **The entire Rust agent core.** Delete the `crates/agent-core/` crate wholesale (~4,860 LOC: dispatcher, pipeline, `agent_run`, state, the Rust Electric client, the Rust MCP client, `pr_poll`, the `agent_core_*` C ABI in `include/agent_core.h`, `run_request` ↔ `submit_run_result`, `InteractiveSlot` / any slot pool). It is not a bun workspace; remove it from the Cargo build and any packaging steps.
+- **Both host FFI bridges.** Delete `apps/linux/src/core/agent/*` (`agent_core_ffi.zig`, `agent_manager.zig`, `heartbeat.zig`, `identity_store.zig`, `registration.zig`) and `apps/ios/ExponentialMac/MacAgentCore.swift` plus the agent bits of `MacGhosttyApp.swift`. **KEEP the libghostty terminal embedding** — the Linux `GtkGLArea` + GL shim and the macOS prebuilt `GhosttyKit.xcframework` are separate native code, not part of the deleted Rust core, and the new launcher spawns `claude` into exactly that terminal.
+- **The device/agent identity + registration stack.** Delete the `companion.*` / `agent.*` tRPC router entirely (`apps/web/src/lib/trpc/companion/` — `hub.ts` / `identity.ts` / `index.ts` / `setup.ts` / `shared.ts`: `register` / `heartbeat` / `pollControl` / `repoToken` / `setupStatus`) and both its mount lines in `apps/web/src/routes/api/trpc/$.ts` (`agent: companionRouter`, `companion: companionRouter`). Drop the `agent_registrations` and `workspace_agents` tables, the `role=agent` membership concept, and the `expk_` agent API keys. Remove `users.is_agent` **as a desktop-agent concept** (`packages/db-schema/src/auth-schema.ts`) — see the KEEP note below for the widget's separate reuse. The person coding is the real user under their own session; there is no synthetic desktop-agent user and no device registration.
+- **The assigned-issues Electric shape + proxy.** Delete `apps/web/src/routes/api/shapes/assigned-issues.ts` and its collection wiring. The 14 synced shapes no longer include it; assignment no longer triggers any dispatch.
+- **`agent_runs` + structured plan state + Plan Panels.** Drop the `agent_runs` table (`packages/db-schema/src/schema.ts`), the `issues.agentPlanState` column and its `agentPlanStateValues` enum (`domain.ts`), the whole `apps/web/src/lib/trpc/agent-plan.ts` router (`agentPlan.getState` and all approval/question procedures), its mount in `$.ts` (`agentPlan: agentPlanRouter`), and every native structured Plan Panel / plan-approval UI. There is no headless agent posting plan-ready/questions — **you watch the terminal**. Session state is replaced by the slim synced `coding_sessions` table (`id`, `issueId`, `workspaceId`, `userId`, `deviceLabel`, `status running|ended`, `startedAt`, `endedAt`) that only powers a "coding now" badge + Watch/Steer button. PR fields (`prUrl`, `prNumber`, `prState`, `branch`) live on `issues`.
+- **The desktop PR poll.** Gone with the Rust core (`pr_poll` lived there). Merge detection stays 100% server-side: GitHub App webhook, plus the self-host `GITHUB_POLLING=true` cron.
+- **Google Calendar — cut entirely.** Delete `apps/web/src/lib/integrations/google-calendar.ts`; the `fireAndForgetSync` / `fireAndForgetDelete` calls in `apps/web/src/lib/trpc/issues.ts`; the `GOOGLE_CALENDAR_ENABLED` flag handling in `apps/web/src/lib/auth/config.ts` and `apps/web/src/lib/trpc/integrations.ts`; the Calendar connect UI in `apps/web/src/routes/_authenticated/account/integrations.tsx`; and the `issues.googleCalendarEventId` / `googleCalendarLastSyncedAt` / `googleCalendarLastSyncError` columns (`packages/db-schema/src/schema.ts`). Greenfield: just define the clean schema without them — no drop-column migration needed.
+
+**Frame it as the win:** deleting the C-ABI handshake, the slot pool, the two FFI bridges, the whole Rust core, the companion router, four tables, and the calendar integration removes the single largest source of cross-language coupling in the repo. Multi-window becomes trivially native (each window = its own ghostty + its own `claude` child in its own worktree; no shared slot pool, no core). What's left is a plain TanStack Start app + `/api/mcp` + native terminal embedding.
+
+### 8e. KEEPs — explicitly wanted, must survive the cut
 
 - **Issue-to-issue linking** — clickable issue pills referencing other workspace issues inside descriptions/comments, resolved like `@mentions` (mirror `apps/web/src/lib/integrations/mentions.ts`).
-- **Duplicate concept** — mark an issue as a duplicate of a canonical issue (a resolution), with a reference to the canonical.
-- **My Issues** cross-project view (assignee = me) with a sidebar entry on web + mobile.
+- **Duplicate** — mark an issue as a duplicate of a canonical one via `issues.duplicateOfId` (self-FK) + the `duplicate` value in the `issue_status` enum.
+- **My Issues** — cross-project view (assignee = me) with a sidebar entry on web + mobile.
+- **The widget helpdesk creator user** — the one-way feedback widget still needs a per-widget system/bot user to own issues filed by external reporters (`issues.creator_id` cascades — **never delete it**). This reuses the `users.is_agent`/`role=agent` plumbing *for the widget only*; it is **completely separate from and unrelated to** the deleted desktop-agent identity above. When ripping out the desktop-agent concept, preserve exactly this minimal bot-user path.
 
-These three are the *counter-signal* to the cut list: Exponential cuts complexity, but keeps the small number of high-leverage relational features (linking, duplicates, My Issues) that users genuinely loved in Linear.
+These are the *counter-signal* to the cut list: Exponential cuts complexity but keeps the small number of high-leverage relational features (linking, duplicates, My Issues) users genuinely loved in Linear — plus the one bot user the helpdesk can't live without.
 
 ### Definition of done
 
-- [ ] `PLAN_LIMITS` in `apps/web/src/lib/billing.ts` has push free on **all** tiers; no `email` limit added; push/email callers no longer treat delivery as paid.
-- [ ] Any new paid axis (repositories and/or concurrent agent runs) lives in `PlanLimits`, not on notifications; `plan-comparison.tsx` reflects the real differentiators and drops the push paywall row.
+- [ ] `PLAN_LIMITS` in `apps/web/src/lib/billing.ts` has push free on **all** tiers; no `email` limit added; `isPushEnabledForWorkspace` + the notification path no longer treat delivery as paid.
+- [ ] Any paid axis (repositories and/or concurrent `coding_sessions`) lives in `PlanLimits`, not on notifications; `plan-comparison.tsx` reflects the real differentiators and drops the push paywall row.
 - [ ] Limit-hit `PRECONDITION_FAILED` throws are standardized and the client renders an inline upgrade nudge deep-linking to `PlanComparison`; billing UI stays web-only (no native billing surface).
 - [ ] Self-hosted returns `unlimited` for all plan checks; Creem IDs nulled off-cloud; email degrades gracefully (Resend / SMTP / none, never throws); relay is LAN-outbound-friendly with a graceful "watch-only" fallback; feedback-widget dogfood path unregressed.
 - [ ] All `SELF_HOSTED` touch-points (bootstrap-cloud, bootstrap-self-hosted, runtime-config, billing lib + router, new email/relay probes) verified consistent.
-- [ ] Google Calendar fully removed: lib, `fireAndForget*` calls, flag + env, integrations UI, and the three `issues.googleCalendar*` columns (with native-client column-spec mirroring).
-- [ ] Legacy agent-auth C symbols (`agent_core_claim_setup` / `_github_device_login` / `_uninstall`) + setupToken model removed across header, ffi.rs, ffi test, macOS module map/Swift wrapper, and Linux externs; `companion.*` alias dropped; `agentPlan.getState` + comment-based plan path removed after client-parity confirmation.
-- [ ] No cut-list feature (Kanban board, saved filters, cycles, sub-issues/deps, time tracking, estimates, custom fields, bulk edit, templates, agent marketplace, MCP browser, presence, timeline/Gantt, roadmap share, Linear import) exists in the codebase; issue linking + duplicate + My Issues KEEPs are preserved.
+- [ ] No cut-list feature (Kanban, saved filters, cycles, sub-issues/deps, time tracking, estimates, custom fields, bulk edit, templates, agent marketplace, MCP browser, presence, timeline/Gantt, roadmap share, Linear import) exists in the codebase.
+- [ ] `crates/agent-core/` deleted wholesale; `apps/linux/src/core/agent/*` + `MacAgentCore.swift` + the agent bits of `MacGhosttyApp.swift` deleted; libghostty terminal embedding retained.
+- [ ] `companion.*` / `agent.*` tRPC router + both `$.ts` mounts removed; `agent_registrations` / `workspace_agents` tables, `role=agent` membership, and `expk_` keys gone; `users.is_agent`-as-desktop-agent removed while the widget bot-user path is preserved.
+- [ ] `assigned-issues` shape + proxy deleted; `agent_runs` table, `issues.agentPlanState` + `agentPlanStateValues`, `agent-plan.ts` (incl. `agentPlan.getState`) + its `$.ts` mount, and all structured Plan Panel UI removed; slim synced `coding_sessions` table added.
+- [ ] Desktop `pr_poll` gone (server-side merge detection only); Google Calendar fully removed (lib, `fireAndForget*` calls, flag/env, integrations UI, three `issues.googleCalendar*` columns).
+- [ ] Greenfield schema defined directly (no migrations/backfill); KEEPs preserved — issue linking, `duplicateOfId` + `duplicate` status, My Issues, and the widget helpdesk creator user.
 
 ---
 
 ## 9. Sequenced execution plan for Fable
 
-This turns Sections 1–8 into an ordered set of phases Fable executes top-to-bottom. The ordering rule is **foundations before consumers**: every synced-shape/column, enum, and server primitive lands (and is mirrored across the five clients) before any UI or subsystem reads it; the outbound relay lands before the desktop publisher and the coordination viewers that ride it; agent-core's slot-pool rework lands before multi-window; Linux parity and the diff upgrade land before the coordination clients that must match them. Section 1 (invariants) is not a phase — it is the standing "do not regress" contract every phase below is checked against.
+This is the ordered Phase 0..10 plan that turns the v2 hard cuts (§1–§8) into a build sequence. The spine is: **delete first, then define the clean schema, then the server contract, then the desktop launcher, then the relay, then the desktop IDE, then the coordination clients, then notifications/helpdesk, then billing/self-host** — with a macOS/iOS real-hardware verify track interleaved from the moment its dependencies land. Every phase cites the authoritative section that specifies its work, states an acceptance gate, and names the platforms it touches.
 
-Hard forks already resolved (do not re-litigate mid-execution):
-- **Run configs are HOST-SIDE**, not an agent-core event vocabulary (§1.1, §2.2, §4a). Canonical file is the extended `.exponential/config.json`; DB mirror is `ProjectPreviewMirror` on the existing `projects` shape — no new shape.
-- **`agent_runs` is NOT re-keyed.** Add `agent_run_history` (run-UUID PK, append-only) alongside it + an `agent_runs.currentRunId` FK (§2.3). The four-client Plan Panel read path is untouched.
-- **Duplicate = `status='duplicate'` + self-FK `issues.duplicateOfId`**, not a generic `issue_links` relation table (§2.7, §5d). Note the two drafts diverge on the resolution status (§2.7 adds a new `duplicate` enum value; §5d reuses `cancelled`) — **resolve to §2.7's dedicated `duplicate` status value** during Phase 1 (it is the more explicit model and both fields ride the existing `issues` shape either way); this is the one open decision Fable must nail down before writing the migration.
-- **Email is a delivery channel, NOT a `notification_type`** (§2.6, §6.1). Server-only tables (`user_notification_prefs`/`user_email_prefs`, `email_deliveries`), never synced. Push + email are both un-gated/free (§6.1, §8a).
-- **The `remote_steer_sessions` table shape differs slightly between §2.4 and §3.3** (column names `viewer_user_id`/`viewer_id`, `claimed_until`/`claim_until`, and §3.3 adds a `steer_perm` pg enum where §2.4 uses a varchar). **Resolve to §3.3** (it owns the relay runtime): use the `steer_perm` pg enum and §3.3's column names. Server-only, not synced.
-- **Repositories sync `repositories` only**; `project_repositories` is workspace-derivable — §2 lists it as [SYNCED] (17 shapes) while §7 syncs only `repositories` (15 shapes). **Resolve to §7's stance for v1: sync `repositories`, do NOT sync `project_repositories`** unless a client needs the links live; keep the count at **15 synced shapes / 16 proxies** after Phase 1. Revisit only if a native client can't derive links.
-- **The C ABI stays frozen except the internal `InteractiveSlot`→pool change** (§1.3, §3.4, §4b): no header signature change, so neither host re-binds. The legacy agent-auth symbol removal (§8c) IS a deliberate ABI break, handled in the cleanup phase with both hosts updated in lockstep.
+Guiding invariants (from §1.B, do not regress in any phase): **14 synced Electric shapes** in lockstep across five clients (web/iOS/Android/macOS/Linux) with `snakeCamelMapper` on every collection; GitHub stays storage-free/server-side/outbound-only; libghostty embedding is KEPT (not part of the deleted Rust core); `claude` is always spawned `--dangerously-skip-permissions`; local deps are only `claude` + `git` (never `gh`); admin + billing are web-only; self-hosted supports every feature (relay optional/LAN-outbound, email optional). This is a **greenfield DB** — no migrations, no backfill, no keep-a-column; dev resets via `bun run backend:clear` + `bun run migrate` + manual `0001_triggers.sql`.
 
 ---
 
-### Phase 0 — Cut/delete-first cleanup (clear the deck)
+### Phase 0 — Delete first (clear the deck)
 
-**Goal:** Remove dead weight and cut-list remnants before building, so no new code is written against doomed surfaces and the migration in Phase 1 isn't fighting soon-to-be-deleted columns.
+**Goal.** Amputate the entire v1 agent runtime in one wholesale pass so every later phase builds on a clean, dramatically smaller tree. This is the largest single deletion in the refactor and it unblocks the greenfield schema.
 
-**Deliverables (§8c, §2.8, §6):**
-- Delete Google Calendar end-to-end (§2.8, §8c): `google-calendar.ts`, the `fireAndForgetSync`/`fireAndForgetDelete` calls in `issues.ts`, the `googleCalendarEnabled` flag + `GOOGLE_CALENDAR_ENABLED` handling in `auth/config.ts` + `integrations.ts`, the Calendar connect UI in `account/integrations.tsx`, and the calendar scope from `linkSocial`. **Leave Google login intact.** (The three `issues.googleCalendar*` column drops are folded into the Phase 1 migration so there is exactly one schema migration pass — but delete all the *code* now.)
-- Audit + remove any cut-list remnants (§8c): Kanban/board view code (`project-board.test.ts` board-adjacent code), saved-filter concepts (keep only fixed tab presets in `filters.ts`), and confirm sub-issues/relations stay cut. Scrub calendar references in `project-board.test.ts` / `context-menu.test.tsx`.
-- Drop the `companion.*` tRPC alias (`api/trpc/$.ts`) **after** grepping Zig/Swift/Kotlin for `companion.*` callers (keep `agent.*`).
-- **Defer** the legacy agent-auth C-symbol removal and the `agentPlan.getState`/comment-plan removal — those are ABI-break / migrate-clients-first removals; they live in Phase 9 (cleanup-after-parity), not here.
+**Deliverables** (§1.A, §8d):
+- Delete `crates/agent-core/` wholesale (~4,860 LOC: dispatcher, pipeline, `agent_run`, state, Rust Electric client, Rust MCP client, `pr_poll`, the `agent_core_*` C ABI in `include/agent_core.h`, `run_request` ↔ `submit_run_result`, `InteractiveSlot`/slot pool); remove it from the Cargo build + any packaging steps.
+- Delete both host FFI bridges: Linux `apps/linux/src/core/agent/*` (`agent_core_ffi.zig`, `agent_manager.zig`, `heartbeat.zig`, `identity_store.zig`, `registration.zig`); macOS `apps/ios/ExponentialMac/MacAgentCore.swift`, `MacAgentService.swift`, `MacAgentPanel.swift`, `MacAgentRunMonitor.swift`, and the agent-wiring portions of `MacGhosttyApp.swift`. **KEEP** the libghostty terminal embedding (Linux `GtkGLArea` + GL shim `ghostty_ffi.zig`/`terminal.zig`; macOS prebuilt `GhosttyKit.xcframework`).
+- Delete the device/agent identity stack: `apps/web/src/lib/trpc/companion/*` and both `$.ts` mounts (`agent:`, `companion:`); `users.is_agent`-as-desktop-agent, `role=agent`, `expk_` agent keys.
+- Delete the structured-plan stack: `apps/web/src/lib/trpc/agent-plan.ts` + its `$.ts` mount; the assigned-issues shape + proxy (`apps/web/src/routes/api/shapes/assigned-issues.ts`) + its collection wiring; the native Plan Panels (`AgentPlanPanel.swift`, `AgentPlanPanel.kt` + `AgentPlanPanelViewModel.kt`).
+- Delete Google Calendar entirely: `google-calendar.ts`, `fireAndForgetSync`/`fireAndForgetDelete` calls in `issues.ts`, the `GOOGLE_CALENDAR_ENABLED` handling in `auth/config.ts` + `integrations.ts`, the connect UI in `account/integrations.tsx`.
+- Delete `fireAndForgetAgentActionNotify` + `workspaceOwnerRecipients` (§6.2) and the `comments.ts` note referencing them.
+- Remove cut-list remnants (§8c): any Kanban/board view code, saved-filter machinery beyond the fixed tab presets in `filters.ts`.
+- **KEEP** (do not sweep away with the above): the widget helpdesk bot-user path (`widget-user.ts`; `issues.creator_id` cascades) — clearly re-scoped to the widget only.
 
-**Acceptance gate:** `bun run typecheck` + `bun run test` green with zero calendar references; no board/saved-view code paths remain; `companion.*` alias gone and no client references it. Native builds (Zig/iOS/Android) still compile (calendar columns not yet dropped, so no mirror break yet).
+**Acceptance gate.** No `agent_core_*` symbol, `agent_core.h`, `run_request`/`submit_run_result`, `InteractiveSlot`, `companion.*`/`agent.*` router, `agent-plan.ts`, `assigned-issues`, or `google-calendar.ts` reference remains anywhere in the tree (grep-clean). `bun run typecheck` and the web build are green with the deletions in place (schema still references the doomed tables until Phase 1; if typecheck can't pass until then, land Phase 0 + Phase 1 as one deletion-and-redefine commit). Rust/Cargo build no longer includes agent-core; Linux + macOS still compile with only the libghostty embedding retained.
 
-**Platforms:** web (primary); grep-only pass on Linux/iOS/Android/macOS to confirm no `companion.*` callers.
-
----
-
-### Phase 1 — Data-model & sync foundation (the load-bearing migration)
-
-**Goal:** Land every schema change, enum, trigger, and the full five-client shape lockstep in ONE coordinated migration pass, so every later phase reads a stable model. This is the single biggest correctness-risk phase — the shape-discipline checklist (§1.7, §2.0) is its acceptance gate.
-
-**Deliverables (§2, §7a):**
-- **Repositories entity (§2.1, §7a):** `repositories` + `project_repositories` tables; partial unique index on primary repo; data migration off `projects.github_repo` (upsert repo rows + primary join rows). **Keep `projects.github_repo` for one release as a read-through fallback** (§7a) — do NOT drop it in this migration; its drop is a later migration once all clients read the registry. Add `populate_project_repository_workspace_id` trigger to `0001_triggers.sql`.
-- **`repositories` synced as a shape** (resolve to 15 synced shapes / 16 proxies): web collection + `/api/shapes/repositories` proxy, Zig `specs[]` + count test + `database.zig` DDL/self-heal, iOS/macOS + Android entity+DAO, `electric-protocol` fixture, CLAUDE.md/vision.md counts. **Do NOT sync `project_repositories`** for v1.
-- **`agent_run_history` table** (run-UUID PK, append-only) + `agent_runs.currentRunId` FK (§2.3); both [SYNCED] (history gets its own proxy; `currentRunId` rides the existing `agent-runs` shape). `agent_runs` current-state read path untouched. Add `populate_agent_run_history_workspace_id` trigger.
-- **Server-only tables (not synced):** `remote_steer_sessions` (§3.3 shape — `steer_perm` pg enum, §3.3 column names), `user_notification_prefs`/`user_email_prefs` + `email_deliveries` (§2.6/§6.1). These skip the client-mirror steps.
-- **Enum additions:** `subscriber_source += widget_reporter` (pg enum ALTER), `issue_status += duplicate` (pg enum ALTER + `displayOrder`), `steer_perm = [view,steer]` (new pg enum), `issueEventTypeValues += steer_started/steer_ended/steer_killed` — all mirrored into `contract.json` and regenerated via `bun run --filter @exp/domain-contract generate`. Verify the generated migration splits `ALTER TYPE … ADD VALUE` out of any transactional DDL.
-- **Issue columns (ride existing `issues` shape):** `duplicateOfId` self-FK (§2.7/§5d); **drop** `googleCalendarEventId`/`googleCalendarLastSyncedAt`/`googleCalendarLastSyncError` (§2.8). Mirror both the add and the drops in iOS `Entities.swift` / Android `Entities.kt` / Zig specs with the `tableColumnSet` self-heal ALTER guard (§1.8a) so no native row is dropped.
-- **`issue_subscribers` change for helpdesk (§6.4):** nullable `email varchar(320)` + make `userId` nullable for `widget_reporter` rows; mirror across the `issue_subscribers` synced shape (Zig/iOS/Android + self-heal ALTER). Add `resolvedNotifiedAt` to `widget_submissions` (server-only table, no mirror).
-- **Run-config schema (no shape):** extend `ProjectPreviewConfig` with `runConfigs` and `ProjectPreviewMirror` with id/name-only `runConfigs` in `domain.ts` (§2.2/§4a). Rides the existing `projects` shape.
-
-**Acceptance gate:** `bun run migrate:generate && bun run migrate` clean; `0001_triggers.sql` re-applied (documented manual step); `bun run typecheck` + `bun run test` + `bun run test:widget` green; the Zig `"shape registry: N shapes"` `expectEqual` test passes at the new count; iOS + Android compile and self-heal ALTERs run on an older local DB without dropping rows; `contract.json` regenerated and committed. **iOS stays green** (build + launch).
-
-**Platforms:** all five (web schema/proxy/collection; Zig sync+db+test; iOS/macOS ExpCore entities+DAO; Android Room entity+DAO+version bump) + domain-contract regen.
+**Platforms.** All (web, Linux, macOS, iOS, Android) — deletions land per-client; native clients drop their Plan Panels + agent bridges.
 
 ---
 
-### Phase 2 — Email primitive + notification routing fix (server-only, no new shape)
+### Phase 1 — Greenfield target schema (14 synced + server-only, one clean pass)
 
-**Goal:** Turn notifications into a three-channel fan-out (in-app + push + email), un-gate push/email from billing, and fix agent-notification mis-routing — all server-side, riding the tables from Phase 1.
+**Goal.** Define the clean v2 schema directly — no migration, no backfill, no `ALTER TYPE`. One fresh `schema.ts` + `domain.ts` + `contract.json` pass that migrates cleanly from an empty DB.
 
-**Deliverables (§6.1, §6.2, §8a):**
-- Extend `email.ts` with an SMTP transport (nodemailer) beside Resend; `emailEnabled = Boolean(RESEND_API_KEY || SMTP_HOST)`; graceful logged no-op when neither is set. Add `sendNotificationEmail(...)` + unsubscribe-footer. New `SMTP_*` env documented in `.env.example` + CLAUDE.md.
-- Extend `deliver()` (`notifications.ts`) with a third email leg off the same deduped recipient set + `emailRecipients()` helper joining `user_notification_prefs`; fire-and-forget, never throws. Add `deepLinkPath` resolution in `loadIssueMeta`.
-- **Un-gate push AND email** (§8a): flip `push` free on all `PLAN_LIMITS` tiers (or remove the limit); stop `deliver()` treating push as paid; add no `canUseEmail`.
-- One-click unsubscribe route `/api/email/unsubscribe`; `notifications.updateEmailPrefs` mutation + web-only email-prefs panel (polish acceptable later). Digest pref modeled with the immediate-skip branch (cron lands in Phase 8).
-- **Routing fix (§6.2):** `fireAndForgetAgentActionNotify` routes to **assignee + subscribers**, with `workspaceOwnerRecipients()` kept only as the empty-set fallback.
+**Deliverables** (§2, §1.B.1):
+- Define the **14 synced shapes** (§2.1): `workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, comments, attachments, notifications, issue_events, issue_subscribers, coding_sessions`. `coding_sessions` (§2.5) replaces `agent_runs`.
+- `issues` (§2.4): keep `prUrl`/`prNumber`/`prState`/`branch`/`prMergedAt`; add `duplicateOfId` self-FK; **drop** all `googleCalendar*` + `agentPlanState`.
+- Define **server-only** tables (§2.3, §2.6): `repositories`, `project_repositories` (partial-unique primary index), `user_notification_prefs`, `email_deliveries`, plus existing `widget_configs`/`widget_submissions`. No proxy, no collection, no native DAO for these.
+- `issue_subscribers` (§2.7): `userId` nullable + nullable `email`; two partial unique indexes replace `unique(issueId,userId)`.
+- Widget bot user retained with `onDelete: restrict` (§2.7).
+- Enum set (§2.8): `+widget_reporter`, `+issue_status 'duplicate'`, new `coding_session_status(running|ended)`; **drop** `workspace_member_role 'agent'`, `notification_type` agent kinds (`agent_plan_review`/`agent_question`) and **add** `pr_opened`/`pr_merged`, drop agent-only `issue_event_type` kinds, delete `agentPlanState`/`run_mode`. Run `bun run --filter @exp/domain-contract generate`.
+- Custom trigger `populate_coding_session_workspace_id` in `0001_triggers.sql` (mirrors `populate_issue_subscriber_workspace_id`).
+- Run the **§2.2 lockstep** for `coding_sessions` and the new `issues`/`issue_subscribers` columns across all five clients: `collections.ts` (+`snakeCamelMapper`) + `/api/shapes/coding-sessions` proxy; Zig `sync_manager.zig` `specs[]` (keep the `"14 shapes"` test) + `migrations.zig` CREATE/self-heal ALTER + `tableColumnSet`; iOS/macOS `Entities.swift`/`SyncManager.swift`; Android `Entities.kt`/`Daos.kt`/`ExponentialDatabase.kt` (Room version bump)/`SyncManager.kt`; `packages/electric-protocol/fixtures`.
 
-**Acceptance gate:** unit tests for the fan-out + routing; a manual/e2e check that a non-owner-assigned issue's agent-action notification reaches the assignee, and that email sends when `emailEnabled` (and cleanly no-ops when not); `plan-comparison.tsx` no longer shows push as a paywalled row. `bun run test` green.
+**Acceptance gate.** `bun run backend:clear && bun run migrate` succeeds from empty; `0001_triggers.sql` applies; the generated migration contains **no** `ALTER TYPE`/backfill blocks. Zig `"14 shapes"` test green; each native client compiles with the coding_sessions entity. `bun run typecheck` + `bun run test` green. CLAUDE.md updated to 14 synced shapes naming `coding_sessions`.
 
-**Platforms:** web only (native clients read notification rows over the existing `notifications` shape unchanged; email prefs are web-only UI).
-
----
-
-### Phase 3 — GitHub repositories: agent resolution + tRPC + coding-first funnel
-
-**Goal:** Make the agent resolve its clone target from the workspace repo registry (not `projects.github_repo`), enforce the coding-first "no repo => needs-human" rule deterministically, and ship the repositories management surface.
-
-**Deliverables (§7a, §7b):**
-- `repositories` tRPC router (`list/add/remove/linkProject/unlinkProject/setPrimary`), owner/admin-gated, reusing `integrations.github.repos`. Mount in `api/trpc/$.ts`.
-- Agent clone resolution: `resolve_handle` (`run_pipeline.rs`) + `mcp.rs` `get_project`/a new `resolve_repo` read the registry (project → primary `project_repositories` → `repositories`), not `github_repo`. `null` repo → `needs_human` + `repo_not_linked` (frozen code, unchanged). Keep `github_repo` fallback read-through for this one release.
-- Retarget `companion.repoToken` gate (`companion/identity.ts`) to authorize against `repositories.fullName` in a workspace the agent device belongs to.
-- Coding-first funnel: `agent-panel.tsx` + setup-checklist `repoLinked` switch to "does this issue's project have a linked repo?" with a "Link a repository" CTA deep-linking to the new Repositories settings.
-- Web `repositories-section.tsx` (owner/admin) using `GithubRepoPicker`; native clients render a read+link surface over the synced `repositories` shape (Linux at 1:1 — but the polished parity pass is Phase 6; a functional surface is fine here).
-
-**Acceptance gate:** assigning an issue whose project has a linked repo runs the agent to a PR against the registry-resolved repo; a project with no repo deterministically yields `needs_human`/`repo_not_linked` and the UI shows the CTA; `companion.repoToken` mints against a registry repo. `cargo test` green (agent-core), `bun run typecheck`+`test` green.
-
-**Platforms:** web (router + settings UI + funnel), agent-core (Rust resolution), all native clients (read/link surface + agent-panel repoLinked signal).
+**Platforms.** All (schema + five-client lockstep).
 
 ---
 
-### Phase 4 — agent-core per-runId slot pool (concurrency foundation, ABI-frozen)
+### Phase 2 — Server contract: repositories tRPC + installation-token + MCP toolset + coding-first funnel
 
-**Goal:** Replace the process-global `InteractiveSlot` with a bounded per-`runId` `TerminalSlotPool` so concurrent agent sessions are possible — the prerequisite for both multi-window (Phase 5) and remote-steer-per-run (Phase 5b relay). No C ABI signature change.
+**Goal.** Stand up everything the launcher will call before there is a launcher: the repositories registry, the JIT push-token proc, and the extended web MCP toolset that the terminal-driven `claude` will use.
 
-**Deliverables (§3.4, §4b):**
-- `run_pipeline.rs`: `InteractiveSlot`/`InteractiveSlotGuard` → `TerminalSlotPool { active: Mutex<HashMap<issueId,()>>, cap }`; `try_claim(issueId)` succeeds unless that issue is live or the pool is at `cap`; guard `Drop` frees. Claim-before-slow-I/O ordering preserved per-slot. Startup `clear_interactive_owned_all()` retained.
-- `ffi.rs`: `Runtime.interactive_slot` → `terminal_pool`, `cap = config.max_concurrent` (default 2, == dispatcher concurrency). Full pool → `PipelineOutcome::Retry` (requeue).
-- `interactive_session_active` now fires only on same-issue re-trigger or full pool, never a blanket global refusal. Update the header comment block (single-terminal wording) and `ffi.rs` doc comments — **no signature change**, so neither host re-binds. Update the FFI test (`second_interactive_request_fails_fast_without_clobbering`) to assert pool-cap behavior (2 distinct issues mount, a 3rd at cap=2 is rejected).
+**Deliverables** (§7, §1.B.2):
+- `repositories` tRPC router (§7a) mounted in `$.ts`: `list`/`add`/`remove`/`linkProject`/`unlinkProject`/`setPrimary` (owner/admin writes), `forIssue({issueId})` (session-gated resolution → `{repositoryId, fullName/owner+name, defaultBranch} | null`), reusing `integrations.github.repos` + `installationIdForRepo` (`github-app.ts`).
+- `repositories.installationToken({repositoryId})` (§7b): session-gated JIT App installation token via `resolveRepoInstallationToken` — replaces the deleted `companion.repoToken`. Never persisted.
+- Extend the web MCP server (§7c, `apps/web/src/lib/mcp/tools.ts`): `get_issue`, `get_comments`, `add_comment`, `update_status` (`in_progress`/`in_review`), `open_pr` (server opens PR via GitHub App `createPullRequest`, writes `prUrl`/`prNumber`/`prState='open'`/`branch`, records `pr_opened` event). **Remove** the old `exponential_agent_plan_*` / `exponential_agent_*_pr` / `exponential_agent_report_error` tools. Auth via the user's personal Better Auth apikey.
+- Web Repositories settings section (`repositories-section.tsx`, owner/admin) reusing `GithubRepoPicker` (§7a).
+- Merge detection (§7f): webhook + self-host cron (`GITHUB_POLLING`) → `applyPrMergeState`; link by exact `prUrl` **and** by parsing the `exp/<IDENTIFIER>` head branch.
 
-**Acceptance gate:** `cargo test` green with 0 warnings; the concurrency test proves two distinct issues both claim slots and a third is rejected at cap; `agent_core.h` byte-unchanged (verified diff); both hosts build against the unchanged header without re-binding.
+**Acceptance gate.** `repositories.forIssue` returns a repo for a linked project and `null` otherwise; `installationToken` returns a working short-lived token (test a `git ls-remote` against a token-embedded URL). MCP `open_pr` opens a real PR against a test repo and writes the four `issues.*` PR fields + a `pr_opened` event. Still exactly 14 synced shapes (repositories are NOT synced). `bun run typecheck` green.
 
-**Platforms:** agent-core (Rust) only; Linux + macOS re-build against the unchanged ABI to confirm no break.
-
----
-
-### Phase 5 — Outbound remote-steer relay service (the data-plane)
-
-**Goal:** Stand up the standalone outbound relay (`apps/steer-relay`) and its tRPC ticket/claim control plane, so a desktop can publish a live PTY and viewers can subscribe — before any desktop publisher or client viewer is wired.
-
-**Deliverables (§3.1, §3.2, §3.3, §3.5, §3.6):**
-- `apps/steer-relay` (`@exp/steer-relay`, Hono/Bun, Bun-native WebSocket hub): room registry keyed by `runId`, one publisher + N viewers, ring-buffer replay, `/healthz`, per-IP token bucket, `MAX_BODY_BYTES`, drop-non-input backpressure + slow-consumer eviction. `Dockerfile.steer-relay`, `docker-compose.yaml` optional service, Coolify `exponential-steer-relay` app.
-- Wire protocol: `hello/join/resize/input/presence/claim/release/kill/bye` JSON control frames + binary output frames.
-- `steer` tRPC router: `mintTicket` (session/`expk_`, permission-checked via `WorkspacePermissions`/membership, HS256 ticket signed with `STEER_RELAY_SECRET`), `claim/renewClaim/release/forceClaim`, `killSession`, `config`. Writes `remote_steer_sessions`; mirrors the active steer window into `agent_runs.interactiveClaimedExpiresAt`; writes `steer_started/steer_ended/steer_killed` `issue_events`.
-- Env: `STEER_RELAY_URL`, `STEER_RELAY_SECRET`, `PORT` (default 4002) in web env + `.env.example` + CLAUDE.md infra list. Unset → subsystem disabled cleanly (`mintTicket` returns `disabled`).
-
-**Acceptance gate:** relay `/healthz` green; a synthetic publisher + viewer over `wss` exchange output + input frames through the room with ring-buffer replay and single-steerer claim enforcement; ticket signature/`exp` verified relay-side; `STEER_RELAY_URL` unset yields a clean `disabled` result from `mintTicket`. Runs LAN-only outbound.
-
-**Platforms:** new `apps/steer-relay` service + web (tRPC router, env). No client UI yet.
+**Platforms.** Web (server + settings UI). Native repo read/link surfaces are deferred to Phase 7.
 
 ---
 
-### Phase 6 — Desktop IDE workstream: run configs, multi-window, publisher, Linux parity + diff
+### Phase 3 — Native "Start coding" launcher + desktop settings
 
-**Goal:** Build the desktop IDE surface on top of the Phase-4 pool and Phase-5 relay: host-side run configs with a play button, tabbed/detached multi-window terminals, the `SteerPublisher`, Linux 1:1 parity, and the syntax-highlighted side-by-side diff. This is the largest desktop phase and can run its Linux and macOS sub-tracks in parallel.
+**Goal.** The core coding funnel: a play/CLI button on an issue runs the host-side launcher (no Rust core, no FFI) and spawns `claude` in an embedded ghostty terminal.
 
-**Deliverables (§4a, §4b, §4c, §7c, §3.4):**
-- **Run configs + play button (§4a):** Linux `preview_config.zig` parses the new `command` target (`argv`/`cwd`/`env`, folded into `commandSetHash` trust gate); `run_launcher.zig` spawns into a terminal-dock tab (no agent-core round-trip); top-bar play button menu grouping Agent runs + Run configs with last-selected memory + Stop + exit-code display. macOS mirror in `MacShell`/`MacTerminalDock`/`MacPreviewBackends` + SwiftUI toolbar `Menu`.
-- **Multi-window (§4b):** Linux terminal dock → `AdwTabView`/`GtkNotebook` of per-`runId` tabs; detach-to-window by **reparenting** (not recreating) ghostty surfaces for terminal/diff/preview; honor the nonzero-size + `GHOSTTY_ACTION_RENDER` gotchas per detached window. macOS `WindowGroup`/`Window` detached scenes + tabbed `MacTerminalDock` over concurrent `MacAgentService` runs.
-- **SteerPublisher (§3.4):** per-run host component beside `agent_manager.zig`; on interactive `run_request`, opens a publisher socket (ticket via `steer.mintTicket` over the agent `expk_`), tees the PTY bytes to the relay (byte-tee at the PTY master), injects remote `input` into the same PTY write as local keys, honors `kill` (teardown like `run_cancelled` + `agent_core_cancel_issue`), keyed by `runId`. Local user can always type + "Take over" (`forceClaim`). macOS mirror in `MacAgentTerminalRunner`.
-- **Linux 1:1 parity (§4c):** `exp-btn` shadcn-sized CSS token layer, issue-row fixed-column `grid-cols-[24px_72px_24px_1fr_auto]`, `GtkListView`/`GtkColumnView` row virtualization — each verified against a web screenshot.
-- **Syntax-highlighted side-by-side diff (§4c #4, §7c):** replace Linux's plaintext `diffFileWidget` with a `GtkSourceView` two-column view; the diff **hunk model anchors by `(filename, side, line)`** and `PullFile` carries `sha`/`previousFilename` (§7c) so write-back can attach later. macOS diff upgraded (glass-preserving).
+**Deliverables** (§4a, §4b, §5-launcher, §7d):
+- The launcher, implemented twice (Zig + Swift), running the identical sequence (§4a): `repositories.forIssue` → `repositories.installationToken` → host-side git clone + worktree + `exp/<IDENTIFIER>` branch off `origin/<defaultBranch>` + token-embedded remote (`https://x-access-token:<token>@github.com/owner/name.git`, **no `gh`**) → write `.mcp.json` (web `/api/mcp` + personal apikey) → compose plan-first prefilled prompt → spawn `claude --dangerously-skip-permissions` (cwd = worktree) in an embedded ghostty terminal → insert `coding_sessions` row (`running` → `ended`). Linux: `git_worktree.zig` beside `preview_config.zig`; macOS: `GitWorktree.swift`.
+- Desktop settings pane (§4b), JetBrains-SDK-style, both desktops (Linux `settings.zig`, macOS `MacSettingsView.swift`): Claude CLI path (+ `claude --version` doctor), workspace/repos root, branch prefix (`exp/`), personal API key management (mint once, config/keychain, written into `.mcp.json`) — replacing any deleted `expk_` concept with the real user's key.
+- Coding-first gate (§7d): the play button is **disabled with a "Link a repository" CTA** whenever `forIssue` returns `null`; same check on the (later) remote-start path.
 
-**Acceptance gate:** Linux — play menu launches a run config into a new tab; two concurrent agent sessions coexist in tabs; a tab detaches into its own window without killing the child; side-by-side diff renders syntax-highlighted; issue list virtualizes and matches a web screenshot at the button/row-metric level. Publisher tees bytes to a running relay and injects input. `cargo`/Zig build green. macOS deliverables build green (real-Mac verification is Phase 7).
+**Acceptance gate.** On Linux, pressing play on a linked issue clones/worktrees, writes `.mcp.json`, launches `claude --dangerously-skip-permissions` in ghostty, and Claude can call `open_pr` to open a real PR; a `coding_sessions` row goes `running`→`ended`. On an unlinked issue the button is disabled with the CTA. macOS launcher verification is deferred to the Phase 6 real-hardware track (build-green here).
 
-**Platforms:** Linux (primary), macOS (mirror; runtime-verified in Phase 7), agent-core (SteerPublisher is host-side — no core change beyond Phase 4).
+**Platforms.** Linux (full), macOS (build-green; runtime-verified in Phase 6).
 
 ---
 
-### Phase 7 — Verification-debt track: macOS + iOS on real hardware (runs alongside 6→8)
+### Phase 4 — Relay: outbound control channel + steer data-plane
 
-**Goal:** Discharge the standing verification debt (§1.10, §4d): the entire macOS app and much of the blind-written iOS Swift are "green build, never exercised." This is a **verify-and-polish** track on a real Mac/display against `next.exponential.at`, not a rebuild. It is scheduled here because Phases 1–6 have by now added shapes, the pool, the relay, and the desktop publisher/diff that macOS must exercise — but it should be treated as a continuous track that also re-checks each earlier phase's macOS/iOS deliverables as they land.
+**Goal.** Ship the standalone steer relay so a phone can start a session on the desktop and watch/steer the live terminal.
 
-**Deliverables (§4d):**
-- macOS A2 (login + all synced shapes populate), A3 (CRUD round-trip via tRPC+`generateTxId`), A4 (GFM markdown editor byte-parity + attachment upload), A5/M5 (agent identity register → appears in web `agents-section`), A5/M6 (link `libagent_core.dylib`, assign issue, pipeline → PR → Plan Panel from `agent_runs`), A5/M7 (GhosttyKit surface renders + accepts input, honoring nonzero-size + `ACTION_RENDER` + never-build-from-source gotchas).
-- Verify this refactor's macOS additions on hardware: the per-runId pool admits concurrency; the play menu launches run configs into `MacGhosttyTerminal` tabs; detached windows reparent surfaces; the SteerPublisher streams to the relay and injects steer input; "Approve & continue here" uses the human session then `agent_core_approve_interactive` (resume-only, §1.8g).
-- iOS: re-verify the shape/entity/DAO additions from Phase 1 and the coordination features from Phase 8 as they land (My Issues, remote terminal viewer, diff, links/duplicate) on a real device — keeping iOS green throughout.
+**Deliverables** (§3):
+- New `apps/steer-relay` (`@exp/steer-relay`, Hono/Bun, modeled on `apps/push-relay`): `/healthz`, per-IP token bucket, `MAX_BODY_BYTES`, Bun-native WebSocket hub. Two in-memory registries: **device presence** `(userId → {deviceLabel, controlSocket})` and **session rooms keyed by `sessionId == coding_sessions.id`** with one publisher, N viewers, and a ring-buffer replay. All steer state (presence + single-steerer claim) is relay memory — **no `remote_steer_sessions` table** (§3.4).
+- Wire protocol (§3.2): control frames `hello/online/start_session/join/resize/input/presence/claim/release/kill/bye` + binary `0x01` output frames; drop-non-input backpressure + slow-consumer eviction.
+- `steer` tRPC router (§3.5): `mintTicket` (session **or** personal apikey; workspace-permission-checked via `membership.ts` + `access.ts`; HS256 ticket signed with `STEER_RELAY_SECRET`), `killSession`, `config`. No claim procs (relay-memory).
+- Native `SteerPublisher` on both desktops (§3.3): tees the ghostty PTY bytes → relay `0x01` frames; injects remote `input` into the **same PTY master write** as local keys; serves resync snapshots; honors `kill`; keyed by `sessionId`. Wire it into the Phase 3 launcher (attach on session start).
+- Remote-start path end-to-end (§3.2): desktop holds an outbound control socket announcing presence; phone `start_session{issueId, deviceId?}` → relay → chosen desktop runs the Phase 3 launcher and starts publishing.
+- Env + deploy (§3.6): `STEER_RELAY_URL`/`STEER_RELAY_SECRET`; `Dockerfile.steer-relay`; Coolify `exponential-steer-relay`; optional `docker-compose.yaml` service; `STEER_RELAY_URL` unset ⇒ subsystem cleanly off.
 
-**Acceptance gate:** each A2–A5/M5–M7 item observed working on a real Mac; concurrency + play button + detached windows + steer publisher exercised on hardware; glass aesthetic preserved (no pixel-parity chase on macOS); iOS builds+launches green after every phase that touches its entities/DAOs. Findings that can't be fixed on-device are logged as follow-ups, not silently passed.
+**Acceptance gate.** Desktop A runs a session; a second connection (web viewer stub) `join`s by `sessionId`, receives ring-buffer replay + live bytes, claims steer and injects keystrokes that reach `claude`; local user always types + "Take over" works. `start_session` from a stub client launches a session on the desktop. `STEER_RELAY_URL` unset disables everything without breaking local coding. `/healthz` green.
 
-**Platforms:** macOS + iOS (real hardware).
-
----
-
-### Phase 8 — Coordination clients: My Issues, remote-steer UI, diff parity, links/duplicate, helpdesk
-
-**Goal:** Ship the web + iOS + Android coordination surfaces that consume everything built so far — the relay viewer/steer terminal, the syntax-highlighted diff, My Issues, issue linking + duplicate, and the one-way helpdesk resolution email. No local terminal/agent runtime on these clients (§5e, enforced by construction).
-
-**Deliverables (§5a–5d, §6.4, §7c):**
-- **My Issues (§5a):** cross-project `assigneeId == me` view + sidebar/tab entry on web, iOS, Android. No new column/shape (rides `issues`). Fixed built-in view (no saved-filter machinery — cut list).
-- **Remote-steer UI (§5b, §3.7):** web `<SteerTerminal>`/`remote-terminal.tsx` (xterm.js + addon-fit) in `agent-panel.tsx`; iOS `RemoteTerminalView.swift` + Android `RemoteTerminalScreen.kt` (lightweight VT/scrollback). Connects to the Phase-5 relay via `steer.mintTicket`, renders frames, sends keystrokes only while holding a `steer` claim; presence bar + claim countdown; permission gating via `WorkspacePermissions`; gated on `steer.config` relay-enabled flag. "Run on my desktop" = assign-to-desktop-agent (no new run endpoint) + relay-liveness hint.
-- **Read-only diff parity (§5c, §7c):** upgrade web `diff-view.tsx`, iOS `DiffView.swift`, Android `PrDiffSection.kt` to syntax-highlighted side-by-side; thread `PullFile`/`PrFile` write-back anchors (path/sha/side/line) through the types though no comment UI ships; preserve loading/empty/error/binary states.
-- **Issue linking + duplicate (§5d, §2.7):** extend `mentions.ts` with `extractIssueRefs`/`resolveIssueRefs` (identifier token is the GFM interchange form); pill rendering + web autocomplete; mobile pill-render first, autocomplete fast-follow. Duplicate UX (mark-as-duplicate action + canonical banner) on all clients, setting `status='duplicate'` + `duplicateOfId` (per the resolved fork).
-- **Helpdesk one-way (§6.4):** widget submit records the reporter as a `widget_reporter` `issue_subscribers` row (nullable user + `email`); closing a widget-sourced issue (`done`/`cancelled`) sends a clean reporter resolution email via `sendReporterResolutionEmail` (no internal metadata leak), idempotent via `resolvedNotifiedAt`; no in-app/push rows for reporters. Dogfood project relinked to a **repository row** (§6.5) now that repos-as-entity exists.
-
-**Acceptance gate:** My Issues works on all three clients; a phone viewer watches + steers a live desktop agent session end-to-end through the relay with claim enforcement; diff renders side-by-side syntax-highlighted on all three with anchors threaded; issue pills resolve + navigate and duplicate banners show; closing a widget issue emails the reporter exactly once with no PII leak; **zero** local terminal/CLI/agent-core on web/iOS/Android (rejected by construction). `bun run test`+`typecheck` green; iOS/Android build green.
-
-**Platforms:** web, iOS, Android (macOS/iOS runtime re-verified via Phase 7).
+**Platforms.** Relay (new service), Linux (publisher, full), macOS (publisher build-green; verified Phase 6).
 
 ---
 
-### Phase 9 — Billing moat finalize + ABI/legacy cleanup-after-parity
+### Phase 5 — Desktop IDE: run configs, native multi-window, Linux parity + diff
 
-**Goal:** Land the value-based billing polish and the removals that were gated on all clients having migrated (the "migrate-clients-first, then delete" items), now that Phase 8 has every client reading the new sources of truth.
+**Goal.** Round out the Linux IDE to web 1:1 and make concurrency trivially native.
 
-**Deliverables (§8a, §8b, §8c):**
-- **Billing (§8a):** add any new paid axis (repositories cap and/or concurrent-agent-runs cap) to `PlanLimits`; standardize `PRECONDITION_FAILED` limit throws so clients render inline upgrade nudges deep-linking to `PlanComparison`; add a repositories usage bar to `WorkspaceBillingSection`; `plan-comparison.tsx` reflects real differentiators (members/projects/repositories/storage/agents) and drops the push paywall row. Billing stays strictly web-only.
-- **Self-hosted parity verification (§8b):** verify all `SELF_HOSTED` touch-points (bootstrap-cloud/-self-hosted, runtime-config, billing lib+router, new email + relay probes) return `unlimited`/degrade-gracefully; relay LAN-outbound "watch-only" fallback confirmed; email Resend/SMTP/none confirmed.
-- **Drop `projects.github_repo`** (the deferred second migration from §7a) now that every client reads the registry.
-- **Legacy agent-auth C-symbol removal (§8c) — the deliberate ABI break:** remove `agent_core_claim_setup`/`_github_device_login`/`_uninstall` from `agent_core.h` + `ffi.rs` + the ffi test + the macOS module map/Swift wrapper + Linux hand-declared externs, in lockstep; delete the setupToken model + server route.
-- **Remove `agentPlan.getState` + comment-based plan path (§8c)** now that all native Plan Panels read `agent_runs` directly (parity-confirmed in Phases 7–8).
+**Deliverables** (§4c, §4d, §4e):
+- Run configs + play menu (§4c): extend the existing preview/run-target infra (`preview_config.zig`, `.exponential/config.json`) with a generic `command` target (`argv`/`cwd`/`env`, `command` added to `platformValues`, `commandTargetSchema` in `runTargetSchema`); fold `argv`/`cwd` into `commandSetHash` so the trust gate re-prompts. Host spawn (`run_launcher.zig`) into a terminal-dock tab; top-bar play menu grouping **Start coding** + **Run configs** with per-repo last-selected memory + Stop. macOS mirror in `MacShell.swift`/`MacTerminalDock.swift`.
+- Native multi-window (§4d): Linux terminal dock → `AdwTabView` keyed by `coding_sessions.id`/run-config id + detach-by-reparenting (never recreate a ghostty surface). macOS multiple `Window` scenes + tabbed dock. Concurrent sessions coexist (one ghostty + one `claude` + one worktree each) — **no shared slot pool**. Honor the nonzero-size + `ACTION_RENDER` ghostty gotchas.
+- Linux 1:1 parity pass (§4e), incremental: (1) `exp-btn` CSS + token layer mirroring `styles.css`; (2) issue-row `grid-cols-[24px_72px_24px_1fr_auto]` fixed-column grid; (3) `GtkListView`/`GtkColumnView` virtualization replacing the materializing `gtk_list_box`; (4) `GtkSourceView` side-by-side syntax-highlighted diff replacing `diffFileWidget`'s plaintext labels (reads the same `issues.prFiles`; hunks anchored by `(filename, side, line)`).
 
-**Acceptance gate:** self-hosted instance returns unlimited + degrades cleanly with no email/relay/creem; hitting a paid limit shows an inline upgrade nudge; `projects.github_repo` gone with no reader left; `cargo test` green after the ABI symbol removal with both hosts rebuilt against the new header; `agentPlan.getState` gone with no client caller; full `bun run test`+`typecheck`+native builds green; iOS still green.
+**Acceptance gate.** Each parity sub-step verified against a side-by-side web screenshot. A command run config launches into a tab and records its exit code; the trust gate re-prompts when the command changes. Two coding sessions run concurrently in two tabs; a tab detaches into its own window without killing its `claude` child. Linux diff is side-by-side + syntax-highlighted, read-only.
 
-**Platforms:** web (billing), agent-core + Linux + macOS (ABI removal lockstep), all clients (getState removal parity), self-hosted config verification.
+**Platforms.** Linux (full), macOS (mirror; verified Phase 6).
+
+---
+
+### Phase 6 — macOS / iOS real-hardware verify-and-polish (interleaved track)
+
+**Goal.** On a real Mac, verify everything that depends on macOS-native code now that its dependencies (Phases 1–5) have landed — **minus** all agent-core/FFI (deleted, nothing to verify). This phase runs in parallel with Phase 5 once Phase 3/4 land and gates before final sign-off.
+
+**Deliverables** (§4f):
+- Confirm `MacAgentCore`/`MacAgentService`/`MacAgentPanel`/`MacAgentRunMonitor` and the agent bits of `MacGhosttyApp` are removed (Phase 0 residue check).
+- Verify on real hardware against `next.exponential.at`: login + all **14 Electric shapes** populate (incl. `coding_sessions`); CRUD round-trips via tRPC + `generateTxId`; the GFM markdown editor round-trips byte-identically incl. images/@mentions.
+- Verify the **new launcher** (§4a) on macOS: repo resolve → JIT token → worktree + `exp/<IDENTIFIER>` + token remote → `.mcp.json` → `claude --dangerously-skip-permissions` in `MacGhosttyTerminal` → `open_pr` links a PR → `coding_sessions` row appears/ends.
+- Verify run configs + play menu (§4c), multi-window reparenting (§4d), the `SteerPublisher` (§3), and libghostty render on a real display (honoring nonzero-size + `ACTION_RENDER`; never build from source — link the prebuilt xcframework).
+- iOS: confirm build-green minus all deleted agent/FFI code; 14-shape sync + CRUD + editor verified.
+
+**Acceptance gate.** All macOS runtime items above pass on a real Mac; iOS builds green and syncs 14 shapes. Glass aesthetic preserved. (Notarization stays a release-checklist item, not this phase.)
+
+**Platforms.** macOS (real hardware), iOS (build + sync).
+
+---
+
+### Phase 7 — Coordination clients (web + iOS + Android)
+
+**Goal.** Make the phone/web the coordination + remote-control surface: My Issues, Start-on-my-desktop, remote steer UI, PR diff, issue links + duplicate. No local terminal/CLI anywhere here.
+
+**Deliverables** (§5):
+- **My Issues** (§5a): cross-project `assigneeId == me` view + sidebar/tab entry on web/iOS/Android; grouped by status; rows → detail. No new column/shape.
+- **Start on my desktop** (§5b): `relay.startSession({issueId, deviceId})` to the user's own online device; device picker for multiple; enabled/disabled + hint from live relay presence. No assignment, no agent user, no run endpoint. Lives in the repurposed `agent-panel.tsx` (→ session/steer panel), `IssueDetailView.swift`, `IssueDetailScreen.kt`.
+- **Remote steer UI** (§5c): discover live session via synced `coding_sessions` (`status='running'`) + relay liveness → "coding now" badge + Watch/Steer. Web `<SteerTerminal>` (`steer-terminal.tsx`, xterm.js + addon-fit); iOS `SteerTerminalView.swift` + Android `SteerTerminalScreen.kt` lightweight VT viewers; `steer.mintTicket`; presence bar; claim gated by `WorkspacePermissions`.
+- **Read-only PR diff** (§5d): syntax-highlighted side-by-side on web/iOS/Android from `issues.prFiles`; `PullFile`/`PrFile` carry write-back anchors (`path`/`sha`/`side`/`line`); preserve loading/empty/error/binary states.
+- **Issue links + duplicate** (§5e): reference pills via extended `mentions.ts` (`extractIssueRefs`/`resolveIssueRefs`) + `#`-autocomplete (web); "Mark as duplicate" sets `duplicateOfId` + status `'duplicate'` atomically, with a canonical-issue banner + unmark, on all three clients.
+- Repositories read/link native surfaces (§7a deferred from Phase 2): read + link via `repositories` tRPC (no shape); Linux reaches web 1:1; native clients link to web for the GitHub-App install flow.
+- Confirm **no** process spawn / `claude`/`git`/`gh` / local PTY on web/iOS/Android (§5f).
+
+**Acceptance gate.** My Issues lists cross-project assigned issues on all three clients. Start-on-my-desktop launches a real session on an online desktop and the phone joins the live terminal, watches, and steers while holding the claim. PR diff renders side-by-side + highlighted, read-only. Duplicate marking moves status to `'duplicate'` and shows the banner. Grep confirms zero local terminal/CLI in coordination clients.
+
+**Platforms.** Web, iOS, Android (+ Linux for the native repo-link parity item).
+
+---
+
+### Phase 8 — Notifications, email & one-way helpdesk
+
+**Goal.** Turn notifications into a three-channel (in-app + push + email) free delivery layer, wire PR-opened/merged fan-out, and ship the one-way reporter resolution email.
+
+**Deliverables** (§6):
+- Email primitive (§6.1): add email as a third leg in `deliver()` off the deduped `deliveredIds`; `email.ts` gains SMTP alongside Resend with graceful logged no-op (`emailEnabled = Boolean(RESEND_API_KEY || SMTP_HOST)`); `sendNotificationEmail` + deep-link `actionUrl`. **Un-gate push AND email from billing** (remove `push` from `PlanLimits`/`canUsePush`; `pushed_at` unconditional).
+- `user_notification_prefs` (server-only) + `notifications.updateEmailPrefs` (web-only UI) + one-click `/api/email/unsubscribe` route; missing-row defaults to email-on; digest pref + immediate-skip branch (cron later).
+- Normal fan-out (§6.2): assignment/comment/mention/status-change now email too; **new** `fireAndForgetPrNotify` — `pr_opened` from the MCP `open_pr` path, `pr_merged` inside `applyPrMergeState`'s idempotent guard. Keep the minimal widget-bot-user filter in `deliver()` (renamed `isBot`/`isSystem`, decoupled from the deleted desktop-agent identity).
+- One-way helpdesk (§6.4): widget submit records a `widget_reporter` subscriber (null `userId`, `email` set); on close (`done`/`cancelled`) `fireAndForgetReporterResolution` sends a clean `sendReporterResolutionEmail` (no internal metadata); idempotent via `widget_submissions.resolvedNotifiedAt`; thread-ready reply token reserved.
+- Dogfood widget (§6.5): link the dogfood project to a **repository row** (not `projects.githubRepo`); reporter PII stays owner-only.
+- Self-host optionality (§6.6): email/push/relay all degrade cleanly; no fire-and-forget path throws.
+
+**Acceptance gate.** Assignment/mention/comment/pr-opened/pr-merged each produce an in-app row + push + email when the recipient has `emailEnabled`. Closing a widget-sourced issue emails the reporter a clean notice exactly once (reopen→re-close does not re-email). Unsubscribe link flips `emailEnabled=false`. With no Resend/SMTP configured, email silently no-ops and in-app/push still work. `notification_type` enum has `pr_opened`/`pr_merged`, no agent kinds.
+
+**Platforms.** Web (server + prefs UI); native clients receive push + in-app as before (no native email-prefs UI).
+
+---
+
+### Phase 9 — Billing moat & self-hosted parity finalize
+
+**Goal.** Lock the cheaper/simpler billing positioning and verify every kept feature has a self-hosted path.
+
+**Deliverables** (§8a, §8b):
+- `PLAN_LIMITS` (§8a): push free on **all** tiers (flip/remove `push`); no `email` limit; move paid axes to real value (repositories cap and/or concurrent `coding_sessions`). `plan-comparison.tsx` drops the push paywall row and surfaces real differentiators (members, projects, repositories, storage, concurrent sessions). Add a repositories usage bar to `WorkspaceBillingSection`.
+- Standardize limit-hit `PRECONDITION_FAILED` throws → inline client upgrade nudge deep-linking to `PlanComparison`. Billing stays web-only.
+- Self-hosted parity sweep (§8b): confirm `SELF_HOSTED` returns `unlimited` for all plan checks; Creem IDs nulled off-cloud; email (Resend/SMTP/none) + relay (LAN-outbound, watch-only fallback) degrade cleanly; feedback dogfood unregressed. Verify all enumerated `SELF_HOSTED` touch-points (bootstrap-cloud/-self-hosted, runtime-config, billing lib + router, new email/relay probes).
+- Final cut-list audit (§8c): none of Kanban/saved-filters/cycles/sub-issues/time-tracking/estimates/custom-fields/bulk-edit/templates/agent-marketplace/MCP-browser/presence/Gantt/roadmap-share/Linear-import exists.
+
+**Acceptance gate.** Push + email work on the free tier. Hitting a plan limit renders an inline upgrade nudge. A self-hosted (`SELF_HOSTED=true`) instance runs the full coding flow (repo registry, JIT token, launcher, MCP `open_pr`, merge cron), email off cleanly if unconfigured, relay LAN-outbound or watch-only. Cut-list grep-clean.
+
+**Platforms.** Web (billing), all (self-host parity verification).
+
+---
+
+### Phase 10 — Final green + release cut
+
+**Goal.** Whole-tree green across all five clients and a clean release.
+
+**Deliverables.**
+- `bun run typecheck`, `bun run test`, `bun run test:e2e`, `bun run build` green; Zig `"14 shapes"` test green; Android builds; iOS + macOS build-green (macOS runtime-verified in Phase 6).
+- CLAUDE.md + memory reflect: 14 synced shapes naming `coding_sessions`, the steer relay in the infra list, no agent-core/companion/calendar, the coding launcher flow, `STEER_RELAY_*` env.
+- Release via the `release` / `release-staging` skills (tag, pushsync, GHCR build, Coolify deploy); apply `0001_triggers.sql` after migrate on each target.
+
+**Acceptance gate.** All five clients build/sync 14 shapes; a full away→push/email→Start-on-my-desktop→watch/steer→review-diff→merge loop works end-to-end on staging; grep confirms zero Rust core / FFI / agent identity anywhere.
+
+**Platforms.** All.
 
 ---
 
 ### How Fable should work this plan
 
-Execute the phases in order — 0→9 — treating **Phase 1's five-client shape lockstep as the gate everything else stands on**: for every synced shape or column touched, walk the full §2.0 checklist (schema + zod/type export → `contract.json` + `bun run --filter @exp/domain-contract generate` for any enum → web collection with `snakeCamelMapper` + a `createShapeRouteHandler` proxy → Zig `specs[]` + count test + `database.zig` DDL and a self-heal `ALTER` → iOS/macOS + Android entity+DAO → CLAUDE.md/memory counts), and remember the **15 synced shapes / 16 proxies** resolution (sync `repositories`, not `project_repositories`). After any schema change run `bun run migrate:generate && bun run migrate` and then **manually re-apply `apps/web/src/db/out/custom/0001_triggers.sql`** (never auto-applied) including the two new denormalization triggers. Respect the frozen C ABI — the only sanctioned runtime change is the internal `InteractiveSlot`→`TerminalSlotPool` (no header signature change; the legacy-symbol removal in Phase 9 is the one deliberate, lockstep ABI break) — and honor all eight gotchas in new code (esp. row-drop guard for new columns, `PRECONDITION_FAILED` not `FAILED_PRECONDITION`, ghostty nonzero-size/`ACTION_RENDER`, and human-session approval under remote-steer). Keep **iOS green** after every phase that touches its entities/DAOs, run the **Phase 7 macOS/iOS real-hardware verification as a continuous track** rather than a one-shot at the end, and resolve the three flagged forks (duplicate status = `duplicate`; `remote_steer_sessions` = §3.3 shape; repositories sync = `repositories` only) before writing the Phase 1 migration so the foundation never has to be re-cut.
+- **Greenfield reset is expected and safe.** No production data — never write a migration, backfill, or "keep the column for one release." Define the clean schema directly; reset dev with `bun run backend:clear && bun run migrate`, then **manually apply `apps/web/src/db/out/custom/0001_triggers.sql`** (and any new trigger) after every fresh migrate — it is NOT auto-applied.
+- **14-shape lockstep is non-negotiable.** Any synced shape/column change runs the full §2.2 checklist across all five clients in the **same change** (web collection + proxy with `snakeCamelMapper`, Zig `specs[]` + `"14 shapes"` test + SQLite migration + self-heal ALTER + `tableColumnSet`, iOS/macOS entity+DAO, Android entity+DAO+Room-version bump, electric-protocol fixture, CLAUDE.md count). Skipping a native mirror silently drops whole rows (gotcha a).
+- **Delete before you build.** Phase 0 is a hard prerequisite; do not carry agent-core/FFI/companion/agent-plan/calendar forward "just in case." If typecheck can't pass with the tables still referenced, land Phase 0 + Phase 1 together.
+- **Keep iOS/Android green throughout; verify macOS on a real Mac.** Native clients must at minimum compile after every phase that touches shared shapes; macOS runtime verification (Phase 6) needs real hardware and links the prebuilt `GhosttyKit.xcframework` (never build libghostty from source).
+- **NO Rust core anywhere.** The coding flow is a host-side native launcher + `claude --dangerously-skip-permissions` in embedded libghostty + the web `/api/mcp` toolset. Local deps are only `claude` + `git` (never `gh`); GitHub stays 100% server-side (storage-free App, session-gated JIT token). Web/mobile never spawn a process — the only "start" is `relay.startSession`, the only terminal a remote relay mirror.
+- **Respect the surviving gotchas** in every new path: tRPC code is `PRECONDITION_FAILED`; use `and()`/`or()` + `undefined`-to-skip in `useLiveQuery`; `snakeCamelMapper` on every collection; ghostty inits only at nonzero size + must handle `GHOSTTY_ACTION_RENDER`.
