@@ -32,6 +32,7 @@ final class MacAppDependencies: @unchecked Sendable {
     let repositoriesApi: RepositoriesApi
     let codingSessionsApi: CodingSessionsApi
     let usersApi: UsersApi
+    let steerApi: SteerApi
     let terminalDock: MacTerminalDock
     let toastCenter: MacToastCenter
     // The local device-preview runtime (build/run/embed the selected run target
@@ -43,6 +44,9 @@ final class MacAppDependencies: @unchecked Sendable {
     // so a live session's completion handler outlives issue navigation.
     let codingSettings: MacCodingSettings
     let codingLauncher: MacCodingLauncher
+    // Outbound steer control socket (device presence + remote "Start on my
+    // desktop"). Graceful-off when the relay isn't configured.
+    let steerControl: MacSteerControlChannel
 
     init() {
         let keychain = KeychainStore()
@@ -96,6 +100,8 @@ final class MacAppDependencies: @unchecked Sendable {
         let codingSessionsApi = CodingSessionsApi(trpc: trpc)
         self.codingSessionsApi = codingSessionsApi
         self.usersApi = UsersApi(trpc: trpc)
+        let steerApi = SteerApi(trpc: trpc)
+        self.steerApi = steerApi
         // The collapsible bottom terminal dock — shared by MacShell (renders it)
         // and the preview + coding run terminals (which mount into it).
         let terminalDock = MainActor.assumeIsolated { MacTerminalDock() }
@@ -108,19 +114,32 @@ final class MacAppDependencies: @unchecked Sendable {
         self.previewController = MainActor.assumeIsolated { MacPreviewController() }
         let codingSettings = MainActor.assumeIsolated { MacCodingSettings.load() }
         self.codingSettings = codingSettings
-        self.codingLauncher = MainActor.assumeIsolated {
+        let codingLauncher = MainActor.assumeIsolated {
             MacCodingLauncher(
                 auth: auth,
                 repositoriesApi: repositoriesApi,
                 codingSessionsApi: codingSessionsApi,
+                steerApi: steerApi,
                 db: db,
                 settings: codingSettings,
-                toasts: toastCenter
+                toasts: toastCenter,
+                terminalDock: terminalDock
             )
         }
+        self.codingLauncher = codingLauncher
+        // The control socket routes a remote `start_session` to the same launcher
+        // the local play button uses.
+        let steerControl = MainActor.assumeIsolated {
+            MacSteerControlChannel(auth: auth, steerApi: steerApi, settings: codingSettings) { accountId, issueId in
+                codingLauncher.start(accountId: accountId, issueId: issueId)
+            }
+        }
+        self.steerControl = steerControl
 
         // Start sync — it observes auth state and launches one shape pipeline set
         // per signed-in account, swapping pools on account switch.
         syncManager.start()
+        // Start the steer control socket (self-gates when the relay is unset).
+        MainActor.assumeIsolated { steerControl.start() }
     }
 }

@@ -2013,7 +2013,7 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     // "Start coding" — the §4a launcher. Disabled until the async
     // repositories.forIssue check confirms the project has a linked repo
     // (coding-first gate, §7d); no repo ⇒ stays disabled with a CTA tooltip.
-    addStartCodingButton(state, detail_header, id, issue.identifier, issue.title, issue.description);
+    addStartCodingButton(state, detail_header, id);
 
     // "Changes" — the PR diff, rendered inline (the page also offers
     // Open on GitHub). Shown only when the issue has a synced PR.
@@ -2308,17 +2308,14 @@ fn freeIssueActionCtx(p: gtk.gpointer) callconv(.c) void {
 
 // --- "Start coding" launcher wiring (§4a launcher, §7d coding-first gate) ---
 
-/// Carried by the detail's "Start coding" button: the resolved issue context the
-/// launcher needs, plus a back-reference so the button's destroy-notify can clear
-/// `state.coding_btn` (keeping the async repo-check's target pointer always live
-/// or null — never dangling).
+/// Carried by the detail's "Start coding" button. Only the issue id is needed —
+/// the launcher resolves identifier/title/description from the DB itself. The
+/// button back-reference lets the destroy-notify clear `state.coding_btn` so the
+/// async repo-check's target pointer is always live or null, never dangling.
 const CodingLaunchCtx = struct {
     state: *AppState,
     button: gtk.Object,
     issue_id: [:0]u8,
-    identifier: [:0]u8,
-    title: [:0]u8,
-    description: [:0]u8,
 };
 
 fn freeCodingLaunch(p: gtk.gpointer) callconv(.c) void {
@@ -2331,15 +2328,11 @@ fn freeCodingLaunch(p: gtk.gpointer) callconv(.c) void {
         if (state.coding_btn_issue) |s| state.gpa.free(s);
         state.coding_btn_issue = null;
     }
-    const gpa = state.gpa;
-    gpa.free(c.issue_id);
-    gpa.free(c.identifier);
-    gpa.free(c.title);
-    gpa.free(c.description);
-    gpa.destroy(c);
+    state.gpa.free(c.issue_id);
+    state.gpa.destroy(c);
 }
 
-fn addStartCodingButton(state: *AppState, header: gtk.Object, id: []const u8, identifier: []const u8, title: []const u8, description: []const u8) void {
+fn addStartCodingButton(state: *AppState, header: gtk.Object, id: []const u8) void {
     const btn = gtk.gtk_button_new_with_label("Start coding");
     gtk.gtk_widget_add_css_class(btn, "flat");
     // Disabled until the repo check resolves (coding-first gate).
@@ -2347,35 +2340,12 @@ fn addStartCodingButton(state: *AppState, header: gtk.Object, id: []const u8, id
     gtk.gtk_widget_set_tooltip_text(btn, "Checking for a linked repository…");
 
     const gpa = state.gpa;
-    // Dup into locals first, freeing exactly what succeeded on a mid-way OOM.
     const id_z = gpa.dupeZ(u8, id) catch return;
-    const ident_z = gpa.dupeZ(u8, identifier) catch return gpa.free(id_z);
-    const title_z = gpa.dupeZ(u8, title) catch {
-        gpa.free(id_z);
-        gpa.free(ident_z);
-        return;
-    };
-    const desc_z = gpa.dupeZ(u8, description) catch {
-        gpa.free(id_z);
-        gpa.free(ident_z);
-        gpa.free(title_z);
-        return;
-    };
     const ctx = gpa.create(CodingLaunchCtx) catch {
         gpa.free(id_z);
-        gpa.free(ident_z);
-        gpa.free(title_z);
-        gpa.free(desc_z);
         return;
     };
-    ctx.* = .{
-        .state = state,
-        .button = btn,
-        .issue_id = id_z,
-        .identifier = ident_z,
-        .title = title_z,
-        .description = desc_z,
-    };
+    ctx.* = .{ .state = state, .button = btn, .issue_id = id_z };
     gtk.g_object_set_data_full(btn, "exp-coding", @ptrCast(ctx), @ptrCast(&freeCodingLaunch));
     _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onStartCoding), ctx, null, 0);
     gtk.adw_header_bar_pack_end(header, btn);
@@ -2393,14 +2363,13 @@ fn onStartCoding(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *CodingLaunchCtx = @ptrCast(@alignCast(data));
     const state = ctx.state;
     const inst = state.instance orelse return;
+    const db = if (state.db) |*d| d else return;
     coding_launcher.start(.{
         .gpa = state.gpa,
         .instance = inst,
         .token = state.token,
+        .db = db,
         .issue_id = ctx.issue_id,
-        .identifier = ctx.identifier,
-        .title = ctx.title,
-        .description = ctx.description,
         .mount = codingMount,
         .mount_ctx = state,
         .on_error = codingError,

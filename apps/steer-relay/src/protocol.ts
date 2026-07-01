@@ -1,0 +1,102 @@
+// Steer relay wire protocol (masterplan §3.2).
+//
+// Two frame kinds on every socket:
+//   - TEXT frames: JSON control messages `{ t, ... }` (this file).
+//   - BINARY frames: terminal output — one opcode byte `0x01` followed by
+//     verbatim PTY bytes (publisher → relay → viewers). Never JSON, never
+//     base64 — this is the hot path.
+//
+// The relay is a dumb pipe with auth + ephemeral presence: it never parses
+// terminal escape codes and never persists anything.
+
+import { z } from "zod"
+
+export const OUTPUT_OPCODE = 0x01
+
+// ── Client → relay control frames ────────────────────────────────────────────
+
+export const onlineFrame = z.object({
+  t: z.literal(`online`),
+  deviceId: z.string().min(1).max(128),
+  deviceLabel: z.string().max(255).optional(),
+})
+
+export const helloFrame = z.object({
+  t: z.literal(`hello`),
+  sessionId: z.string().min(1).max(128),
+  issueId: z.string().max(128).optional(),
+  cols: z.number().int().positive().max(1000).optional(),
+  rows: z.number().int().positive().max(1000).optional(),
+})
+
+export const joinFrame = z.object({ t: z.literal(`join`) })
+
+export const resizeFrame = z.object({
+  t: z.literal(`resize`),
+  cols: z.number().int().positive().max(1000),
+  rows: z.number().int().positive().max(1000),
+})
+
+export const inputFrame = z.object({
+  t: z.literal(`input`),
+  // Keystrokes are tiny; anything big is not a keystroke.
+  data: z.string().max(8 * 1024),
+})
+
+export const claimFrame = z.object({ t: z.literal(`claim`) })
+export const releaseFrame = z.object({ t: z.literal(`release`) })
+export const killFrame = z.object({ t: z.literal(`kill`) })
+export const byeFrame = z.object({
+  t: z.literal(`bye`),
+  outcome: z.string().max(64).optional(),
+})
+
+export const clientFrame = z.discriminatedUnion(`t`, [
+  onlineFrame,
+  helloFrame,
+  joinFrame,
+  resizeFrame,
+  inputFrame,
+  claimFrame,
+  releaseFrame,
+  killFrame,
+  byeFrame,
+])
+
+export type ClientFrame = z.infer<typeof clientFrame>
+
+// ── Relay → client control frames ────────────────────────────────────────────
+
+export interface PresenceViewer {
+  userId: string
+  name: string
+  perm: `view` | `steer`
+}
+
+export type ServerFrame =
+  | { t: `presence`; viewers: PresenceViewer[]; steererId: string | null }
+  | { t: `resize`; cols: number; rows: number }
+  | { t: `start_session`; issueId: string }
+  | { t: `input`; data: string } // steerer keystrokes, relay → publisher
+  | { t: `resync` }
+  | { t: `kill` }
+  | { t: `bye`; outcome?: string }
+  | { t: `error`; code: string; message?: string }
+
+// ── Close codes ───────────────────────────────────────────────────────────────
+
+export const CLOSE_SESSION_ENDED = 4001
+export const CLOSE_REPLACED = 4002
+export const CLOSE_UNAUTHORIZED = 4003
+export const CLOSE_SLOW_CONSUMER = 4008
+
+export function parseClientFrame(raw: string): ClientFrame | null {
+  let json: unknown
+  try {
+    json = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  const parsed = clientFrame.safeParse(json)
+  return parsed.success ? parsed.data : null
+}

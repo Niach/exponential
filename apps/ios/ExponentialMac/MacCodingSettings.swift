@@ -18,6 +18,9 @@ final class MacCodingSettings {
     /// The key record id (to revoke) + its visible prefix (to display).
     var personalApiKeyId: String?
     var personalApiKeyStart: String?
+    /// Stable per-install device id (steer control-socket presence). Generated
+    /// once and persisted so the relay treats this Mac as one device across launches.
+    var deviceId: String
 
     private init(
         claudePath: String,
@@ -25,7 +28,8 @@ final class MacCodingSettings {
         branchPrefix: String,
         personalApiKey: String?,
         personalApiKeyId: String?,
-        personalApiKeyStart: String?
+        personalApiKeyStart: String?,
+        deviceId: String
     ) {
         self.claudePath = claudePath
         self.reposRoot = reposRoot
@@ -33,6 +37,7 @@ final class MacCodingSettings {
         self.personalApiKey = personalApiKey
         self.personalApiKeyId = personalApiKeyId
         self.personalApiKeyStart = personalApiKeyStart
+        self.deviceId = deviceId
     }
 
     static var defaultReposRoot: String { NSHomeDirectory() + "/Exponential/repos" }
@@ -53,6 +58,8 @@ final class MacCodingSettings {
         var personalApiKey: String?
         var personalApiKeyId: String?
         var personalApiKeyStart: String?
+        // Optional so a file written before the steer subsystem still decodes.
+        var deviceId: String?
     }
 
     private static var fileURL: URL {
@@ -60,25 +67,21 @@ final class MacCodingSettings {
     }
 
     static func load() -> MacCodingSettings {
-        if let data = try? Data(contentsOf: fileURL),
-           let s = try? JSONDecoder().decode(Stored.self, from: data) {
-            return MacCodingSettings(
-                claudePath: s.claudePath.isEmpty ? "claude" : s.claudePath,
-                reposRoot: s.reposRoot.isEmpty ? defaultReposRoot : s.reposRoot,
-                branchPrefix: s.branchPrefix.isEmpty ? "exp/" : s.branchPrefix,
-                personalApiKey: s.personalApiKey,
-                personalApiKeyId: s.personalApiKeyId,
-                personalApiKeyStart: s.personalApiKeyStart
-            )
-        }
-        return MacCodingSettings(
-            claudePath: "claude",
-            reposRoot: defaultReposRoot,
-            branchPrefix: "exp/",
-            personalApiKey: nil,
-            personalApiKeyId: nil,
-            personalApiKeyStart: nil
+        let stored = (try? Data(contentsOf: fileURL))
+            .flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
+        let hadDeviceId = !((stored?.deviceId ?? "").isEmpty)
+        let settings = MacCodingSettings(
+            claudePath: (stored?.claudePath).flatMap { $0.isEmpty ? nil : $0 } ?? "claude",
+            reposRoot: (stored?.reposRoot).flatMap { $0.isEmpty ? nil : $0 } ?? defaultReposRoot,
+            branchPrefix: (stored?.branchPrefix).flatMap { $0.isEmpty ? nil : $0 } ?? "exp/",
+            personalApiKey: stored?.personalApiKey,
+            personalApiKeyId: stored?.personalApiKeyId,
+            personalApiKeyStart: stored?.personalApiKeyStart,
+            deviceId: hadDeviceId ? stored!.deviceId! : UUID().uuidString
         )
+        // Persist a freshly-generated device id so it stays stable across launches.
+        if !hadDeviceId { settings.save() }
+        return settings
     }
 
     func save() {
@@ -88,7 +91,8 @@ final class MacCodingSettings {
             branchPrefix: branchPrefix,
             personalApiKey: personalApiKey,
             personalApiKeyId: personalApiKeyId,
-            personalApiKeyStart: personalApiKeyStart
+            personalApiKeyStart: personalApiKeyStart,
+            deviceId: deviceId
         )
         guard let data = try? JSONEncoder().encode(s) else { return }
         try? data.write(to: Self.fileURL)

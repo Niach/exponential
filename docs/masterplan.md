@@ -479,6 +479,8 @@ PORT                   # default 4002
 
 ### 3.2 Two channels: device control + session data
 
+> **Wire truth (pinned post-implementation):** the authoritative frame/claim shapes are `apps/steer-relay/src/protocol.ts` + `packages/steer-ticket/src/index.ts` — they differ from the tables below in field names (`input.data` not `bytes`; `online` carries `deviceId`+`deviceLabel`; ticket claims are `{sub, ws, …}`) and remote start is a secret-authed server-to-server `POST /start`, not a viewer WS frame.
+
 Every desktop, while the app is open, holds **one outbound control socket** to the relay. Each active coding session additionally opens **one publisher socket**. Viewers open **one viewer socket per session** they watch.
 
 **Auth on connect.** Before joining anything, the client presents a short-lived **relay ticket** minted by the web app — never send raw session cookies or personal API keys to the relay. Tickets are compact HS256 tokens signed with `STEER_RELAY_SECRET`, minted by `steer.mintTicket` (a tRPC proc gated by session **or** the user's personal Better Auth apikey), which first verifies the caller's permission (§3.5). The relay verifies signature + `exp` only; all authorization was decided at mint time. Ticket claims:

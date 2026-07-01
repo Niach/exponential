@@ -59,6 +59,19 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # Optional remote-start/steer relay (masterplan §3). Off by default:
+  # `docker compose --profile steer up -d`. Point the web app + desktops at it
+  # via STEER_RELAY_URL=ws://localhost:4002 (ws(s):// form; the web app derives the http(s) origin) with the same STEER_RELAY_SECRET.
+  steer-relay:
+    profiles: [steer]
+    build:
+      context: .
+      dockerfile: Dockerfile.steer-relay
+    environment:
+      STEER_RELAY_SECRET: ${STEER_RELAY_SECRET:-dev-steer-secret}
+    ports:
+      - 4002:4002
+
 volumes:
   postgres_data:
   garage_meta:

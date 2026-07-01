@@ -27,6 +27,7 @@ const storage = @import("../core/storage.zig");
 const credentials = @import("../core/credentials.zig");
 const git = @import("../core/git_worktree.zig");
 const prompt = @import("../core/coding_prompt.zig");
+const Database = @import("../core/db/database.zig").Database;
 
 /// Insert a ready ghostty terminal into the UI (main thread). `title` is a issue
 /// identifier like "EXP-123".
@@ -34,15 +35,19 @@ pub const MountFn = *const fn (ctx: ?*anyopaque, term: gtk.Object, title: [*:0]c
 /// Surface a launcher error / CTA (main thread).
 pub const ErrorFn = *const fn (ctx: ?*anyopaque, message: [*:0]const u8) void;
 
+/// One launch, identified by `issue_id` alone — the issue's identifier / title /
+/// description are resolved from the local synced DB inside `start()`. This is
+/// what lets the SAME entry point serve both the issue-detail play button and
+/// the Phase-4 relay `start_session` handler.
 pub const Request = struct {
     /// Thread-safe (the app uses `std.heap.page_allocator`).
     gpa: std.mem.Allocator,
     instance: []const u8,
     token: ?[]const u8,
+    /// The local synced DB — read (on the calling/main thread) for the issue's
+    /// identifier / title / description. Never touched off the main thread.
+    db: *Database,
     issue_id: []const u8,
-    identifier: []const u8, // e.g. "EXP-123" — drives the branch name + tab title
-    title: []const u8,
-    description: []const u8, // issue markdown ("" when none)
     mount: MountFn,
     mount_ctx: ?*anyopaque = null,
     on_error: ErrorFn,
@@ -67,17 +72,29 @@ const Job = struct {
     error_ctx: ?*anyopaque,
 };
 
-/// Kick off the launcher. Dups every input, then runs the network + git work on
-/// a detached worker (never blocks the GTK loop). Safe to call from any thread.
+/// Kick off the launcher from `issue_id` alone. MUST be called on the GTK main
+/// thread: it snapshots the issue's identifier / title / description from the
+/// local DB here (fast, mutex-guarded) so the detached worker never touches the
+/// DB — safe against a concurrent sign-out. The network + git work then runs on
+/// a detached worker so the GTK loop never blocks.
 pub fn start(req: Request) void {
     const gpa = req.gpa;
+
+    // Snapshot the issue context on this (main) thread.
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const issue = (req.db.getIssue(arena.allocator(), req.issue_id) catch null) orelse {
+        req.on_error(req.error_ctx, "Couldn't load this issue.");
+        return;
+    };
+
     // Dup into locals first, so a mid-way OOM frees exactly what succeeded (a
     // struct-literal `catch` can't free fields the struct hasn't taken yet).
     const instance = gpa.dupe(u8, req.instance) catch return;
     const issue_id = gpa.dupe(u8, req.issue_id) catch return free1(gpa, instance);
-    const identifier = gpa.dupe(u8, req.identifier) catch return free2(gpa, instance, issue_id);
-    const title = gpa.dupe(u8, req.title) catch return free3(gpa, instance, issue_id, identifier);
-    const description = gpa.dupe(u8, req.description) catch return free4(gpa, instance, issue_id, identifier, title);
+    const identifier = gpa.dupe(u8, issue.identifier) catch return free2(gpa, instance, issue_id);
+    const title = gpa.dupe(u8, issue.title) catch return free3(gpa, instance, issue_id, identifier);
+    const description = gpa.dupe(u8, issue.description) catch return free4(gpa, instance, issue_id, identifier, title);
     const token: ?[]u8 = if (req.token) |t| (gpa.dupe(u8, t) catch null) else null;
 
     const job = gpa.create(Job) catch {
@@ -184,11 +201,13 @@ fn worker(job: *Job) void {
     writeWorktreeFiles(gpa, job, &cred, worktree, branch, personal_key) catch
         return fail(job, "Couldn't write the worktree launch files.");
 
-    // 6. Record the coding session (running).
-    const session_id = startSession(gpa, job) orelse ""; // best-effort; empty ⇒ no end call
+    // 6. Record the coding session (running). Best-effort — a null id just means
+    // no `codingSessions.end` call fires when the terminal closes.
+    const session_id_opt = startSession(gpa, job);
+    defer if (session_id_opt) |s| gpa.free(s);
 
     // 7. Marshal the terminal spawn back to the main thread.
-    scheduleMount(job, &cred, worktree, session_id);
+    scheduleMount(job, worktree, session_id_opt orelse "");
 }
 
 // --- step 1: repositories.forIssue ---
@@ -348,31 +367,34 @@ const MountData = struct {
     title: [:0]u8,
 };
 
-fn scheduleMount(job: *Job, cred: *const credentials.Store, worktree: []const u8, session_id: []const u8) void {
-    const gpa = job.gpa;
-    const md = gpa.create(MountData) catch return;
-    md.* = .{
-        .gpa = gpa,
-        .mount = job.mount,
-        .mount_ctx = job.mount_ctx,
-        .instance = gpa.dupe(u8, job.instance) catch return gpa.destroy(md),
-        .token = if (job.token) |t| (gpa.dupe(u8, t) catch null) else null,
-        .session_id = gpa.dupe(u8, session_id) catch "",
-        .cwd = gpa.dupe(u8, worktree) catch return freeMountPartial(md),
-        // `sh .exp-run.sh` — two space-separated tokens, no intra-token spaces,
-        // so it's safe regardless of how ghostty tokenises `command`.
-        .command = gpa.dupe(u8, "sh .exp-run.sh") catch return freeMountPartial(md),
-        .title = gpa.dupeZ(u8, job.identifier) catch return freeMountPartial(md),
-    };
-    _ = cred; // claude_path was already baked into the launcher script
-    _ = gtk.g_idle_add(@ptrCast(&onMountMain), md);
+fn scheduleMount(job: *Job, worktree: []const u8, session_id: []const u8) void {
+    buildMountData(job, worktree, session_id) catch {};
 }
 
-fn freeMountPartial(md: *MountData) void {
-    const gpa = md.gpa;
-    gpa.free(md.instance);
-    if (md.token) |t| gpa.free(t);
-    gpa.destroy(md);
+/// Build the MountData incrementally so `errdefer` frees exactly what succeeded
+/// (a struct-literal `catch` can't free fields the struct hasn't taken yet).
+fn buildMountData(job: *Job, worktree: []const u8, session_id: []const u8) !void {
+    const gpa = job.gpa;
+    const md = try gpa.create(MountData);
+    errdefer gpa.destroy(md);
+    md.gpa = gpa;
+    md.mount = job.mount;
+    md.mount_ctx = job.mount_ctx;
+    md.instance = try gpa.dupe(u8, job.instance);
+    errdefer gpa.free(md.instance);
+    md.token = if (job.token) |t| try gpa.dupe(u8, t) else null;
+    errdefer if (md.token) |t| gpa.free(t);
+    md.session_id = try gpa.dupe(u8, session_id); // "" ⇒ 0-len heap slice
+    errdefer gpa.free(md.session_id);
+    md.cwd = try gpa.dupe(u8, worktree);
+    errdefer gpa.free(md.cwd);
+    // `sh .exp-run.sh` — two space-separated tokens, no intra-token spaces, so
+    // it's safe regardless of how ghostty tokenises `command`. The claude path
+    // was already baked into the launcher script.
+    md.command = try gpa.dupe(u8, "sh .exp-run.sh");
+    errdefer gpa.free(md.command);
+    md.title = try gpa.dupeZ(u8, job.identifier);
+    _ = gtk.g_idle_add(@ptrCast(&onMountMain), md);
 }
 
 /// The end-of-session context, kept alive for the terminal's lifetime so the
@@ -390,7 +412,7 @@ fn onMountMain(data: gtk.gpointer) callconv(.c) c_int {
     defer {
         gpa.free(md.instance);
         if (md.token) |t| gpa.free(t);
-        if (md.session_id.len > 0) gpa.free(md.session_id);
+        gpa.free(md.session_id); // always heap (dup of "" when no row)
         gpa.free(md.cwd);
         gpa.free(md.command);
         gpa.free(md.title);
@@ -398,25 +420,7 @@ fn onMountMain(data: gtk.gpointer) callconv(.c) c_int {
     }
 
     // Wire the session-end call to the child exit (only when we have a row id).
-    var end_ctx: ?*EndCtx = null;
-    if (md.session_id.len > 0) {
-        if (gpa.create(EndCtx)) |ec| {
-            ec.* = .{
-                .gpa = gpa,
-                .instance = gpa.dupe(u8, md.instance) catch {
-                    gpa.destroy(ec);
-                    return 0;
-                },
-                .token = if (md.token) |t| (gpa.dupe(u8, t) catch null) else null,
-                .session_id = gpa.dupe(u8, md.session_id) catch {
-                    gpa.free(ec.instance);
-                    gpa.destroy(ec);
-                    return 0;
-                },
-            };
-            end_ctx = ec;
-        } else |_| {}
-    }
+    const end_ctx: ?*EndCtx = if (md.session_id.len > 0) buildEndCtx(md) catch null else null;
 
     const term = terminal.create(gpa, .{
         .cwd = md.cwd,
@@ -434,6 +438,20 @@ fn onMountMain(data: gtk.gpointer) callconv(.c) c_int {
     };
     md.mount(md.mount_ctx, term, md.title.ptr);
     return 0; // G_SOURCE_REMOVE
+}
+
+/// Build the EndCtx incrementally (errdefer frees exactly what succeeded).
+fn buildEndCtx(md: *MountData) !*EndCtx {
+    const gpa = md.gpa;
+    const ec = try gpa.create(EndCtx);
+    errdefer gpa.destroy(ec);
+    ec.gpa = gpa;
+    ec.instance = try gpa.dupe(u8, md.instance);
+    errdefer gpa.free(ec.instance);
+    ec.token = if (md.token) |t| try gpa.dupe(u8, t) else null;
+    errdefer if (ec.token) |t| gpa.free(t);
+    ec.session_id = try gpa.dupe(u8, md.session_id);
+    return ec;
 }
 
 fn onSessionExit(ctx: ?*anyopaque, exit_code: i32) void {

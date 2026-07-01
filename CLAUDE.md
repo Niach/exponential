@@ -11,7 +11,7 @@ Real-time issue tracker.
 - **API**: tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync)
 - **UI**: shadcn/ui on Tailwind v4 (OKLCH zinc palette, dark theme forced via `html.dark`)
 - **Date Picker**: `react-day-picker` + `date-fns` via shadcn `Calendar` component
-- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, Garage:3900 (S3-compatible), Caddy:3000 (HTTP/2 reverse proxy; `Caddyfile` is gitignored — copy from `Caddyfile.example`, which is configured for Electric long-poll timeouts)
+- **Infrastructure**: Docker Compose — Postgres:54321, Electric:30000, Garage:3900 (S3-compatible), Caddy:3000 (HTTP/2 reverse proxy; `Caddyfile` is gitignored — copy from `Caddyfile.example`, which is configured for Electric long-poll timeouts), optional steer-relay:4002 (`--profile steer`)
 - **Package Manager**: bun
 
 ## Monorepo Layout
@@ -21,6 +21,7 @@ exponential/
 ├── apps/
 │   ├── web/        # TanStack Start app (the issue tracker)
 │   ├── push-relay/ # Standalone push notification relay (Hono/Bun, separately deployed)
+│   ├── steer-relay/# Standalone remote-start + live-terminal-steer WebSocket hub (Bun; device presence + session rooms in memory)
 │   ├── marketing/  # Marketing site (Vite + React, deployed via Coolify)
 │   ├── ios/        # Native SwiftUI iOS app (Tuist + GRDB)
 │   ├── android/    # Native Kotlin / Jetpack Compose app
@@ -29,6 +30,7 @@ exponential/
 │   ├── db-schema/          # Drizzle schema + shared zod/domain types
 │   ├── domain-contract/    # contract.json — canonical enum values; emits per-language constants
 │   ├── electric-protocol/  # Electric SQL shape protocol fixtures
+│   ├── steer-ticket/       # Shared HS256 steer-ticket sign/verify (web mints, relay verifies)
 │   ├── widget/             # Embeddable feedback widget (Preact + snapDOM); builds loader.js/widget.js into apps/web/public/widget/v1/
 │   └── tsconfig/           # Shared TS configs
 ├── docker-compose.yaml
@@ -38,7 +40,7 @@ exponential/
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
-Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/widget`, `@exp/tsconfig`. (The Linux desktop app `apps/linux` is a Zig project, not a bun workspace.)
+Workspace package names: `@exp/web`, `@exp/push-relay`, `@exp/steer-relay`, `@exp/marketing`, `@exp/db-schema`, `@exp/domain-contract`, `@exp/electric-protocol`, `@exp/steer-ticket`, `@exp/widget`, `@exp/tsconfig`. (The Linux desktop app `apps/linux` is a Zig project, not a bun workspace.)
 
 **Client parity:** all five clients (web, iOS, Android, macOS, Linux) sync the same **fourteen** Electric shapes (workspaces, projects, issues, labels, issue_labels, users, workspace_members, workspace_invites, comments, attachments, notifications, issue_events, issue_subscribers, **coding_sessions**) — proxy count == shape count == 14. `repositories`, `project_repositories`, `user_notification_prefs`, `email_deliveries`, and the widget tables are **server-only (tRPC), never synced**. All clients honor `isPublic` / `publicWritePolicy` field gating via a small `WorkspacePermissions` helper that mirrors `apps/web/src/hooks/use-workspace-permissions.ts`. **Billing (Creem) and the admin console are intentionally web-only** — native clients show no billing UI (store-policy safe). When changing enum values in `packages/db-schema/src/domain.ts`, also update `packages/domain-contract/contract.json` and run `bun run --filter @exp/domain-contract generate` to refresh the Swift / Kotlin / Zig constants.
 
@@ -54,6 +56,9 @@ bun dev                            # Start web dev server (apps/web, localhost:5
 bun run dev:marketing              # Start marketing dev server (apps/marketing)
 bun run dev:push-relay             # Start push relay dev server (apps/push-relay, localhost:4001)
 bun run start:push-relay           # Start push relay in production mode
+bun run dev:steer-relay            # Start steer relay dev server (apps/steer-relay, localhost:4002)
+bun run start:steer-relay          # Start steer relay in production mode
+bun run test:steer-relay           # Steer relay + ticket unit/integration tests
 bun run build                      # Build widget + web + marketing (widget MUST build before web)
 bun run build:web                  # Build only the web app
 bun run build:widget               # Build the embeddable widget into apps/web/public/widget/v1/
@@ -280,6 +285,8 @@ CREEM_PRO_PRODUCT_ID          # Creem product ID for the Pro plan
 CREEM_BUSINESS_PRODUCT_ID     # Creem product ID for the Business plan
 PUSH_RELAY_URL                # URL of the push-relay service (e.g. https://push.yourapp.com)
 PUSH_RELAY_SECRET             # Shared secret between web app and push relay
+STEER_RELAY_URL               # URL of the steer relay (unset = remote start/steer off; LAN URLs fine — all connections dial OUT)
+STEER_RELAY_SECRET            # Shared HS256 secret: web mints steer tickets, relay verifies (must match the relay process env)
 SECURITY_HEADERS_ENABLED      # 'true' to emit CSP/HSTS etc. from the Bun server
 INITIAL_ADMIN_EMAILS          # Comma-separated emails auto-promoted to global admin at startup
 FEEDBACK_WIDGET_SCRIPT_URL    # Self-hosted only: cloud loader URL for the in-app feedback widget (cloud derives from DB)

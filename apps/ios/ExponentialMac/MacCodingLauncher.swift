@@ -27,24 +27,35 @@ final class MacCodingLauncher {
     private let auth: AuthRepository
     private let repositoriesApi: RepositoriesApi
     private let codingSessionsApi: CodingSessionsApi
+    private let steerApi: SteerApi
     private let db: DatabaseManager
     private let settings: MacCodingSettings
     private let toasts: MacToastCenter
+    private let terminalDock: MacTerminalDock
+
+    // Live steer publishers + PTY tails, keyed by issueId (torn down on finish).
+    private var publishers: [String: MacSteerPublisher] = [:]
+    private var tails: [String: MacSteerPtyTail] = [:]
+    private var rawFiles: [String: URL] = [:]
 
     init(
         auth: AuthRepository,
         repositoriesApi: RepositoriesApi,
         codingSessionsApi: CodingSessionsApi,
+        steerApi: SteerApi,
         db: DatabaseManager,
         settings: MacCodingSettings,
-        toasts: MacToastCenter
+        toasts: MacToastCenter,
+        terminalDock: MacTerminalDock
     ) {
         self.auth = auth
         self.repositoriesApi = repositoriesApi
         self.codingSessionsApi = codingSessionsApi
+        self.steerApi = steerApi
         self.db = db
         self.settings = settings
         self.toasts = toasts
+        self.terminalDock = terminalDock
     }
 
     func isRunning(issueId: String) -> Bool { runningIssueIds.contains(issueId) }
@@ -159,12 +170,32 @@ final class MacCodingLauncher {
         runningIssueIds.insert(issueId)
         sessionByIssue[issueId] = session.id
 
+        // Steer (optional, purely additive): if the relay is configured on this
+        // instance, tee this session's PTY to it for remote watch/steer. libghostty
+        // owns the child PTY (no host-side output-read seam), so when steering is on
+        // we run `claude` under `script(1)` — it gives claude a real PTY AND tees
+        // the verbatim terminal bytes to a file the publisher tails. Disabled ⇒ the
+        // plain spawn (byte-identical to local-only coding).
+        let steerEnabled = ((try? await steerApi.config(accountId: accountId))?.enabled) ?? false
+        let program: String
+        let argv: [String]
+        var rawFile: URL?
+        if steerEnabled {
+            let file = Self.steerRawFile(sessionId: session.id)
+            rawFile = file
+            program = "/usr/bin/script"
+            argv = ["-q", file.path, settings.claudePath, "--dangerously-skip-permissions"]
+        } else {
+            program = settings.claudePath
+            argv = ["--dangerously-skip-permissions"]
+        }
+
         // 6. Spawn `claude` in the embedded ghostty terminal (dock), keyed by the
         //    coding_sessions.id. Completion ends the session.
         MacTerminalRunner.shared.run(
             runId: session.id,
-            program: settings.claudePath,
-            argv: ["--dangerously-skip-permissions"],
+            program: program,
+            argv: argv,
             env: PreviewShell.augmentedEnvironment(),
             cwd: worktree.path,
             prompt: "Read PROMPT.md in this directory, then follow it.",
@@ -175,15 +206,61 @@ final class MacCodingLauncher {
                 MainActor.assumeIsolated { self?.finish(accountId: accountId, issueId: issueId) }
             }
         }
+
+        // Attach the steer publisher (data-plane) for this session.
+        if steerEnabled, let rawFile {
+            attachSteer(sessionId: session.id, issueId: issueId, accountId: accountId, rawFile: rawFile)
+        }
+
         toasts.show(
             "Coding session started for \(identifier) — watch it in the terminal.",
             style: .success)
+    }
+
+    // MARK: - Steer publisher attach/detach (masterplan §3.3)
+
+    private func attachSteer(sessionId: String, issueId: String, accountId: String, rawFile: URL) {
+        let dock = terminalDock
+        let publisher = MacSteerPublisher(
+            sessionId: sessionId,
+            issueId: issueId,
+            accountId: accountId,
+            steerApi: steerApi,
+            inputSink: { [weak dock] text in
+                // Inject remote keystrokes only into THIS session's live terminal.
+                if dock?.currentRunId == sessionId { dock?.terminalView?.writeToPty(text) }
+            },
+            onKill: { MacTerminalRunner.shared.terminate(runId: sessionId) }
+        )
+        let tail = MacSteerPtyTail(path: rawFile.path) { [weak publisher] data in
+            Task { @MainActor in publisher?.feed(data) }
+        }
+        publishers[issueId] = publisher
+        tails[issueId] = tail
+        rawFiles[issueId] = rawFile
+        publisher.start()
+        tail.start()
+    }
+
+    /// Per-session raw PTY-tee file under the app-support dir.
+    static func steerRawFile(sessionId: String) -> URL {
+        let dir = MacAppSupport.dir().appendingPathComponent("steer", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("\(sessionId).raw")
     }
 
     /// End the coding_sessions row + clear the running flag when the terminal
     /// session closes. Idempotent (the dock may report completion once).
     private func finish(accountId: String, issueId: String) {
         runningIssueIds.remove(issueId)
+        // Tear the steer publisher + PTY tail down and drop the raw tee file.
+        publishers[issueId]?.stop(outcome: "ended")
+        publishers[issueId] = nil
+        tails[issueId]?.stop()
+        tails[issueId] = nil
+        if let raw = rawFiles.removeValue(forKey: issueId) {
+            try? FileManager.default.removeItem(at: raw)
+        }
         guard let sessionId = sessionByIssue.removeValue(forKey: issueId) else { return }
         let api = codingSessionsApi
         Task { try? await api.end(accountId: accountId, id: sessionId) }

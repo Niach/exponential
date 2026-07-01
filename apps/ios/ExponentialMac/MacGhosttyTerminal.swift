@@ -164,6 +164,21 @@ final class MacGhosttyTerminalView: NSView {
         _ = ghostty_surface_key(surface, ke)
     }
 
+    // MARK: - Remote steer input injection (masterplan §3.3)
+
+    /// Write UTF-8 bytes into the surface's PTY — the SAME path a paste reaches
+    /// `claude` through — so a remote steerer's keystrokes merge with local input
+    /// on one stream. libghostty owns the PTY; `ghostty_surface_text` is the only
+    /// write seam (there is no host-side PTY master fd to write to on macOS).
+    func writeToPty(_ text: String) {
+        guard let surface, !text.isEmpty else { return }
+        let bytes = Array(text.utf8)
+        bytes.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            ghostty_surface_text(surface, base.assumingMemoryBound(to: CChar.self), UInt(bytes.count))
+        }
+    }
+
     private func mousePoint(_ e: NSEvent) -> NSPoint {
         let p = convert(e.locationInWindow, from: nil)
         return NSPoint(x: p.x, y: bounds.height - p.y)
