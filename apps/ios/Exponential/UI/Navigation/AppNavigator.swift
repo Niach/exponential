@@ -30,8 +30,11 @@ struct AppNavigator: View {
             } else if deps.auth.isAuthenticated, deps.auth.needsOnboarding {
                 // First-run wizard (web onboarding parity): the session read at
                 // login explicitly reported no onboardingCompletedAt. Gated on
-                // the server flag — never inferred from synced workspaces, so a
-                // membership in the public feedback workspace doesn't skip it.
+                // the server flag — never inferred locally from synced data.
+                // The server owns the rule (lib/auth/onboarding.ts): it
+                // backfills the flag for users who already have a project in a
+                // non-public workspace, and OnboardingView re-reads the session
+                // on appear so stale accounts dismiss themselves.
                 OnboardingView()
                     .id(deps.auth.activeAccountId ?? "none")
             } else {
