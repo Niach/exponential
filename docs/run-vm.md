@@ -92,12 +92,13 @@ actually visible on screen.
 ### Building the real `apps/linux` app: natively in-guest, not cross-compiled
 
 `apps/linux/build.zig` links GTK4/libadwaita/cairo/gdk-pixbuf and a
-prebuilt `libghostty.so`, and pulls in the Rust `agent-core` crate — all
-resolved via the host's pkg-config/library search. None of that is present
-on macOS, so **cross-compiling the real app from the Mac isn't practical**
-without building a full aarch64-linux sysroot. Building natively inside
-the guest sidesteps this entirely and is fast since the guest is
-arm64-on-arm64 (no emulation).
+prebuilt `libghostty.so`, all resolved via the host's pkg-config/library
+search. None of that is present on macOS, so **cross-compiling the real
+app from the Mac isn't practical** without building a full aarch64-linux
+sysroot. Building natively inside the guest sidesteps this entirely and
+is fast since the guest is arm64-on-arm64 (no emulation). (The build used
+to also pull in a Rust `agent-core` crate — that was removed in the v2
+architecture cut; no Rust/cargo toolchain is needed anymore.)
 
 One-time setup in the guest:
 
@@ -105,24 +106,21 @@ One-time setup in the guest:
 sudo apt-get update
 sudo apt-get install -y build-essential git curl patchelf ncurses-bin pkg-config \
   libgtk-4-dev libadwaita-1-dev libcairo2-dev libgdk-pixbuf-2.0-dev \
-  libsqlite3-dev libcurl4-openssl-dev libgl1-mesa-dev libssl-dev
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+  libsqlite3-dev libcurl4-openssl-dev libgl1-mesa-dev
 curl -fsSL https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
 sudo mkdir -p /opt/zig && sudo tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1
 sudo ln -sf /opt/zig/zig /usr/local/bin/zig
 ```
 
-Sync the source in (preserve the `apps/linux`, `crates/`, `packages/`
-directory structure relative to repo root — `build.zig` uses `../../`
-relative paths, so flattening breaks it):
+Sync the source in (preserve the `apps/linux`, `packages/` directory
+structure relative to repo root — `build.zig` uses `../../` relative
+paths, so flattening breaks it):
 
 ```bash
-rsync -az --exclude='.zig-cache' --exclude='.git' --exclude='node_modules' --exclude='target' --exclude='vendor' \
+rsync -az --exclude='.zig-cache' --exclude='.git' --exclude='node_modules' --exclude='vendor' \
   -e "ssh -i ~/.ssh/exp_vm_linux -p 22222" \
   apps/linux/ niach@127.0.0.1:~/exponential/apps/linux/
-rsync -az -e "ssh -i ~/.ssh/exp_vm_linux -p 22222" crates/ niach@127.0.0.1:~/exponential/crates/
 rsync -az -e "ssh -i ~/.ssh/exp_vm_linux -p 22222" packages/electric-protocol/ niach@127.0.0.1:~/exponential/packages/electric-protocol/
-rsync -az -e "ssh -i ~/.ssh/exp_vm_linux -p 22222" Cargo.toml Cargo.lock niach@127.0.0.1:~/exponential/
 ```
 
 Build (webkit/X11 preview backends are optional — skip installing their
@@ -130,8 +128,7 @@ dev packages by disabling both):
 
 ```bash
 ssh -i ~/.ssh/exp_vm_linux -p 22222 niach@127.0.0.1 \
-  "cd ~/exponential/apps/linux && bash scripts/build-libghostty.sh && \
-   export PATH=\$HOME/.cargo/bin:\$PATH && zig build -Dwebkit=false -Dx11=false"
+  "cd ~/exponential/apps/linux && bash scripts/build-libghostty.sh && zig build -Dwebkit=false -Dx11=false"
 ```
 
 ### Running it with a visible window
