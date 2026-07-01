@@ -95,46 +95,10 @@ let ghosttyBootstrapScript = TargetScript.pre(
     basedOnDependencyAnalysis: false
 )
 
-// agent-core (Rust cdylib) link: a pre-build script compiles the cdylib (mirrors
-// the Linux build.zig), and the macOS app links it + imports it via a clang
-// module map. The install name is rewritten to @rpath so the linked executable
-// resolves the copy bundled into Contents/Frameworks (see agentCoreEmbedScript +
-// LD_RUNPATH below) rather than the build-machine's target/release path.
-let agentCoreScript = TargetScript.pre(
-    script: """
-    export PATH="$HOME/.cargo/bin:$PATH"
-    cd "$SRCROOT/../.."
-    cargo build -p agent-core --release
-    install_name_tool -id "@rpath/libagent_core.dylib" target/release/libagent_core.dylib 2>/dev/null || true
-    """,
-    name: "Build agent-core (cargo)",
-    basedOnDependencyAnalysis: false
-)
-
-// Bundle the agent-core dylib into the .app (post-build, before final signing):
-// copy it into Contents/Frameworks, pin its id to @rpath, and (re-)sign it —
-// install_name_tool invalidates the signature, and Apple Silicon refuses to load
-// an unsigned dylib, so fall back to an ad-hoc signature when no identity is set.
-let agentCoreEmbedScript = TargetScript.post(
-    script: """
-    set -eu
-    SRC="$SRCROOT/../../target/release/libagent_core.dylib"
-    DEST_DIR="$BUILT_PRODUCTS_DIR/$FRAMEWORKS_FOLDER_PATH"
-    mkdir -p "$DEST_DIR"
-    cp -f "$SRC" "$DEST_DIR/libagent_core.dylib"
-    install_name_tool -id "@rpath/libagent_core.dylib" "$DEST_DIR/libagent_core.dylib"
-    SIGN_ID="${EXPANDED_CODE_SIGN_IDENTITY:--}"
-    codesign --force --sign "$SIGN_ID" "$DEST_DIR/libagent_core.dylib"
-    """,
-    name: "Embed agent-core dylib",
-    basedOnDependencyAnalysis: false
-)
-
-// Link settings for the macOS app: agent-core (raw dylib + hand-written module
-// map) and the static libghostty xcframework (needs system frameworks + libc++).
-// Hardened Runtime is on for distribution/notarization; @rpath points at the
-// bundled Contents/Frameworks so the embedded agent-core dylib resolves there.
-let agentCoreSettings: SettingsDictionary = [
+// Link settings for the macOS app: the static libghostty xcframework needs the
+// system frameworks + libc++ below. Hardened Runtime is on for
+// distribution/notarization.
+let macLinkSettings: SettingsDictionary = [
     // Sign the macOS app with a STABLE Apple Development identity instead of
     // ad-hoc "Sign to Run Locally". macOS Debug defaults to ad-hoc (its signature
     // changes every build → the login keychain re-prompts every launch); forcing
@@ -143,15 +107,10 @@ let agentCoreSettings: SettingsDictionary = [
     // Automatic signing, team from baseSettings (V6W7BVCSM8), Apple ID in Xcode —
     // build with -allowProvisioningUpdates.
     "CODE_SIGN_IDENTITY": "Apple Development",
-    "OTHER_SWIFT_FLAGS": [
-        "$(inherited)", "-Xcc", "-fmodule-map-file=$(SRCROOT)/AgentCore/module.modulemap",
-        "-Xcc", "-Wno-incomplete-umbrella",
-    ],
-    "LIBRARY_SEARCH_PATHS": ["$(inherited)", "$(SRCROOT)/../../target/release"],
     "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/../Frameworks"],
     "ENABLE_HARDENED_RUNTIME": "YES",
     "OTHER_LDFLAGS": [
-        "$(inherited)", "-lagent_core", "-lc++",
+        "$(inherited)", "-lc++",
         "-framework", "Metal", "-framework", "MetalKit", "-framework", "QuartzCore",
         "-framework", "CoreText", "-framework", "CoreGraphics", "-framework", "IOKit",
         "-framework", "Carbon", "-framework", "UserNotifications",
@@ -322,9 +281,9 @@ let project = Project(
             sources: macSources,
             resources: macResources,
             entitlements: "ExponentialMac.entitlements",
-            scripts: [ghosttyBootstrapScript, agentCoreScript, agentCoreEmbedScript],
+            scripts: [ghosttyBootstrapScript],
             dependencies: macDependencies,
-            settings: .settings(base: baseSettings.merging(agentCoreSettings) { _, new in new })
+            settings: .settings(base: baseSettings.merging(macLinkSettings) { _, new in new })
         ),
         .target(
             name: "Exponential-macOS-Staging",
@@ -338,10 +297,10 @@ let project = Project(
             sources: macSources,
             resources: macResources,
             entitlements: "ExponentialMac.entitlements",
-            scripts: [ghosttyBootstrapScript, agentCoreScript, agentCoreEmbedScript],
+            scripts: [ghosttyBootstrapScript],
             dependencies: macDependencies,
             settings: .settings(base: baseSettings
-                .merging(agentCoreSettings) { _, new in new }
+                .merging(macLinkSettings) { _, new in new }
                 .merging(["SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING"]) { _, new in new })
         ),
     ],

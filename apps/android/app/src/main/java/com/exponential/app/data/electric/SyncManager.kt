@@ -2,8 +2,8 @@ package com.exponential.app.data.electric
 
 import androidx.room.withTransaction
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.AgentRunEntity
 import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
@@ -33,7 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.contentOrNull
 
-/// Multi-account sync orchestrator. Maintains one set of 13 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 14 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -102,7 +102,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (13 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (14 shapes) for $accountId")
             }
         }
     }
@@ -148,7 +148,7 @@ class SyncManager @Inject constructor(
         val notificationDao = db.notificationDao()
         val issueSubscriberDao = db.issueSubscriberDao()
         val issueEventDao = db.issueEventDao()
-        val agentRunDao = db.agentRunDao()
+        val codingSessionDao = db.codingSessionDao()
 
         return listOf(
             launchShape(
@@ -282,14 +282,14 @@ class SyncManager @Inject constructor(
                 onRefetch = { issueSubscriberDao.clear() },
             ),
             launchShape(
-                shape = "agent_runs", path = "/api/shapes/agent-runs", tableName = "agent_runs",
-                serializer = AgentRunEntity.serializer(),
+                shape = "coding_sessions", path = "/api/shapes/coding-sessions", tableName = "coding_sessions",
+                serializer = CodingSessionEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("agent_runs"),
-                onInsert = { agentRunDao.upsert(it) },
-                onUpdate = { agentRunDao.upsert(it) },
-                onDelete = { agentRunDao.deleteById(it.issueId) },
-                onRefetch = { agentRunDao.clear() },
+                reporter = reporter("coding_sessions"),
+                onInsert = { codingSessionDao.upsert(it) },
+                onUpdate = { codingSessionDao.upsert(it) },
+                onDelete = { codingSessionDao.deleteById(it.id) },
+                onRefetch = { codingSessionDao.clear() },
             ),
         )
     }

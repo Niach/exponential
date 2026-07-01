@@ -422,12 +422,8 @@ pub const Database = struct {
         assignee: [:0]const u8, // display name/email, "" when unassigned
         recurrence_interval: i64, // 0 when not recurring
         recurrence_unit: [:0]const u8, // "" when not recurring
-        agent_plan_state: [:0]const u8, // "" / drafting / awaiting_answer / awaiting_approval / approved
-        agent_plan_approver: [:0]const u8, // display name of who approved ("" when none)
-        plan_text: [:0]const u8, // agent plan markdown from synced agent_runs ("" when none)
-        question: [:0]const u8, // agent question markdown from synced agent_runs ("" when none)
         description: [:0]const u8, // markdown text extracted from the jsonb {text}
-        pr_url: [:0]const u8, // the agent's PR ("" when none) — drives the Changes button
+        pr_url: [:0]const u8, // the PR ("" when none) — drives the Changes button
         pr_state: [:0]const u8, // open/closed/merged/draft ("" when none)
     };
 
@@ -437,14 +433,10 @@ pub const Database = struct {
         var stmt = try self.conn.prepare(
             "SELECT i.project_id, p.workspace_id, i.identifier, i.title, i.status, i.priority, " ++
                 "COALESCE(i.due_date,''), COALESCE(i.assignee_id,''), COALESCE(u.name, u.email, ''), " ++
-                "COALESCE(i.recurrence_interval, 0), COALESCE(i.recurrence_unit, ''), " ++
-                "COALESCE(i.agent_plan_state, ''), COALESCE(ap.name, ap.email, ''), i.description, " ++
-                "COALESCE(i.pr_url, ''), COALESCE(i.pr_state, ''), " ++
-                "COALESCE(ar.plan_text, ''), COALESCE(ar.question, '') " ++
+                "COALESCE(i.recurrence_interval, 0), COALESCE(i.recurrence_unit, ''), i.description, " ++
+                "COALESCE(i.pr_url, ''), COALESCE(i.pr_state, '') " ++
                 "FROM issues i JOIN projects p ON p.id = i.project_id " ++
-                "LEFT JOIN users u ON u.id = i.assignee_id " ++
-                "LEFT JOIN agent_runs ar ON ar.issue_id = i.id " ++
-                "LEFT JOIN users ap ON ap.id = ar.approved_by WHERE i.id = ?;",
+                "LEFT JOIN users u ON u.id = i.assignee_id WHERE i.id = ?;",
         );
         defer stmt.finalize();
         try stmt.bindText(1, id);
@@ -461,13 +453,9 @@ pub const Database = struct {
                 .assignee = try arena.dupeZ(u8, stmt.columnText(8)),
                 .recurrence_interval = stmt.columnInt(9),
                 .recurrence_unit = try arena.dupeZ(u8, stmt.columnText(10)),
-                .agent_plan_state = try arena.dupeZ(u8, stmt.columnText(11)),
-                .agent_plan_approver = try arena.dupeZ(u8, stmt.columnText(12)),
-                .plan_text = try extractJsonText(arena, stmt.columnText(16)),
-                .question = try extractJsonText(arena, stmt.columnText(17)),
-                .description = try extractJsonText(arena, stmt.columnText(13)),
-                .pr_url = try arena.dupeZ(u8, stmt.columnText(14)),
-                .pr_state = try arena.dupeZ(u8, stmt.columnText(15)),
+                .description = try extractJsonText(arena, stmt.columnText(11)),
+                .pr_url = try arena.dupeZ(u8, stmt.columnText(12)),
+                .pr_state = try arena.dupeZ(u8, stmt.columnText(13)),
             };
         }
         return null;
@@ -610,10 +598,9 @@ pub const Database = struct {
     }
 
     /// The user's own default workspace: the oldest non-public workspace they
-    /// OWN. This is what agent registration must pin to — `firstWorkspaceId`
-    /// can resolve to the Electric-synced public/shared workspace (which every
-    /// signed-in user receives), orphaning the agent against the wrong
-    /// workspace so it never shows up in web settings. null when none synced.
+    /// OWN. Prefer this over `firstWorkspaceId`, which can resolve to the
+    /// Electric-synced public/shared workspace (which every signed-in user
+    /// receives) rather than the user's own. null when none synced.
     pub fn defaultOwnedWorkspaceId(self: *Database, arena: std.mem.Allocator, user_id: []const u8) !?[:0]const u8 {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -682,13 +669,14 @@ pub const Database = struct {
         role: [:0]const u8,
         name: [:0]const u8, // display name/email
         email: [:0]const u8,
+        is_agent: bool, // the widget helpdesk bot (excluded from @mentions + member actions)
     };
 
     pub fn listMembers(self: *Database, arena: std.mem.Allocator, workspace_id: []const u8) ![]MemberRow {
         self.mutex.lock();
         defer self.mutex.unlock();
         var stmt = try self.conn.prepare(
-            "SELECT wm.id, wm.user_id, wm.role, COALESCE(u.name, u.email, wm.user_id), COALESCE(u.email,'') " ++
+            "SELECT wm.id, wm.user_id, wm.role, COALESCE(u.name, u.email, wm.user_id), COALESCE(u.email,''), COALESCE(u.is_agent, 0) " ++
                 "FROM workspace_members wm LEFT JOIN users u ON u.id = wm.user_id " ++
                 "WHERE wm.workspace_id = ? ORDER BY wm.role, COALESCE(u.name, u.email, wm.user_id);",
         );
@@ -702,6 +690,7 @@ pub const Database = struct {
                 .role = try arena.dupeZ(u8, stmt.columnText(2)),
                 .name = try arena.dupeZ(u8, stmt.columnText(3)),
                 .email = try arena.dupeZ(u8, stmt.columnText(4)),
+                .is_agent = stmt.columnInt(5) != 0,
             });
         }
         return rows.toOwnedSlice(arena);

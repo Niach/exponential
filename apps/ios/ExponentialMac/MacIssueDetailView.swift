@@ -17,12 +17,14 @@ final class MacIssueDetailModel {
     var comments: [CommentEntity] = []
     var issueEvents: [IssueEventEntity] = []
     var attachments: [AttachmentEntity] = []
-    var agentRun: AgentRunEntity?
     var permissions: WorkspacePermissions?
     var workspaceId: String?
     var projectName: String?
     var isSubscribed = false
     var error: String?
+    // "Start coding" gate: does the issue's project have a linked repo? `nil`
+    // while the repositories.forIssue check is in flight.
+    var repoLinked: Bool?
 
     // Title is a local buffer (seeded once so live sync doesn't clobber typing);
     // the description is owned by the shared block editor.
@@ -58,10 +60,12 @@ final class MacIssueDetailModel {
     }
     var canModerate: Bool { permissions?.isModerator ?? false }
     var canEditContent: Bool { permissions?.canMutateIssue(creatorId: issue?.creatorId) ?? false }
+    /// A coding session is live for this issue on this Mac (drives the running
+    /// indicator; observed off the shared launcher).
+    var isCoding: Bool { deps.codingLauncher.isRunning(issueId: issueId) }
     func user(_ id: String?) -> UserEntity? { id.flatMap { uid in users.first { $0.id == uid } } }
-    // Assignee picker segmentation: human members vs agent sub-users (is_agent).
+    // Assignable members exclude the widget helpdesk bot (is_agent).
     var peopleUsers: [UserEntity] { users.filter { !$0.isAgent } }
-    var agentUsers: [UserEntity] { users.filter { $0.isAgent } }
     // Non-agent members offered by the editors' @-mention autocomplete.
     var mentionMembers: [MentionMember] {
         peopleUsers.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
@@ -90,9 +94,6 @@ final class MacIssueDetailModel {
         let subObs = ValueObservation.tracking { db in
             try IssueSubscriberEntity.filter(Column("issue_id") == issueId).fetchAll(db)
         }
-        let agentRunObs = ValueObservation.tracking { db in
-            try AgentRunEntity.fetchOne(db, key: issueId)
-        }
 
         tasks.append(Task { @MainActor [weak self] in
             do { for try await row in issueObs.values(in: pool) { self?.applyIssue(row) } } catch {}
@@ -116,15 +117,25 @@ final class MacIssueDetailModel {
             do { for try await rows in eventObs.values(in: pool) { self?.issueEvents = rows } } catch {}
         })
         tasks.append(Task { @MainActor [weak self] in
-            do { for try await row in agentRunObs.values(in: pool) { self?.agentRun = row } } catch {}
-        })
-        tasks.append(Task { @MainActor [weak self] in
             do {
                 for try await subs in subObs.values(in: pool) {
                     let me = self?.deps.auth.userId
                     self?.isSubscribed = me != nil && subs.contains { $0.userId == me && !$0.unsubscribed }
                 }
             } catch {}
+        })
+        // "Start coding" gate: resolve whether the issue's project has a linked
+        // repo (repositories.forIssue — server-only, not synced). One-shot.
+        tasks.append(Task { @MainActor [weak self] in
+            guard let self else { return }
+            let linked: Bool
+            do {
+                let repo = try await deps.repositoriesApi.forIssue(accountId: accountId, issueId: issueId)
+                linked = (repo != nil)
+            } catch {
+                linked = false
+            }
+            self.repoLinked = linked
         })
     }
 
@@ -348,38 +359,6 @@ final class MacIssueDetailModel {
         }
     }
 
-    func approvePlan() async {
-        guard let issue else { return }
-        try? await deps.agentPlanApi.approvePlan(accountId: accountId, issueId: issue.id)
-    }
-
-    func requestChanges() async {
-        guard let issue else { return }
-        try? await deps.agentPlanApi.requestChanges(accountId: accountId, issueId: issue.id)
-    }
-
-    func answerQuestion(_ answer: String) async {
-        guard let issue else { return }
-        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do { try await deps.agentPlanApi.answerQuestion(accountId: accountId, issueId: issue.id, answer: trimmed) }
-        catch { self.error = error.localizedDescription }
-    }
-
-    func retry() async {
-        guard let issue else { return }
-        try? await deps.agentPlanApi.retry(accountId: accountId, issueId: issue.id)
-    }
-
-    /// Approve the plan with the human session, THEN resume the interactive session
-    /// to implement it. Order is load-bearing — the agent credential can't approve;
-    /// the host approves (human session), then only resumes the session.
-    func approveAndContinue() async {
-        guard let issue else { return }
-        await approvePlan()
-        deps.agentService.approveInteractive(accountId: accountId, issueId: issue.id)
-    }
-
     func toggleSubscribe() async {
         guard let issue else { return }
         do {
@@ -391,6 +370,12 @@ final class MacIssueDetailModel {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// Kick off the native "Start coding" launcher (§4a) for this issue. The
+    /// launcher owns the whole sequence + surfaces failures via toasts.
+    func startCoding() {
+        deps.codingLauncher.start(accountId: accountId, issueId: issueId)
     }
 }
 
@@ -407,6 +392,7 @@ struct MacIssueDetailView: View {
     @State private var submittingComment = false
     @State private var showDuePicker = false
     @State private var showLabelPicker = false
+    @State private var showDiff = false
     @State private var newLabelName = ""
     @State private var editingCommentId: String?
     @State private var editDraft = ""
@@ -466,8 +452,8 @@ struct MacIssueDetailView: View {
                         descriptionSection(model)
                         Divider()
                         attachmentsSection(model)
-                        MacAgentPanel(model: model, issue: issue)
-                        MacAgentActivityFeed(events: model.issueEvents, user: model.user)
+                        codingSection(model, issue: issue)
+                        prSection(model, issue: issue)
                         Divider()
                         commentsSection(model)
                         errorText(model)
@@ -484,17 +470,6 @@ struct MacIssueDetailView: View {
                     Image(systemName: model.isSubscribed ? "bell.fill" : "bell.slash")
                 }
                 .help(model.isSubscribed ? "Unsubscribe from this issue" : "Subscribe to this issue")
-            }
-            if deps.agentService.canRunInteractive(accountId: model.accountId) {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        deps.agentService.requestInteractive(accountId: model.accountId, issueId: issue.id)
-                    } label: {
-                        Label("AI", systemImage: "sparkles")
-                    }
-                    .help("Start an interactive agent session for this issue")
-                    .disabled(model.workspaceId == nil)
-                }
             }
             ToolbarItem(placement: .destructiveAction) {
                 Button(role: .destructive) { showDeleteConfirm = true } label: {
@@ -519,11 +494,79 @@ struct MacIssueDetailView: View {
             descriptionSection(model)
             Divider()
             attachmentsSection(model)
-            MacAgentPanel(model: model, issue: issue)
-            MacAgentActivityFeed(events: model.issueEvents, user: model.user)
+            codingSection(model, issue: issue)
+            prSection(model, issue: issue)
             Divider()
             commentsSection(model)
             errorText(model)
+        }
+    }
+
+    // MARK: - Start coding (§4a native launcher)
+
+    @ViewBuilder
+    private func codingSection(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .foregroundStyle(Accent.indigo)
+                Text("Coding").font(.subheadline.weight(.semibold))
+                Spacer()
+                if model.isCoding {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Session running").font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Button { model.startCoding() } label: {
+                        Label("Start coding", systemImage: "play.fill")
+                    }
+                    .controlSize(.small)
+                    .disabled(model.repoLinked != true)
+                    .help(model.repoLinked == false
+                        ? "Link a repository in workspace settings to start coding"
+                        : "Start a coding session for this issue")
+                }
+            }
+            if model.repoLinked == false {
+                Text("No repository is linked to this project — link one in workspace settings to start coding.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .glassSection()
+    }
+
+    // MARK: - Pull request (read-only diff; one issue = one PR = one branch)
+
+    @ViewBuilder
+    private func prSection(_ model: MacIssueDetailModel, issue: IssueEntity) -> some View {
+        if let prUrl = issue.prUrl, let url = URL(string: prUrl) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(Accent.indigo)
+                    Text("Pull request").font(.subheadline.weight(.semibold))
+                    if let prState = issue.prState {
+                        Text(prState.capitalized)
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(Capsule())
+                    }
+                    Spacer()
+                    Link("Open on GitHub", destination: url).font(.caption)
+                }
+                if let branch = issue.branch, !branch.isEmpty {
+                    Text(branch).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("Changed files", isExpanded: $showDiff) {
+                    MacDiffView(accountId: model.accountId, issueId: issue.id)
+                }
+                .font(.subheadline)
+            }
+            .padding(12)
+            .glassSection()
         }
     }
 
@@ -634,19 +677,10 @@ struct MacIssueDetailView: View {
                     }
                 }
             }
-            if !model.agentUsers.isEmpty {
-                Section("Agents") {
-                    ForEach(model.agentUsers) { u in
-                        Button { Task { await model.setAssignee(u.id) } } label: {
-                            Label("\(u.name ?? u.email) · agent", systemImage: "cpu")
-                        }
-                    }
-                }
-            }
         } label: {
             Label(
                 assignee?.name ?? assignee?.email ?? "Unassigned",
-                systemImage: assignee?.isAgent == true ? "cpu" : "person.crop.circle"
+                systemImage: "person.crop.circle"
             )
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -884,8 +918,8 @@ struct MacIssueDetailView: View {
         }
     }
 
-    // Only regular (human) comments reach this row — plan/question comments are
-    // rendered by the Plan Panel now (and filtered out of `timeline`).
+    // Only regular (human) comments reach this row — any legacy plan/question
+    // comment kinds are filtered out of `timeline`.
     @ViewBuilder
     private func commentRow(_ comment: CommentEntity, model: MacIssueDetailModel) -> some View {
         let author = model.user(comment.authorId)
@@ -952,12 +986,11 @@ struct MacIssueDetailView: View {
         }
     }
 
-    // The human conversation timeline: regular comments + non-agent events
-    // (status/assignee/label changes). Plan/question comments and agent
-    // lifecycle events are surfaced by the Plan Panel + activity feed instead.
+    // The activity timeline: regular comments + issue events (status/assignee/
+    // label/PR changes), merged by created_at.
     private func timeline(_ model: MacIssueDetailModel) -> [MacTimelineItem] {
         let comments = model.comments.filter { $0.commentKind == .regular }
-        let events = model.issueEvents.filter { !macAgentEventTypes.contains($0.type) }
+        let events = model.issueEvents
         return (comments.map { MacTimelineItem.comment($0) }
             + events.map { MacTimelineItem.event($0) })
             .sorted { $0.createdAt < $1.createdAt }

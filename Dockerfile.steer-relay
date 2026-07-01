@@ -1,0 +1,40 @@
+FROM oven/bun:1 AS builder
+WORKDIR /app
+
+# Copy workspace manifests needed for bun install
+COPY package.json bun.lock bunfig.toml ./
+COPY apps/steer-relay/package.json apps/steer-relay/package.json
+COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
+COPY packages/tsconfig/package.json packages/tsconfig/package.json
+# Stub out other workspace package.json files so bun install resolves correctly
+COPY apps/web/package.json apps/web/package.json
+COPY apps/marketing/package.json apps/marketing/package.json
+COPY apps/push-relay/package.json apps/push-relay/package.json
+COPY packages/db-schema/package.json packages/db-schema/package.json
+COPY packages/design-tokens/package.json packages/design-tokens/package.json
+COPY packages/domain-contract/package.json packages/domain-contract/package.json
+COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
+COPY packages/widget/package.json packages/widget/package.json
+
+RUN bun install --frozen-lockfile
+
+COPY packages/tsconfig packages/tsconfig
+COPY packages/steer-ticket packages/steer-ticket
+COPY apps/steer-relay apps/steer-relay
+
+FROM oven/bun:1
+WORKDIR /app
+
+COPY --from=builder /app/node_modules node_modules
+COPY --from=builder /app/apps/steer-relay apps/steer-relay
+COPY --from=builder /app/packages/steer-ticket packages/steer-ticket
+COPY --from=builder /app/packages/tsconfig packages/tsconfig
+COPY --from=builder /app/package.json .
+COPY --from=builder /app/bunfig.toml .
+
+EXPOSE 4002
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD bun -e "fetch('http://localhost:4002/healthz').then(r=>process.exit(r.ok?0:1))"
+
+CMD ["bun", "apps/steer-relay/src/index.ts"]

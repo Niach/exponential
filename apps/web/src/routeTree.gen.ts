@@ -29,7 +29,6 @@ import { Route as WWorkspaceSlugRouteRouteImport } from './routes/w/$workspaceSl
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as WWorkspaceSlugIndexRouteImport } from './routes/w/$workspaceSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
-import { Route as WWorkspaceSlugSetupAgentRouteImport } from './routes/w/$workspaceSlug/setup-agent'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
 import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/github'
@@ -46,9 +45,8 @@ import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shap
 import { Route as ApiShapesIssueLabelsRouteImport } from './routes/api/shapes/issue-labels'
 import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/issue-events'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
+import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
-import { Route as ApiShapesAssignedIssuesRouteImport } from './routes/api/shapes/assigned-issues'
-import { Route as ApiShapesAgentRunsRouteImport } from './routes/api/shapes/agent-runs'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
@@ -163,12 +161,6 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
-const WWorkspaceSlugSetupAgentRoute =
-  WWorkspaceSlugSetupAgentRouteImport.update({
-    id: '/setup-agent',
-    path: '/setup-agent',
-    getParentRoute: () => WWorkspaceSlugRouteRoute,
-  } as any)
 const ApiWidgetSubmitRoute = ApiWidgetSubmitRouteImport.update({
   id: '/api/widget/submit',
   path: '/api/widget/submit',
@@ -252,19 +244,14 @@ const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
   path: '/api/shapes/comments',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesCodingSessionsRoute = ApiShapesCodingSessionsRouteImport.update({
+  id: '/api/shapes/coding-sessions',
+  path: '/api/shapes/coding-sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
   id: '/api/shapes/attachments',
   path: '/api/shapes/attachments',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesAssignedIssuesRoute = ApiShapesAssignedIssuesRouteImport.update({
-  id: '/api/shapes/assigned-issues',
-  path: '/api/shapes/assigned-issues',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesAgentRunsRoute = ApiShapesAgentRunsRouteImport.update({
-  id: '/api/shapes/agent-runs',
-  path: '/api/shapes/agent-runs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -360,9 +347,8 @@ export interface FileRoutesByFullPath {
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/shapes/agent-runs': typeof ApiShapesAgentRunsRoute
-  '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
+  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
@@ -379,7 +365,6 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
-  '/w/$workspaceSlug/setup-agent': typeof WWorkspaceSlugSetupAgentRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
@@ -411,9 +396,8 @@ export interface FileRoutesByTo {
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/shapes/agent-runs': typeof ApiShapesAgentRunsRoute
-  '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
+  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
@@ -430,7 +414,6 @@ export interface FileRoutesByTo {
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
-  '/w/$workspaceSlug/setup-agent': typeof WWorkspaceSlugSetupAgentRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
@@ -466,9 +449,8 @@ export interface FileRoutesById {
   '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/shapes/agent-runs': typeof ApiShapesAgentRunsRoute
-  '/api/shapes/assigned-issues': typeof ApiShapesAssignedIssuesRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
+  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/issue-events': typeof ApiShapesIssueEventsRoute
   '/api/shapes/issue-labels': typeof ApiShapesIssueLabelsRoute
@@ -485,7 +467,6 @@ export interface FileRoutesById {
   '/api/webhooks/github': typeof ApiWebhooksGithubRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
-  '/w/$workspaceSlug/setup-agent': typeof WWorkspaceSlugSetupAgentRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
@@ -521,9 +502,8 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
-    | '/api/shapes/agent-runs'
-    | '/api/shapes/assigned-issues'
     | '/api/shapes/attachments'
+    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
@@ -540,7 +520,6 @@ export interface FileRouteTypes {
     | '/api/webhooks/github'
     | '/api/widget/config'
     | '/api/widget/submit'
-    | '/w/$workspaceSlug/setup-agent'
     | '/admin/'
     | '/w/$workspaceSlug/'
     | '/integrations/github/installed'
@@ -572,9 +551,8 @@ export interface FileRouteTypes {
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
-    | '/api/shapes/agent-runs'
-    | '/api/shapes/assigned-issues'
     | '/api/shapes/attachments'
+    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
@@ -591,7 +569,6 @@ export interface FileRouteTypes {
     | '/api/webhooks/github'
     | '/api/widget/config'
     | '/api/widget/submit'
-    | '/w/$workspaceSlug/setup-agent'
     | '/admin'
     | '/w/$workspaceSlug'
     | '/integrations/github/installed'
@@ -626,9 +603,8 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
-    | '/api/shapes/agent-runs'
-    | '/api/shapes/assigned-issues'
     | '/api/shapes/attachments'
+    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/issue-events'
     | '/api/shapes/issue-labels'
@@ -645,7 +621,6 @@ export interface FileRouteTypes {
     | '/api/webhooks/github'
     | '/api/widget/config'
     | '/api/widget/submit'
-    | '/w/$workspaceSlug/setup-agent'
     | '/_authenticated/admin/'
     | '/w/$workspaceSlug/'
     | '/_authenticated/integrations/github/installed'
@@ -675,9 +650,8 @@ export interface RootRouteChildren {
   InviteTokenRoute: typeof InviteTokenRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiShapesAgentRunsRoute: typeof ApiShapesAgentRunsRoute
-  ApiShapesAssignedIssuesRoute: typeof ApiShapesAssignedIssuesRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
+  ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesIssueEventsRoute: typeof ApiShapesIssueEventsRoute
   ApiShapesIssueLabelsRoute: typeof ApiShapesIssueLabelsRoute
@@ -840,13 +814,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/w/$workspaceSlug/setup-agent': {
-      id: '/w/$workspaceSlug/setup-agent'
-      path: '/setup-agent'
-      fullPath: '/w/$workspaceSlug/setup-agent'
-      preLoaderRoute: typeof WWorkspaceSlugSetupAgentRouteImport
-      parentRoute: typeof WWorkspaceSlugRouteRoute
-    }
     '/api/widget/submit': {
       id: '/api/widget/submit'
       path: '/api/widget/submit'
@@ -959,25 +926,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesCommentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/coding-sessions': {
+      id: '/api/shapes/coding-sessions'
+      path: '/api/shapes/coding-sessions'
+      fullPath: '/api/shapes/coding-sessions'
+      preLoaderRoute: typeof ApiShapesCodingSessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/attachments': {
       id: '/api/shapes/attachments'
       path: '/api/shapes/attachments'
       fullPath: '/api/shapes/attachments'
       preLoaderRoute: typeof ApiShapesAttachmentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/assigned-issues': {
-      id: '/api/shapes/assigned-issues'
-      path: '/api/shapes/assigned-issues'
-      fullPath: '/api/shapes/assigned-issues'
-      preLoaderRoute: typeof ApiShapesAssignedIssuesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/agent-runs': {
-      id: '/api/shapes/agent-runs'
-      path: '/api/shapes/agent-runs'
-      fullPath: '/api/shapes/agent-runs'
-      preLoaderRoute: typeof ApiShapesAgentRunsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -1107,7 +1067,6 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 )
 
 interface WWorkspaceSlugRouteRouteChildren {
-  WWorkspaceSlugSetupAgentRoute: typeof WWorkspaceSlugSetupAgentRoute
   WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
   WWorkspaceSlugInboxIndexRoute: typeof WWorkspaceSlugInboxIndexRoute
   WWorkspaceSlugSettingsIndexRoute: typeof WWorkspaceSlugSettingsIndexRoute
@@ -1116,7 +1075,6 @@ interface WWorkspaceSlugRouteRouteChildren {
 }
 
 const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
-  WWorkspaceSlugSetupAgentRoute: WWorkspaceSlugSetupAgentRoute,
   WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
   WWorkspaceSlugInboxIndexRoute: WWorkspaceSlugInboxIndexRoute,
   WWorkspaceSlugSettingsIndexRoute: WWorkspaceSlugSettingsIndexRoute,
@@ -1149,9 +1107,8 @@ const rootRouteChildren: RootRouteChildren = {
   InviteTokenRoute: InviteTokenRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiShapesAgentRunsRoute: ApiShapesAgentRunsRoute,
-  ApiShapesAssignedIssuesRoute: ApiShapesAssignedIssuesRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
+  ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesIssueEventsRoute: ApiShapesIssueEventsRoute,
   ApiShapesIssueLabelsRoute: ApiShapesIssueLabelsRoute,

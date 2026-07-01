@@ -30,9 +30,22 @@ internal fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
     ) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(CommentMeta))
         Text(
-            "$who ${agentEventVerb(event.type)} · ${relativeTime(event.createdAt)}",
+            "$who ${eventVerb(event.type)} · ${relativeTime(event.createdAt)}",
             style = MaterialTheme.typography.labelSmall,
             color = CommentMeta,
         )
     }
+}
+
+// Human-readable verb for a synced issue event. Covers the surviving event kinds
+// (issueEventTypeValues in the domain contract); anything else degrades to the
+// type name with underscores spaced out.
+internal fun eventVerb(type: String): String = when (type) {
+    "status_changed" -> "changed the status"
+    "assignee_changed" -> "changed the assignee"
+    "label_added" -> "added a label"
+    "label_removed" -> "removed a label"
+    "pr_opened" -> "opened a pull request"
+    "pr_merged" -> "merged the pull request"
+    else -> type.replace('_', ' ')
 }

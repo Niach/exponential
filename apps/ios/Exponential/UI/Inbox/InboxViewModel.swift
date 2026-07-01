@@ -76,7 +76,7 @@ final class InboxViewModel {
             guard let issue = issuesById[iid], let ns = byIssue[iid] else { return nil }
             return Group(issue: issue, notifications: ns)
         }
-        reviewIssues = issues.filter { $0.agentPlanState == "awaiting_approval" || $0.prState == "open" }
+        reviewIssues = issues.filter { $0.prState == "open" }
         totalUnread = groups.reduce(0) { $0 + $1.unread }
     }
 

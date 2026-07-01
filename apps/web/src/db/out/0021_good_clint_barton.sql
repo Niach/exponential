@@ -1,1 +1,0 @@
-ALTER TABLE "projects" ADD COLUMN "preview_config" jsonb;

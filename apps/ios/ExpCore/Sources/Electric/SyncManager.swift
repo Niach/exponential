@@ -184,8 +184,8 @@ public final class SyncManager: @unchecked Sendable {
             type: IssueSubscriberEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
-            name: "agent-runs", path: "/api/shapes/agent-runs", table: "agent_runs",
-            type: AgentRunEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            name: "coding-sessions", path: "/api/shapes/coding-sessions", table: "coding_sessions",
+            type: CodingSessionEntity.self, pool: pool, baseUrl: baseUrl, token: token
         ))
 
         lock.withLock { pipelines[accountId] = tasks }

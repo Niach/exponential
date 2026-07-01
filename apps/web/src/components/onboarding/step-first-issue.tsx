@@ -42,8 +42,7 @@ export function StepFirstIssue({ projectId, onNext, onSkip }: StepProps) {
         </div>
         <CardTitle className="text-xl">Create your first issue</CardTitle>
         <CardDescription>
-          Track a task, bug, or idea. You can hand any issue to a coding agent
-          later.
+          Track a task, bug, or idea to get started.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

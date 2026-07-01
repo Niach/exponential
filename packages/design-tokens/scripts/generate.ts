@@ -159,7 +159,7 @@ object DesignTokens {
 ${palette}
     }
 
-    // Fixed brand accents (status / priority / due-date / agent-plan).
+    // Fixed brand accents (status / priority / due-date).
     object Semantic {
 ${semantic}
     }
@@ -210,7 +210,7 @@ public enum DesignTokens {
 ${palette}
     }
 
-    // Fixed brand accents (status / priority / due-date / agent-plan).
+    // Fixed brand accents (status / priority / due-date).
     public enum Semantic {
 ${semantic}
     }

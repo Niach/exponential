@@ -54,11 +54,9 @@ internal val CommentAvatarText = Color.White.copy(alpha = 0.7f)
 internal val CommentFieldBg = Color.White.copy(alpha = 0.06f)
 internal val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 
-// The human conversation thread: regular comments + non-agent events
-// (status/assignee/label changes), plus a collapsible "Agent activity" feed for
-// agent lifecycle events. Plan/question comments and the plan approval / retry
-// affordances live in the AgentPlanPanel (a sibling above this view), so this
-// view stays a plain human thread. Mirrors apps/web/src/components/issue-timeline.tsx.
+// The human conversation thread: regular comments + activity events
+// (status/assignee/label/PR changes) merged by time. Mirrors
+// apps/web/src/components/issue-timeline.tsx.
 @Composable
 fun CommentThread(
     issueId: String,
@@ -74,13 +72,12 @@ fun CommentThread(
     val humanComments = remember(state.comments) {
         state.comments.filter { commentKindOf(it.kind) == CommentKind.Regular }
     }
-    // Timeline: regular comments + non-agent events merged by time. The id is a
+    // Timeline: regular comments + activity events merged by time. The id is a
     // secondary sort key so items sharing a createdAt (e.g. a comment + the
-    // status event of one mutation) keep a stable order across syncs. Agent
-    // lifecycle events go to the AgentActivityFeed below.
+    // status event of one mutation) keep a stable order across syncs.
     val timeline = remember(humanComments, state.events) {
         (humanComments.map { TimelineItem.Comment(it) } +
-            state.events.filter { it.type !in agentEventTypes }.map { TimelineItem.Event(it) })
+            state.events.map { TimelineItem.Event(it) })
             .sortedWith(compareBy({ it.createdAt }, { it.id }))
     }
     // Workspace members for @mention autocomplete (agents excluded — you mention people).
@@ -145,8 +142,6 @@ fun CommentThread(
                 }
             }
         }
-
-        AgentActivityFeed(events = state.events, usersById = state.usersById)
 
         Spacer(Modifier.height(8.dp))
         // Rich markdown composer — reuses the block MarkdownEditor (same editor as
@@ -213,8 +208,8 @@ fun CommentThread(
     }
 }
 
-// Relative timestamp ("3h ago"). Internal so the AgentActivityFeed and the
-// extracted EventRow / RegularCommentRow can reuse it.
+// Relative timestamp ("3h ago"). Internal so the extracted EventRow /
+// RegularCommentRow can reuse it.
 internal fun relativeTime(iso: String): String {
     return try {
         val instant = java.time.Instant.parse(iso)

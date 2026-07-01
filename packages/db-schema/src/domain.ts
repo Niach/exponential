@@ -7,6 +7,9 @@ export const issueStatusValues = [
   `in_progress`,
   `done`,
   `cancelled`,
+  // Terminal resolution: this issue is a duplicate of `issues.duplicateOfId`.
+  // Hidden from active lists like done/cancelled.
+  `duplicate`,
 ] as const
 
 export const issuePriorityValues = [
@@ -17,7 +20,7 @@ export const issuePriorityValues = [
   `low`,
 ] as const
 
-export const workspaceRoleValues = [`owner`, `member`, `agent`] as const
+export const workspaceRoleValues = [`owner`, `member`] as const
 
 export const publicWritePolicyValues = [`members`, `everyone`] as const
 
@@ -30,26 +33,8 @@ export const recurrenceIntervals = [
   1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30,
 ] as const
 
-// Only `regular` (human) comments exist now. Agent plan/question lifecycle moved
-// off comments into the structured issue_agent_state store; the legacy `plan` /
-// `question` kinds were drained (their rows deleted by migration 0012). Old rows,
-// if any survive, decode tolerantly on clients (unknown kind → regular).
+// Only `regular` (human) comments exist.
 export const commentKindValues = [`regular`] as const
-
-// The agent plan/run lifecycle. The first four are the server-synced states
-// (issues.agent_plan_state); the latter four are agent-only progress states the
-// native clients render as badges (kept here so badge logic doesn't fall
-// through to a default). Stored as varchar — not a pg enum.
-export const agentPlanStateValues = [
-  `drafting`,
-  `awaiting_approval`,
-  `awaiting_answer`,
-  `approved`,
-  `coding`,
-  `planning`,
-  `in_review`,
-  `pushed`,
-] as const
 
 // Notification kinds. Mirrors the `notification_type` pg enum in schema.ts;
 // promoted into the contract so the native inbox can label rows.
@@ -58,18 +43,20 @@ export const notificationTypeValues = [
   `issue_comment`,
   `issue_status_changed`,
   `issue_mention`,
-  // Action-needed agent notifications (the only agent events that push): a
-  // plan is ready to approve, or the agent is waiting on an answer.
-  `agent_plan_review`,
-  `agent_question`,
+  // PR lifecycle notifications — fan out to assignee + subscribers so the
+  // away/phone flow gets "PR opened" and "it's merged" on every channel.
+  `pr_opened`,
+  `pr_merged`,
 ] as const
 
-// Pull-request state surfaced on issues.pr_state (varchar). Mirrors the GitHub
-// PR state machine the agent reports back.
+// Pull-request state surfaced on issues.pr_state. Mirrors the GitHub PR state
+// machine (written by the MCP open_pr tool + the merge webhook/cron).
 export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 
-// How an agent run was launched (issues.agent_run_mode, varchar).
-export const runModeValues = [`background`, `interactive`] as const
+// Lifecycle of a live desktop coding session (coding_sessions.status). A row
+// is one interactive terminal session (one ghostty + one claude child in one
+// worktree); `running` drives the "coding now" badge + Watch/Steer button.
+export const codingSessionStatusValues = [`running`, `ended`] as const
 
 // Device/build platform for a project preview run target. Selects the embedding
 // backend in the desktop apps (web webview / android emulator / ios simulator).
@@ -79,12 +66,15 @@ export const platformValues = [`web`, `android`, `ios`] as const
 
 // Why a user is subscribed to an issue (issue_subscribers.source, varchar).
 // `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.
+// `widget_reporter` rows model an external feedback-widget reporter: null
+// userId, `email` set — they receive the one-way resolution email on close.
 export const subscriberSourceValues = [
   `creator`,
   `assignee`,
   `commenter`,
   `manual`,
   `mention`,
+  `widget_reporter`,
 ] as const
 
 // Activity-log event kinds (issue_events.type, varchar). Drives the
@@ -96,13 +86,6 @@ export const issueEventTypeValues = [
   `label_removed`,
   `pr_opened`,
   `pr_merged`,
-  `plan_ready`,
-  `agent_error`,
-  // Agent activity-feed events (decoupled from comments): the agent began
-  // working, asked a question, and the human answered it.
-  `agent_started`,
-  `agent_question`,
-  `agent_answer`,
 ] as const
 
 export type IssueStatus = (typeof issueStatusValues)[number]
@@ -111,10 +94,9 @@ export type WorkspaceRole = (typeof workspaceRoleValues)[number]
 export type PublicWritePolicy = (typeof publicWritePolicyValues)[number]
 export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
-export type AgentPlanState = (typeof agentPlanStateValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
-export type RunMode = (typeof runModeValues)[number]
+export type CodingSessionStatus = (typeof codingSessionStatusValues)[number]
 export type Platform = (typeof platformValues)[number]
 export type SubscriberSource = (typeof subscriberSourceValues)[number]
 export type IssueEventType = (typeof issueEventTypeValues)[number]
@@ -125,10 +107,9 @@ export const workspaceRoleSchema = z.enum(workspaceRoleValues)
 export const publicWritePolicySchema = z.enum(publicWritePolicyValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const commentKindSchema = z.enum(commentKindValues)
-export const agentPlanStateSchema = z.enum(agentPlanStateValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
-export const runModeSchema = z.enum(runModeValues)
+export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)
 export const platformSchema = z.enum(platformValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
@@ -162,6 +143,7 @@ export const issueStatusOrder: IssueStatus[] = [
   `backlog`,
   `done`,
   `cancelled`,
+  `duplicate`,
 ]
 
 export function getIssueDescriptionText(description: unknown): string {

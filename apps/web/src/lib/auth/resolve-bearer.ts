@@ -5,9 +5,9 @@ import { auth } from "@/lib/auth"
 
 type Session = Awaited<ReturnType<typeof auth.api.getSession>>
 
-// Resolve the agent's MCP OAuth2 access token (issued by `companion.register`)
-// to its user id. `getMcpSession` is a plain DB lookup on
-// `oauth_access_tokens.access_token` and returns the row (with `userId`).
+// Resolve a human MCP client's OAuth2 access token to its user id.
+// `getMcpSession` is a plain DB lookup on `oauth_access_tokens.access_token`
+// and returns the row (with `userId`).
 export async function resolveMcpUserId(request: Request): Promise<string | null> {
   const mcpSession = await auth.api
     .getMcpSession({ request, headers: request.headers, asResponse: false })
@@ -18,13 +18,12 @@ export async function resolveMcpUserId(request: Request): Promise<string | null>
 // The single auth chokepoint. Resolves a request to a session, accepting:
 //   - the session cookie (web) and `Authorization: Bearer <sessionToken>` (mobile)
 //     via the bearer plugin,
-//   - `Authorization: Bearer expk_...` legacy api keys (apiKey plugin), and
-//   - the agent's refreshable MCP OAuth2 access token (the new desktop-agent
-//     credential) via `getMcpSession`.
+//   - `Authorization: Bearer expu_...` personal api keys (apiKey plugin), and
+//   - a human MCP client's refreshable OAuth2 access token via `getMcpSession`.
 // The cheap session/api-key path runs first so hot web/mobile traffic pays no
 // extra DB lookup; only requests that aren't a session/api-key fall through to
-// the MCP token lookup (the agent path). Returns a session-shaped object so every
-// authedProcedure and shape proxy can read `session.user.id` uniformly.
+// the MCP token lookup. Returns a session-shaped object so every authedProcedure
+// and shape proxy can read `session.user.id` uniformly.
 export async function resolveSession(request: Request): Promise<Session> {
   const session = await auth.api
     .getSession({ headers: request.headers })

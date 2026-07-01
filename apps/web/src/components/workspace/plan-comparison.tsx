@@ -15,7 +15,7 @@ type TierInfo = {
   projects: string
   storage: string
   push: boolean
-  agents: boolean
+  coding: boolean
 }
 
 const TIERS: TierInfo[] = [
@@ -28,7 +28,7 @@ const TIERS: TierInfo[] = [
     projects: `3 projects`,
     storage: `50 MB`,
     push: false,
-    agents: true,
+    coding: true,
   },
   {
     tier: `pro`,
@@ -39,7 +39,7 @@ const TIERS: TierInfo[] = [
     projects: `10 projects`,
     storage: `1 GB`,
     push: true,
-    agents: true,
+    coding: true,
   },
   {
     tier: `business`,
@@ -50,7 +50,7 @@ const TIERS: TierInfo[] = [
     projects: `Unlimited`,
     storage: `10 GB`,
     push: true,
-    agents: true,
+    coding: true,
   },
 ]
 
@@ -163,7 +163,7 @@ export function PlanComparison({
                     label="Push notifications"
                     enabled={t.push}
                   />
-                  <FeatureRow label="AI agents" enabled={t.agents} />
+                  <FeatureRow label="Desktop coding sessions" enabled={t.coding} />
                 </div>
 
                 {canUpgrade && (

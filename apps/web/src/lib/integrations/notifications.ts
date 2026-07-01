@@ -1,26 +1,15 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import {
-  issueSubscribers,
-  issues,
-  projects,
-  users,
-  workspaceMembers,
-} from "@/db/schema"
+import { issueSubscribers, issues, projects, users } from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
 import { canUsePush } from "@/lib/billing"
 import type { NotificationType } from "@/lib/domain"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
-// emits these; the native clients route on them. Notification rows use the
-// notification_type enum (the first four); plan/PR types ride only on the push
-// payload (their inbox surface derives from issue columns).
-export type PushType =
-  | NotificationType
-  | `plan_awaiting_approval`
-  | `pr_opened`
-  | `pr_merged`
-  | `agent_error`
+// emits these; the native clients route on them. Every value is now a real
+// notification_type (including pr_opened/pr_merged), so the push discriminator
+// and the inbox row type stay in lockstep.
+export type PushType = NotificationType
 
 interface IssueMeta {
   id: string
@@ -53,18 +42,21 @@ async function actorName(actorUserId: string): Promise<string> {
   return actor?.name || actor?.email || `Someone`
 }
 
-// Drop agent users from a recipient set — agents have no inbox.
-async function withoutAgents(userIds: string[]): Promise<string[]> {
+// Drop bot users from a recipient set — the widget-helpdesk bot (users.isAgent)
+// has no inbox.
+async function withoutBots(userIds: string[]): Promise<string[]> {
   if (userIds.length === 0) return []
   const rows = await db
     .select({ id: users.id })
     .from(users)
     .where(and(inArray(users.id, userIds), eq(users.isAgent, true)))
-  const agents = new Set(rows.map((r) => r.id))
-  return userIds.filter((id) => !agents.has(id))
+  const bots = new Set(rows.map((r) => r.id))
+  return userIds.filter((id) => !bots.has(id))
 }
 
 // The active (non-unsubscribed) subscribers of an issue, minus the actor.
+// Widget-reporter rows (null userId + email) are excluded here — they receive
+// the one-way resolution email, not in-app/push notifications.
 async function subscriberRecipients(
   issueId: string,
   actorUserId: string
@@ -75,10 +67,11 @@ async function subscriberRecipients(
     .where(
       and(
         eq(issueSubscribers.issueId, issueId),
-        eq(issueSubscribers.unsubscribed, false)
+        eq(issueSubscribers.unsubscribed, false),
+        isNotNull(issueSubscribers.userId)
       )
     )
-  const ids = new Set(rows.map((r) => r.userId))
+  const ids = new Set(rows.map((r) => r.userId as string))
   ids.delete(actorUserId)
   return [...ids]
 }
@@ -109,7 +102,7 @@ async function deliver(args: {
   title: string
   body: string | null
 }): Promise<void> {
-  const recipients = await withoutAgents([...new Set(args.recipientIds)])
+  const recipients = await withoutBots([...new Set(args.recipientIds)])
   if (recipients.length === 0) return
 
   const canPush = await canUsePush(args.issue.workspaceId)
@@ -185,56 +178,6 @@ export function fireAndForgetAssignmentNotify(args: {
       })
     } catch (err) {
       console.error(`[notify] assignment failed:`, err)
-    }
-  })()
-}
-
-// Workspace owners (non-agent), the people who can approve a plan / answer a
-// question. In the solo case this is the single human owner.
-async function workspaceOwnerRecipients(workspaceId: string): Promise<string[]> {
-  const rows = await db
-    .select({ userId: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .where(
-      and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        eq(workspaceMembers.role, `owner`)
-      )
-    )
-  return [...new Set(rows.map((r) => r.userId))]
-}
-
-/**
- * The ONLY agent events that notify: a plan is ready to approve, or the agent
- * is waiting on an answer. Targeted at workspace owners (the approvers) — not
- * the full subscriber fan-out — so routine agent activity stays quiet.
- */
-export function fireAndForgetAgentActionNotify(args: {
-  issueId: string
-  type: `agent_plan_review` | `agent_question`
-}): void {
-  const { issueId, type } = args
-  void (async () => {
-    try {
-      const issue = await loadIssueMeta(issueId)
-      if (!issue) return
-      const recipients = await workspaceOwnerRecipients(issue.workspaceId)
-      if (recipients.length === 0) return
-      const title =
-        type === `agent_plan_review`
-          ? `Agent finished a plan for ${issue.identifier}`
-          : `Agent has a question on ${issue.identifier}`
-      await deliver({
-        issue,
-        recipientIds: recipients,
-        type,
-        pushType:
-          type === `agent_plan_review` ? `plan_awaiting_approval` : `agent_question`,
-        title,
-        body: issue.title,
-      })
-    } catch (err) {
-      console.error(`[notify] agent action failed:`, err)
     }
   })()
 }

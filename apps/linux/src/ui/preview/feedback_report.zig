@@ -277,7 +277,7 @@ fn onResult(data: gtk.gpointer) callconv(.c) c_int {
     }
     // Toast UX on Linux is minimal (the run-lifecycle path also just logs); a
     // full AdwToastOverlay wiring is deferred. Log a clear outcome so the dev
-    // sees what happened, matching agent_manager's stderr convention.
+    // sees what happened.
     if (!m.ok_issue) {
         std.debug.print("[feedback] failed to create the issue\n", .{});
     } else if (!m.ok_image) {

@@ -125,7 +125,7 @@ struct InboxView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Spacer()
-            Text(issue.agentPlanState == "awaiting_approval" ? "Plan" : "PR")
+            Text("PR")
                 .font(.caption2)
                 .foregroundStyle(Color.accentColor)
         }

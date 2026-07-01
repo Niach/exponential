@@ -8,13 +8,13 @@ export function widgetUserName(configName: string): string {
   return `Widget: ${configName}`
 }
 
-// Every widget config owns one synthetic user (the `creatorId` of issues it
-// submits). Same shape as desktop-device agent users (companion/setup.ts):
-// isAgent=true keeps it out of subscriptions/notifications, and the
-// role=agent membership lets clients resolve its display name (the users
-// shape only syncs co-members). NEVER delete this user — issues.creator_id
-// cascades on user delete, so removing it would delete the widget's issues;
-// widget_configs.widget_user_id is `restrict` to keep that mistake loud.
+// Every widget config owns one synthetic bot user (the `creatorId` of issues
+// it submits). `isAgent=true` keeps it out of subscriptions/notifications and
+// @-mentions, while a plain `member` membership lets clients resolve its
+// display name (the users shape only syncs co-members). NEVER delete this user
+// — issues.creator_id cascades on user delete, so removing it would delete the
+// widget's issues; widget_configs.widget_user_id is `restrict` to keep that
+// mistake loud.
 export async function createWidgetUser(
   tx: Tx,
   args: { workspaceId: string; configName: string }
@@ -39,7 +39,7 @@ export async function createWidgetUser(
     .values({
       workspaceId: args.workspaceId,
       userId: widgetUserId,
-      role: `agent`,
+      role: `member`,
     })
     .onConflictDoNothing()
 

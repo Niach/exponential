@@ -68,7 +68,7 @@ final class MacInboxViewModel {
             guard let issue = issuesById[iid], let ns = byIssue[iid] else { return nil }
             return Group(issue: issue, notifications: ns)
         }
-        reviewIssues = issues.filter { $0.agentPlanState == "awaiting_approval" || $0.prState == "open" }
+        reviewIssues = issues.filter { $0.prState == "open" }
         totalUnread = groups.reduce(0) { $0 + $1.unread }
     }
 
@@ -86,8 +86,8 @@ final class MacInboxViewModel {
 }
 
 /// The macOS inbox: a segmented "For me" (notifications grouped by issue) /
-/// "Needs your review" (plan-ready + open-PR issues). Tapping a row opens the
-/// issue via `onOpenIssue` (the shell pushes it onto the detail stack).
+/// "Needs your review" (open-PR issues). Tapping a row opens the issue via
+/// `onOpenIssue` (the shell pushes it onto the detail stack).
 struct MacInboxView: View {
     @Environment(MacAppDependencies.self) private var deps
     let accountId: String
@@ -192,9 +192,7 @@ struct MacInboxView: View {
             Text(issue.identifier ?? "").font(.caption.monospaced()).foregroundStyle(.tertiary)
             Text(issue.title).font(.subheadline).lineLimit(1)
             Spacer()
-            if issue.agentPlanState == "awaiting_approval" {
-                badge("Plan ready", Accent.indigo)
-            } else if issue.prState == "open" {
+            if issue.prState == "open" {
                 badge("In review", .green)
             }
         }

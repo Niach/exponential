@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import { MentionTextarea } from "@/components/mention-textarea"
 import { EventRow } from "@/components/comment-rows/event"
 import { RegularCommentRow } from "@/components/comment-rows/regular"
-import { AGENT_EVENT_TYPES } from "@/components/agent-plan-panel"
 
 interface IssueTimelineProps {
   issue: Issue
@@ -21,10 +20,8 @@ interface IssueTimelineProps {
   users: User[]
 }
 
-// The human comment thread + human activity events (status/assignee/label).
-// The agent plan/question lifecycle lives in <AgentPlanPanel> and the agent
-// activity events in <AgentActivityFeed>, so they're intentionally excluded
-// here — this surface stays a conversation between people.
+// The comment thread + activity events (status/assignee/label/PR), rendered as
+// a Linear-style timeline.
 export function IssueTimeline({
   issue,
   currentUserId,
@@ -63,18 +60,9 @@ export function IssueTimeline({
   const [draft, setDraft] = useState(``)
   const [submitting, setSubmitting] = useState(false)
 
-  // Human conversation only (the agent plan/question lifecycle is rendered in
-  // the Plan Panel, and those no longer live in comments).
   const list = (comments ?? []) as Comment[]
 
-  const assignee = issue.assigneeId ? userMap.get(issue.assigneeId) : undefined
-  const agentAssigned =
-    Boolean(assignee?.isAgent) &&
-    issue.status !== `done` &&
-    issue.status !== `cancelled`
-  const composerPlaceholder = agentAssigned
-    ? `Message the agent — it'll be incorporated on the next run…`
-    : `Leave a reply…`
+  const composerPlaceholder = `Leave a reply…`
 
   type TimelineItem =
     | { kind: `comment`; at: number; comment: Comment }
@@ -86,14 +74,11 @@ export function IssueTimeline({
         at: new Date(c.createdAt).getTime(),
         comment: c,
       })),
-      // Human activity only; agent-lifecycle events live in the activity feed.
-      ...((events ?? []) as IssueEvent[])
-        .filter((e) => !AGENT_EVENT_TYPES.has(e.type))
-        .map((e) => ({
-          kind: `event` as const,
-          at: new Date(e.createdAt).getTime(),
-          event: e,
-        })),
+      ...((events ?? []) as IssueEvent[]).map((e) => ({
+        kind: `event` as const,
+        at: new Date(e.createdAt).getTime(),
+        event: e,
+      })),
     ]
     items.sort((a, b) => a.at - b.at)
     return items
@@ -158,13 +143,10 @@ export function IssueTimeline({
             comment={comment}
             canModify={canModify}
             editing={editingCommentId === comment.id}
-            showRetry={false}
-            retrying={false}
             onCancelEdit={() => setEditingCommentId(null)}
             onDelete={() => void handleDelete(comment.id)}
             onEdit={() => setEditingCommentId(comment.id)}
             onSaveEdit={(text) => handleEditSave(comment.id, text)}
-            onRetry={() => {}}
           />
         )
       })}

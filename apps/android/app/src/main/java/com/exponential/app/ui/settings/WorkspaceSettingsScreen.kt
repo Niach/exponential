@@ -311,8 +311,8 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                             Icon(Icons.Filled.MoreVert, contentDescription = "Member actions")
                         }
                         DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
-                            // Only owner/member are assignable (agents are managed
-                            // separately). The last owner can't be demoted or leave.
+                            // Roles are owner or member. The last owner can't be
+                            // demoted or leave.
                             if (row.member.role != DomainContract.workspaceRoleOwner) {
                                 DropdownMenuItem(
                                     text = { Text("Make owner") },

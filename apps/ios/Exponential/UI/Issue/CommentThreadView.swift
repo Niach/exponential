@@ -4,17 +4,10 @@ import SwiftUI
 import GRDB
 import MarkdownUI
 
-// The human conversation timeline. Reads live comments + issue_events from the
-// local GRDB store (populated by Electric sync) and routes create/update/delete
-// through tRPC. Renders:
-//
-// - regular comments (human or agent terminal messages)
-// - non-agent events (status/assignee/label changes) inline
-// - a collapsible "Agent activity" feed for agent lifecycle events
-//
-// Plan/question comments and the plan approval / retry affordances now live in
-// the AgentPlanPanel (a sibling above this view), so this view stays a plain
-// human thread.
+// The activity timeline. Reads live comments + issue_events from the local GRDB
+// store (populated by Electric sync) and routes create/update/delete through
+// tRPC. Renders regular comments and issue events (status/assignee/label/PR
+// changes) inline, merged by created_at.
 struct CommentThreadView: View {
     let issue: IssueEntity
 
@@ -56,9 +49,8 @@ struct CommentThreadView: View {
     }
 
     private var timeline: [TimelineItem] {
-        let nonAgentEvents = events.filter { !agentEventTypes.contains($0.type) }
         return (humanComments.map { TimelineItem.comment($0) }
-            + nonAgentEvents.map { TimelineItem.event($0) })
+            + events.map { TimelineItem.event($0) })
             .sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -83,8 +75,6 @@ struct CommentThreadView: View {
                 case .event(let event): eventRow(event)
                 }
             }
-
-            AgentActivityFeed(events: events, users: users)
 
             // Rich block-markdown composer (parity with the description editor):
             // reuses MarkdownEditor + IssueEditorModel; images route through the
@@ -245,8 +235,8 @@ struct CommentThreadView: View {
         }
     }
 
-    // Compact Linear-style activity line for non-agent events (status/assignee/
-    // label). Agent lifecycle events go to the AgentActivityFeed instead.
+    // Compact Linear-style activity line for issue events (status/assignee/
+    // label/PR changes).
     @ViewBuilder
     private func eventRow(_ event: IssueEventEntity) -> some View {
         let who = event.actorUserId.flatMap { users[$0] }.map { $0.name ?? $0.email } ?? "Someone"

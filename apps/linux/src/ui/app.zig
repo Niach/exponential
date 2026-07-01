@@ -4,7 +4,7 @@
 //! on Zig 0.16). Single-instance with HANDLES_COMMAND_LINE so the browser's
 //! `exp://oauth-return#token=…` redirect is forwarded to the running instance.
 //! The login view is driven by /api/auth-config (password + Google + OIDC
-//! providers). After sign-in we open a per-account SQLite DB, start the 10-shape
+//! providers). After sign-in we open a per-account SQLite DB, start the 14-shape
 //! SyncManager, and show a live issue list that refreshes whenever a sync thread
 //! reports changes (via g_idle_add — coalesced through `refresh_pending`).
 
@@ -25,11 +25,8 @@ const AccountStore = @import("../core/auth/account_store.zig").AccountStore;
 const ServerAccount = @import("../core/auth/server_account.zig").ServerAccount;
 const Database = @import("../core/db/database.zig").Database;
 const sync = @import("../core/electric/sync_manager.zig");
-const identity_store = @import("../core/agent/identity_store.zig");
-const registration = @import("../core/agent/registration.zig");
-const agent_manager = @import("../core/agent/agent_manager.zig");
 const terminal_dock = @import("terminal_dock.zig");
-const Heartbeat = @import("../core/agent/heartbeat.zig").Heartbeat;
+const coding_launcher = @import("coding_launcher.zig");
 const preview_panel = @import("preview/preview_panel.zig");
 const preview = @import("preview/preview.zig");
 const preview_config = @import("preview/preview_config.zig");
@@ -75,6 +72,8 @@ const AppState = struct {
     selected_project_name: ?[]u8 = null, // for the create-issue default + title
     selected_project_repo: ?[]u8 = null, // GitHub repo of the selected project ("" → none)
     detail_issue_id: ?[]u8 = null, // issue currently shown in the detail pane
+    coding_btn: gtk.Object = null, // the current detail's "Start coding" button (nulled on destroy)
+    coding_btn_issue: ?[]u8 = null, // gpa-owned issue id the coding_btn belongs to
     shown_project_count: i64 = -1, // so the sidebar rebuilds only when projects change
     shown_workspace_count: i64 = -1,
 
@@ -84,9 +83,6 @@ const AppState = struct {
     switcher_area: gtk.Object = null, // sidebar slot holding the workspace switcher
     switcher_popover: gtk.Object = null, // the switcher's dropdown popover (for popdown)
     repo_banner: gtk.Object = null, // GitHub repo banner above the list (hidden when none)
-    heartbeat: ?*Heartbeat = null, // device-agent online ping (account-level)
-    agent_core: ?*agent_manager.Manager = null, // the Rust agent loop, when registered
-    device_register_attempted: bool = false, // auto-register runs once per signed-in session
 
     // filter bar
     active_tab: format.Tab = .all,
@@ -613,13 +609,13 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.selected_project_repo = null;
     if (state.detail_issue_id) |p| state.gpa.free(p);
     state.detail_issue_id = null;
+    // The button widget dies with the window content (its destroy-notify already
+    // nulls coding_btn); clear the tracked id defensively.
+    state.coding_btn = null;
+    if (state.coding_btn_issue) |p| state.gpa.free(p);
+    state.coding_btn_issue = null;
     if (state.search_text) |p| state.gpa.free(p);
     state.search_text = null;
-    if (state.heartbeat) |hb| hb.stop();
-    state.heartbeat = null;
-    if (state.agent_core) |m| agent_manager.stop(m);
-    state.agent_core = null;
-    state.device_register_attempted = false;
     // Tear down the preview: the controller owns the dev-server / emulator child
     // processes, so its ordered stop() (un-reparent → kill → free ports) must run
     // before the window content is dropped. Do this before freeing creds (the
@@ -632,8 +628,7 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     if (state.preview_repo_slug) |p| state.gpa.free(p);
     state.preview_repo_slug = null;
     state.preview_split = null;
-    // The dock's GTK widgets die with the window content; free our struct (the
-    // agent core was stopped just above, so it won't touch the dock anymore).
+    // The dock's GTK widgets die with the window content; free our struct.
     if (state.term_dock) |d| state.gpa.destroy(d);
     state.term_dock = null;
     if (state.active_workspace_id) |p| state.gpa.free(p);
@@ -749,7 +744,7 @@ fn buildTrackerUI(state: *AppState) void {
 
     // (Workspace settings now lives in the switcher popover, mirroring the web.)
 
-    // Inbox — the user's notifications (assignments, comments, mentions, agent).
+    // Inbox — the user's notifications (assignments, comments, mentions, PRs).
     const inbox_btn = gtk.gtk_button_new_with_label("\u{1F4E5} Inbox");
     gtk.gtk_widget_add_css_class(inbox_btn, "flat");
     gtk.gtk_widget_add_css_class(inbox_btn, "dim-label");
@@ -877,8 +872,8 @@ fn buildTrackerUI(state: *AppState) void {
     const list_page = gtk.adw_navigation_page_new(list_toolbar, "All Issues");
     state.list_page = list_page;
     gtk.adw_navigation_view_push(nav, list_page);
-    // Wrap the content nav in an IDE-style vertical split: agent runs land in a
-    // collapsible bottom terminal dock instead of a throwaway window.
+    // Wrap the content nav in an IDE-style vertical split with a collapsible
+    // bottom terminal dock (used by the embedded ghostty terminal).
     const content_widget = blk: {
         if (terminal_dock.TerminalDock.create(state.gpa, nav)) |dock| {
             state.term_dock = dock;
@@ -889,9 +884,9 @@ fn buildTrackerUI(state: *AppState) void {
     };
 
     // Dedicated, resizable Preview pane on the trailing edge — SEPARATE from the
-    // bottom terminal dock (which keeps hosting agent build/run logs). A
-    // horizontal GtkPaned splits content | preview; the preview side starts
-    // hidden and is revealed by the "Run preview" play button in the content header.
+    // bottom terminal dock (which hosts the embedded terminal). A horizontal
+    // GtkPaned splits content | preview; the preview side starts hidden and is
+    // revealed by the "Run preview" play button in the content header.
     if (preview_panel.PreviewPanel.create(state.gpa, state.window)) |pane| {
         state.preview_pane = pane;
         const split = gtk.gtk_paned_new(gtk.ORIENTATION_HORIZONTAL);
@@ -1257,9 +1252,6 @@ fn matchesLabelFilter(state: *AppState, chips: []const Database.LabelChip) bool 
 /// workspace set changes (so selecting a project isn't disrupted by updates).
 fn doRefresh(state: *AppState) void {
     ensureActiveWorkspace(state);
-    reconcileDeviceRegistration(state);
-    reconcileHeartbeat(state);
-    reconcileAgent(state);
     refreshIssues(state);
     updateAccountLabel(state);
     const db = if (state.db) |*d| d else return;
@@ -1272,124 +1264,9 @@ fn doRefresh(state: *AppState) void {
     }
 }
 
-/// Auto-register this machine as a desktop device once per signed-in session.
-/// Account-level: the server mints one expk_ key and fans the device into every
-/// workspace the owner belongs to, so a single core covers them all. Runs a
-/// single blocking call on the first refresh after sign-in (mirrors the manual
-/// register button); retried on the next sign-in if it fails.
-fn reconcileDeviceRegistration(state: *AppState) void {
-    if (state.device_register_attempted) return;
-    const instance = state.instance orelse return;
-    const token = state.token orelse return;
-    state.device_register_attempted = true;
-    if (identity_store.exists(state.gpa)) return;
-
-    const did = registration.deviceId(state.gpa) catch return;
-    defer state.gpa.free(did);
-    const name = hostName(state.gpa) orelse return;
-    defer state.gpa.free(name);
-
-    var oc = registration.registerDevice(state.gpa, instance, token, did, name, 20) catch return;
-    switch (oc) {
-        .failure => |m| state.gpa.free(m),
-        .success => |*id| {
-            defer id.deinit();
-            if (identity_store.save(state.gpa, id)) |p| state.gpa.free(p) else |_| {}
-        },
-    }
-}
-
-/// This machine's display name, from /etc/hostname (caller frees), or null on
-/// allocation failure.
-fn hostName(gpa: std.mem.Allocator) ?[]u8 {
-    if (storage.readFileAlloc(gpa, "/etc/hostname")) |bytes| {
-        defer gpa.free(bytes);
-        const trimmed = std.mem.trim(u8, bytes, " \t\r\n");
-        if (trimmed.len > 0) return gpa.dupe(u8, trimmed) catch null;
-    }
-    return gpa.dupe(u8, "This PC") catch null;
-}
-
-/// Start/stop the device-agent heartbeat to match whether this machine has a
-/// stored device identity. Account-level (not per active workspace). Called each
-/// refresh.
-fn reconcileHeartbeat(state: *AppState) void {
-    const want = identity_store.exists(state.gpa);
-    const have = state.heartbeat != null;
-    if (want == have) return;
-
-    if (state.heartbeat) |hb| {
-        hb.stop();
-        state.heartbeat = null;
-    }
-    if (want) {
-        const instance = state.instance orelse return;
-        const key = identity_store.readField(state.gpa, "apiKey") orelse return;
-        defer state.gpa.free(key);
-        state.heartbeat = Heartbeat.spawn(state.gpa, instance, key);
-    }
-}
-
-/// Start/stop the Rust agent-core loop to match whether this machine has a
-/// stored device identity. One core per device — the assigned-issues shape is
-/// account-wide, so it watches issues assigned to this device across all the
-/// owner's workspaces. Called each refresh.
-fn reconcileAgent(state: *AppState) void {
-    const want = identity_store.exists(state.gpa);
-    const have = state.agent_core != null;
-    if (want == have) return;
-
-    if (state.agent_core) |m| {
-        agent_manager.stop(m);
-        state.agent_core = null;
-    }
-    if (!want) return;
-    const instance = state.instance orelse return;
-
-    var arena = std.heap.ArenaAllocator.init(state.gpa);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const api_key = identity_store.readField(a, "apiKey") orelse return;
-    const agent_uid = identity_store.readField(a, "agentUserId") orelse return;
-    // agent-core fetches a fresh per-repo GitHub App installation token from the
-    // server (agent.repoToken) just before clone/push, so the host no longer
-    // feeds a token. Left empty (the agent self-fetches).
-    const github = "";
-    const dir = storage.configDir(a) catch return;
-    const repos_root = std.fmt.allocPrint(a, "{s}/repos", .{dir}) catch return;
-    const worktrees_root = std.fmt.allocPrint(a, "{s}/worktrees", .{dir}) catch return;
-    const db_path = std.fmt.allocPrint(a, "{s}/agent-state.sqlite", .{dir}) catch return;
-
-    const json = std.json.Stringify.valueAlloc(a, .{
-        .baseUrl = instance,
-        .apiKey = api_key,
-        .botUserId = agent_uid,
-        .githubToken = github,
-        .reposRoot = repos_root,
-        .worktreesRoot = worktrees_root,
-        .branchPrefix = "agent",
-        .driver = "claude",
-        .dbPath = db_path,
-        // ONE run at a time: the dock hosts a single interactive terminal, so a
-        // second concurrent session would clobber it.
-        .maxConcurrent = 1,
-        .timeoutS = 30,
-        .runTimeoutS = 1800,
-        // Plan/code stages run as live sessions in the embedded terminal.
-        .interactive = true,
-    }, .{}) catch return;
-
-    state.agent_core = agent_manager.start(state.gpa, json, "device");
-    if (state.agent_core) |m| {
-        // Route agent runs into the IDE-style terminal dock.
-        if (state.term_dock) |d| agent_manager.setDock(m, @ptrCast(d), terminal_dock.mountForManager, terminal_dock.unmountForManager);
-    }
-}
-
 /// Default the active workspace once sync delivers it. Prefer the user's own
-/// (non-public, owned) default workspace so agent registration/run pins to the
-/// right one — firstWorkspaceId can resolve to the synced public/shared workspace.
+/// (non-public, owned) default workspace — firstWorkspaceId can resolve to the
+/// synced public/shared workspace.
 fn ensureActiveWorkspace(state: *AppState) void {
     if (state.active_workspace_id != null) return;
     const db = if (state.db) |*d| d else return;
@@ -2110,13 +1987,14 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     state.detail_issue_id = state.gpa.dupe(u8, id) catch null;
 
     // Workspace members offered by @mention autocomplete in the description +
-    // comment editors (agents excluded — you mention people). Lives in arena `a`,
-    // valid for the rest of this builder; each editor dups what it needs.
+    // comment editors (the widget helpdesk bot excluded — you mention people).
+    // Lives in arena `a`, valid for the rest of this builder; each editor dups
+    // what it needs.
     const mention_members: []const md.MentionMember = blk: {
         const rows = db.listMembers(a, issue.workspace_id) catch break :blk &.{};
         var ms: std.ArrayList(md.MentionMember) = .empty;
         for (rows) |m| {
-            if (std.mem.eql(u8, m.role, "agent")) continue;
+            if (m.is_agent) continue;
             ms.append(a, .{ .name = m.name, .email = m.email }) catch {};
         }
         break :blk ms.toOwnedSlice(a) catch &.{};
@@ -2132,33 +2010,12 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     _ = gtk.g_signal_connect_data(edit_btn, "clicked", @ptrCast(&onEditClicked), state, null, 0);
     gtk.adw_header_bar_pack_end(detail_header, edit_btn);
 
-    // "AI" — start an interactive agent session on this issue. Only when a
-    // desktop agent is registered for this workspace (the core is running).
-    if (state.agent_core != null) {
-        const ai_btn = gtk.gtk_button_new_with_label("AI");
-        gtk.gtk_widget_add_css_class(ai_btn, "flat");
-        gtk.gtk_widget_set_tooltip_text(ai_btn, "Start an interactive agent session for this issue");
-        if (makeIssueActionCtx(state, id)) |ctx| {
-            gtk.g_object_set_data_full(ai_btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeIssueActionCtx));
-            _ = gtk.g_signal_connect_data(ai_btn, "clicked", @ptrCast(&onAiClicked), ctx, null, 0);
-        }
-        gtk.adw_header_bar_pack_end(detail_header, ai_btn);
+    // "Start coding" — the §4a launcher. Disabled until the async
+    // repositories.forIssue check confirms the project has a linked repo
+    // (coding-first gate, §7d); no repo ⇒ stays disabled with a CTA tooltip.
+    addStartCodingButton(state, detail_header, id);
 
-        // "Cancel" — stop the run in flight for this issue. Shown only while the
-        // agent is actively working (not parked awaiting approval/answer).
-        if (isAgentBusy(issue.agent_plan_state)) {
-            const cancel_btn = gtk.gtk_button_new_with_label("Cancel");
-            gtk.gtk_widget_add_css_class(cancel_btn, "flat");
-            gtk.gtk_widget_set_tooltip_text(cancel_btn, "Cancel the agent run for this issue");
-            if (makeIssueActionCtx(state, id)) |ctx| {
-                gtk.g_object_set_data_full(cancel_btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeIssueActionCtx));
-                _ = gtk.g_signal_connect_data(cancel_btn, "clicked", @ptrCast(&onCancelClicked), ctx, null, 0);
-            }
-            gtk.adw_header_bar_pack_end(detail_header, cancel_btn);
-        }
-    }
-
-    // "Changes" — the agent's PR diff, rendered inline (the page also offers
+    // "Changes" — the PR diff, rendered inline (the page also offers
     // Open on GitHub). Shown only when the issue has a synced PR.
     if (issue.pr_url.len > 0) {
         const changes_btn = gtk.gtk_button_new_with_label("Changes");
@@ -2246,36 +2103,10 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
         gtk.gtk_box_append(box, ed.container);
     }
 
-    // Comments + activity. Plan/question text lives in the structured store
-    // (issue_agent_state), fetched on demand via agentPlan.getState — NOT in
-    // comments — so we render a first-class plan panel + a human-only thread.
+    // Comments + activity: the human thread merged with synced issue_events.
     const comments = db.listComments(a, id) catch &[_]Database.CommentRow{};
     const events = db.listIssueEvents(a, id) catch &[_]Database.IssueEventRow{};
 
-    // The latest agent lifecycle event being an error drives the Retry CTA.
-    var latest_is_error = false;
-    {
-        var i: usize = events.len;
-        while (i > 0) {
-            i -= 1;
-            if (isAgentEvent(events[i].type)) {
-                latest_is_error = std.mem.eql(u8, events[i].type, "agent_error");
-                break;
-            }
-        }
-    }
-
-    // Plan/question TEXT now comes from the synced `agent_runs` shape (read in
-    // getIssue) — no blocking agentPlan.getState round-trip on detail open.
-    const plan_text: []const u8 = issue.plan_text;
-    const question_text: []const u8 = issue.question;
-
-    // First-class agent plan panel (above the human thread).
-    if (agentPlanPanel(state, a, id, issue.agent_plan_state, issue.agent_plan_approver, plan_text, question_text, latest_is_error)) |panel| {
-        gtk.gtk_box_append(box, panel);
-    }
-
-    // Human conversation: regular comments only (plan/question are in the panel).
     var regular_count: usize = 0;
     for (comments) |c| {
         if (std.mem.eql(u8, c.kind, "regular")) regular_count += 1;
@@ -2317,9 +2148,8 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     for (timeline.items) |item| {
         switch (item) {
             .comment => |c| {
-                // Skip plan/question comments — the panel renders those now.
                 if (!std.mem.eql(u8, c.kind, "regular")) continue;
-                gtk.gtk_box_append(comments_box, commentBubble(a, c.author, c.kind, c.body, false, false));
+                gtk.gtk_box_append(comments_box, commentBubble(a, c.author, c.body));
             },
             .event => |e| gtk.gtk_box_append(comments_box, eventLine(a, e)),
         }
@@ -2435,25 +2265,12 @@ fn onDescBlur(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     } else |_| {}
 }
 
-fn commentBubble(arena: std.mem.Allocator, author: []const u8, kind: []const u8, body: []const u8, awaiting_answer: bool, latest_question: bool) gtk.Object {
+fn commentBubble(arena: std.mem.Allocator, author: []const u8, body: []const u8) gtk.Object {
     const cbox = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 2);
-
-    // Agent plan/question comments get distinct cards + headers (web parity).
-    const header = if (std.mem.eql(u8, kind, "plan"))
-        std.fmt.allocPrintSentinel(arena, "✦ Plan · {s}", .{author}, 0) catch null
-    else if (std.mem.eql(u8, kind, "question"))
-        std.fmt.allocPrintSentinel(arena, "{s} · {s}", .{ if (awaiting_answer and latest_question) "⚠ Waiting for your answer" else "Question", author }, 0) catch null
-    else
-        std.fmt.allocPrintSentinel(arena, "{s}", .{author}, 0) catch null;
-    gtk.gtk_widget_add_css_class(cbox, if (std.mem.eql(u8, kind, "plan"))
-        "exp-plan"
-    else if (std.mem.eql(u8, kind, "question"))
-        "exp-question"
-    else
-        "exp-comment");
+    gtk.gtk_widget_add_css_class(cbox, "exp-comment");
 
     const author_lbl = gtk.gtk_label_new(null);
-    if (header) |t| gtk.gtk_label_set_text(author_lbl, t.ptr);
+    if (arena.dupeZ(u8, author)) |t| gtk.gtk_label_set_text(author_lbl, t.ptr) else |_| {}
     gtk.gtk_widget_add_css_class(author_lbl, "dim-label");
     gtk.gtk_widget_add_css_class(author_lbl, "caption-heading");
     gtk.gtk_widget_set_halign(author_lbl, gtk.ALIGN_START);
@@ -2469,226 +2286,7 @@ fn commentBubble(arena: std.mem.Allocator, author: []const u8, kind: []const u8,
     return cbox;
 }
 
-// --- Agent plan approval (human-side: approve / request changes) ---
-
-const PlanActionCtx = struct {
-    state: *AppState,
-    issue_id: [:0]u8,
-    approve: bool,
-    action_row: gtk.Object,
-};
-
-fn freePlanAction(p: gtk.gpointer) callconv(.c) void {
-    const c: *PlanActionCtx = @ptrCast(@alignCast(p));
-    c.state.gpa.free(c.issue_id);
-    c.state.gpa.destroy(c);
-}
-
-/// Under the latest plan comment: Approve / Request-changes when the issue is
-/// awaiting approval, or a green "Approved" badge once approved.
-fn appendPlanActions(state: *AppState, box: gtk.Object, issue_id: []const u8, plan_state: []const u8, approver: []const u8) void {
-    if (std.mem.eql(u8, plan_state, "approved")) {
-        const lbl = gtk.gtk_label_new(null);
-        var buf: [256]u8 = undefined;
-        const txt = if (approver.len > 0)
-            std.fmt.bufPrintZ(&buf, "<span foreground='#22c55e'>✓ Approved by {s}</span>", .{approver[0..@min(approver.len, 200)]}) catch null
-        else
-            std.fmt.bufPrintZ(&buf, "<span foreground='#22c55e'>✓ Approved</span>", .{}) catch null;
-        if (txt) |t| gtk.gtk_label_set_markup(lbl, t.ptr);
-        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-        gtk.gtk_box_append(box, lbl);
-        return;
-    }
-    if (!std.mem.eql(u8, plan_state, "awaiting_approval")) return;
-
-    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
-    const approve = gtk.gtk_button_new_with_label("Approve");
-    gtk.gtk_widget_add_css_class(approve, "suggested-action");
-    const reject = gtk.gtk_button_new_with_label("Request changes");
-    gtk.gtk_widget_add_css_class(reject, "flat");
-    const hint = gtk.gtk_label_new("or reply below to refine");
-    gtk.gtk_widget_add_css_class(hint, "dim-label");
-    gtk.gtk_widget_add_css_class(hint, "caption");
-    gtk.gtk_box_append(row, approve);
-    gtk.gtk_box_append(row, reject);
-    // "Approve & continue here" — approve with the human session, then resume
-    // the agent interactively in a terminal (desktop-registered workspaces only).
-    if (state.agent_core != null) {
-        const cont = gtk.gtk_button_new_with_label("Approve & continue here");
-        gtk.gtk_widget_add_css_class(cont, "flat");
-        gtk.gtk_widget_set_tooltip_text(cont, "Approve and continue the agent interactively in a terminal");
-        if (makeIssueActionCtx(state, issue_id)) |ctx| {
-            gtk.g_object_set_data_full(cont, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeIssueActionCtx));
-            _ = gtk.g_signal_connect_data(cont, "clicked", @ptrCast(&onApproveInteractive), ctx, null, 0);
-        }
-        gtk.gtk_box_append(row, cont);
-    }
-    gtk.gtk_box_append(row, hint);
-    wirePlanButton(state, approve, issue_id, true, row);
-    wirePlanButton(state, reject, issue_id, false, row);
-    gtk.gtk_box_append(box, row);
-}
-
-// --- Structured agent plan panel (web / iOS / Android parity) ---
-
-fn isAgentEvent(t: []const u8) bool {
-    const kinds = [_][]const u8{ "agent_started", "plan_ready", "agent_question", "agent_answer", "pr_opened", "pr_merged", "agent_error" };
-    for (kinds) |k| {
-        if (std.mem.eql(u8, t, k)) return true;
-    }
-    return false;
-}
-
-fn planLabel(a: std.mem.Allocator, text: []const u8, dim: bool) gtk.Object {
-    const lbl = gtk.gtk_label_new(null);
-    if (a.dupeZ(u8, text)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
-    gtk.gtk_label_set_wrap(lbl, 1);
-    gtk.gtk_label_set_xalign(lbl, 0.0);
-    gtk.gtk_label_set_selectable(lbl, 1);
-    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-    if (dim) gtk.gtk_widget_add_css_class(lbl, "dim-label");
-    return lbl;
-}
-
-/// The structured agent plan/question panel. Lifecycle is driven by `plan_state`;
-/// the plan/question TEXT is fetched by the caller via agentPlan.getState
-/// (server-only `issue_agent_state`, not synced) and passed in. Returns null when
-/// the issue has no agent activity.
-fn agentPlanPanel(
-    state: *AppState,
-    a: std.mem.Allocator,
-    issue_id: []const u8,
-    plan_state: []const u8,
-    approver: []const u8,
-    plan_text: []const u8,
-    question_text: []const u8,
-    latest_is_error: bool,
-) ?gtk.Object {
-    if (plan_state.len == 0 and !latest_is_error) return null;
-
-    const card = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 8);
-    gtk.gtk_widget_add_css_class(card, "exp-plan");
-    gtk.gtk_widget_set_margin_top(card, 8);
-
-    const title = gtk.gtk_label_new("✦ Agent plan");
-    gtk.gtk_widget_add_css_class(title, "caption-heading");
-    gtk.gtk_widget_set_halign(title, gtk.ALIGN_START);
-    gtk.gtk_box_append(card, title);
-
-    if (std.mem.eql(u8, plan_state, "drafting") or std.mem.eql(u8, plan_state, "planning")) {
-        gtk.gtk_box_append(card, planLabel(a, "Agent is working on a plan…", true));
-    } else if (std.mem.eql(u8, plan_state, "awaiting_answer")) {
-        gtk.gtk_box_append(card, planLabel(a, "⚠ The agent has a question", false));
-        gtk.gtk_box_append(card, planLabel(a, if (question_text.len > 0) question_text else "Loading…", false));
-        if (canModerate(state)) gtk.gtk_box_append(card, answerComposer(state, issue_id));
-    } else if (std.mem.eql(u8, plan_state, "awaiting_approval") or std.mem.eql(u8, plan_state, "approved")) {
-        gtk.gtk_box_append(card, planLabel(a, if (plan_text.len > 0) plan_text else "Loading plan…", false));
-        // Approve / Request changes (awaiting_approval) or the "Approved by X"
-        // badge (approved) — reuse the existing affordance.
-        appendPlanActions(state, card, issue_id, plan_state, approver);
-    }
-
-    if (latest_is_error) {
-        const err_row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
-        gtk.gtk_widget_set_margin_top(err_row, 4);
-        const el = gtk.gtk_label_new(null);
-        gtk.gtk_label_set_markup(el, "<span foreground='#f87171'>The agent hit an error.</span>");
-        gtk.gtk_widget_set_halign(el, gtk.ALIGN_START);
-        gtk.gtk_box_append(err_row, el);
-        const retry = gtk.gtk_button_new_with_label("Retry");
-        gtk.gtk_widget_add_css_class(retry, "flat");
-        if (makeIssueActionCtx(state, issue_id)) |ctx| {
-            gtk.g_object_set_data_full(retry, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeIssueActionCtx));
-            _ = gtk.g_signal_connect_data(retry, "clicked", @ptrCast(&onRetryClicked), ctx, null, 0);
-        }
-        gtk.gtk_box_append(err_row, retry);
-        gtk.gtk_box_append(card, err_row);
-    }
-
-    return card;
-}
-
-fn onRetryClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
-    const state = ctx.state;
-    var arena = std.heap.ArenaAllocator.init(state.gpa);
-    defer arena.deinit();
-    const json = std.json.Stringify.valueAlloc(arena.allocator(), .{ .issueId = ctx.issue_id }, .{}) catch return;
-    if (state.instance) |inst| mutate.fire(state.gpa, inst, state.token, "agentPlan.retry", json);
-}
-
-// --- Answer composer (human answers the agent's open question) ---
-
-const AnswerCtx = struct {
-    state: *AppState,
-    issue_id: [:0]u8,
-    entry: gtk.Object,
-};
-
-fn freeAnswer(p: gtk.gpointer) callconv(.c) void {
-    const c: *AnswerCtx = @ptrCast(@alignCast(p));
-    c.state.gpa.free(c.issue_id);
-    c.state.gpa.destroy(c);
-}
-
-fn answerComposer(state: *AppState, issue_id: []const u8) gtk.Object {
-    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
-    gtk.gtk_widget_set_margin_top(row, 4);
-
-    const view = gtk.gtk_text_view_new();
-    gtk.gtk_text_view_set_wrap_mode(view, gtk.WRAP_WORD_CHAR);
-    gtk.gtk_text_view_set_top_margin(view, 6);
-    gtk.gtk_text_view_set_left_margin(view, 8);
-    const scrolled = gtk.gtk_scrolled_window_new();
-    gtk.gtk_widget_add_css_class(scrolled, "card");
-    gtk.gtk_scrolled_window_set_child(scrolled, view);
-    gtk.gtk_scrolled_window_set_max_content_height(scrolled, 120);
-    gtk.gtk_widget_set_size_request(scrolled, -1, 56);
-    gtk.gtk_widget_set_hexpand(scrolled, 1);
-    gtk.gtk_box_append(row, scrolled);
-
-    const btn = gtk.gtk_button_new_with_label("Send answer");
-    gtk.gtk_widget_add_css_class(btn, "suggested-action");
-    gtk.gtk_widget_set_valign(btn, gtk.ALIGN_END);
-    gtk.gtk_box_append(row, btn);
-
-    const ctx = state.gpa.create(AnswerCtx) catch return row;
-    ctx.* = .{
-        .state = state,
-        .issue_id = state.gpa.dupeZ(u8, issue_id) catch {
-            state.gpa.destroy(ctx);
-            return row;
-        },
-        .entry = view,
-    };
-    gtk.g_object_set_data_full(btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freeAnswer));
-    _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onAnswerSubmit), ctx, null, 0);
-    return row;
-}
-
-fn onAnswerSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *AnswerCtx = @ptrCast(@alignCast(data));
-    const state = ctx.state;
-    const buffer = gtk.gtk_text_view_get_buffer(ctx.entry);
-    var start: [128]u8 align(8) = undefined;
-    var end: [128]u8 align(8) = undefined;
-    gtk.gtk_text_buffer_get_bounds(buffer, @ptrCast(&start), @ptrCast(&end));
-    const raw = gtk.gtk_text_buffer_get_text(buffer, @ptrCast(&start), @ptrCast(&end), 0) orelse return;
-    defer gtk.g_free(@ptrCast(raw));
-    const text = std.mem.trim(u8, std.mem.span(raw), " \t\r\n");
-    if (text.len == 0) return;
-
-    var arena = std.heap.ArenaAllocator.init(state.gpa);
-    defer arena.deinit();
-    const json = std.json.Stringify.valueAlloc(arena.allocator(), .{
-        .issueId = ctx.issue_id,
-        .answer = text,
-    }, .{}) catch return;
-    if (state.instance) |inst| mutate.fire(state.gpa, inst, state.token, "agentPlan.answerQuestion", json);
-    gtk.gtk_text_buffer_set_text(buffer, "", 0);
-}
-
-// --- Interactive agent actions (AI button + approve-and-continue) ---
+// --- Issue action context (shared by the "Changes" PR-diff button) ---
 
 const IssueActionCtx = struct { state: *AppState, issue_id: [:0]u8 };
 
@@ -2708,24 +2306,205 @@ fn freeIssueActionCtx(p: gtk.gpointer) callconv(.c) void {
     ctx.state.gpa.destroy(ctx);
 }
 
-fn onAiClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
-    if (ctx.state.agent_core) |m| agent_manager.requestInteractive(m, ctx.issue_id);
-}
+// --- "Start coding" launcher wiring (§4a launcher, §7d coding-first gate) ---
 
-fn onCancelClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
-    if (ctx.state.agent_core) |m| agent_manager.cancelIssue(m, ctx.issue_id);
-}
+/// Carried by the detail's "Start coding" button. Only the issue id is needed —
+/// the launcher resolves identifier/title/description from the DB itself. The
+/// button back-reference lets the destroy-notify clear `state.coding_btn` so the
+/// async repo-check's target pointer is always live or null, never dangling.
+const CodingLaunchCtx = struct {
+    state: *AppState,
+    button: gtk.Object,
+    issue_id: [:0]u8,
+};
 
-/// Whether the agent is actively working an issue (so a "Cancel" button makes
-/// sense) — i.e. not parked awaiting human input and not idle.
-fn isAgentBusy(agent_plan_state: []const u8) bool {
-    const busy = [_][]const u8{ "drafting", "planning", "approved", "coding" };
-    for (busy) |s| {
-        if (std.mem.eql(u8, agent_plan_state, s)) return true;
+fn freeCodingLaunch(p: gtk.gpointer) callconv(.c) void {
+    const c: *CodingLaunchCtx = @ptrCast(@alignCast(p));
+    const state = c.state;
+    // If this button is still the tracked one, forget it so a late repo-check
+    // callback doesn't touch a freed widget.
+    if (state.coding_btn == c.button) {
+        state.coding_btn = null;
+        if (state.coding_btn_issue) |s| state.gpa.free(s);
+        state.coding_btn_issue = null;
     }
-    return false;
+    state.gpa.free(c.issue_id);
+    state.gpa.destroy(c);
+}
+
+fn addStartCodingButton(state: *AppState, header: gtk.Object, id: []const u8) void {
+    const btn = gtk.gtk_button_new_with_label("Start coding");
+    gtk.gtk_widget_add_css_class(btn, "flat");
+    // Disabled until the repo check resolves (coding-first gate).
+    gtk.gtk_widget_set_sensitive(btn, 0);
+    gtk.gtk_widget_set_tooltip_text(btn, "Checking for a linked repository…");
+
+    const gpa = state.gpa;
+    const id_z = gpa.dupeZ(u8, id) catch return;
+    const ctx = gpa.create(CodingLaunchCtx) catch {
+        gpa.free(id_z);
+        return;
+    };
+    ctx.* = .{ .state = state, .button = btn, .issue_id = id_z };
+    gtk.g_object_set_data_full(btn, "exp-coding", @ptrCast(ctx), @ptrCast(&freeCodingLaunch));
+    _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onStartCoding), ctx, null, 0);
+    gtk.adw_header_bar_pack_end(header, btn);
+
+    // Track the current button for the async repo check.
+    state.coding_btn = btn;
+    if (state.coding_btn_issue) |s| gpa.free(s);
+    state.coding_btn_issue = gpa.dupe(u8, id) catch null;
+
+    // Kick off repositories.forIssue off the main thread; it flips sensitivity.
+    startCodingRepoCheck(state, id);
+}
+
+fn onStartCoding(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *CodingLaunchCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    const inst = state.instance orelse return;
+    const db = if (state.db) |*d| d else return;
+    coding_launcher.start(.{
+        .gpa = state.gpa,
+        .instance = inst,
+        .token = state.token,
+        .db = db,
+        .issue_id = ctx.issue_id,
+        .mount = codingMount,
+        .mount_ctx = state,
+        .on_error = codingError,
+        .error_ctx = state,
+    });
+}
+
+/// Main-thread mount hook: drop the ready ghostty terminal into the bottom dock.
+fn codingMount(mount_ctx: ?*anyopaque, term: gtk.Object, title: [*:0]const u8) void {
+    const state: *AppState = @ptrCast(@alignCast(mount_ctx orelse return));
+    if (state.term_dock) |dock| dock.mountTerminal(term, title);
+}
+
+/// Main-thread error hook: surface the failure / "link a repository" CTA.
+fn codingError(err_ctx: ?*anyopaque, message: [*:0]const u8) void {
+    const state: *AppState = @ptrCast(@alignCast(err_ctx orelse return));
+    showMessageDialog(state, "Start coding", std.mem.span(message));
+}
+
+// --- async coding-first repo check ---
+
+const CodingCheckJob = struct {
+    state: *AppState,
+    gpa: std.mem.Allocator,
+    instance: []u8,
+    token: ?[]u8,
+    issue_id: []u8,
+    has_repo: bool = false,
+};
+
+fn startCodingRepoCheck(state: *AppState, issue_id: []const u8) void {
+    const inst = state.instance orelse return;
+    const gpa = state.gpa;
+    const job = gpa.create(CodingCheckJob) catch return;
+    job.* = .{
+        .state = state,
+        .gpa = gpa,
+        .instance = gpa.dupe(u8, inst) catch {
+            gpa.destroy(job);
+            return;
+        },
+        .token = if (state.token) |t| (gpa.dupe(u8, t) catch null) else null,
+        .issue_id = gpa.dupe(u8, issue_id) catch {
+            gpa.free(job.instance);
+            gpa.destroy(job);
+            return;
+        },
+    };
+    const th = std.Thread.spawn(.{}, codingCheckWorker, .{job}) catch {
+        codingCheckWorker(job);
+        return;
+    };
+    th.detach();
+}
+
+fn codingCheckWorker(job: *CodingCheckJob) void {
+    defer _ = gtk.g_idle_add(@ptrCast(&onCodingCheckDone), job);
+    const gpa = job.gpa;
+    const input = std.fmt.allocPrint(gpa, "{{\"issueId\":\"{s}\"}}", .{job.issue_id}) catch return;
+    defer gpa.free(input);
+    var resp = trpc.queryInput(gpa, job.instance, "repositories.forIssue", input, job.token, 30) catch return;
+    defer resp.deinit();
+    if (!resp.ok()) return;
+    // A linked repo ⇒ a non-null object with a repositoryId; null ⇒ not linked.
+    const dv = resp.data() orelse return;
+    var obj = trpc.asObject(dv) orelse return;
+    if (obj.get("json")) |inner| {
+        if (trpc.asObject(inner)) |inner_obj| obj = inner_obj;
+    }
+    job.has_repo = trpc.objString(obj, "repositoryId") != null;
+}
+
+fn onCodingCheckDone(data: gtk.gpointer) callconv(.c) c_int {
+    const job: *CodingCheckJob = @ptrCast(@alignCast(data));
+    const state = job.state;
+    // Only touch the button if it's still the tracked one for THIS issue
+    // (state.coding_btn is nulled by the button's destroy-notify, so it's never
+    // dangling here).
+    if (state.coding_btn) |btn| {
+        if (state.coding_btn_issue) |cur| {
+            if (std.mem.eql(u8, cur, job.issue_id)) {
+                gtk.gtk_widget_set_sensitive(btn, if (job.has_repo) 1 else 0);
+                gtk.gtk_widget_set_tooltip_text(btn, if (job.has_repo)
+                    "Clone the repo and start a coding session for this issue"
+                else
+                    "Link a repository to this project in workspace settings to start coding");
+            }
+        }
+    }
+    const gpa = job.gpa;
+    gpa.free(job.instance);
+    if (job.token) |t| gpa.free(t);
+    gpa.free(job.issue_id);
+    gpa.destroy(job);
+    return 0; // G_SOURCE_REMOVE
+}
+
+/// A minimal modal message dialog (title + message + Close), matching the
+/// AdwDialog pattern used by settings.
+fn showMessageDialog(state: *AppState, title: [*:0]const u8, message: []const u8) void {
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, title);
+    gtk.adw_dialog_set_content_width(dialog, 420);
+
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+
+    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 12);
+    gtk.gtk_widget_set_margin_top(form, 16);
+    gtk.gtk_widget_set_margin_bottom(form, 16);
+    gtk.gtk_widget_set_margin_start(form, 16);
+    gtk.gtk_widget_set_margin_end(form, 16);
+    const lbl = gtk.gtk_label_new(null);
+    var buf: [512]u8 = undefined;
+    if (std.fmt.bufPrintZ(&buf, "{s}", .{message[0..@min(message.len, buf.len - 1)]})) |z| {
+        gtk.gtk_label_set_text(lbl, z.ptr);
+    } else |_| {}
+    gtk.gtk_label_set_wrap(lbl, 1);
+    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+    gtk.gtk_box_append(form, lbl);
+
+    const close = gtk.gtk_button_new_with_label("Close");
+    gtk.gtk_widget_add_css_class(close, "flat");
+    gtk.gtk_widget_set_halign(close, gtk.ALIGN_END);
+    _ = gtk.g_signal_connect_data(close, "clicked", @ptrCast(&onMessageClose), dialog, null, 0);
+    gtk.gtk_box_append(form, close);
+
+    gtk.adw_toolbar_view_set_content(tv, form);
+    gtk.adw_dialog_set_child(dialog, tv);
+    gtk.adw_dialog_present(dialog, state.window);
+}
+
+fn onMessageClose(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    _ = gtk.adw_dialog_close(@ptrCast(@alignCast(data)));
 }
 
 const OpenUrlCtx = struct { gpa: std.mem.Allocator, url: [:0]u8 };
@@ -2751,30 +2530,15 @@ fn onOpenUrl(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     _ = gtk.g_app_info_launch_default_for_uri(ctx.url.ptr, null, null);
 }
 
-fn onApproveInteractive(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *IssueActionCtx = @ptrCast(@alignCast(data));
-    const state = ctx.state;
-    // 1. Approve with the human session (the agent credential can't self-approve).
-    var arena = std.heap.ArenaAllocator.init(state.gpa);
-    defer arena.deinit();
-    if (std.json.Stringify.valueAlloc(arena.allocator(), .{ .issueId = ctx.issue_id }, .{})) |json| {
-        if (state.instance) |inst| {
-            mutate.fire(state.gpa, inst, state.token, "agentPlan.approvePlan", json);
-        }
-    } else |_| {}
-    // 2. Resume the interactive session to implement the plan.
-    if (state.agent_core) |m| agent_manager.approveInteractive(m, ctx.issue_id);
-}
-
-/// One compact activity line for the merged timeline (status/assignee/label/PR/
-/// plan/error events synced via the issue_events shape).
-/// Human label for an issue_status enum value.
+/// Human label for an issue_status enum value (used by the merged activity
+/// timeline for status_changed events).
 fn statusLabel(s: []const u8) []const u8 {
     if (std.mem.eql(u8, s, "backlog")) return "Backlog";
     if (std.mem.eql(u8, s, "todo")) return "Todo";
     if (std.mem.eql(u8, s, "in_progress")) return "In Progress";
     if (std.mem.eql(u8, s, "done")) return "Done";
     if (std.mem.eql(u8, s, "cancelled")) return "Cancelled";
+    if (std.mem.eql(u8, s, "duplicate")) return "Duplicate";
     return s;
 }
 
@@ -2822,11 +2586,6 @@ fn eventPhrase(a: std.mem.Allocator, e: Database.IssueEventRow) []const u8 {
         }
         return "merged the pull request";
     }
-    if (std.mem.eql(u8, e.type, "plan_ready")) return "shared a plan";
-    if (std.mem.eql(u8, e.type, "agent_started")) return "started working";
-    if (std.mem.eql(u8, e.type, "agent_question")) return "asked a question";
-    if (std.mem.eql(u8, e.type, "agent_answer")) return "answered";
-    if (std.mem.eql(u8, e.type, "agent_error")) return "hit an error";
     return e.type;
 }
 
@@ -2842,41 +2601,6 @@ fn eventLine(a: std.mem.Allocator, e: Database.IssueEventRow) gtk.Object {
     gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
     gtk.gtk_widget_set_margin_start(lbl, 4);
     return lbl;
-}
-
-fn wirePlanButton(state: *AppState, btn: gtk.Object, issue_id: []const u8, approve: bool, row: gtk.Object) void {
-    const ctx = state.gpa.create(PlanActionCtx) catch return;
-    ctx.state = state;
-    ctx.approve = approve;
-    ctx.action_row = row;
-    ctx.issue_id = state.gpa.dupeZ(u8, issue_id) catch {
-        state.gpa.destroy(ctx);
-        return;
-    };
-    gtk.g_object_set_data_full(btn, "exp-ctx", @ptrCast(ctx), @ptrCast(&freePlanAction));
-    _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onPlanAction), ctx, null, 0);
-}
-
-fn onPlanAction(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *PlanActionCtx = @ptrCast(@alignCast(data));
-    const state = ctx.state;
-    const row = ctx.action_row; // local: row outlives ctx (cleared below frees ctx)
-    const approve = ctx.approve;
-
-    var arena = std.heap.ArenaAllocator.init(state.gpa);
-    defer arena.deinit();
-    const json = std.json.Stringify.valueAlloc(arena.allocator(), .{ .issueId = ctx.issue_id }, .{}) catch return;
-    mutate.fire(state.gpa, state.instance.?, state.token, if (approve) "agentPlan.approvePlan" else "agentPlan.requestChanges", json);
-
-    // Optimistic: replace the buttons with a status (sync delivers the real state).
-    clearBox(row); // destroys the buttons → frees their ctxs; don't touch ctx after
-    const lbl = gtk.gtk_label_new(null);
-    gtk.gtk_label_set_markup(lbl, if (approve)
-        "<span foreground='#22c55e'>✓ Plan approved</span>"
-    else
-        "<span foreground='#eab308'>Changes requested</span>");
-    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-    gtk.gtk_box_append(row, lbl);
 }
 
 // ---------------------------------------------------------------------------
@@ -3458,7 +3182,7 @@ fn onCommentSubmit(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     // this is just defensive — sync delivers the canonical row regardless).
     mutate.fire(state.gpa, state.instance.?, state.token, "comments.create", json);
     const showing_same = if (state.detail_issue_id) |d| std.mem.eql(u8, d, ctx.issue_id) else false;
-    if (showing_same) gtk.gtk_box_append(ctx.comments_box, commentBubble(a, "You", "regular", text, false, false));
+    if (showing_same) gtk.gtk_box_append(ctx.comments_box, commentBubble(a, "You", text));
     ctx.editor.setText("");
 }
 
@@ -4174,7 +3898,7 @@ fn loadPreviewTargets(state: *AppState) void {
     var scratch = std.heap.ArenaAllocator.init(state.gpa);
     defer scratch.deinit();
     const cfg = preview_config.load(scratch.allocator(), repo) catch {
-        pane.setMessage("No .exponential/config.json found in the clone yet (clone the repo via an agent run first).");
+        pane.setMessage("No .exponential/config.json found in the clone yet (clone the repo first).");
         return;
     };
 
@@ -4686,7 +4410,7 @@ fn showOnboarding(state: *AppState) void {
     gtk.gtk_label_set_markup(title, "<span size='x-large' weight='bold'>Welcome to Exponential</span>");
     gtk.gtk_box_append(box, title);
 
-    const desc = gtk.gtk_label_new("Create a project and start tracking work — then let a coding agent open pull requests for you. Already set up on the web? Just skip.");
+    const desc = gtk.gtk_label_new("Create a project and start tracking work. Already set up on the web? Just skip.");
     gtk.gtk_widget_add_css_class(desc, "dim-label");
     gtk.gtk_label_set_wrap(desc, 1);
     gtk.gtk_widget_set_halign(desc, gtk.ALIGN_CENTER);
@@ -4700,9 +4424,6 @@ fn showOnboarding(state: *AppState) void {
     gtk.gtk_widget_add_css_class(proj_btn, "suggested-action");
     _ = gtk.g_signal_connect_data(proj_btn, "clicked", @ptrCast(&onOnboardProject), ctx, null, 0);
     gtk.gtk_box_append(actions, proj_btn);
-    const agent_btn = gtk.gtk_button_new_with_label("Set up coding agent");
-    _ = gtk.g_signal_connect_data(agent_btn, "clicked", @ptrCast(&onOnboardSetupAgent), ctx, null, 0);
-    gtk.gtk_box_append(actions, agent_btn);
     const skip = gtk.gtk_button_new_with_label("Skip");
     gtk.gtk_widget_add_css_class(skip, "flat");
     _ = gtk.g_signal_connect_data(skip, "clicked", @ptrCast(&onOnboardSkip), ctx, null, 0);
@@ -4732,15 +4453,6 @@ fn onOnboardProject(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const state = ctx.state;
     _ = gtk.adw_dialog_close(ctx.dialog);
     openProjectDialog(state);
-}
-
-fn onOnboardSetupAgent(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *OnboardCtx = @ptrCast(@alignCast(data));
-    const state = ctx.state;
-    _ = gtk.adw_dialog_close(ctx.dialog);
-    // Open Settings, where the "Register this machine as a desktop agent"
-    // section + the Connect-GitHub link live.
-    onSettingsClicked(null, @ptrCast(state));
 }
 
 fn onOnboardSkip(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {

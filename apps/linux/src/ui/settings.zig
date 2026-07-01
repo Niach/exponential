@@ -13,9 +13,8 @@ const gtk = @import("gtk.zig");
 const widgets = @import("widgets.zig");
 const trpc = @import("../core/api/trpc.zig");
 const Database = @import("../core/db/database.zig").Database;
-const registration = @import("../core/agent/registration.zig");
-const identity_store = @import("../core/agent/identity_store.zig");
 const api_projects = @import("../core/api/projects.zig");
+const credentials = @import("../core/credentials.zig");
 
 const policy_options = [_:null]?[*:0]const u8{ "members", "everyone" };
 
@@ -32,9 +31,14 @@ const Ctx = struct {
     public_check: gtk.Object = null,
     policy_dd: gtk.Object = null,
     link_entry: gtk.Object = null,
-    agent_status: gtk.Object = null,
     new_label_entry: gtk.Object = null,
     last_link: ?[:0]u8 = null,
+    // Coding section
+    coding_claude_entry: gtk.Object = null,
+    coding_repos_entry: gtk.Object = null,
+    coding_prefix_entry: gtk.Object = null,
+    coding_doctor_label: gtk.Object = null,
+    last_minted_key: ?[:0]u8 = null, // shown once after Generate; freed on close
 };
 
 pub fn open(
@@ -116,6 +120,7 @@ fn onClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     if (ctx.token) |t| gpa.free(t);
     if (ctx.current_user_id) |u| gpa.free(u);
     if (ctx.last_link) |l| gpa.free(l);
+    if (ctx.last_minted_key) |k| gpa.free(k);
     gpa.destroy(ctx);
 }
 
@@ -219,55 +224,8 @@ fn rebuild(ctx: *Ctx) void {
     // --- Labels ---
     labelsSection(ctx, a);
 
-    // --- Desktop agent ---
-    gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Desktop agent"));
-    if (identity_store.exists(ctx.gpa)) {
-        const agent_name = identity_store.readField(ctx.gpa, "agentName");
-        defer if (agent_name) |n| ctx.gpa.free(n);
-        const lbl = gtk.gtk_label_new(null);
-        var buf: [256]u8 = undefined;
-        if (std.fmt.bufPrintZ(&buf, "<span foreground='#22c55e'>✓ Registered as {s}</span>", .{agent_name orelse "this machine"})) |z|
-            gtk.gtk_label_set_markup(lbl, z.ptr)
-        else |_| {}
-        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-        gtk.gtk_box_append(ctx.content, lbl);
-        const unreg = gtk.gtk_button_new_with_label("Unregister this machine");
-        gtk.gtk_widget_add_css_class(unreg, "flat");
-        gtk.gtk_widget_set_halign(unreg, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(unreg, "clicked", @ptrCast(&onUnregister), ctx, null, 0);
-        gtk.gtk_box_append(ctx.content, unreg);
-
-        // GitHub is connected once in the web app (Account → Integrations); the
-        // agent uses the owner's token for clone/push, and the server opens PRs
-        // + serves diffs. No per-machine device flow.
-        const gh_lbl = gtk.gtk_label_new("Connect GitHub in the web app (Account → Integrations) so the agent can push code and open pull requests.");
-        gtk.gtk_widget_add_css_class(gh_lbl, "dim-label");
-        gtk.gtk_widget_set_halign(gh_lbl, gtk.ALIGN_START);
-        gtk.gtk_label_set_wrap(gh_lbl, 1);
-        gtk.gtk_box_append(ctx.content, gh_lbl);
-        const open_gh = gtk.gtk_button_new_with_label("Open Integrations in browser");
-        gtk.gtk_widget_add_css_class(open_gh, "flat");
-        gtk.gtk_widget_set_halign(open_gh, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(open_gh, "clicked", @ptrCast(&onOpenGithubIntegrations), ctx, null, 0);
-        gtk.gtk_box_append(ctx.content, open_gh);
-    } else {
-        const desc = gtk.gtk_label_new("Register this machine so it can run assigned issues as an agent.");
-        gtk.gtk_widget_add_css_class(desc, "dim-label");
-        gtk.gtk_widget_set_halign(desc, gtk.ALIGN_START);
-        gtk.gtk_label_set_wrap(desc, 1);
-        gtk.gtk_box_append(ctx.content, desc);
-        const reg = gtk.gtk_button_new_with_label("Register this machine as a desktop agent");
-        gtk.gtk_widget_add_css_class(reg, "suggested-action");
-        gtk.gtk_widget_set_halign(reg, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(reg, "clicked", @ptrCast(&onRegister), ctx, null, 0);
-        gtk.gtk_box_append(ctx.content, reg);
-    }
-    const status = gtk.gtk_label_new("");
-    gtk.gtk_widget_add_css_class(status, "dim-label");
-    gtk.gtk_widget_set_halign(status, gtk.ALIGN_START);
-    gtk.gtk_label_set_wrap(status, 1);
-    gtk.gtk_box_append(ctx.content, status);
-    ctx.agent_status = status;
+    // --- Coding (desktop launcher settings) ---
+    codingSection(ctx, a);
 
     // --- Danger Zone (owner-only) ---
     var is_owner = false;
@@ -597,6 +555,213 @@ fn onCreateLabel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     rebuild(ctx);
 }
 
+// --- Coding section (JetBrains-SDK-style desktop launcher settings, §4b) -----
+//
+// Editable, prefilled defaults for the native "Start coding" launcher: the
+// `claude` CLI path (+ a version doctor), the clone/worktree root, the branch
+// prefix, and the user's PERSONAL API key (minted once via
+// `users.mintPersonalApiKey`, written into each worktree's `.mcp.json`). Values
+// persist to `credentials.zig`'s desktop-settings store, NOT the workspace.
+
+fn codingSection(ctx: *Ctx, a: std.mem.Allocator) void {
+    gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Coding"));
+
+    // Read current values (dup into the rebuild arena so the store can close).
+    var claude_path: []const u8 = credentials.default_claude_path;
+    var repos_root: []const u8 = "";
+    var branch_prefix: []const u8 = credentials.default_branch_prefix;
+    var key_start: ?[]const u8 = null;
+    if (credentials.Store.open(ctx.gpa)) |opened| {
+        var store = opened;
+        defer store.deinit();
+        claude_path = a.dupe(u8, store.claudePath()) catch claude_path;
+        branch_prefix = a.dupe(u8, store.branchPrefix()) catch branch_prefix;
+        if (store.reposRoot(a)) |r| repos_root = r else |_| {}
+        if (store.personalKeyStart()) |s| key_start = a.dupe(u8, s) catch null;
+    } else |_| {}
+    if (repos_root.len == 0) {
+        if (credentials.defaultReposRoot(a)) |r| repos_root = r else |_| {}
+    }
+
+    const hint = gtk.gtk_label_new("The `claude` CLI and `git` power the Start-coding button. These settings live on this machine.");
+    gtk.gtk_widget_add_css_class(hint, "dim-label");
+    gtk.gtk_label_set_wrap(hint, 1);
+    gtk.gtk_label_set_xalign(hint, 0);
+    gtk.gtk_box_append(ctx.content, hint);
+
+    ctx.coding_claude_entry = labeledEntry(ctx, "Claude CLI path", claude_path, "Save", &onCodingSaveClaude);
+    // Doctor: `claude --version` + `git --version`.
+    const doctor_row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    const doctor_btn = gtk.gtk_button_new_with_label("Check tools");
+    gtk.gtk_widget_add_css_class(doctor_btn, "flat");
+    gtk.gtk_widget_set_halign(doctor_btn, gtk.ALIGN_START);
+    _ = gtk.g_signal_connect_data(doctor_btn, "clicked", @ptrCast(&onCodingDoctor), ctx, null, 0);
+    gtk.gtk_box_append(doctor_row, doctor_btn);
+    const doctor_lbl = gtk.gtk_label_new("");
+    gtk.gtk_widget_add_css_class(doctor_lbl, "dim-label");
+    gtk.gtk_label_set_xalign(doctor_lbl, 0);
+    gtk.gtk_label_set_wrap(doctor_lbl, 1);
+    gtk.gtk_widget_set_hexpand(doctor_lbl, 1);
+    gtk.gtk_box_append(doctor_row, doctor_lbl);
+    ctx.coding_doctor_label = doctor_lbl;
+    gtk.gtk_box_append(ctx.content, doctor_row);
+
+    ctx.coding_repos_entry = labeledEntry(ctx, "Repos & worktrees root", repos_root, "Save", &onCodingSaveRepos);
+    ctx.coding_prefix_entry = labeledEntry(ctx, "Branch prefix", branch_prefix, "Save", &onCodingSavePrefix);
+
+    // Personal API key.
+    if (key_start) |start| {
+        const lbl = gtk.gtk_label_new(null);
+        if (std.fmt.allocPrintSentinel(a, "Personal API key: {s}… — written into each worktree's .mcp.json.", .{start}, 0)) |t| {
+            gtk.gtk_label_set_text(lbl, t.ptr);
+        } else |_| {}
+        gtk.gtk_widget_add_css_class(lbl, "dim-label");
+        gtk.gtk_label_set_wrap(lbl, 1);
+        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+        gtk.gtk_box_append(ctx.content, lbl);
+        const regen = gtk.gtk_button_new_with_label("Regenerate key");
+        gtk.gtk_widget_add_css_class(regen, "flat");
+        gtk.gtk_widget_set_halign(regen, gtk.ALIGN_START);
+        _ = gtk.g_signal_connect_data(regen, "clicked", @ptrCast(&onCodingGenKey), ctx, null, 0);
+        gtk.gtk_box_append(ctx.content, regen);
+    } else {
+        const lbl = gtk.gtk_label_new("No personal API key yet — generate one so the coding agent can reach the MCP server.");
+        gtk.gtk_widget_add_css_class(lbl, "dim-label");
+        gtk.gtk_label_set_wrap(lbl, 1);
+        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+        gtk.gtk_box_append(ctx.content, lbl);
+        const gen = gtk.gtk_button_new_with_label("Generate personal API key");
+        gtk.gtk_widget_add_css_class(gen, "suggested-action");
+        gtk.gtk_widget_set_halign(gen, gtk.ALIGN_START);
+        _ = gtk.g_signal_connect_data(gen, "clicked", @ptrCast(&onCodingGenKey), ctx, null, 0);
+        gtk.gtk_box_append(ctx.content, gen);
+    }
+    // Freshly minted key shown once (read-only; select + copy).
+    if (ctx.last_minted_key) |key| {
+        const note = gtk.gtk_label_new("Copy your new key now — it won't be shown in full again:");
+        gtk.gtk_widget_add_css_class(note, "dim-label");
+        gtk.gtk_widget_set_halign(note, gtk.ALIGN_START);
+        gtk.gtk_box_append(ctx.content, note);
+        const entry = gtk.gtk_entry_new();
+        gtk.gtk_editable_set_text(entry, key.ptr);
+        gtk.gtk_editable_set_editable(entry, 0);
+        gtk.gtk_box_append(ctx.content, entry);
+    }
+}
+
+/// A "label: [entry] [Save]" row; returns the entry (owned by the widget tree).
+fn labeledEntry(ctx: *Ctx, label: []const u8, value: []const u8, btn_label: [*:0]const u8, handler: *const fn (gtk.Object, gtk.gpointer) callconv(.c) void) gtk.Object {
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_set_margin_top(row, 2);
+    const lbl = gtk.gtk_label_new(null);
+    var buf: [64]u8 = undefined;
+    if (std.fmt.bufPrintZ(&buf, "{s}", .{label[0..@min(label.len, buf.len - 1)]})) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
+    gtk.gtk_widget_add_css_class(lbl, "dim-label");
+    gtk.gtk_box_append(row, lbl);
+    const entry = gtk.gtk_entry_new();
+    gtk.gtk_widget_set_hexpand(entry, 1);
+    var vbuf: [512]u8 = undefined;
+    if (std.fmt.bufPrintZ(&vbuf, "{s}", .{value[0..@min(value.len, vbuf.len - 1)]})) |z| gtk.gtk_editable_set_text(entry, z.ptr) else |_| {}
+    gtk.gtk_box_append(row, entry);
+    const save = gtk.gtk_button_new_with_label(btn_label);
+    gtk.gtk_widget_add_css_class(save, "flat");
+    _ = gtk.g_signal_connect_data(save, "clicked", @ptrCast(handler), ctx, null, 0);
+    _ = gtk.g_signal_connect_data(entry, "activate", @ptrCast(handler), ctx, null, 0);
+    gtk.gtk_box_append(row, save);
+    gtk.gtk_box_append(ctx.content, row);
+    return entry;
+}
+
+fn entryText(entry: gtk.Object) []const u8 {
+    return std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(entry)), " \t\r\n");
+}
+
+fn onCodingSaveClaude(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const e = ctx.coding_claude_entry orelse return;
+    saveCodingField(ctx, .claude, entryText(e));
+}
+fn onCodingSaveRepos(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const e = ctx.coding_repos_entry orelse return;
+    saveCodingField(ctx, .repos, entryText(e));
+}
+fn onCodingSavePrefix(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const e = ctx.coding_prefix_entry orelse return;
+    saveCodingField(ctx, .prefix, entryText(e));
+}
+
+const CodingField = enum { claude, repos, prefix };
+
+fn saveCodingField(ctx: *Ctx, field: CodingField, value: []const u8) void {
+    var store = credentials.Store.open(ctx.gpa) catch return;
+    defer store.deinit();
+    switch (field) {
+        .claude => store.setClaudePath(value),
+        .repos => store.setReposRoot(value),
+        .prefix => store.setBranchPrefix(value),
+    }
+    store.save() catch {};
+}
+
+fn onCodingDoctor(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const lbl = ctx.coding_doctor_label orelse return;
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const claude = if (ctx.coding_claude_entry) |e| entryText(e) else credentials.default_claude_path;
+    const claude_v = versionOf(a, if (claude.len > 0) claude else credentials.default_claude_path, "--version");
+    const git_v = versionOf(a, "git", "--version");
+    if (std.fmt.allocPrintSentinel(a, "claude: {s}\ngit: {s}", .{ claude_v, git_v }, 0)) |t| {
+        gtk.gtk_label_set_text(lbl, t.ptr);
+    } else |_| {}
+}
+
+/// Run `<prog> <arg>` and return trimmed stdout (or "not found" on failure).
+fn versionOf(a: std.mem.Allocator, prog: []const u8, arg: []const u8) []const u8 {
+    const res = std.process.run(a, std.Io.Threaded.global_single_threaded.io(), .{
+        .argv = &.{ prog, arg },
+        .stdout_limit = .limited(16 * 1024),
+        .stderr_limit = .limited(16 * 1024),
+    }) catch return "not found";
+    if (!(res.term == .exited and res.term.exited == 0)) return "not found";
+    const out = std.mem.trim(u8, res.stdout, " \t\r\n");
+    return if (out.len > 0) out else "ok";
+}
+
+fn onCodingGenKey(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const input = std.json.Stringify.valueAlloc(a, .{ .name = "Exponential Desktop" }, .{}) catch return;
+    var resp = trpc.call(ctx.gpa, ctx.instance, "users.mintPersonalApiKey", input, ctx.token, 30) catch return;
+    defer resp.deinit();
+    if (!resp.ok()) return;
+    var obj = trpc.asObject(resp.data() orelse return) orelse return;
+    if (obj.get("json")) |inner| {
+        if (trpc.asObject(inner)) |io| obj = io;
+    }
+    const key = trpc.objString(obj, "key") orelse return;
+    const key_id = trpc.objString(obj, "id") orelse "";
+    const start = trpc.objString(obj, "start") orelse key[0..@min(key.len, 9)];
+
+    // Persist to the desktop-settings store.
+    var store = credentials.Store.open(ctx.gpa) catch return;
+    defer store.deinit();
+    store.setPersonalKey(key, key_id, start);
+    store.save() catch {};
+
+    // Show the raw key once (freed on close / next rebuild).
+    if (ctx.last_minted_key) |old| ctx.gpa.free(old);
+    ctx.last_minted_key = ctx.gpa.dupeZ(u8, key) catch null;
+    rebuild(ctx);
+}
+
 // --- Danger Zone + delete confirmation --------------------------------------
 
 const DeleteKind = enum { project, workspace };
@@ -781,118 +946,6 @@ fn onConfirmDelete(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     }
 }
 
-fn setAgentStatus(ctx: *Ctx, msg: []const u8) void {
-    const lbl = ctx.agent_status orelse return;
-    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
-    defer arena.deinit();
-    if (arena.allocator().dupeZ(u8, msg)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
-}
-
-/// Register this machine in one human-session-authorized call (companion.register).
-fn onRegister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    setAgentStatus(ctx, "Registering…");
-    const did = registration.deviceId(ctx.gpa) catch {
-        setAgentStatus(ctx, "Request failed.");
-        return;
-    };
-    defer ctx.gpa.free(did);
-    var oc = registration.registerDevice(ctx.gpa, ctx.instance, ctx.token, did, "Desktop", 30) catch {
-        setAgentStatus(ctx, "Request failed.");
-        return;
-    };
-    switch (oc) {
-        .failure => |m| {
-            defer ctx.gpa.free(m);
-            setAgentStatus(ctx, m);
-        },
-        .success => |*id| {
-            defer id.deinit();
-            _ = identity_store.save(ctx.gpa, id) catch {};
-            rebuild(ctx); // now shows "Registered"; app's heartbeat reconcile starts the ping
-        },
-    }
-}
-
-// Confirmation before unregistering — accidental unregister silently stops the
-// agent from picking up assigned issues, so make it deliberate.
-const UnregConfirm = struct { ctx: *Ctx, dialog: gtk.Object = null };
-
-fn onUnregister(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    const uc = ctx.gpa.create(UnregConfirm) catch return;
-    uc.ctx = ctx;
-
-    const dialog = gtk.adw_dialog_new();
-    gtk.adw_dialog_set_title(dialog, "Unregister this machine");
-    gtk.adw_dialog_set_content_width(dialog, 420);
-    uc.dialog = dialog;
-
-    const tv = gtk.adw_toolbar_view_new();
-    const header = gtk.adw_header_bar_new();
-    const cancel = gtk.gtk_button_new_with_label("Cancel");
-    _ = gtk.g_signal_connect_data(cancel, "clicked", @ptrCast(&onUnregCancel), uc, null, 0);
-    gtk.adw_header_bar_pack_start(header, cancel);
-    gtk.adw_toolbar_view_add_top_bar(tv, header);
-
-    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 10);
-    gtk.gtk_widget_set_margin_top(form, 16);
-    gtk.gtk_widget_set_margin_bottom(form, 16);
-    gtk.gtk_widget_set_margin_start(form, 16);
-    gtk.gtk_widget_set_margin_end(form, 16);
-    const msg = gtk.gtk_label_new("Unregister this machine? It will stop running assigned issues until you register it again.");
-    gtk.gtk_label_set_wrap(msg, 1);
-    gtk.gtk_widget_set_halign(msg, gtk.ALIGN_START);
-    gtk.gtk_box_append(form, msg);
-    const confirm = gtk.gtk_button_new_with_label("Unregister");
-    gtk.gtk_widget_add_css_class(confirm, "destructive-action");
-    gtk.gtk_widget_set_halign(confirm, gtk.ALIGN_END);
-    _ = gtk.g_signal_connect_data(confirm, "clicked", @ptrCast(&onUnregConfirm), uc, null, 0);
-    gtk.gtk_box_append(form, confirm);
-
-    gtk.adw_toolbar_view_set_content(tv, form);
-    gtk.adw_dialog_set_child(dialog, tv);
-    _ = gtk.g_signal_connect_data(dialog, "closed", @ptrCast(&onUnregClosed), uc, null, 0);
-    gtk.adw_dialog_present(dialog, ctx.dialog);
-}
-
-fn onUnregCancel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
-    _ = gtk.adw_dialog_close(uc.dialog);
-}
-
-fn onUnregClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
-    uc.ctx.gpa.destroy(uc);
-}
-
-fn onUnregConfirm(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const uc: *UnregConfirm = @ptrCast(@alignCast(data));
-    const ctx = uc.ctx;
-    doUnregister(ctx);
-    _ = gtk.adw_dialog_close(uc.dialog); // frees uc via onUnregClosed
-    rebuild(ctx);
-}
-
-fn doUnregister(ctx: *Ctx) void {
-    if (identity_store.readField(ctx.gpa, "apiKey")) |key| {
-        defer ctx.gpa.free(key);
-        _ = registration.uninstall(ctx.gpa, ctx.instance, key, 30);
-    }
-    identity_store.delete(ctx.gpa);
-}
-
-/// GitHub is connected in the web app now — open Account → Integrations in the
-/// browser. (The desktop agent fetches the owner's token from the server; there
-/// is no per-machine device flow anymore.)
-fn onOpenGithubIntegrations(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const ctx: *Ctx = @ptrCast(@alignCast(data));
-    var buf: [512]u8 = undefined;
-    const base = std.mem.trimEnd(u8, ctx.instance, "/");
-    const url = std.fmt.bufPrintZ(&buf, "{s}/account/integrations", .{base}) catch return;
-    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
-}
-
 fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow, owner_count: usize) gtk.Object {
     const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
     gtk.gtk_widget_set_margin_top(row, 2);
@@ -923,14 +976,14 @@ fn memberRow(ctx: *Ctx, arena: std.mem.Allocator, m: Database.MemberRow, owner_c
     gtk.gtk_widget_add_css_class(role_lbl, "dim-label");
     gtk.gtk_box_append(row, role_lbl);
 
-    // Agents are managed elsewhere; no actions for them. The last owner of a
-    // workspace can't be demoted or leave (mirrors the server guard).
+    // The widget helpdesk bot is managed elsewhere; no actions for it. The last
+    // owner of a workspace can't be demoted or leave (mirrors the server guard).
     const is_last_owner = std.mem.eql(u8, m.role, "owner") and owner_count <= 1;
     const can_make_owner = !std.mem.eql(u8, m.role, "owner");
     const can_make_member = !std.mem.eql(u8, m.role, "member") and !is_last_owner;
     const can_leave = is_self and !is_last_owner;
     const can_remove = !is_self;
-    if (!std.mem.eql(u8, m.role, "agent") and (can_make_owner or can_make_member or can_leave or can_remove)) {
+    if (!m.is_agent and (can_make_owner or can_make_member or can_leave or can_remove)) {
         const menu = gtk.gtk_menu_button_new();
         gtk.gtk_menu_button_set_child(menu, gtk.gtk_label_new("⋯"));
         const pop = gtk.gtk_popover_new();

@@ -26,8 +26,9 @@ export interface CreatedPull {
   number: number
 }
 
-// Create a PR server-side (the agent pushes the branch, the server opens the PR
-// with the owner's connected token). Throws on any non-2xx with GitHub's message.
+// Create a PR server-side (the desktop coding session pushes the branch, the
+// server opens the PR with the App installation token). Throws on any non-2xx
+// with GitHub's message.
 export async function createPullRequest(opts: {
   repo: string
   head: string
@@ -97,7 +98,7 @@ export async function fetchPullState(
 
 // Fetch a pull request's changed files from GitHub for the diff view.
 //
-// Token priority: a `token` passed in (an agent's reported token — covers
+// Token priority: a `token` passed in (the App installation token — covers
 // private repos), then the optional `GITHUB_TOKEN` env (a self-hoster PAT),
 // then unauthenticated (public repos only). A private repo with no token
 // available returns a not-found error, surfaced to the UI.

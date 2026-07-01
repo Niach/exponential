@@ -5,8 +5,7 @@ import os
 private let logger = Logger(subsystem: "at.exponential.mac", category: "MacAppDependencies")
 
 /// macOS composition root. Mirrors the iOS `AppDependencies` minus the iOS-only
-/// pieces (Firebase, FCM push, `NotificationDelegate`). Read-only live sync for
-/// A2; CRUD/agent wiring lands in A3+.
+/// pieces (Firebase, FCM push, `NotificationDelegate`).
 @Observable
 final class MacAppDependencies: @unchecked Sendable {
     let keychain: KeychainStore
@@ -26,18 +25,28 @@ final class MacAppDependencies: @unchecked Sendable {
     let workspaceMembersApi: WorkspaceMembersApi
     let workspaceInvitesApi: WorkspaceInvitesApi
     let issueImagesApi: IssueImagesApi
-    let agentPlanApi: AgentPlanApi
-    let companionApi: CompanionApi
     let integrationsApi: IntegrationsApi
     let notificationsApi: NotificationsApi
     let subscriptionsApi: SubscriptionsApi
+    // Server-only coding-flow procs (repositories aren't a synced shape).
+    let repositoriesApi: RepositoriesApi
+    let codingSessionsApi: CodingSessionsApi
+    let usersApi: UsersApi
+    let steerApi: SteerApi
     let terminalDock: MacTerminalDock
-    let agentService: MacAgentService
     let toastCenter: MacToastCenter
     // The local device-preview runtime (build/run/embed the selected run target
     // in the dedicated Preview pane). Single active preview, retained here so it
     // survives issue navigation like the terminal dock.
     let previewController: MacPreviewController
+    // Persistent "Start coding" settings (claude path, repos root, branch prefix,
+    // personal API key) + the native launcher (§4a). One launcher, retained here
+    // so a live session's completion handler outlives issue navigation.
+    let codingSettings: MacCodingSettings
+    let codingLauncher: MacCodingLauncher
+    // Outbound steer control socket (device presence + remote "Start on my
+    // desktop"). Graceful-off when the relay isn't configured.
+    let steerControl: MacSteerControlChannel
 
     init() {
         let keychain = KeychainStore()
@@ -82,34 +91,55 @@ final class MacAppDependencies: @unchecked Sendable {
         self.workspaceMembersApi = WorkspaceMembersApi(trpc: trpc)
         self.workspaceInvitesApi = WorkspaceInvitesApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
-        self.agentPlanApi = AgentPlanApi(trpc: trpc)
-        self.companionApi = CompanionApi(trpc: trpc)
         let integrationsApi = IntegrationsApi(trpc: trpc)
         self.integrationsApi = integrationsApi
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
+        let repositoriesApi = RepositoriesApi(trpc: trpc)
+        self.repositoriesApi = repositoriesApi
+        let codingSessionsApi = CodingSessionsApi(trpc: trpc)
+        self.codingSessionsApi = codingSessionsApi
+        self.usersApi = UsersApi(trpc: trpc)
+        let steerApi = SteerApi(trpc: trpc)
+        self.steerApi = steerApi
         // The collapsible bottom terminal dock — shared by MacShell (renders it)
-        // and MacAgentService (mounts interactive runs into it).
+        // and the preview + coding run terminals (which mount into it).
         let terminalDock = MainActor.assumeIsolated { MacTerminalDock() }
         self.terminalDock = terminalDock
+        // The terminal runner is a singleton; point it at the shared dock once so
+        // interactive runs mount there instead of a per-run window.
+        MainActor.assumeIsolated { MacTerminalRunner.shared.dock = terminalDock }
         let toastCenter = MainActor.assumeIsolated { MacToastCenter() }
         self.toastCenter = toastCenter
         self.previewController = MainActor.assumeIsolated { MacPreviewController() }
-        // @State initializes this composition root on the main actor, so it's safe
-        // to construct the MainActor-isolated agent service here (it starts
-        // heartbeats for any already-registered workspaces).
-        self.agentService = MainActor.assumeIsolated {
-            MacAgentService(
+        let codingSettings = MainActor.assumeIsolated { MacCodingSettings.load() }
+        self.codingSettings = codingSettings
+        let codingLauncher = MainActor.assumeIsolated {
+            MacCodingLauncher(
                 auth: auth,
-                integrationsApi: integrationsApi,
-                terminalDock: terminalDock,
-                runMonitor: MacAgentRunMonitor(),
-                toasts: toastCenter
+                repositoriesApi: repositoriesApi,
+                codingSessionsApi: codingSessionsApi,
+                steerApi: steerApi,
+                db: db,
+                settings: codingSettings,
+                toasts: toastCenter,
+                terminalDock: terminalDock
             )
         }
+        self.codingLauncher = codingLauncher
+        // The control socket routes a remote `start_session` to the same launcher
+        // the local play button uses.
+        let steerControl = MainActor.assumeIsolated {
+            MacSteerControlChannel(auth: auth, steerApi: steerApi, settings: codingSettings) { accountId, issueId in
+                codingLauncher.start(accountId: accountId, issueId: issueId)
+            }
+        }
+        self.steerControl = steerControl
 
         // Start sync — it observes auth state and launches one shape pipeline set
         // per signed-in account, swapping pools on account switch.
         syncManager.start()
+        // Start the steer control socket (self-gates when the relay is unset).
+        MainActor.assumeIsolated { steerControl.start() }
     }
 }

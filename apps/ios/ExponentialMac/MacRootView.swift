@@ -19,13 +19,6 @@ struct MacRootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackground())
-        // Auto-register this Mac as a desktop device whenever a signed-in
-        // account appears (covers both an already-signed-in launch and a fresh
-        // login — registration can't run at init before any account exists).
-        // Idempotent; re-runs when the set of signed-in accounts changes.
-        .task(id: deps.auth.accounts.compactMap { $0.token != nil ? $0.id : nil }.joined(separator: ",")) {
-            await deps.agentService.autoRegisterAll()
-        }
         // Handle exp://invite/<token> (the `exp` scheme is registered in the
         // mac Info.plist). Mirrors the iOS AppNavigator deep-link routing.
         .onOpenURL { url in

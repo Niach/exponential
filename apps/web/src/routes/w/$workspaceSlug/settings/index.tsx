@@ -9,8 +9,8 @@ import {
 import { WorkspaceGeneralSection } from "@/components/workspace/general-section"
 import { WorkspaceLabelsSection } from "@/components/workspace/labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace/members-section"
-import { WorkspaceAgentsSection } from "@/components/workspace/agents-section"
 import { WorkspaceProjectsSection } from "@/components/workspace/projects-section"
+import { WorkspaceRepositoriesSection } from "@/components/workspace/repositories-section"
 import { WorkspaceWidgetSection } from "@/components/workspace/widget-section"
 import { WorkspaceBillingSection } from "@/components/workspace/billing-section"
 import { Separator } from "@/components/ui/separator"
@@ -112,11 +112,11 @@ function WorkspaceSettings() {
       )}
 
       {workspace && isOwner && (
-        <WorkspaceAgentsSection workspaceId={workspace.id} />
+        <WorkspaceProjectsSection workspaceId={workspace.id} />
       )}
 
       {workspace && isOwner && (
-        <WorkspaceProjectsSection workspaceId={workspace.id} />
+        <WorkspaceRepositoriesSection workspaceId={workspace.id} />
       )}
 
       {workspace && isOwner && (
@@ -124,7 +124,7 @@ function WorkspaceSettings() {
       )}
 
       <WorkspaceMembersSection
-        members={members.filter((member) => member.role !== `agent`)}
+        members={members.filter((member) => !userMap.get(member.userId)?.isAgent)}
         userMap={userMap}
         currentUserId={session?.user?.id}
         isOwner={isOwner}

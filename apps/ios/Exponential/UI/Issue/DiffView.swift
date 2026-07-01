@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The PR diff for an issue, loaded once from `issues.prFiles`. Renders each
 /// changed file as a patch block with +/−/context line coloring. iOS mirror of
-/// `MacDiffView` (ExponentialMac/MacAgentPanel.swift).
+/// `MacDiffView` (ExponentialMac/MacDiffView.swift). Read-only in v1.
 struct DiffView: View {
     let issueId: String
 

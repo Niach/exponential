@@ -104,10 +104,10 @@ struct PreviewConfigFile: Sendable {
 enum MacPreviewConfig {
     static let fileRelativePath = ".exponential/config.json"
 
-    /// Reposroot mirrors MacAgentService.startAgent: the agent clones the linked
-    /// repo to `{reposRoot}/{owner}/{repo}` on the default branch.
+    /// The repos root: the preview reads a project's checkout from
+    /// `{reposRoot}/{owner}/{repo}` on the default branch.
     static func reposRoot() -> URL {
-        MacDeviceStore.dir().appendingPathComponent("repos", isDirectory: true)
+        MacAppSupport.dir().appendingPathComponent("repos", isDirectory: true)
     }
 
     /// The main checkout for `owner/repo` (where `.exponential/config.json` lives).
@@ -212,7 +212,7 @@ enum MacPreviewTrust {
     private struct Store: Codable { var approved: [String: String] = [:] } // repo -> sha256 hex
 
     private static func storeURL() -> URL {
-        MacDeviceStore.dir().appendingPathComponent("preview-trust.json")
+        MacAppSupport.dir().appendingPathComponent("preview-trust.json")
     }
 
     private static func load() -> Store {

@@ -27,7 +27,6 @@ final class AppDependencies: @unchecked Sendable {
     let integrationsApi: IntegrationsApi
     let issueImagesApi: IssueImagesApi
     let commentsApi: CommentsApi
-    let agentPlanApi: AgentPlanApi
     let notificationsApi: NotificationsApi
     let subscriptionsApi: SubscriptionsApi
     let onboardingApi: OnboardingApi
@@ -91,7 +90,6 @@ final class AppDependencies: @unchecked Sendable {
         self.integrationsApi = IntegrationsApi(trpc: trpc)
         self.issueImagesApi = IssueImagesApi(httpClient: httpClient, auth: auth)
         self.commentsApi = CommentsApi(trpc: trpc)
-        self.agentPlanApi = AgentPlanApi(trpc: trpc)
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)

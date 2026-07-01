@@ -6,18 +6,15 @@ public struct AuthConfig: Codable, Sendable {
     public let passwordEnabled: Bool
     public let oidcProviders: [OidcProvider]
     public let googleLoginEnabled: Bool
-    public let googleCalendarEnabled: Bool
 
     public init(
         passwordEnabled: Bool = true,
         oidcProviders: [OidcProvider] = [],
-        googleLoginEnabled: Bool = false,
-        googleCalendarEnabled: Bool = false
+        googleLoginEnabled: Bool = false
     ) {
         self.passwordEnabled = passwordEnabled
         self.oidcProviders = oidcProviders
         self.googleLoginEnabled = googleLoginEnabled
-        self.googleCalendarEnabled = googleCalendarEnabled
     }
 }
 

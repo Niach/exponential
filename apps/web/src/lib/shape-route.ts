@@ -19,8 +19,8 @@ export function createShapeRouteHandler({
 }: ShapeRouteHandlerOptions) {
   return async ({ request }: { request: Request }) => {
     // Auth accepts the session cookie (web), `Authorization: Bearer
-    // <sessionToken>` (iOS, Android), legacy `expk_` api keys, or the desktop
-    // agent's MCP OAuth2 access token — all via the single resolveSession
+    // <sessionToken>` (iOS, Android), personal `expu_` api keys, or a human MCP
+    // client's OAuth2 access token — all via the single resolveSession
     // chokepoint. May be null for anonymous requests reading public data.
     const session = await resolveSession(request)
 

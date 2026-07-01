@@ -20,11 +20,17 @@ pub fn run(conn: *sqlite.Conn) !void {
     for (new_issue_columns) |col| {
         if (!issueHasColumn(conn, col.name)) try conn.exec(col.ddl);
     }
-    // users.is_agent (added server-side in the agent redesign). Without it, the
-    // users shape — which now carries is_agent — fails to UPSERT and the local
-    // users table stays empty (members render as raw ids).
+    // users.is_agent marks the widget helpdesk bot (the only synthetic user
+    // left). Without it, the users shape — which carries is_agent — fails to
+    // UPSERT and the local users table stays empty (members render as raw ids).
     if (!tableHasColumn(conn, "users", "is_agent")) {
         try conn.exec("ALTER TABLE users ADD COLUMN is_agent INTEGER");
+    }
+    // issue_subscribers.email — widget-reporter subscribers carry an email with a
+    // null user_id (they aren't workspace members). Backfill on upgraded caches so
+    // the issue_subscribers shape carrying `email` still UPSERTs.
+    if (!tableHasColumn(conn, "issue_subscribers", "email")) {
+        try conn.exec("ALTER TABLE issue_subscribers ADD COLUMN email TEXT");
     }
     // projects.preview_config — the display-only mirror of the preview run
     // targets + feedback routing target (jsonb server-side, TEXT here). Without
@@ -45,9 +51,7 @@ const new_issue_columns = [_]IssueColumn{
     .{ .name = "pr_state", .ddl = "ALTER TABLE issues ADD COLUMN pr_state TEXT" },
     .{ .name = "branch", .ddl = "ALTER TABLE issues ADD COLUMN branch TEXT" },
     .{ .name = "pr_merged_at", .ddl = "ALTER TABLE issues ADD COLUMN pr_merged_at TEXT" },
-    .{ .name = "agent_session_id", .ddl = "ALTER TABLE issues ADD COLUMN agent_session_id TEXT" },
-    .{ .name = "agent_run_mode", .ddl = "ALTER TABLE issues ADD COLUMN agent_run_mode TEXT" },
-    .{ .name = "agent_interactive_claimed_at", .ddl = "ALTER TABLE issues ADD COLUMN agent_interactive_claimed_at TEXT" },
+    .{ .name = "duplicate_of_id", .ddl = "ALTER TABLE issues ADD COLUMN duplicate_of_id TEXT" },
 };
 
 fn issueHasColumn(conn: *sqlite.Conn, name: []const u8) bool {
@@ -151,22 +155,12 @@ const schema_sql =
     \\  archived_at TEXT,
     \\  recurrence_interval INTEGER,
     \\  recurrence_unit TEXT,
-    \\  google_calendar_event_id TEXT,
-    \\  google_calendar_last_synced_at TEXT,
-    \\  google_calendar_last_sync_error TEXT,
-    \\  agent_plan_state TEXT,
-    \\  agent_plan_revision INTEGER NOT NULL DEFAULT 0,
-    \\  agent_plan_approved_at TEXT,
-    \\  agent_plan_approved_by TEXT,
-    \\  agent_last_comment_seen_at TEXT,
+    \\  duplicate_of_id TEXT,
     \\  pr_url TEXT,
     \\  pr_number INTEGER,
     \\  pr_state TEXT,
     \\  branch TEXT,
     \\  pr_merged_at TEXT,
-    \\  agent_session_id TEXT,
-    \\  agent_run_mode TEXT,
-    \\  agent_interactive_claimed_at TEXT,
     \\  created_at TEXT NOT NULL,
     \\  updated_at TEXT NOT NULL
     \\);
@@ -276,7 +270,8 @@ const schema_sql =
     \\CREATE TABLE IF NOT EXISTS issue_subscribers (
     \\  id TEXT PRIMARY KEY,
     \\  issue_id TEXT NOT NULL,
-    \\  user_id TEXT NOT NULL,
+    \\  user_id TEXT,
+    \\  email TEXT,
     \\  workspace_id TEXT NOT NULL,
     \\  source TEXT NOT NULL,
     \\  unsubscribed INTEGER NOT NULL DEFAULT 0,
@@ -299,23 +294,18 @@ const schema_sql =
     \\CREATE INDEX IF NOT EXISTS idx_issue_events_issue ON issue_events(issue_id);
     \\CREATE INDEX IF NOT EXISTS idx_issue_events_workspace ON issue_events(workspace_id);
     \\
-    \\CREATE TABLE IF NOT EXISTS agent_runs (
-    \\  issue_id TEXT PRIMARY KEY,
+    \\CREATE TABLE IF NOT EXISTS coding_sessions (
+    \\  id TEXT PRIMARY KEY,
+    \\  issue_id TEXT NOT NULL,
     \\  workspace_id TEXT NOT NULL,
-    \\  plan_text TEXT,
-    \\  question TEXT,
-    \\  question_asked_at TEXT,
-    \\  plan_revision INTEGER NOT NULL DEFAULT 0,
-    \\  approved_at TEXT,
-    \\  approved_by TEXT,
-    \\  last_comment_seen_at TEXT,
-    \\  session_id TEXT,
-    \\  run_mode TEXT,
-    \\  interactive_claimed_at TEXT,
-    \\  interactive_claimed_expires_at TEXT,
-    \\  last_error TEXT,
+    \\  user_id TEXT NOT NULL,
+    \\  device_label TEXT,
+    \\  status TEXT NOT NULL DEFAULT 'running',
+    \\  started_at TEXT,
+    \\  ended_at TEXT,
     \\  created_at TEXT NOT NULL,
     \\  updated_at TEXT NOT NULL
     \\);
-    \\CREATE INDEX IF NOT EXISTS idx_agent_runs_workspace ON agent_runs(workspace_id);
+    \\CREATE INDEX IF NOT EXISTS idx_coding_sessions_issue ON coding_sessions(issue_id);
+    \\CREATE INDEX IF NOT EXISTS idx_coding_sessions_workspace ON coding_sessions(workspace_id);
 ;

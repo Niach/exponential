@@ -1,14 +1,12 @@
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { accounts, githubInstallations, issues, projects } from "@/db/schema"
-import { fireAndForgetSync } from "@/lib/integrations/google-calendar"
+import { githubInstallations } from "@/db/schema"
 import {
   githubAppConfigured,
   githubAppInstallUrl,
   listInstallationRepos,
   type InstallationRepo,
 } from "@/lib/integrations/github-app"
-import { getUserWorkspaceIds } from "@/lib/workspace-membership"
 
 // Short-lived in-process cache of a user's installable repos so re-opening the
 // project dialog doesn't hammer GitHub (and its secondary rate limits).
@@ -18,132 +16,7 @@ const repoCache = new Map<
   { repos: InstallationRepo[]; hasMore: boolean; expiresAt: number }
 >()
 
-const GOOGLE_PROVIDER_ID = `google`
-const CALENDAR_SCOPE = `https://www.googleapis.com/auth/calendar.events`
-
-function hasCalendarScope(scope: string | null | undefined): boolean {
-  if (!scope) return false
-  return scope.split(/\s+/).includes(CALENDAR_SCOPE)
-}
-
 export const integrationsRouter = router({
-  google: router({
-    status: authedProcedure.query(async ({ ctx }) => {
-      const [account] = await ctx.db
-        .select({
-          accountId: accounts.accountId,
-          scope: accounts.scope,
-          createdAt: accounts.createdAt,
-        })
-        .from(accounts)
-        .where(
-          and(
-            eq(accounts.userId, ctx.session.user.id),
-            eq(accounts.providerId, GOOGLE_PROVIDER_ID)
-          )
-        )
-        .limit(1)
-
-      // A row may exist from "Sign in with Google" without the calendar
-      // scope. Treat that as not-connected so the UI offers the Connect
-      // button, which upgrades scopes via linkSocial.
-      if (!account || !hasCalendarScope(account.scope)) {
-        return { connected: false as const }
-      }
-
-      return {
-        connected: true as const,
-        scope: account.scope,
-        connectedAt: account.createdAt,
-      }
-    }),
-
-    disconnect: authedProcedure.mutation(async ({ ctx }) => {
-      await ctx.db
-        .delete(accounts)
-        .where(
-          and(
-            eq(accounts.userId, ctx.session.user.id),
-            eq(accounts.providerId, GOOGLE_PROVIDER_ID)
-          )
-        )
-      return { ok: true as const }
-    }),
-
-    /**
-     * Backfill: sync every issue with a due date that the user can see and
-     * doesn't yet have a calendar event. Called once after the user freshly
-     * links Google so existing issues land in their calendar without
-     * needing to be re-edited.
-     */
-    backfill: authedProcedure.mutation(async ({ ctx }) => {
-      const userId = ctx.session.user.id
-
-      // Better Auth's linkSocial upgrades the access/refresh tokens with the
-      // newly granted scopes but doesn't always rewrite accounts.scope, so
-      // the row keeps its login-time scope (`openid profile email`). Mark
-      // calendar.events as granted here — backfill only runs after a
-      // successful linkSocial callback (`?backfill=1` redirect), which means
-      // Google did grant the scope.
-      const [existing] = await ctx.db
-        .select({ scope: accounts.scope })
-        .from(accounts)
-        .where(
-          and(
-            eq(accounts.userId, userId),
-            eq(accounts.providerId, GOOGLE_PROVIDER_ID)
-          )
-        )
-        .limit(1)
-      if (existing && !hasCalendarScope(existing.scope)) {
-        const merged = (existing.scope ?? ``).split(/\s+/).filter(Boolean)
-        merged.push(CALENDAR_SCOPE)
-        await ctx.db
-          .update(accounts)
-          .set({ scope: merged.join(` `), updatedAt: new Date() })
-          .where(
-            and(
-              eq(accounts.userId, userId),
-              eq(accounts.providerId, GOOGLE_PROVIDER_ID)
-            )
-          )
-      }
-
-      const workspaceIds = await getUserWorkspaceIds(userId)
-      if (workspaceIds.length === 0) {
-        return { ok: true as const, scheduled: 0 }
-      }
-
-      const projectRows = await ctx.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(inArray(projects.workspaceId, workspaceIds))
-      const projectIds = projectRows.map((r) => r.id)
-      if (projectIds.length === 0) {
-        return { ok: true as const, scheduled: 0 }
-      }
-
-      const candidates = await ctx.db
-        .select()
-        .from(issues)
-        .where(
-          and(
-            inArray(issues.projectId, projectIds),
-            isNotNull(issues.dueDate),
-            isNull(issues.googleCalendarEventId),
-            isNull(issues.archivedAt)
-          )
-        )
-
-      for (const issue of candidates) {
-        if (issue.status === `done` || issue.status === `cancelled`) continue
-        fireAndForgetSync(userId, issue)
-      }
-
-      return { ok: true as const, scheduled: candidates.length }
-    }),
-  }),
-
   github: router({
     // GitHub App install state for this user (drives the web Install button).
     // Token resolution is storage-free (the App JWT looks up a repo's

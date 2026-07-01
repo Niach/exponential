@@ -151,6 +151,8 @@ public enum StatusColor {
     public static let inProgress = DesignTokens.Semantic.yellow
     public static let done = DesignTokens.Semantic.green
     public static let cancelled = DesignTokens.Semantic.red
+    /// Duplicate is a muted terminal resolution (like backlog's neutral gray).
+    public static let duplicate = DesignTokens.Semantic.neutral
 }
 
 // MARK: - Priority Colors

@@ -1,7 +1,9 @@
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  projectRepositories,
   projects,
+  repositories,
   widgetConfigs,
   workspaceMembers,
   workspaces,
@@ -16,7 +18,6 @@ import { createWidgetUser } from "@/lib/widget/widget-user"
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
 import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
-import publicWorkspaceSql from "@/db/out/custom/0002_public_workspace.sql?raw"
 
 const PUBLIC_WORKSPACE_SLUG = `feedback`
 const PUBLIC_WORKSPACE_NAME = `Exponential Feedback`
@@ -140,12 +141,75 @@ const DOGFOOD_TARGETS: ProjectPreviewMirror[`targets`] = [
   { id: `ios-prod`, name: `iOS Prod`, platform: `ios` },
 ]
 
+// Upsert a `repositories` row for the dogfood repo and make it the dogfood
+// project's PRIMARY link, so the coding launcher can resolve a clone target and
+// dogfood coding works end-to-end. Replaces the removed `projects.githubRepo`
+// wiring. Idempotent.
+async function ensureDogfoodRepoLink(
+  workspaceId: string,
+  projectId: string,
+  repoFullName: string
+) {
+  const [inserted] = await db
+    .insert(repositories)
+    .values({
+      workspaceId,
+      fullName: repoFullName,
+      defaultBranch: `main`,
+      private: false,
+    })
+    .onConflictDoNothing({
+      target: [repositories.workspaceId, repositories.fullName],
+    })
+    .returning({ id: repositories.id })
+
+  let repositoryId = inserted?.id
+  if (!repositoryId) {
+    const [row] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.workspaceId, workspaceId),
+          eq(repositories.fullName, repoFullName)
+        )
+      )
+      .limit(1)
+    repositoryId = row?.id
+  }
+  if (!repositoryId) return
+
+  await db.transaction(async (tx) => {
+    // Enforce one primary per project (partial unique index).
+    await tx
+      .update(projectRepositories)
+      .set({ isPrimary: false })
+      .where(
+        and(
+          eq(projectRepositories.projectId, projectId),
+          eq(projectRepositories.isPrimary, true)
+        )
+      )
+    await tx
+      .insert(projectRepositories)
+      .values({ projectId, repositoryId, isPrimary: true })
+      .onConflictDoUpdate({
+        target: [
+          projectRepositories.projectId,
+          projectRepositories.repositoryId,
+        ],
+        set: { isPrimary: true },
+      })
+  })
+}
+
 // Dogfood: configure the Exponential monorepo as its own project inside the
 // public feedback workspace, linked to the repo named by DOGFOOD_REPO, so the
 // team previews + tests Exponential inside Exponential and files straight into
 // this project. Cloud-only + gated behind DOGFOOD_REPO (self-hosters never
 // inherit a repo binding). Idempotent: it creates the project + seeds the
-// preview mirror once, and never clobbers a hand-edited previewConfig later.
+// preview mirror once, links the repo registry row, and never clobbers a
+// hand-edited previewConfig later.
 async function ensureDogfoodProject(publicWorkspaceId: string) {
   const repo = process.env.DOGFOOD_REPO?.trim()
   if (!repo) return
@@ -162,13 +226,11 @@ async function ensureDogfoodProject(publicWorkspaceId: string) {
     .limit(1)
 
   if (existing) {
-    // Keep the repo link aligned, but never overwrite a hand-edited mirror —
-    // only seed the preview config if it's still missing.
+    // Never overwrite a hand-edited mirror — only seed it if it's still missing.
     if (!existing.previewConfig) {
       await db
         .update(projects)
         .set({
-          githubRepo: repo,
           previewConfig: {
             targets: DOGFOOD_TARGETS,
             feedbackProjectId: existing.id,
@@ -176,10 +238,11 @@ async function ensureDogfoodProject(publicWorkspaceId: string) {
         })
         .where(eq(projects.id, existing.id))
     }
+    await ensureDogfoodRepoLink(publicWorkspaceId, existing.id, repo)
     return
   }
 
-  await db.transaction(async (tx) => {
+  const projectId = await db.transaction(async (tx) => {
     const [project] = await tx
       .insert(projects)
       .values({
@@ -187,7 +250,6 @@ async function ensureDogfoodProject(publicWorkspaceId: string) {
         name: DOGFOOD_PROJECT_NAME,
         slug: DOGFOOD_PROJECT_SLUG,
         prefix: DOGFOOD_PROJECT_PREFIX,
-        githubRepo: repo,
       })
       .returning({ id: projects.id })
 
@@ -200,7 +262,11 @@ async function ensureDogfoodProject(publicWorkspaceId: string) {
         },
       })
       .where(eq(projects.id, project.id))
+
+    return project.id
   })
+
+  await ensureDogfoodRepoLink(publicWorkspaceId, projectId, repo)
 }
 
 async function addAdminsAsPublicWorkspaceOwners(publicWorkspaceId: string) {
@@ -248,7 +314,6 @@ async function promoteInitialAdmins() {
 async function applyCustomSql() {
   for (const [name, content] of [
     [`0001_triggers.sql`, triggersSql],
-    [`0002_public_workspace.sql`, publicWorkspaceSql],
   ] as const) {
     if (!content) continue
     try {

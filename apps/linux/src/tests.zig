@@ -11,9 +11,9 @@ test {
     _ = @import("core/auth/server_account.zig");
     _ = @import("core/auth/auth_api.zig");
     _ = @import("core/auth/account_store.zig");
-    _ = @import("core/agent/registration.zig");
-    _ = @import("core/agent/identity_store.zig");
-    _ = @import("core/agent/heartbeat.zig");
+    _ = @import("core/credentials.zig");
+    _ = @import("core/git_worktree.zig");
+    _ = @import("core/coding_prompt.zig");
     _ = @import("core/db/database.zig");
     _ = @import("core/db/migrations.zig");
     _ = @import("core/annotate/geometry.zig");

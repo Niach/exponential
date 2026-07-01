@@ -7,9 +7,9 @@ import { commentBodySchema, getCommentBodyText } from "@/lib/domain"
 import {
   resolveWorkspaceAccess,
   getIssueWorkspaceContext,
-  getWorkspaceMember,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
+import { isAgentUser } from "@/lib/auth/app-user"
 import { fireAndForgetCommentNotify } from "@/lib/integrations/notifications"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { resolveMentions } from "@/lib/integrations/mentions"
@@ -51,14 +51,10 @@ export const commentsRouter = router({
         `comment`
       )
 
-      const member = await getWorkspaceMember(
-        ctx.session.user.id,
-        issueContext.workspaceId
-      )
-      const isAgentAuthor = member?.role === `agent`
+      // The widget-helpdesk bot (users.isAgent) authors issues, not threaded
+      // comments — but guard anyway so a bot-authored comment never fans out.
+      const isBotAuthor = isAgentUser(ctx.session.user)
 
-      // Only human comments exist now — the agent plan/question lifecycle lives
-      // in the structured `agent_runs` store, not in comments.
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [comment] = await tx
@@ -98,9 +94,8 @@ export const commentsRouter = router({
         return { txId, comment, mentionedUserIds }
       })
 
-      // Agent-authored comments never fan out as notifications — agent
-      // action-needed alerts go through fireAndForgetAgentActionNotify instead.
-      if (!isAgentAuthor) {
+      // Bot-authored comments never fan out as notifications.
+      if (!isBotAuthor) {
         fireAndForgetCommentNotify({
           issueId: input.issueId,
           actorUserId: ctx.session.user.id,

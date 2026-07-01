@@ -1,0 +1,24 @@
+{
+  "name": "@exp/steer-relay",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint:check": "eslint .",
+    "lint": "eslint . --fix"
+  },
+  "dependencies": {
+    "@exp/steer-ticket": "workspace:*",
+    "hono": "^4.7.11",
+    "zod": "^4.0.14"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}

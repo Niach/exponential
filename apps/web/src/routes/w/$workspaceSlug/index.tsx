@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Bot, FolderKanban } from "lucide-react"
+import { FolderKanban } from "lucide-react"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
@@ -38,24 +38,12 @@ function WorkspaceIndexPage() {
     <div className="flex h-full flex-1 items-center justify-center">
       <EmptyState
         icon={FolderKanban}
-        title="Track work, then hand it to a coding agent"
-        description="Create a project to start tracking issues. Connect a GitHub repo and a coding agent can plan, get your approval, and open pull requests."
+        title="Create your first project"
+        description="Projects hold your issues. Create one to start tracking work."
       >
         <Button onClick={() => setCreateOpen(true)}>
           <FolderKanban className="mr-2 size-4" />
           Create a project
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() =>
-            navigate({
-              to: `/w/$workspaceSlug/setup-agent`,
-              params: { workspaceSlug },
-            })
-          }
-        >
-          <Bot className="mr-2 size-4" />
-          Set up coding agent
         </Button>
       </EmptyState>
       {workspace && (

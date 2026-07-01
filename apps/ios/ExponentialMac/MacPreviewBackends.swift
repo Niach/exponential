@@ -52,10 +52,9 @@ protocol PreviewBackend: AnyObject {
 // MARK: - Shell helper (silent probes + visible logs)
 
 /// Off-main shell execution for silent probes (boot polls, adb, simctl, lsof).
-/// Visible build/run logs go through `MacAgentTerminalRunner.shared` (the dock)
-/// instead; this is the `Foundation.Process` path from MacAgentCore, with the
-/// same augmented PATH so `emulator`/`adb`/`xcrun`/`node` resolve under a GUI
-/// launch.
+/// Visible build/run logs go through `MacTerminalRunner.shared` (the dock)
+/// instead; this is the `Foundation.Process` path, with the same augmented PATH
+/// so `emulator`/`adb`/`xcrun`/`node` resolve under a GUI launch.
 enum PreviewShell {
     /// Common SDK locations layered onto the inherited PATH.
     static func augmentedEnvironment(_ overrides: [String: String] = [:]) -> [String: String] {
@@ -159,13 +158,13 @@ final class PreviewLogRun {
         onExit: @escaping @MainActor (Int32) -> Void
     ) {
         // The runner's onDone is @Sendable but is always invoked on the main
-        // actor (mirrors MacAgentCore.submitRunResult). Box the main-isolated
-        // callback so the @Sendable closure can hop back and run it there.
+        // actor. Box the main-isolated callback so the @Sendable closure can hop
+        // back and run it there.
         let box = MainActorBox { [weak self] (code: Int32) in
             self?.finished = true
             onExit(code)
         }
-        MacAgentTerminalRunner.shared.run(
+        MacTerminalRunner.shared.run(
             runId: runId,
             program: program,
             argv: args,
@@ -181,7 +180,7 @@ final class PreviewLogRun {
 
     func stop() {
         guard !finished else { return }
-        MacAgentTerminalRunner.shared.terminate(runId: runId)
+        MacTerminalRunner.shared.terminate(runId: runId)
         finished = true
     }
 }

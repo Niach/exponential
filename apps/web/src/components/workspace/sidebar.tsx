@@ -26,7 +26,6 @@ import {
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
-import { SetupChecklist } from "@/components/workspace/setup-checklist"
 import { FeedbackButton } from "@/components/feedback-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -263,15 +262,6 @@ export function WorkspaceSidebar({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-
-          {isAuthed && workspace && !workspace.isPublic && (
-            <SetupChecklist
-              workspaceId={workspace.id}
-              workspaceSlug={workspaceSlug}
-              onCreateProject={() => setCreateProjectOpen(true)}
-            />
-          )}
-
         </SidebarContent>
 
         <SidebarFooter>

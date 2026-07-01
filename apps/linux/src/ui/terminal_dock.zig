@@ -1,5 +1,5 @@
 //! IDE-style collapsible bottom terminal dock. Wraps the content nav in a
-//! vertical GtkPaned; the bottom pane hosts the agent's terminal under a small
+//! vertical GtkPaned; the bottom pane hosts the embedded terminal under a small
 //! header (title + collapse). Libghostty's surface inits lazily only at a
 //! nonzero size, so we ONLY reveal the dock at a real split position and give
 //! the dock a nonzero min height — never mount a terminal into a 0-height slot.
@@ -102,21 +102,3 @@ pub const TerminalDock = struct {
         gtk.gtk_label_set_text(self.title, t);
     }
 };
-
-/// C-style hook so the agent manager (which doesn't import this module's types)
-/// can mount a finished/running terminal into the dock by opaque pointer.
-pub fn mountForManager(dock: *anyopaque, term: gtk.Object, title: [*:0]const u8) void {
-    const self: *TerminalDock = @ptrCast(@alignCast(dock));
-    self.mountTerminal(term, title);
-}
-
-/// C-style hook for cancel teardown: unmount a SPECIFIC terminal (no-op if a
-/// newer run already replaced it). Removing the widget drops the ghostty
-/// surface, which kills the CLI child.
-pub fn unmountForManager(dock: *anyopaque, term: gtk.Object) void {
-    const self: *TerminalDock = @ptrCast(@alignCast(dock));
-    if (self.current_term != term) return;
-    gtk.gtk_box_remove(self.term_slot, term);
-    self.current_term = null;
-    self.collapse();
-}

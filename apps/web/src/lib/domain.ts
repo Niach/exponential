@@ -5,6 +5,7 @@ import {
   CircleCheck,
   CircleDashed,
   CircleX,
+  Copy,
   Minus,
   SignalHigh,
   SignalLow,
@@ -51,6 +52,12 @@ export const issueStatusOptions = [
     value: `cancelled`,
     label: `Cancelled`,
     icon: CircleX,
+    color: `text-muted-foreground`,
+  },
+  {
+    value: `duplicate`,
+    label: `Duplicate`,
+    icon: Copy,
     color: `text-muted-foreground`,
   },
 ] as const satisfies readonly IssueOption<IssueStatus>[]

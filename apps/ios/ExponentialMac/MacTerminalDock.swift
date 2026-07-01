@@ -4,7 +4,7 @@ import SwiftUI
 /// The collapsible IDE-style bottom terminal dock (roadmap D11). Hosts ONE
 /// interactive agent run's libghostty terminal at a time, retained here (never by
 /// SwiftUI) so it survives issue navigation. `MacShell` renders it; the
-/// `MacAgentTerminalRunner` mounts interactive runs into it. Headless background
+/// `MacTerminalRunner` mounts interactive runs into it. Headless background
 /// runs use a per-run window instead, so they never steal the dock.
 @MainActor
 @Observable

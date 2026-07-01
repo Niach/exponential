@@ -2,8 +2,8 @@ import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
-  selectAgentRunSchema,
   selectAttachmentSchema,
+  selectCodingSessionSchema,
   selectCommentSchema,
   selectIssueEventSchema,
   selectIssueLabelSchema,
@@ -208,18 +208,18 @@ export const issueSubscriberCollection = createCollection(
   })
 )
 
-// The agent's current run per issue (plan/question text + run bookkeeping),
-// workspace-scoped. Synced so the Plan Panel renders straight from sync instead
-// of a tRPC round-trip (agentPlan.getState).
-export const agentRunCollection = createCollection(
+// Live "coding now" sessions, workspace-scoped. Synced so every coordination
+// client can render the coding-session badge + Watch/Steer button straight from
+// sync (one row per interactive desktop session).
+export const codingSessionCollection = createCollection(
   electricCollectionOptions({
-    id: `agent_runs`,
+    id: `coding_sessions`,
     shapeOptions: {
-      url: getShapeUrl(`/api/shapes/agent-runs`),
+      url: getShapeUrl(`/api/shapes/coding-sessions`),
       parser: shapeParser,
       columnMapper,
     },
-    schema: selectAgentRunSchema,
-    getKey: (item) => item.issueId,
+    schema: selectCodingSessionSchema,
+    getKey: (item) => item.id,
   })
 )

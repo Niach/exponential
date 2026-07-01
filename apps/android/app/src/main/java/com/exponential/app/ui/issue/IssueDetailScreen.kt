@@ -1,6 +1,5 @@
 package com.exponential.app.ui.issue
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonOff
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -44,7 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -62,7 +59,6 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
-import com.exponential.app.ui.theme.PlanColors
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 
@@ -149,7 +145,7 @@ fun IssueDetailScreen(
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .fillMaxWidth(),
         ) {
-            // Header: identifier chip + plan badge + overflow
+            // Header: identifier chip + overflow
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     issue.identifier,
@@ -160,8 +156,6 @@ fun IssueDetailScreen(
                         .glassButton()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
-                Spacer(Modifier.width(8.dp))
-                PlanStateBadge(issue.agentPlanState, issue.status)
                 Spacer(Modifier.weight(1f))
                 if (isModerator) {
                     var overflowOpen by remember { mutableStateOf(false) }
@@ -258,20 +252,16 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(20.dp))
             AttachmentList(issueId = issue.id)
 
-            Spacer(Modifier.height(20.dp))
-            // Agent plan/question lifecycle (first-class panel; plan/question
-            // text comes from the synced agent_runs row). The PR diff renders
-            // inside the panel's PR section, mirroring iOS.
-            AgentPlanPanel(
-                issueId = issue.id,
-                canApprovePlan = permissions.canApprovePlan(issue.creatorId),
-                prSection = {
-                    PrDiffSection(
-                        prUrl = issue.prUrl,
-                        loadFiles = { viewModel.loadPrFiles() },
-                    )
-                },
-            )
+            // Linked pull request (branch + browser link + collapsible diff),
+            // shown once server-side merge detection has populated the PR fields.
+            if (!issue.prUrl.isNullOrBlank()) {
+                Spacer(Modifier.height(20.dp))
+                PrSection(
+                    prUrl = issue.prUrl,
+                    branch = issue.branch,
+                    loadFiles = { viewModel.loadPrFiles() },
+                )
+            }
 
             Spacer(Modifier.height(8.dp))
             CommentThread(issueId = issue.id)
@@ -306,30 +296,17 @@ fun IssueDetailScreen(
     }
 
     if (assigneeMenuOpen && isModerator) {
-        // People first, then Agents — assigning to an agent creates a plan request.
+        // Only real people are assignable; the widget helpdesk bot (isAgent) is excluded.
         val people = state.users.filter { !it.isAgent }
-        val agents = state.users.filter { it.isAgent }
         val assigneeItems: List<com.exponential.app.data.db.UserEntity?> =
-            listOf<com.exponential.app.data.db.UserEntity?>(null) + people + agents
+            listOf<com.exponential.app.data.db.UserEntity?>(null) + people
         IssuePickerSheet(
             title = "Assignee",
             items = assigneeItems,
             selected = assigneeItems.firstOrNull { it?.id == state.assignee?.id },
             keyOf = { it?.id ?: "__unassigned__" },
-            labelOf = { user ->
-                when {
-                    user == null -> "Unassigned"
-                    user.isAgent -> "${user.name ?: user.email} · agent"
-                    else -> user.name ?: user.email
-                }
-            },
-            iconOf = { user ->
-                when {
-                    user == null -> Icons.Filled.PersonOff
-                    user.isAgent -> Icons.Filled.SmartToy
-                    else -> Icons.Filled.Person
-                }
-            },
+            labelOf = { user -> user?.let { it.name ?: it.email } ?: "Unassigned" },
+            iconOf = { user -> if (user == null) Icons.Filled.PersonOff else Icons.Filled.Person },
             onSelect = { viewModel.updateAssignee(it?.id) },
             onDismiss = { assigneeMenuOpen = false },
         )
@@ -399,29 +376,5 @@ fun IssueDetailScreen(
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
             },
         )
-    }
-}
-
-// Compact pill surfaced when the agent has a plan in flight (mirrors the web
-// issue-timeline state derivation). Hidden when there's no plan state.
-@Composable
-private fun PlanStateBadge(state: String?, issueStatus: String) {
-    val (text, color) = when (state) {
-        "drafting" -> "Drafting" to PlanColors.Drafting
-        "awaiting_answer" -> "Awaiting answer" to PlanColors.AwaitingAnswer
-        "awaiting_approval" -> "Awaiting approval" to PlanColors.AwaitingApproval
-        "approved" -> {
-            if (issueStatus == "done" || issueStatus == "cancelled") return
-            "Approved" to PlanColors.Approved
-        }
-        else -> return
-    }
-    Box(
-        modifier = Modifier
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.18f))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Text(text, style = MaterialTheme.typography.labelSmall, color = color)
     }
 }

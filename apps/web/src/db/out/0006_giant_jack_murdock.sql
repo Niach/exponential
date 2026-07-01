@@ -1,1 +1,0 @@
-ALTER TABLE "workspace_agents" ADD COLUMN "github_token" text;

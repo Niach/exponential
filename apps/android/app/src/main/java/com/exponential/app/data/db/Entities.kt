@@ -69,22 +69,13 @@ data class IssueEntity(
     @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
     @ColumnInfo(name = "recurrence_interval") @SerialName("recurrence_interval") @JsonNames("recurrenceInterval") val recurrenceInterval: Int? = null,
     @ColumnInfo(name = "recurrence_unit") @SerialName("recurrence_unit") @JsonNames("recurrenceUnit") val recurrenceUnit: String? = null,
-    @ColumnInfo(name = "google_calendar_event_id") @SerialName("google_calendar_event_id") @JsonNames("googleCalendarEventId") val googleCalendarEventId: String? = null,
-    @ColumnInfo(name = "google_calendar_last_synced_at") @SerialName("google_calendar_last_synced_at") @JsonNames("googleCalendarLastSyncedAt") val googleCalendarLastSyncedAt: String? = null,
-    @ColumnInfo(name = "google_calendar_last_sync_error") @SerialName("google_calendar_last_sync_error") @JsonNames("googleCalendarLastSyncError") val googleCalendarLastSyncError: String? = null,
-    @ColumnInfo(name = "agent_plan_state") @SerialName("agent_plan_state") @JsonNames("agentPlanState") val agentPlanState: String? = null,
-    @ColumnInfo(name = "agent_plan_revision") @SerialName("agent_plan_revision") @JsonNames("agentPlanRevision") val agentPlanRevision: Int = 0,
-    @ColumnInfo(name = "agent_plan_approved_at") @SerialName("agent_plan_approved_at") @JsonNames("agentPlanApprovedAt") val agentPlanApprovedAt: String? = null,
-    @ColumnInfo(name = "agent_plan_approved_by") @SerialName("agent_plan_approved_by") @JsonNames("agentPlanApprovedBy") val agentPlanApprovedBy: String? = null,
-    @ColumnInfo(name = "agent_last_comment_seen_at") @SerialName("agent_last_comment_seen_at") @JsonNames("agentLastCommentSeenAt") val agentLastCommentSeenAt: String? = null,
+    @ColumnInfo(name = "duplicate_of_id") @SerialName("duplicate_of_id") @JsonNames("duplicateOfId") val duplicateOfId: String? = null,
+    // PR fields stay: merge detection (webhook + polling) still populates these.
     @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,
     @ColumnInfo(name = "pr_number") @SerialName("pr_number") @JsonNames("prNumber") val prNumber: Int? = null,
     @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
     val branch: String? = null,
     @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
-    @ColumnInfo(name = "agent_session_id") @SerialName("agent_session_id") @JsonNames("agentSessionId") val agentSessionId: String? = null,
-    @ColumnInfo(name = "agent_run_mode") @SerialName("agent_run_mode") @JsonNames("agentRunMode") val agentRunMode: String? = null,
-    @ColumnInfo(name = "agent_interactive_claimed_at") @SerialName("agent_interactive_claimed_at") @JsonNames("agentInteractiveClaimedAt") val agentInteractiveClaimedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -175,40 +166,31 @@ data class CommentEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
 
-enum class CommentKind { Regular, Question, Plan }
+enum class CommentKind { Regular }
 
-// The agent's current run per issue (synced via the agent_runs shape): plan/
-// question TEXT + run bookkeeping extracted off the issue row. plan_text/question
-// are jsonb `{ text }` on the server, stored as the raw string via JsonAsString.
+// Comment kinds collapsed to regular-only (contract commentKindValues = ["regular"]);
+// tolerant decode maps any legacy value to Regular.
+fun commentKindOf(raw: String?): CommentKind = CommentKind.Regular
+
+// A coding session against an issue (synced via the coding_sessions shape): a
+// real user driving a coding agent from a desktop device. Replaces agent_runs.
 @Entity(
-    tableName = "agent_runs",
-    indices = [Index("workspace_id")],
+    tableName = "coding_sessions",
+    indices = [Index("issue_id"), Index("workspace_id")],
 )
 @Serializable
-data class AgentRunEntity(
-    @PrimaryKey @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+data class CodingSessionEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
-    @Serializable(with = JsonAsStringSerializer::class) @ColumnInfo(name = "plan_text") @SerialName("plan_text") @JsonNames("planText") val planText: String? = null,
-    @Serializable(with = JsonAsStringSerializer::class) val question: String? = null,
-    @ColumnInfo(name = "question_asked_at") @SerialName("question_asked_at") @JsonNames("questionAskedAt") val questionAskedAt: String? = null,
-    @ColumnInfo(name = "plan_revision") @SerialName("plan_revision") @JsonNames("planRevision") val planRevision: Int = 0,
-    @ColumnInfo(name = "approved_at") @SerialName("approved_at") @JsonNames("approvedAt") val approvedAt: String? = null,
-    @ColumnInfo(name = "approved_by") @SerialName("approved_by") @JsonNames("approvedBy") val approvedBy: String? = null,
-    @ColumnInfo(name = "last_comment_seen_at") @SerialName("last_comment_seen_at") @JsonNames("lastCommentSeenAt") val lastCommentSeenAt: String? = null,
-    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
-    @ColumnInfo(name = "run_mode") @SerialName("run_mode") @JsonNames("runMode") val runMode: String? = null,
-    @ColumnInfo(name = "interactive_claimed_at") @SerialName("interactive_claimed_at") @JsonNames("interactiveClaimedAt") val interactiveClaimedAt: String? = null,
-    @ColumnInfo(name = "interactive_claimed_expires_at") @SerialName("interactive_claimed_expires_at") @JsonNames("interactiveClaimedExpiresAt") val interactiveClaimedExpiresAt: String? = null,
-    @ColumnInfo(name = "last_error") @SerialName("last_error") @JsonNames("lastError") val lastError: String? = null,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
+    @ColumnInfo(name = "device_label") @SerialName("device_label") @JsonNames("deviceLabel") val deviceLabel: String? = null,
+    val status: String = "running",
+    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String,
+    @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
-
-fun commentKindOf(raw: String?): CommentKind = when (raw) {
-    "question" -> CommentKind.Question
-    "plan" -> CommentKind.Plan
-    else -> CommentKind.Regular
-}
 
 @Entity(
     tableName = "attachments",
@@ -260,7 +242,9 @@ data class NotificationEntity(
 data class IssueSubscriberEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
-    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
+    // Nullable now: widget-reporter rows carry an email instead of a user_id.
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String? = null,
+    val email: String? = null,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
     val source: String,
     val unsubscribed: Boolean = false,

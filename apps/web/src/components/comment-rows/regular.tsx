@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2, MoreHorizontal, RefreshCw } from "lucide-react"
+import { MoreHorizontal } from "lucide-react"
 import type { Comment, User } from "@/db/schema"
 import { getCommentBodyText } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
@@ -20,13 +20,10 @@ export interface RegularCommentRowProps {
   comment: Comment
   canModify: boolean
   editing: boolean
-  showRetry: boolean
-  retrying: boolean
   onDelete: () => void
   onEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: (text: string) => Promise<void>
-  onRetry: () => void
 }
 
 export function RegularCommentRow({
@@ -34,13 +31,10 @@ export function RegularCommentRow({
   comment,
   canModify,
   editing,
-  showRetry,
-  retrying,
   onDelete,
   onEdit,
   onCancelEdit,
   onSaveEdit,
-  onRetry,
 }: RegularCommentRowProps) {
   const bodyText = getCommentBodyText(comment.body)
   const [draft, setDraft] = useState(bodyText)
@@ -127,28 +121,6 @@ export function RegularCommentRow({
         ) : (
           <div className="mt-0.5 text-sm text-foreground">
             <MarkdownEditor markdown={bodyText} editable={false} onChange={() => {}} />
-          </div>
-        )}
-        {showRetry && (
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              onClick={onRetry}
-              disabled={retrying}
-              className="border-amber-500/40 text-amber-200 hover:bg-amber-500/10"
-            >
-              {retrying ? (
-                <Loader2 className="mr-1 size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-1 size-3" />
-              )}
-              Retry
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              re-run the agent on this issue
-            </span>
           </div>
         )}
       </div>

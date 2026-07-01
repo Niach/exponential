@@ -41,13 +41,6 @@ export const workspaceMembersRouter = router({
       })
       await assertCanManageMembers(ctx.session.user.id, target.workspaceId)
 
-      if (target.role === `agent`) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `Agent members are managed from Agent Members`,
-        })
-      }
-
       // A workspace must always keep at least one owner — block demoting the
       // last one (mirrors the guard in `remove`).
       if (target.role === `owner` && input.role === `member`) {
@@ -97,20 +90,6 @@ export const workspaceMembersRouter = router({
       await assertNotPublicWorkspace(target.workspaceId, {
         message: `Membership on the public workspace cannot be modified`,
       })
-
-      if (target.role === `agent`) {
-        await assertCanManageMembers(ctx.session.user.id, target.workspaceId)
-
-        // A desktop device is account-level and a member of every workspace its
-        // owner belongs to. Removing it here just drops it from THIS workspace
-        // (to fully revoke the device, the owner uses the Desktop devices list).
-        // Note: an active device re-fans-out on its next launch.
-        await ctx.db
-          .delete(workspaceMembers)
-          .where(eq(workspaceMembers.id, input.memberId))
-
-        return { ok: true }
-      }
 
       const isSelfRemove = target.userId === ctx.session.user.id
       if (!isSelfRemove) {

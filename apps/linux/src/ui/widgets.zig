@@ -73,18 +73,6 @@ pub fn applyCss() void {
         \\  border-radius: 8px;
         \\  padding: 8px 10px;
         \\}
-        \\.exp-plan {
-        \\  background-color: alpha(#6366f1, 0.10);
-        \\  border: 1px solid alpha(#6366f1, 0.30);
-        \\  border-radius: 8px;
-        \\  padding: 8px 10px;
-        \\}
-        \\.exp-question {
-        \\  background-color: alpha(#eab308, 0.10);
-        \\  border: 1px solid alpha(#eab308, 0.35);
-        \\  border-radius: 8px;
-        \\  padding: 8px 10px;
-        \\}
         \\.exp-icon { font-size: 1.05em; }
         \\.exp-swatch {
         \\  min-width: 26px;

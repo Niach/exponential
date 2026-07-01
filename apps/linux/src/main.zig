@@ -5,12 +5,9 @@ const sync = @import("core/electric/sync_manager.zig");
 const auth_api = @import("core/auth/auth_api.zig");
 const ServerAccount = @import("core/auth/server_account.zig").ServerAccount;
 const AccountStore = @import("core/auth/account_store.zig").AccountStore;
-const registration = @import("core/agent/registration.zig");
-const identity_store = @import("core/agent/identity_store.zig");
 const storage = @import("core/storage.zig");
 const ui = @import("ui/app.zig");
 const terminal = @import("ui/terminal.zig");
-const agent_manager = @import("core/agent/agent_manager.zig");
 
 extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 
@@ -25,8 +22,8 @@ pub fn main(init: std.process.Init) !void {
     _ = setenv("GDK_DISABLE", "color-mgmt", 1);
 
     const args = try init.minimal.args.toSlice(init.arena.allocator());
-    // Stash the process env so background workers (agent-core run handler) can
-    // seed child-process environments without threading `init` everywhere.
+    // Stash the process env so the preview run-target infra can seed the
+    // environments of the children it spawns without threading `init` everywhere.
     storage.setEnviron(init.environ_map);
     // Shape threads allocate concurrently outside the DB lock, so use a
     // thread-safe allocator (not the debug gpa).
@@ -35,12 +32,10 @@ pub fn main(init: std.process.Init) !void {
     if (args.len >= 2) {
         const cmd = args[1];
         if (std.mem.eql(u8, cmd, "login")) return login(gpa, args[2..]);
-        if (std.mem.eql(u8, cmd, "register")) return register(gpa, args[2..]);
         if (std.mem.eql(u8, cmd, "accounts")) return listAccounts(gpa);
         if (std.mem.eql(u8, cmd, "shape-smoke")) return shapeSmoke(gpa, args[2..]);
         if (std.mem.eql(u8, cmd, "sync-smoke")) return syncSmoke(gpa, args[2..]);
         if (std.mem.eql(u8, cmd, "term-smoke")) std.process.exit(terminal.runSmoke(gpa));
-        if (std.mem.eql(u8, cmd, "run-smoke")) return runSmoke(gpa, args[2..]);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) {
             printUsage();
             return;
@@ -51,34 +46,15 @@ pub fn main(init: std.process.Init) !void {
     std.process.exit(ui.run(gpa, args));
 }
 
-/// Dev smoke: launch a wrapped command in an embedded ghostty terminal and log
-/// the captured output + exit code (exercises the Stage-2 agent-run plumbing).
-fn runSmoke(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
-    if (args.len < 1) {
-        std.debug.print("usage: exponential run-smoke <program> [args...]\n", .{});
-        return;
-    }
-    const program: []const u8 = args[0];
-    var list = std.ArrayListUnmanaged([]const u8).empty;
-    defer list.deinit(gpa);
-    for (args[1..]) |a| list.append(gpa, a) catch {};
-    std.process.exit(agent_manager.runSmoke(gpa, program, list.items));
-}
-
 fn printUsage() void {
     std.debug.print(
         \\usage:
         \\  exponential login       <baseUrl> <email> <password>
-        \\  exponential register    <baseUrl> <setupToken>
         \\  exponential accounts
         \\  exponential shape-smoke <baseUrl> <shape> [bearerToken]
         \\  exponential sync-smoke  <baseUrl> [bearerToken]
         \\
     , .{});
-}
-
-fn previewSecret(s: []const u8) []const u8 {
-    return s[0..@min(s.len, 10)];
 }
 
 /// Sign in with email/password and persist the account.
@@ -116,37 +92,6 @@ fn login(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
         "login OK: account={s} user={s} <{s}> admin={} → saved to {s}\n",
         .{ id, res.name() orelse "?", res.email() orelse "?", res.isAdmin(), store.path },
     );
-}
-
-/// Register this machine as a desktop device and persist the identity.
-fn register(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
-    if (args.len < 2) {
-        std.debug.print("usage: exponential register <baseUrl> <sessionToken> [deviceName]\n", .{});
-        return;
-    }
-    const name = if (args.len >= 3) args[2] else "Desktop";
-    const did = try registration.deviceId(gpa);
-    defer gpa.free(did);
-    var outcome = try registration.registerDevice(gpa, args[0], args[1], did, name, 30);
-    switch (outcome) {
-        .success => |*id| {
-            defer id.deinit();
-            std.debug.print(
-                "registered: agent={s} ({s}) device={s} apiKey={s}…\n",
-                .{ id.agent_name, id.agent_user_id, id.device_id, previewSecret(id.api_key) },
-            );
-            if (identity_store.save(gpa, id)) |path| {
-                defer gpa.free(path);
-                std.debug.print("  identity saved to {s}\n", .{path});
-            } else |e| {
-                std.debug.print("  warning: could not persist identity: {s}\n", .{@errorName(e)});
-            }
-        },
-        .failure => |msg| {
-            defer gpa.free(msg);
-            std.debug.print("register failed: {s}\n", .{msg});
-        },
-    }
 }
 
 fn listAccounts(gpa: std.mem.Allocator) !void {
@@ -204,7 +149,7 @@ fn shapeSmoke(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
     );
 }
 
-/// Dev smoke: one concurrent initial poll across all 10 shapes.
+/// Dev smoke: one concurrent initial poll across all synced shapes.
 fn syncSmoke(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
     if (args.len < 1) {
         std.debug.print("usage: exponential sync-smoke <baseUrl> [bearerToken]\n", .{});
