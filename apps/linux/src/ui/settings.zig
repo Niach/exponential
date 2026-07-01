@@ -14,6 +14,7 @@ const widgets = @import("widgets.zig");
 const trpc = @import("../core/api/trpc.zig");
 const Database = @import("../core/db/database.zig").Database;
 const api_projects = @import("../core/api/projects.zig");
+const credentials = @import("../core/credentials.zig");
 
 const policy_options = [_:null]?[*:0]const u8{ "members", "everyone" };
 
@@ -32,6 +33,12 @@ const Ctx = struct {
     link_entry: gtk.Object = null,
     new_label_entry: gtk.Object = null,
     last_link: ?[:0]u8 = null,
+    // Coding section
+    coding_claude_entry: gtk.Object = null,
+    coding_repos_entry: gtk.Object = null,
+    coding_prefix_entry: gtk.Object = null,
+    coding_doctor_label: gtk.Object = null,
+    last_minted_key: ?[:0]u8 = null, // shown once after Generate; freed on close
 };
 
 pub fn open(
@@ -113,6 +120,7 @@ fn onClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     if (ctx.token) |t| gpa.free(t);
     if (ctx.current_user_id) |u| gpa.free(u);
     if (ctx.last_link) |l| gpa.free(l);
+    if (ctx.last_minted_key) |k| gpa.free(k);
     gpa.destroy(ctx);
 }
 
@@ -215,6 +223,9 @@ fn rebuild(ctx: *Ctx) void {
 
     // --- Labels ---
     labelsSection(ctx, a);
+
+    // --- Coding (desktop launcher settings) ---
+    codingSection(ctx, a);
 
     // --- Danger Zone (owner-only) ---
     var is_owner = false;
@@ -541,6 +552,213 @@ fn onCreateLabel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const name = std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(entry)), " \t");
     if (name.len == 0) return;
     call(ctx, a, "labels.create", .{ .workspaceId = ctx.ws_id, .name = name, .color = "#6366f1" });
+    rebuild(ctx);
+}
+
+// --- Coding section (JetBrains-SDK-style desktop launcher settings, §4b) -----
+//
+// Editable, prefilled defaults for the native "Start coding" launcher: the
+// `claude` CLI path (+ a version doctor), the clone/worktree root, the branch
+// prefix, and the user's PERSONAL API key (minted once via
+// `users.mintPersonalApiKey`, written into each worktree's `.mcp.json`). Values
+// persist to `credentials.zig`'s desktop-settings store, NOT the workspace.
+
+fn codingSection(ctx: *Ctx, a: std.mem.Allocator) void {
+    gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Coding"));
+
+    // Read current values (dup into the rebuild arena so the store can close).
+    var claude_path: []const u8 = credentials.default_claude_path;
+    var repos_root: []const u8 = "";
+    var branch_prefix: []const u8 = credentials.default_branch_prefix;
+    var key_start: ?[]const u8 = null;
+    if (credentials.Store.open(ctx.gpa)) |opened| {
+        var store = opened;
+        defer store.deinit();
+        claude_path = a.dupe(u8, store.claudePath()) catch claude_path;
+        branch_prefix = a.dupe(u8, store.branchPrefix()) catch branch_prefix;
+        if (store.reposRoot(a)) |r| repos_root = r else |_| {}
+        if (store.personalKeyStart()) |s| key_start = a.dupe(u8, s) catch null;
+    } else |_| {}
+    if (repos_root.len == 0) {
+        if (credentials.defaultReposRoot(a)) |r| repos_root = r else |_| {}
+    }
+
+    const hint = gtk.gtk_label_new("The `claude` CLI and `git` power the Start-coding button. These settings live on this machine.");
+    gtk.gtk_widget_add_css_class(hint, "dim-label");
+    gtk.gtk_label_set_wrap(hint, 1);
+    gtk.gtk_label_set_xalign(hint, 0);
+    gtk.gtk_box_append(ctx.content, hint);
+
+    ctx.coding_claude_entry = labeledEntry(ctx, "Claude CLI path", claude_path, "Save", &onCodingSaveClaude);
+    // Doctor: `claude --version` + `git --version`.
+    const doctor_row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    const doctor_btn = gtk.gtk_button_new_with_label("Check tools");
+    gtk.gtk_widget_add_css_class(doctor_btn, "flat");
+    gtk.gtk_widget_set_halign(doctor_btn, gtk.ALIGN_START);
+    _ = gtk.g_signal_connect_data(doctor_btn, "clicked", @ptrCast(&onCodingDoctor), ctx, null, 0);
+    gtk.gtk_box_append(doctor_row, doctor_btn);
+    const doctor_lbl = gtk.gtk_label_new("");
+    gtk.gtk_widget_add_css_class(doctor_lbl, "dim-label");
+    gtk.gtk_label_set_xalign(doctor_lbl, 0);
+    gtk.gtk_label_set_wrap(doctor_lbl, 1);
+    gtk.gtk_widget_set_hexpand(doctor_lbl, 1);
+    gtk.gtk_box_append(doctor_row, doctor_lbl);
+    ctx.coding_doctor_label = doctor_lbl;
+    gtk.gtk_box_append(ctx.content, doctor_row);
+
+    ctx.coding_repos_entry = labeledEntry(ctx, "Repos & worktrees root", repos_root, "Save", &onCodingSaveRepos);
+    ctx.coding_prefix_entry = labeledEntry(ctx, "Branch prefix", branch_prefix, "Save", &onCodingSavePrefix);
+
+    // Personal API key.
+    if (key_start) |start| {
+        const lbl = gtk.gtk_label_new(null);
+        if (std.fmt.allocPrintSentinel(a, "Personal API key: {s}… — written into each worktree's .mcp.json.", .{start}, 0)) |t| {
+            gtk.gtk_label_set_text(lbl, t.ptr);
+        } else |_| {}
+        gtk.gtk_widget_add_css_class(lbl, "dim-label");
+        gtk.gtk_label_set_wrap(lbl, 1);
+        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+        gtk.gtk_box_append(ctx.content, lbl);
+        const regen = gtk.gtk_button_new_with_label("Regenerate key");
+        gtk.gtk_widget_add_css_class(regen, "flat");
+        gtk.gtk_widget_set_halign(regen, gtk.ALIGN_START);
+        _ = gtk.g_signal_connect_data(regen, "clicked", @ptrCast(&onCodingGenKey), ctx, null, 0);
+        gtk.gtk_box_append(ctx.content, regen);
+    } else {
+        const lbl = gtk.gtk_label_new("No personal API key yet — generate one so the coding agent can reach the MCP server.");
+        gtk.gtk_widget_add_css_class(lbl, "dim-label");
+        gtk.gtk_label_set_wrap(lbl, 1);
+        gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+        gtk.gtk_box_append(ctx.content, lbl);
+        const gen = gtk.gtk_button_new_with_label("Generate personal API key");
+        gtk.gtk_widget_add_css_class(gen, "suggested-action");
+        gtk.gtk_widget_set_halign(gen, gtk.ALIGN_START);
+        _ = gtk.g_signal_connect_data(gen, "clicked", @ptrCast(&onCodingGenKey), ctx, null, 0);
+        gtk.gtk_box_append(ctx.content, gen);
+    }
+    // Freshly minted key shown once (read-only; select + copy).
+    if (ctx.last_minted_key) |key| {
+        const note = gtk.gtk_label_new("Copy your new key now — it won't be shown in full again:");
+        gtk.gtk_widget_add_css_class(note, "dim-label");
+        gtk.gtk_widget_set_halign(note, gtk.ALIGN_START);
+        gtk.gtk_box_append(ctx.content, note);
+        const entry = gtk.gtk_entry_new();
+        gtk.gtk_editable_set_text(entry, key.ptr);
+        gtk.gtk_editable_set_editable(entry, 0);
+        gtk.gtk_box_append(ctx.content, entry);
+    }
+}
+
+/// A "label: [entry] [Save]" row; returns the entry (owned by the widget tree).
+fn labeledEntry(ctx: *Ctx, label: []const u8, value: []const u8, btn_label: [*:0]const u8, handler: *const fn (gtk.Object, gtk.gpointer) callconv(.c) void) gtk.Object {
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_set_margin_top(row, 2);
+    const lbl = gtk.gtk_label_new(null);
+    var buf: [64]u8 = undefined;
+    if (std.fmt.bufPrintZ(&buf, "{s}", .{label[0..@min(label.len, buf.len - 1)]})) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
+    gtk.gtk_widget_add_css_class(lbl, "dim-label");
+    gtk.gtk_box_append(row, lbl);
+    const entry = gtk.gtk_entry_new();
+    gtk.gtk_widget_set_hexpand(entry, 1);
+    var vbuf: [512]u8 = undefined;
+    if (std.fmt.bufPrintZ(&vbuf, "{s}", .{value[0..@min(value.len, vbuf.len - 1)]})) |z| gtk.gtk_editable_set_text(entry, z.ptr) else |_| {}
+    gtk.gtk_box_append(row, entry);
+    const save = gtk.gtk_button_new_with_label(btn_label);
+    gtk.gtk_widget_add_css_class(save, "flat");
+    _ = gtk.g_signal_connect_data(save, "clicked", @ptrCast(handler), ctx, null, 0);
+    _ = gtk.g_signal_connect_data(entry, "activate", @ptrCast(handler), ctx, null, 0);
+    gtk.gtk_box_append(row, save);
+    gtk.gtk_box_append(ctx.content, row);
+    return entry;
+}
+
+fn entryText(entry: gtk.Object) []const u8 {
+    return std.mem.trim(u8, std.mem.span(gtk.gtk_editable_get_text(entry)), " \t\r\n");
+}
+
+fn onCodingSaveClaude(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const e = ctx.coding_claude_entry orelse return;
+    saveCodingField(ctx, .claude, entryText(e));
+}
+fn onCodingSaveRepos(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const e = ctx.coding_repos_entry orelse return;
+    saveCodingField(ctx, .repos, entryText(e));
+}
+fn onCodingSavePrefix(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const e = ctx.coding_prefix_entry orelse return;
+    saveCodingField(ctx, .prefix, entryText(e));
+}
+
+const CodingField = enum { claude, repos, prefix };
+
+fn saveCodingField(ctx: *Ctx, field: CodingField, value: []const u8) void {
+    var store = credentials.Store.open(ctx.gpa) catch return;
+    defer store.deinit();
+    switch (field) {
+        .claude => store.setClaudePath(value),
+        .repos => store.setReposRoot(value),
+        .prefix => store.setBranchPrefix(value),
+    }
+    store.save() catch {};
+}
+
+fn onCodingDoctor(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    const lbl = ctx.coding_doctor_label orelse return;
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const claude = if (ctx.coding_claude_entry) |e| entryText(e) else credentials.default_claude_path;
+    const claude_v = versionOf(a, if (claude.len > 0) claude else credentials.default_claude_path, "--version");
+    const git_v = versionOf(a, "git", "--version");
+    if (std.fmt.allocPrintSentinel(a, "claude: {s}\ngit: {s}", .{ claude_v, git_v }, 0)) |t| {
+        gtk.gtk_label_set_text(lbl, t.ptr);
+    } else |_| {}
+}
+
+/// Run `<prog> <arg>` and return trimmed stdout (or "not found" on failure).
+fn versionOf(a: std.mem.Allocator, prog: []const u8, arg: []const u8) []const u8 {
+    const res = std.process.run(a, std.Io.Threaded.global_single_threaded.io(), .{
+        .argv = &.{ prog, arg },
+        .stdout_limit = .limited(16 * 1024),
+        .stderr_limit = .limited(16 * 1024),
+    }) catch return "not found";
+    if (!(res.term == .exited and res.term.exited == 0)) return "not found";
+    const out = std.mem.trim(u8, res.stdout, " \t\r\n");
+    return if (out.len > 0) out else "ok";
+}
+
+fn onCodingGenKey(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *Ctx = @ptrCast(@alignCast(data));
+    var arena = std.heap.ArenaAllocator.init(ctx.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const input = std.json.Stringify.valueAlloc(a, .{ .name = "Exponential Desktop" }, .{}) catch return;
+    var resp = trpc.call(ctx.gpa, ctx.instance, "users.mintPersonalApiKey", input, ctx.token, 30) catch return;
+    defer resp.deinit();
+    if (!resp.ok()) return;
+    var obj = trpc.asObject(resp.data() orelse return) orelse return;
+    if (obj.get("json")) |inner| {
+        if (trpc.asObject(inner)) |io| obj = io;
+    }
+    const key = trpc.objString(obj, "key") orelse return;
+    const key_id = trpc.objString(obj, "id") orelse "";
+    const start = trpc.objString(obj, "start") orelse key[0..@min(key.len, 9)];
+
+    // Persist to the desktop-settings store.
+    var store = credentials.Store.open(ctx.gpa) catch return;
+    defer store.deinit();
+    store.setPersonalKey(key, key_id, start);
+    store.save() catch {};
+
+    // Show the raw key once (freed on close / next rebuild).
+    if (ctx.last_minted_key) |old| ctx.gpa.free(old);
+    ctx.last_minted_key = ctx.gpa.dupeZ(u8, key) catch null;
     rebuild(ctx);
 }
 

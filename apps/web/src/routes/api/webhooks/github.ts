@@ -3,7 +3,11 @@ import { createFileRoute } from "@tanstack/react-router"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues } from "@/db/schema"
-import { applyPrMergeState } from "@/lib/integrations/pr-sync"
+import {
+  applyPrMergeState,
+  applyPrOpenedState,
+  findIssueIdByBranch,
+} from "@/lib/integrations/pr-sync"
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -25,9 +29,32 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
   return timingSafeEqual(a, b)
 }
 
-// GitHub webhook receiver — the CLOUD merge-detection trigger (self-hosted uses
-// the outbound cron instead). Only acts on `pull_request` closed+merged events,
-// matched to an issue by exact pr_url; everything else is acked and ignored.
+// Resolve the payload's PR to one of our issues: exact prUrl match first, then
+// a deterministic fallback that parses the `exp/<IDENTIFIER>` head branch and
+// resolves through the repositories registry — so PRs opened out-of-band still
+// link.
+async function resolveIssueForPr(args: {
+  htmlUrl: string
+  repoFullName?: string
+  headRef?: string
+}): Promise<string | null> {
+  const [byUrl] = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(eq(issues.prUrl, args.htmlUrl))
+    .limit(1)
+  if (byUrl) return byUrl.id
+  if (args.repoFullName && args.headRef) {
+    return findIssueIdByBranch(args.repoFullName, args.headRef)
+  }
+  return null
+}
+
+// GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
+// (self-hosted uses the outbound cron for merges instead). Acts on
+// `pull_request` `opened` (link an out-of-band PR to its issue) and
+// `closed`+`merged` (flip prState). Issues resolve by exact prUrl OR by the
+// `exp/<IDENTIFIER>` head-branch parse; everything else is acked and ignored.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -50,42 +77,50 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       action?: string
       pull_request?: {
         html_url?: string
+        number?: number
         merged?: boolean
         merged_at?: string | null
+        head?: { ref?: string }
       }
+      repository?: { full_name?: string }
     }
 
-    // Ack-and-ignore anything that isn't a merge.
-    if (
-      payload.action !== `closed` ||
-      payload.pull_request?.merged !== true ||
-      !payload.pull_request.html_url
-    ) {
+    const pr = payload.pull_request
+    if (!pr?.html_url) {
+      return jsonResponse(200, { ok: true })
+    }
+    const htmlUrl = pr.html_url
+    const repoFullName = payload.repository?.full_name
+    const headRef = pr.head?.ref
+
+    // Merge: flip prState → merged, stamp prMergedAt, emit pr_merged (once).
+    if (payload.action === `closed` && pr.merged === true) {
+      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
+      if (!issueId) return jsonResponse(200, { ok: true })
+      const mergedAt = pr.merged_at ? new Date(pr.merged_at) : new Date()
+      await applyPrMergeState({
+        issueId,
+        prUrl: htmlUrl,
+        mergedAt,
+        actorUserId: null,
+      })
       return jsonResponse(200, { ok: true })
     }
 
-    const htmlUrl = payload.pull_request.html_url
-    const [issue] = await db
-      .select({ id: issues.id })
-      .from(issues)
-      .where(eq(issues.prUrl, htmlUrl))
-      .limit(1)
-
-    // Not one of our PRs.
-    if (!issue) {
+    // Opened out-of-band: link the PR to its issue if it has none yet.
+    if (payload.action === `opened` && repoFullName && headRef && pr.number) {
+      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
+      if (issueId) {
+        await applyPrOpenedState({
+          issueId,
+          prUrl: htmlUrl,
+          prNumber: pr.number,
+          branch: headRef,
+          actorUserId: null,
+        })
+      }
       return jsonResponse(200, { ok: true })
     }
-
-    const mergedAt = payload.pull_request.merged_at
-      ? new Date(payload.pull_request.merged_at)
-      : new Date()
-
-    await applyPrMergeState({
-      issueId: issue.id,
-      prUrl: htmlUrl,
-      mergedAt,
-      actorUserId: null,
-    })
 
     return jsonResponse(200, { ok: true })
   } catch (err) {

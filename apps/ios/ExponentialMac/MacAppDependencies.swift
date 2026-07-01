@@ -28,12 +28,21 @@ final class MacAppDependencies: @unchecked Sendable {
     let integrationsApi: IntegrationsApi
     let notificationsApi: NotificationsApi
     let subscriptionsApi: SubscriptionsApi
+    // Server-only coding-flow procs (repositories aren't a synced shape).
+    let repositoriesApi: RepositoriesApi
+    let codingSessionsApi: CodingSessionsApi
+    let usersApi: UsersApi
     let terminalDock: MacTerminalDock
     let toastCenter: MacToastCenter
     // The local device-preview runtime (build/run/embed the selected run target
     // in the dedicated Preview pane). Single active preview, retained here so it
     // survives issue navigation like the terminal dock.
     let previewController: MacPreviewController
+    // Persistent "Start coding" settings (claude path, repos root, branch prefix,
+    // personal API key) + the native launcher (§4a). One launcher, retained here
+    // so a live session's completion handler outlives issue navigation.
+    let codingSettings: MacCodingSettings
+    let codingLauncher: MacCodingLauncher
 
     init() {
         let keychain = KeychainStore()
@@ -82,8 +91,13 @@ final class MacAppDependencies: @unchecked Sendable {
         self.integrationsApi = integrationsApi
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
+        let repositoriesApi = RepositoriesApi(trpc: trpc)
+        self.repositoriesApi = repositoriesApi
+        let codingSessionsApi = CodingSessionsApi(trpc: trpc)
+        self.codingSessionsApi = codingSessionsApi
+        self.usersApi = UsersApi(trpc: trpc)
         // The collapsible bottom terminal dock — shared by MacShell (renders it)
-        // and the preview run terminals (which mount into it).
+        // and the preview + coding run terminals (which mount into it).
         let terminalDock = MainActor.assumeIsolated { MacTerminalDock() }
         self.terminalDock = terminalDock
         // The terminal runner is a singleton; point it at the shared dock once so
@@ -92,6 +106,18 @@ final class MacAppDependencies: @unchecked Sendable {
         let toastCenter = MainActor.assumeIsolated { MacToastCenter() }
         self.toastCenter = toastCenter
         self.previewController = MainActor.assumeIsolated { MacPreviewController() }
+        let codingSettings = MainActor.assumeIsolated { MacCodingSettings.load() }
+        self.codingSettings = codingSettings
+        self.codingLauncher = MainActor.assumeIsolated {
+            MacCodingLauncher(
+                auth: auth,
+                repositoriesApi: repositoriesApi,
+                codingSessionsApi: codingSessionsApi,
+                db: db,
+                settings: codingSettings,
+                toasts: toastCenter
+            )
+        }
 
         // Start sync — it observes auth state and launches one shape pipeline set
         // per signed-in account, swapping pools on account switch.

@@ -26,6 +26,7 @@ const ServerAccount = @import("../core/auth/server_account.zig").ServerAccount;
 const Database = @import("../core/db/database.zig").Database;
 const sync = @import("../core/electric/sync_manager.zig");
 const terminal_dock = @import("terminal_dock.zig");
+const coding_launcher = @import("coding_launcher.zig");
 const preview_panel = @import("preview/preview_panel.zig");
 const preview = @import("preview/preview.zig");
 const preview_config = @import("preview/preview_config.zig");
@@ -71,6 +72,8 @@ const AppState = struct {
     selected_project_name: ?[]u8 = null, // for the create-issue default + title
     selected_project_repo: ?[]u8 = null, // GitHub repo of the selected project ("" → none)
     detail_issue_id: ?[]u8 = null, // issue currently shown in the detail pane
+    coding_btn: gtk.Object = null, // the current detail's "Start coding" button (nulled on destroy)
+    coding_btn_issue: ?[]u8 = null, // gpa-owned issue id the coding_btn belongs to
     shown_project_count: i64 = -1, // so the sidebar rebuilds only when projects change
     shown_workspace_count: i64 = -1,
 
@@ -606,6 +609,11 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.selected_project_repo = null;
     if (state.detail_issue_id) |p| state.gpa.free(p);
     state.detail_issue_id = null;
+    // The button widget dies with the window content (its destroy-notify already
+    // nulls coding_btn); clear the tracked id defensively.
+    state.coding_btn = null;
+    if (state.coding_btn_issue) |p| state.gpa.free(p);
+    state.coding_btn_issue = null;
     if (state.search_text) |p| state.gpa.free(p);
     state.search_text = null;
     // Tear down the preview: the controller owns the dev-server / emulator child
@@ -2002,6 +2010,11 @@ fn showIssueDetail(state: *AppState, id: []const u8) void {
     _ = gtk.g_signal_connect_data(edit_btn, "clicked", @ptrCast(&onEditClicked), state, null, 0);
     gtk.adw_header_bar_pack_end(detail_header, edit_btn);
 
+    // "Start coding" — the §4a launcher. Disabled until the async
+    // repositories.forIssue check confirms the project has a linked repo
+    // (coding-first gate, §7d); no repo ⇒ stays disabled with a CTA tooltip.
+    addStartCodingButton(state, detail_header, id, issue.identifier, issue.title, issue.description);
+
     // "Changes" — the PR diff, rendered inline (the page also offers
     // Open on GitHub). Shown only when the issue has a synced PR.
     if (issue.pr_url.len > 0) {
@@ -2291,6 +2304,238 @@ fn freeIssueActionCtx(p: gtk.gpointer) callconv(.c) void {
     const ctx: *IssueActionCtx = @ptrCast(@alignCast(p));
     ctx.state.gpa.free(ctx.issue_id);
     ctx.state.gpa.destroy(ctx);
+}
+
+// --- "Start coding" launcher wiring (§4a launcher, §7d coding-first gate) ---
+
+/// Carried by the detail's "Start coding" button: the resolved issue context the
+/// launcher needs, plus a back-reference so the button's destroy-notify can clear
+/// `state.coding_btn` (keeping the async repo-check's target pointer always live
+/// or null — never dangling).
+const CodingLaunchCtx = struct {
+    state: *AppState,
+    button: gtk.Object,
+    issue_id: [:0]u8,
+    identifier: [:0]u8,
+    title: [:0]u8,
+    description: [:0]u8,
+};
+
+fn freeCodingLaunch(p: gtk.gpointer) callconv(.c) void {
+    const c: *CodingLaunchCtx = @ptrCast(@alignCast(p));
+    const state = c.state;
+    // If this button is still the tracked one, forget it so a late repo-check
+    // callback doesn't touch a freed widget.
+    if (state.coding_btn == c.button) {
+        state.coding_btn = null;
+        if (state.coding_btn_issue) |s| state.gpa.free(s);
+        state.coding_btn_issue = null;
+    }
+    const gpa = state.gpa;
+    gpa.free(c.issue_id);
+    gpa.free(c.identifier);
+    gpa.free(c.title);
+    gpa.free(c.description);
+    gpa.destroy(c);
+}
+
+fn addStartCodingButton(state: *AppState, header: gtk.Object, id: []const u8, identifier: []const u8, title: []const u8, description: []const u8) void {
+    const btn = gtk.gtk_button_new_with_label("Start coding");
+    gtk.gtk_widget_add_css_class(btn, "flat");
+    // Disabled until the repo check resolves (coding-first gate).
+    gtk.gtk_widget_set_sensitive(btn, 0);
+    gtk.gtk_widget_set_tooltip_text(btn, "Checking for a linked repository…");
+
+    const gpa = state.gpa;
+    // Dup into locals first, freeing exactly what succeeded on a mid-way OOM.
+    const id_z = gpa.dupeZ(u8, id) catch return;
+    const ident_z = gpa.dupeZ(u8, identifier) catch return gpa.free(id_z);
+    const title_z = gpa.dupeZ(u8, title) catch {
+        gpa.free(id_z);
+        gpa.free(ident_z);
+        return;
+    };
+    const desc_z = gpa.dupeZ(u8, description) catch {
+        gpa.free(id_z);
+        gpa.free(ident_z);
+        gpa.free(title_z);
+        return;
+    };
+    const ctx = gpa.create(CodingLaunchCtx) catch {
+        gpa.free(id_z);
+        gpa.free(ident_z);
+        gpa.free(title_z);
+        gpa.free(desc_z);
+        return;
+    };
+    ctx.* = .{
+        .state = state,
+        .button = btn,
+        .issue_id = id_z,
+        .identifier = ident_z,
+        .title = title_z,
+        .description = desc_z,
+    };
+    gtk.g_object_set_data_full(btn, "exp-coding", @ptrCast(ctx), @ptrCast(&freeCodingLaunch));
+    _ = gtk.g_signal_connect_data(btn, "clicked", @ptrCast(&onStartCoding), ctx, null, 0);
+    gtk.adw_header_bar_pack_end(header, btn);
+
+    // Track the current button for the async repo check.
+    state.coding_btn = btn;
+    if (state.coding_btn_issue) |s| gpa.free(s);
+    state.coding_btn_issue = gpa.dupe(u8, id) catch null;
+
+    // Kick off repositories.forIssue off the main thread; it flips sensitivity.
+    startCodingRepoCheck(state, id);
+}
+
+fn onStartCoding(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *CodingLaunchCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    const inst = state.instance orelse return;
+    coding_launcher.start(.{
+        .gpa = state.gpa,
+        .instance = inst,
+        .token = state.token,
+        .issue_id = ctx.issue_id,
+        .identifier = ctx.identifier,
+        .title = ctx.title,
+        .description = ctx.description,
+        .mount = codingMount,
+        .mount_ctx = state,
+        .on_error = codingError,
+        .error_ctx = state,
+    });
+}
+
+/// Main-thread mount hook: drop the ready ghostty terminal into the bottom dock.
+fn codingMount(mount_ctx: ?*anyopaque, term: gtk.Object, title: [*:0]const u8) void {
+    const state: *AppState = @ptrCast(@alignCast(mount_ctx orelse return));
+    if (state.term_dock) |dock| dock.mountTerminal(term, title);
+}
+
+/// Main-thread error hook: surface the failure / "link a repository" CTA.
+fn codingError(err_ctx: ?*anyopaque, message: [*:0]const u8) void {
+    const state: *AppState = @ptrCast(@alignCast(err_ctx orelse return));
+    showMessageDialog(state, "Start coding", std.mem.span(message));
+}
+
+// --- async coding-first repo check ---
+
+const CodingCheckJob = struct {
+    state: *AppState,
+    gpa: std.mem.Allocator,
+    instance: []u8,
+    token: ?[]u8,
+    issue_id: []u8,
+    has_repo: bool = false,
+};
+
+fn startCodingRepoCheck(state: *AppState, issue_id: []const u8) void {
+    const inst = state.instance orelse return;
+    const gpa = state.gpa;
+    const job = gpa.create(CodingCheckJob) catch return;
+    job.* = .{
+        .state = state,
+        .gpa = gpa,
+        .instance = gpa.dupe(u8, inst) catch {
+            gpa.destroy(job);
+            return;
+        },
+        .token = if (state.token) |t| (gpa.dupe(u8, t) catch null) else null,
+        .issue_id = gpa.dupe(u8, issue_id) catch {
+            gpa.free(job.instance);
+            gpa.destroy(job);
+            return;
+        },
+    };
+    const th = std.Thread.spawn(.{}, codingCheckWorker, .{job}) catch {
+        codingCheckWorker(job);
+        return;
+    };
+    th.detach();
+}
+
+fn codingCheckWorker(job: *CodingCheckJob) void {
+    defer _ = gtk.g_idle_add(@ptrCast(&onCodingCheckDone), job);
+    const gpa = job.gpa;
+    const input = std.fmt.allocPrint(gpa, "{{\"issueId\":\"{s}\"}}", .{job.issue_id}) catch return;
+    defer gpa.free(input);
+    var resp = trpc.queryInput(gpa, job.instance, "repositories.forIssue", input, job.token, 30) catch return;
+    defer resp.deinit();
+    if (!resp.ok()) return;
+    // A linked repo ⇒ a non-null object with a repositoryId; null ⇒ not linked.
+    const dv = resp.data() orelse return;
+    var obj = trpc.asObject(dv) orelse return;
+    if (obj.get("json")) |inner| {
+        if (trpc.asObject(inner)) |inner_obj| obj = inner_obj;
+    }
+    job.has_repo = trpc.objString(obj, "repositoryId") != null;
+}
+
+fn onCodingCheckDone(data: gtk.gpointer) callconv(.c) c_int {
+    const job: *CodingCheckJob = @ptrCast(@alignCast(data));
+    const state = job.state;
+    // Only touch the button if it's still the tracked one for THIS issue
+    // (state.coding_btn is nulled by the button's destroy-notify, so it's never
+    // dangling here).
+    if (state.coding_btn) |btn| {
+        if (state.coding_btn_issue) |cur| {
+            if (std.mem.eql(u8, cur, job.issue_id)) {
+                gtk.gtk_widget_set_sensitive(btn, if (job.has_repo) 1 else 0);
+                gtk.gtk_widget_set_tooltip_text(btn, if (job.has_repo)
+                    "Clone the repo and start a coding session for this issue"
+                else
+                    "Link a repository to this project in workspace settings to start coding");
+            }
+        }
+    }
+    const gpa = job.gpa;
+    gpa.free(job.instance);
+    if (job.token) |t| gpa.free(t);
+    gpa.free(job.issue_id);
+    gpa.destroy(job);
+    return 0; // G_SOURCE_REMOVE
+}
+
+/// A minimal modal message dialog (title + message + Close), matching the
+/// AdwDialog pattern used by settings.
+fn showMessageDialog(state: *AppState, title: [*:0]const u8, message: []const u8) void {
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, title);
+    gtk.adw_dialog_set_content_width(dialog, 420);
+
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+
+    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 12);
+    gtk.gtk_widget_set_margin_top(form, 16);
+    gtk.gtk_widget_set_margin_bottom(form, 16);
+    gtk.gtk_widget_set_margin_start(form, 16);
+    gtk.gtk_widget_set_margin_end(form, 16);
+    const lbl = gtk.gtk_label_new(null);
+    var buf: [512]u8 = undefined;
+    if (std.fmt.bufPrintZ(&buf, "{s}", .{message[0..@min(message.len, buf.len - 1)]})) |z| {
+        gtk.gtk_label_set_text(lbl, z.ptr);
+    } else |_| {}
+    gtk.gtk_label_set_wrap(lbl, 1);
+    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+    gtk.gtk_box_append(form, lbl);
+
+    const close = gtk.gtk_button_new_with_label("Close");
+    gtk.gtk_widget_add_css_class(close, "flat");
+    gtk.gtk_widget_set_halign(close, gtk.ALIGN_END);
+    _ = gtk.g_signal_connect_data(close, "clicked", @ptrCast(&onMessageClose), dialog, null, 0);
+    gtk.gtk_box_append(form, close);
+
+    gtk.adw_toolbar_view_set_content(tv, form);
+    gtk.adw_dialog_set_child(dialog, tv);
+    gtk.adw_dialog_present(dialog, state.window);
+}
+
+fn onMessageClose(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    _ = gtk.adw_dialog_close(@ptrCast(@alignCast(data)));
 }
 
 const OpenUrlCtx = struct { gpa: std.mem.Allocator, url: [:0]u8 };

@@ -7,8 +7,8 @@ Continuation state for the **masterplan v2 execution** (see `docs/masterplan.md`
 | Phase | Status | Notes |
 | --- | --- | --- |
 | 0+1 Delete + greenfield schema | ✅ **committed** | Commit `refactor!: v2 hard cut…` — agent-core/FFI/companion/agent-plan/calendar all deleted (−83k LOC); 14 synced shapes with `coding_sessions`; fresh `0000` migration; all validation green (web typecheck + 83 tests + build; Zig 43/43 + full build; Android assembleProductionDebug). Swift compile deferred to this Mac session. |
-| 2 Server contract | ⬜ **briefed, NOT started** — full brief below | repositories router + codingSessions router + personal-API-key procs + MCP `exponential_pr_open`/`update_status` + repositories settings UI + webhook branch-parse linking. |
-| 3 Launcher (Linux + macOS) | ⬜ **briefed, NOT started** — full briefs below | Zig + Swift "Start coding" launchers, desktop settings (CLI path / repos root / branch prefix / personal key). |
+| 2 Server contract | ✅ **committed** | repositories router (list/add/remove/link/unlink/setPrimary/forIssue/installationToken), codingSessions router (start/end, returns `{session}`), users personal-API-key procs (mint returns raw key once: `{key,id,name,start,prefix,createdAt}`; list returns `{keys:[…]}`), MCP `exponential_pr_open` + `exponential_issues_update_status` + identifier resolution, repositories-section settings UI (GithubRepoPicker re-homed), webhook links by prUrl AND branch-parse (opened + merged, idempotent), dogfood repo row. Green: typecheck + 88 tests + build:web. |
+| 3 Launcher (Linux + macOS) | ✅ **committed** (macOS = build-green-by-inspection; compile on the Mac!) | Linux: credentials.zig, git_worktree.zig, coding_prompt.zig, coding_launcher.zig, play button, settings Coding section — 52/52 zig tests + full build green. macOS: RepositoriesApi/CodingSessionsApi/UsersApi, GitWorktree.swift, MacCodingLauncher.swift (single `start(accountId:issueId:)`, relay-ready), MacCodingSettings (JSON @ MacAppSupport.dir()/coding-settings.json 0600, Keychain = Phase 6 TODO), play button + settings section. |
 | 4 Steer relay | ⬜ not started | Design pinned in masterplan §3. **No files written yet** (`apps/steer-relay` does not exist). |
 | 5 Desktop IDE (run configs, multi-window, Linux parity) | ⬜ | Carried-over TODO recorded in task list: Linux still has `projects.github_repo` remnants in local SQLite + repo-banner/preview infra to swap to the repositories registry. |
 | 6 macOS/iOS real-hardware verify | ⬜ **← THE MAC SESSION STARTS HERE** (Phase 0+1 Swift compile-fix + checklist; Phases 2/3 can run in parallel from the briefs below) | Checklist below. |
@@ -28,6 +28,13 @@ Task list in the session tracks the same phases (#1–#10).
    - New files: `MacCodingLauncher.swift`, `GitWorktree.swift`, `RepositoriesApi.swift`, `CodingSessionsApi.swift`, `MacDiffView.swift`, `MacAppSupport.swift`, `MacToasts.swift`, `MacEventPhrases.swift`, `EventPhrases.swift` (iOS), plus settings additions.
    - `ExpCore` entities: `CodingSessionEntity` (replaces AgentRunEntity), `IssueEntity` (+`duplicateOfId`, −googleCalendar*/−agentPlanState), `IssueSubscriberEntity` (optional `userId`, +`email`), DatabaseManager cache-key bumped `-v3`→`-v4`.
 4. Then run the **Phase 6 checklist** (below).
+
+### Known runtime assumptions baked into the Swift launcher (verify on hardware)
+- Worktree layout: clone at `<reposRoot>/<owner>/<name>`, worktrees at `<reposRoot>/<owner>/<name>.worktrees/<branch with / → ->`; re-launch reuses the worktree (one issue = one worktree).
+- `claude` resolves via the augmented PATH inside the ghostty script when the setting is the bare `claude`; set an absolute path in settings if the GUI-app PATH misses it.
+- PROMPT.md hardcodes MCP tool names `exponential_pr_open` / `exponential_issues_update_status` — these match the server as landed.
+- "Regenerate" best-effort revokes the previously stored key id after minting the new one.
+- Decode envelopes were aligned to the server post-review (`{session}` for codingSessions.start, `{keys}` for listPersonalApiKeys, nullable `start` on mint) — if a decode fails at runtime, compare against apps/web/src/lib/trpc/{coding-sessions,users}.ts return shapes first.
 
 ## Phase 6 real-Mac verification checklist (masterplan §4f + agent additions)
 
@@ -55,7 +62,7 @@ Dev backend: this repo's compose stack, or point at `next.exponential.at`. On a 
 - **`0002_public_workspace.sql` deleted** (obsolete on greenfield); `bootstrap-cloud.ts` now applies only `0001_triggers.sql`.
 - **Branch→issue webhook linking** matches `/(?:^|\/)([A-Z0-9]+-\d+)$/` against the head branch so custom prefixes work.
 
-## Phase 2 + 3 implementation briefs (written, NOT started — execute these next)
+## Phase 2 + 3 implementation briefs (IMPLEMENTED — kept as the spec of record for what landed)
 
 The locked cross-cutting tRPC contract both phases share:
 - `repositories.forIssue({issueId})` → `{repositoryId, fullName, defaultBranch} | null` (query)

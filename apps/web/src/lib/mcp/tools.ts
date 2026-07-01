@@ -25,6 +25,9 @@ import {
 } from "@/lib/workspace-membership"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
+import { createPullRequest } from "@/lib/integrations/github-pr"
+import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
+import { recordIssueEvent } from "@/lib/integrations/activity"
 import { err, ok } from "./helpers"
 import type { McpUser } from "./server"
 
@@ -59,6 +62,42 @@ function buildCtx(user: McpUser, request: Request): Context {
 
 function caller(user: McpUser, request: Request) {
   return appRouter.createCaller(buildCtx(user, request))
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Resolve a UUID or human identifier ("MET-12") to an issue UUID, scoped to the
+// user's accessible workspaces. The workspace-level access check still runs in
+// the caller — this only maps the friendly identifier the coding agent knows to
+// the row id. Identifiers are stored uppercase; the lookup is case-insensitive.
+async function resolveIssueId(
+  idOrIdentifier: string,
+  userId: string
+): Promise<string> {
+  if (UUID_RE.test(idOrIdentifier)) return idOrIdentifier
+  const workspaceIds = await getUserWorkspaceIds(userId)
+  if (workspaceIds.length > 0) {
+    const projectRows = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(inArray(projects.workspaceId, workspaceIds))
+    const projectIds = projectRows.map((r) => r.id)
+    if (projectIds.length > 0) {
+      const [row] = await db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(
+          and(
+            inArray(issues.projectId, projectIds),
+            eq(issues.identifier, idOrIdentifier.toUpperCase())
+          )
+        )
+        .limit(1)
+      if (row) return row.id
+    }
+  }
+  throw new Error(`Issue not found: ${idOrIdentifier}`)
 }
 
 const issueStatusEnumSchema = z.enum(issueStatusValues)
@@ -367,14 +406,15 @@ export function registerExponentialTools(
     `exponential_issues_get`,
     {
       title: `Get issue`,
-      description: `Get a single issue by id, including its label ids and the latest comments on the thread (newest first). The recentComments array is capped at ${`50`}; pass commentsLimit to override.`,
+      description: `Get a single issue by UUID or human identifier (e.g. "MET-12"), including its label ids and the latest comments on the thread (newest first). The recentComments array is capped at ${`50`}; pass commentsLimit to override.`,
       inputSchema: {
-        id: z.string().uuid(),
+        id: z.string().min(1),
         commentsLimit: z.number().int().min(0).max(200).optional(),
       },
     },
-    async ({ id, commentsLimit }) => {
+    async ({ id: idInput, commentsLimit }) => {
       try {
+        const id = await resolveIssueId(idInput, user.id)
         const ctxIssue = await getIssueWorkspaceContext(id)
         await resolveWorkspaceAccess(user.id, ctxIssue.workspaceId)
         const [issue] = await db
@@ -663,15 +703,16 @@ export function registerExponentialTools(
     `exponential_comments_list`,
     {
       title: `List comments on an issue`,
-      description: `List comments on an issue (oldest first). The MCP user must have access to the issue's workspace.`,
+      description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). The MCP user must have access to the issue's workspace.`,
       inputSchema: {
-        issueId: z.string().uuid(),
+        issueId: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(100),
         offset: z.number().int().min(0).default(0),
       },
     },
-    async ({ issueId, limit, offset }) => {
+    async ({ issueId: issueIdInput, limit, offset }) => {
       try {
+        const issueId = await resolveIssueId(issueIdInput, user.id)
         const ctxIssue = await getIssueWorkspaceContext(issueId)
         await resolveWorkspaceAccess(user.id, ctxIssue.workspaceId)
         const rows = await db
@@ -692,19 +733,129 @@ export function registerExponentialTools(
     `exponential_comments_create`,
     {
       title: `Comment on an issue`,
-      description: `Post a regular comment on an issue authored by the MCP user. Body is plain text.`,
+      description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user. Body is plain text.`,
       inputSchema: {
-        issueId: z.string().uuid(),
+        issueId: z.string().min(1),
         bodyText: z.string().min(1).max(10_000),
       },
     },
-    async ({ issueId, bodyText }) => {
+    async ({ issueId: issueIdInput, bodyText }) => {
       try {
+        const issueId = await resolveIssueId(issueIdInput, user.id)
         const result = await caller(user, request).comments.create({
           issueId,
           body: bodyText,
         })
         return ok(result.comment)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Coding flow (status + pull requests)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_issues_update_status`,
+    {
+      title: `Update issue status (coding flow)`,
+      description: `Set an issue's status during a coding session. Restricted to 'in_progress' (you started working) and 'done' (work is complete and merged). There is NO "in review" status — a PR that's open and awaiting review is represented by the issue's prState becoming 'open' after you call exponential_pr_open, not by a status change. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      inputSchema: {
+        issueId: z.string().min(1),
+        status: z.enum([`in_progress`, `done`]),
+      },
+    },
+    async ({ issueId, status }) => {
+      try {
+        const id = await resolveIssueId(issueId, user.id)
+        const result = await caller(user, request).issues.update({ id, status })
+        return ok(result.issue)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_pr_open`,
+    {
+      title: `Open a pull request for an issue`,
+      description: `Open a GitHub pull request for the issue's linked repository and link it to the issue. The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' defaults to the repo's default branch. On success the issue records prUrl/prNumber/prState='open'/branch and a pr_opened activity event. Fails with a clear message if the issue's project has no linked repository. Accepts a UUID or human identifier (e.g. "MET-12").`,
+      inputSchema: {
+        issueId: z.string().min(1),
+        title: z.string().min(1).max(255),
+        body: z.string().max(60_000).optional(),
+        head: z.string().max(255).optional(),
+        base: z.string().max(255).optional(),
+      },
+    },
+    async ({ issueId, title, body, head, base }) => {
+      try {
+        const id = await resolveIssueId(issueId, user.id)
+        const issueCtx = await getIssueWorkspaceContext(id)
+        await resolveWorkspaceAccess(user.id, issueCtx.workspaceId)
+
+        const repo = await caller(user, request).repositories.forIssue({
+          issueId: id,
+        })
+        if (!repo) {
+          throw new Error(
+            `No repository linked to this project — link one in workspace settings.`
+          )
+        }
+
+        const [issue] = await db
+          .select({ identifier: issues.identifier, branch: issues.branch })
+          .from(issues)
+          .where(eq(issues.id, id))
+          .limit(1)
+        if (!issue) throw new Error(`Issue not found`)
+
+        const headBranch = head ?? issue.branch ?? `exp/${issue.identifier}`
+        const baseBranch = base ?? repo.defaultBranch
+
+        const token = await resolveRepoInstallationToken(repo.fullName)
+        if (!token) {
+          throw new Error(
+            `The Exponential GitHub App is not installed on ${repo.fullName}.`
+          )
+        }
+
+        const created = await createPullRequest({
+          repo: repo.fullName,
+          head: headBranch,
+          base: baseBranch,
+          title,
+          body: body ?? ``,
+          token,
+        })
+
+        await db.transaction(async (tx) => {
+          await tx
+            .update(issues)
+            .set({
+              prUrl: created.url,
+              prNumber: created.number,
+              prState: `open`,
+              branch: headBranch,
+            })
+            .where(eq(issues.id, id))
+          await recordIssueEvent(tx, {
+            issueId: id,
+            workspaceId: issueCtx.workspaceId,
+            actorUserId: user.id,
+            type: `pr_opened`,
+            payload: {
+              prUrl: created.url,
+              prNumber: created.number,
+              branch: headBranch,
+            },
+          })
+        })
+
+        return ok({ url: created.url, number: created.number })
       } catch (e) {
         return err(e)
       }
