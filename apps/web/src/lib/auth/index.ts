@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { bearer, genericOAuth, mcp } from "better-auth/plugins"
+import { bearer, customSession, genericOAuth, mcp } from "better-auth/plugins"
 import { apiKey } from "@better-auth/api-key"
 import { creem } from "@creem_io/better-auth"
 import { createAuthMiddleware } from "better-auth/api"
@@ -16,6 +16,7 @@ import {
   sendVerificationEmail,
 } from "@/lib/email"
 import { isAdminUser } from "./app-user"
+import { resolveOnboardingCompletedAt } from "./onboarding"
 
 export { parseOidcProviders, type OidcProviderConfig }
 
@@ -345,6 +346,17 @@ export const auth = betterAuth({
           }),
         ]
       : []),
+    // Unified onboarding gate: every client (web, iOS, Android) decides
+    // "show the first-run wizard?" from this session's onboardingCompletedAt,
+    // so the rule lives server-side in resolveOnboardingCompletedAt — users
+    // who already have a real project get the flag backfilled on read.
+    customSession(async ({ user, session }) => ({
+      user: {
+        ...user,
+        onboardingCompletedAt: await resolveOnboardingCompletedAt(user),
+      },
+      session,
+    })),
     // Must be last so it can capture Set-Cookie from any plugin's hooks.after.
     tanstackStartCookies(),
   ],

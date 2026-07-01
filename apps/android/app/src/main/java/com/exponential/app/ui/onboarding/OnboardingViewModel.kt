@@ -2,6 +2,7 @@ package com.exponential.app.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.CreateProjectInput
 import com.exponential.app.data.api.IssuesApi
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val auth: AuthRepository,
+    private val authApi: AuthApi,
     private val workspacesApi: WorkspacesApi,
     private val projectsApi: ProjectsApi,
     private val issuesApi: IssuesApi,
@@ -43,10 +45,26 @@ class OnboardingViewModel @Inject constructor(
     private val _done = MutableStateFlow(false)
     val done: StateFlow<Boolean> = _done.asStateFlow()
 
+    private var reconciled = false
+
     fun ensureWorkspace() {
         if (_state.value.workspaceId != null) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
+            // The server backfills onboardingCompletedAt on session reads for
+            // users who already have a project in a non-public workspace (the
+            // unified rule in lib/auth/onboarding.ts). Re-read the session
+            // before walking the wizard, so an account whose flag was still
+            // null at login self-heals here instead of re-onboarding.
+            if (!reconciled) {
+                reconciled = true
+                val completedAt = authApi.fetchSession(accountId)?.onboardingCompletedAt
+                if (completedAt != null) {
+                    auth.markOnboardingCompleted(completedAt)
+                    _done.value = true
+                    return@launch
+                }
+            }
             runCatching { workspacesApi.ensureDefault(accountId) }
                 .onSuccess { _state.value = _state.value.copy(workspaceId = it.id) }
                 .onFailure { _state.value = _state.value.copy(error = it.message ?: "Couldn't load your workspace") }

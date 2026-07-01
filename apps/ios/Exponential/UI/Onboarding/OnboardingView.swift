@@ -83,7 +83,10 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .task { await ensureWorkspace() }
+        .task {
+            await reconcileWithServer()
+            if deps.auth.needsOnboarding { await ensureWorkspace() }
+        }
     }
 
     // MARK: - Steps
@@ -209,6 +212,19 @@ struct OnboardingView: View {
     }
 
     // MARK: - Actions
+
+    /// The server backfills onboardingCompletedAt on session reads for users
+    /// who already have a project in a non-public workspace (the unified rule
+    /// in lib/auth/onboarding.ts). Re-read the session before making the user
+    /// walk the wizard, so an account whose flag was still null at login
+    /// self-heals here instead of re-onboarding.
+    private func reconcileWithServer() async {
+        guard let accountId = deps.auth.activeAccountId,
+              let user = await deps.authApi.fetchSession(accountId: accountId),
+              let completedAt = user.onboardingCompletedAt
+        else { return }
+        deps.auth.markOnboardingCompleted(completedAt)
+    }
 
     private func ensureWorkspace() async {
         guard workspaceId == nil, let accountId = deps.auth.activeAccountId else { return }
