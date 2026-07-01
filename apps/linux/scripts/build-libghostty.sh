@@ -16,7 +16,9 @@ set -euo pipefail
 GHOSTTY_FORK_URL="https://github.com/douglas/ghostty.git"
 GHOSTTY_COMMIT="c5028f99876a35188329f65742fddb45de3c5360"
 ZIG_VERSION="0.15.2"
-ZIG_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+ZIG_ARCH="$(uname -m)" # aarch64 or x86_64 — matches Zig's release tarball naming directly
+ZIG_TARBALL_NAME="zig-${ZIG_ARCH}-linux-${ZIG_VERSION}"
+ZIG_URL="https://ziglang.org/download/${ZIG_VERSION}/${ZIG_TARBALL_NAME}.tar.xz"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LINUX_DIR="$(dirname "$SCRIPT_DIR")"
@@ -42,7 +44,7 @@ if [ ! -x "$ZIG" ]; then
   tmp="$TOOLCHAIN_DIR/zig.tar.xz"
   curl -fsSL "$ZIG_URL" -o "$tmp"
   tar -xJf "$tmp" -C "$TOOLCHAIN_DIR"
-  mv "$TOOLCHAIN_DIR/zig-x86_64-linux-${ZIG_VERSION}" "$ZIG_DIR"
+  mv "$TOOLCHAIN_DIR/${ZIG_TARBALL_NAME}" "$ZIG_DIR"
   rm -f "$tmp"
 fi
 say "zig: $("$ZIG" version)"
