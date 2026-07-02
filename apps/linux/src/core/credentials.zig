@@ -1,7 +1,8 @@
 //! Desktop coding-flow settings + the user's personal API key, persisted as JSON
 //! at `{configDir}/desktop-settings.json` (0600). This is the successor to the
 //! deleted agent `identity_store` — it holds the REAL signed-in user's personal
-//! Better Auth apikey (`expu_…`, minted once via `users.mintPersonalApiKey`),
+//! Better Auth apikey (`expu_…`, auto-minted by the coding launcher on first
+//! use via `users.mintPersonalApiKey`, named "Device: <hostname>" — EXP-2),
 //! written into each worktree's `.mcp.json` by the coding launcher, plus the
 //! JetBrains-SDK-style editable defaults for the "Start coding" flow (§4b):
 //! the `claude` CLI path, the repos/worktrees root, and the branch prefix.

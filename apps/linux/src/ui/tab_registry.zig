@@ -1,13 +1,14 @@
 //! GTK-free bookkeeping for the terminal dock's tabs (masterplan §4d): one
-//! entry per terminal tab, keyed by the coding session id (`coding_sessions.id`)
-//! or a run-target id. Tracks which top-level each tab currently lives in
-//! (docked vs. a detached window) across AdwTabView reparents. Pure data —
-//! the GTK wiring lives in `terminal_dock.zig` — so keying + reparent
-//! bookkeeping stay headless-testable (`zig build test` links no GTK).
+//! entry per terminal tab, keyed by the coding session id (`coding_sessions.id`),
+//! a run-target id, or a generated key for plain user-shell tabs (the '+'
+//! button). Tracks which top-level each tab currently lives in (docked vs. a
+//! detached window) across AdwTabView reparents. Pure data — the GTK wiring
+//! lives in `terminal_dock.zig` — so keying + reparent bookkeeping stay
+//! headless-testable (`zig build test` links no GTK).
 
 const std = @import("std");
 
-pub const Kind = enum { coding, run };
+pub const Kind = enum { coding, run, shell };
 pub const Location = enum { dock, window };
 
 pub const Entry = struct {
@@ -133,6 +134,16 @@ pub const TabRegistry = struct {
         }
         return n;
     }
+
+    /// How many tabs of `kind` exist (drives the '+' shell tab titles:
+    /// "Local", "Local (2)", …).
+    pub fn countKind(self: *const TabRegistry, kind: Kind) usize {
+        var n: usize = 0;
+        for (self.entries.items) |e| {
+            if (e.kind == kind) n += 1;
+        }
+        return n;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -213,6 +224,20 @@ test "detach/reattach bookkeeping (reparent, never recreate)" {
     try testing.expect(!reg.markWindow(&w2, &win1));
     try testing.expect(!reg.markDocked(&w2));
     try testing.expect(!reg.markWindow(null, &win1));
+}
+
+test "countKind tallies per-kind tabs" {
+    var reg = TabRegistry.init(testing.allocator);
+    defer reg.deinit();
+
+    _ = reg.add("shell-1", .shell, &w1).?;
+    _ = reg.add("session-1", .coding, &w2).?;
+    try testing.expectEqual(@as(usize, 1), reg.countKind(.shell));
+    try testing.expectEqual(@as(usize, 1), reg.countKind(.coding));
+    try testing.expectEqual(@as(usize, 0), reg.countKind(.run));
+
+    try testing.expect(reg.remove("shell-1"));
+    try testing.expectEqual(@as(usize, 0), reg.countKind(.shell));
 }
 
 test "byWidget + removeByWidget" {

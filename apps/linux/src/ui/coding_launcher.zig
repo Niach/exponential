@@ -2,6 +2,7 @@
 //! identical sequence whether triggered by the issue-detail play button (local)
 //! or, later, a `start_session` control frame from the steer relay (§3/Phase 4):
 //!
+//!   ensure the personal expu_ apikey (auto-minted on first use, EXP-2) →
 //!   repositories.forIssue → repositories.installationToken → host-side git
 //!   (clone + `exp/<IDENTIFIER>` worktree + token-embedded remote, NO `gh`) →
 //!   write `.mcp.json` (web `/api/mcp` + the user's personal apikey) → compose a
@@ -29,6 +30,7 @@ const git = @import("../core/git_worktree.zig");
 const prompt = @import("../core/coding_prompt.zig");
 const host_pty = @import("../core/steer/host_pty.zig");
 const steer_pub = @import("../core/steer/publisher.zig");
+const steer_util = @import("../core/steer/util.zig");
 const Database = @import("../core/db/database.zig").Database;
 
 /// Insert a ready ghostty terminal into the UI (main thread). `title` is an
@@ -174,8 +176,8 @@ fn worker(job: *Job) void {
     };
     defer cred.deinit();
 
-    const personal_key = cred.personalKey() orelse
-        return fail(job, "Generate a personal API key in Settings → Coding first.");
+    const personal_key = ensurePersonalApiKey(gpa, job, &cred) orelse
+        return fail(job, "Couldn't create a personal API key — check the server connection and try again.");
 
     // 1. Resolve the repo (coding-first gate lives here too).
     const repo = resolveRepo(gpa, job) orelse
@@ -235,6 +237,58 @@ fn steerEnabled(gpa: std.mem.Allocator, job: *Job) bool {
     if (!resp.ok()) return false;
     const obj = dataObject(&resp) orelse return false;
     return trpc.objBool(obj, "enabled");
+}
+
+// --- step 0: personal API key auto-mint (EXP-2) ---
+
+/// Serialises concurrent first-launch mints (the local play button and a relay
+/// `start_session` can race) so we never orphan a second just-minted key.
+/// Blocking pthread mutex (never spins — the critical section is a network call).
+var mint_mutex: steer_util.Mutex = .{};
+
+/// Return the stored personal expu_ key, minting one on first use via
+/// `users.mintPersonalApiKey`. The key is named after this device
+/// ("Device: <hostname>") so a lost local copy can later be revoked per-device —
+/// never blanket-revoke (other devices hold their own keys). Raw key + id are
+/// persisted immediately; the returned slice lives in `cred`'s arena.
+fn ensurePersonalApiKey(gpa: std.mem.Allocator, job: *Job, cred: *credentials.Store) ?[]const u8 {
+    if (cred.personalKey()) |k| return k;
+
+    mint_mutex.lock();
+    defer mint_mutex.unlock();
+
+    // A concurrent launch may have minted + saved while we waited on the lock —
+    // re-read the store from disk before minting a second key.
+    {
+        var fresh = credentials.Store.open(gpa) catch return null;
+        defer fresh.deinit();
+        if (fresh.personalKey()) |k| {
+            cred.setPersonalKey(k, fresh.personalKeyId() orelse "", fresh.personalKeyStart() orelse "");
+            return cred.personalKey();
+        }
+    }
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const label = credentials.hostDeviceLabel(gpa);
+    defer gpa.free(label);
+    const name: []const u8 = std.fmt.allocPrint(a, "Device: {s}", .{label}) catch return null;
+    const input = std.json.Stringify.valueAlloc(a, .{ .name = name }, .{}) catch return null;
+    var resp = trpc.call(gpa, job.instance, "users.mintPersonalApiKey", input, job.token, 30) catch return null;
+    defer resp.deinit();
+    if (!resp.ok()) return null;
+    const obj = dataObject(&resp) orelse return null;
+    const key = trpc.objString(obj, "key") orelse return null;
+    const key_id = trpc.objString(obj, "id") orelse "";
+    const key_start = trpc.objString(obj, "start") orelse key[0..@min(key.len, 9)];
+
+    // Persist raw key + id NOW (the id is what a later Regenerate best-effort
+    // revokes), then hand back the arena-owned copy.
+    cred.setPersonalKey(key, key_id, key_start);
+    cred.save() catch {};
+    return cred.personalKey();
 }
 
 // --- step 1: repositories.forIssue ---

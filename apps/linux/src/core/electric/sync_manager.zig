@@ -49,6 +49,12 @@ pub const SyncManager = struct {
     /// applies messages, so the UI can schedule a refresh.
     notify: ?*const fn (?*anyopaque) callconv(.c) void = null,
     notify_ctx: ?*anyopaque = null,
+    /// Fired (on a sync thread) once per SyncManager when any shape polls back
+    /// 401 — dead credentials; the app should prompt a re-login. The shared
+    /// `auth_error_once` flag de-dupes across the 14 shape threads.
+    on_auth_error: ?*const fn (?*anyopaque) callconv(.c) void = null,
+    auth_error_ctx: ?*anyopaque = null,
+    auth_error_once: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     stop_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     threads: [specs.len]?std.Thread = [_]?std.Thread{null} ** specs.len,
 
@@ -63,6 +69,9 @@ pub const SyncManager = struct {
             .token = self.token,
             .notify = self.notify,
             .notify_ctx = self.notify_ctx,
+            .on_auth_error = self.on_auth_error,
+            .auth_error_ctx = self.auth_error_ctx,
+            .auth_error_once = &self.auth_error_once,
             .cancel = &self.stop_flag,
         };
     }
@@ -97,7 +106,7 @@ pub const SyncManager = struct {
 
     fn pollWorker(self: *SyncManager, spec: ShapeSpec, out: *PollOutcome) void {
         var client = self.clientFor(spec);
-        if (client.pollOnce(false)) |res| {
+        if (client.pollOnce()) |res| {
             out.* = .{ .name = spec.name, .status = res.http_status, .messages = res.message_count, .err = false };
         } else |_| {
             out.* = .{ .name = spec.name, .status = 0, .messages = 0, .err = true };

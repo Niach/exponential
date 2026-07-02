@@ -73,6 +73,10 @@ pub fn messageFromItem(item: std.json.Value) ?Message {
     if (objGetString(headers, "control")) |control| {
         if (std.mem.eql(u8, control, "up-to-date")) return .{ .kind = .up_to_date };
         if (std.mem.eql(u8, control, "must-refetch")) return .{ .kind = .must_refetch };
+        // Chunk boundary of a multi-response snapshot — recognized but carries
+        // no data; liveness is gated on up-to-date, never on snapshot-end
+        // (mirrors the iOS ShapeClient).
+        if (std.mem.eql(u8, control, "snapshot-end")) return null;
         return null; // unknown control message — ignore
     }
 
@@ -252,6 +256,22 @@ test "camel_case row: same row accepted in camelCase form" {
     const value_obj = m.value.?.object;
     // camelCase variant carries projectId rather than project_id.
     try std.testing.expect(value_obj.get("projectId") != null);
+}
+
+test "snapshot-end: recognized chunk boundary, dropped without dropping siblings" {
+    const a = std.testing.allocator;
+    const body =
+        \\[
+        \\ {"headers":{"operation":"insert"},"key":"\"issues\"/\"A\"","value":{"id":"A"}},
+        \\ {"headers":{"control":"snapshot-end"}}
+        \\]
+    ;
+    var batch = try parse(a, body);
+    defer batch.deinit();
+    // The insert survives; snapshot-end contributes no message (and crucially is
+    // NOT up-to-date — the client stays non-live until Electric says head).
+    try std.testing.expectEqual(@as(usize, 1), batch.messages.len);
+    try std.testing.expectEqual(MessageKind.insert, batch.messages[0].kind);
 }
 
 test "parse handles empty body as zero messages" {

@@ -559,9 +559,11 @@ fn onCreateLabel(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 //
 // Editable, prefilled defaults for the native "Start coding" launcher: the
 // `claude` CLI path (+ a version doctor), the clone/worktree root, the branch
-// prefix, and the user's PERSONAL API key (minted once via
-// `users.mintPersonalApiKey`, written into each worktree's `.mcp.json`). Values
-// persist to `credentials.zig`'s desktop-settings store, NOT the workspace.
+// prefix, plus a pure STATUS row for the user's personal API key — the expu_
+// key is invisible plumbing, auto-minted by the launcher on the first coding
+// session (EXP-2) and written into each worktree's `.mcp.json`. Regenerate is
+// the only control. Values persist to `credentials.zig`'s desktop-settings
+// store, NOT the workspace.
 
 fn codingSection(ctx: *Ctx, a: std.mem.Allocator) void {
     gtk.gtk_box_append(ctx.content, widgets.sectionTitle("Coding"));
@@ -609,10 +611,11 @@ fn codingSection(ctx: *Ctx, a: std.mem.Allocator) void {
     ctx.coding_repos_entry = labeledEntry(ctx, "Repos & worktrees root", repos_root, "Save", &onCodingSaveRepos);
     ctx.coding_prefix_entry = labeledEntry(ctx, "Branch prefix", branch_prefix, "Save", &onCodingSavePrefix);
 
-    // Personal API key.
+    // Personal API key — status only (EXP-2): auto-minted by the launcher on
+    // the first coding session; Regenerate is the only control.
     if (key_start) |start| {
         const lbl = gtk.gtk_label_new(null);
-        if (std.fmt.allocPrintSentinel(a, "Personal API key: {s}… — written into each worktree's .mcp.json.", .{start}, 0)) |t| {
+        if (std.fmt.allocPrintSentinel(a, "Personal API key: active · {s}… — authenticates the coding agent as you, written into each worktree's .mcp.json.", .{start}, 0)) |t| {
             gtk.gtk_label_set_text(lbl, t.ptr);
         } else |_| {}
         gtk.gtk_widget_add_css_class(lbl, "dim-label");
@@ -622,19 +625,14 @@ fn codingSection(ctx: *Ctx, a: std.mem.Allocator) void {
         const regen = gtk.gtk_button_new_with_label("Regenerate key");
         gtk.gtk_widget_add_css_class(regen, "flat");
         gtk.gtk_widget_set_halign(regen, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(regen, "clicked", @ptrCast(&onCodingGenKey), ctx, null, 0);
+        _ = gtk.g_signal_connect_data(regen, "clicked", @ptrCast(&onCodingRegenKey), ctx, null, 0);
         gtk.gtk_box_append(ctx.content, regen);
     } else {
-        const lbl = gtk.gtk_label_new("No personal API key yet — generate one so the coding agent can reach the MCP server.");
+        const lbl = gtk.gtk_label_new("Personal API key: created automatically on your first coding session.");
         gtk.gtk_widget_add_css_class(lbl, "dim-label");
         gtk.gtk_label_set_wrap(lbl, 1);
         gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
         gtk.gtk_box_append(ctx.content, lbl);
-        const gen = gtk.gtk_button_new_with_label("Generate personal API key");
-        gtk.gtk_widget_add_css_class(gen, "suggested-action");
-        gtk.gtk_widget_set_halign(gen, gtk.ALIGN_START);
-        _ = gtk.g_signal_connect_data(gen, "clicked", @ptrCast(&onCodingGenKey), ctx, null, 0);
-        gtk.gtk_box_append(ctx.content, gen);
     }
     // Freshly minted key shown once (read-only; select + copy).
     if (ctx.last_minted_key) |key| {
@@ -732,13 +730,22 @@ fn versionOf(a: std.mem.Allocator, prog: []const u8, arg: []const u8) []const u8
     return if (out.len > 0) out else "ok";
 }
 
-fn onCodingGenKey(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+/// Mint a replacement key, then best-effort revoke ONLY the locally-stored old
+/// key id — never blanket-revoke (other devices hold their own keys).
+fn onCodingRegenKey(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *Ctx = @ptrCast(@alignCast(data));
     var arena = std.heap.ArenaAllocator.init(ctx.gpa);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const input = std.json.Stringify.valueAlloc(a, .{ .name = "Exponential Desktop" }, .{}) catch return;
+    var store = credentials.Store.open(ctx.gpa) catch return;
+    defer store.deinit();
+    const old_id = store.personalKeyId(); // arena-owned; survives setPersonalKey
+
+    const label = credentials.hostDeviceLabel(ctx.gpa);
+    defer ctx.gpa.free(label);
+    const name: []const u8 = std.fmt.allocPrint(a, "Device: {s}", .{label}) catch return;
+    const input = std.json.Stringify.valueAlloc(a, .{ .name = name }, .{}) catch return;
     var resp = trpc.call(ctx.gpa, ctx.instance, "users.mintPersonalApiKey", input, ctx.token, 30) catch return;
     defer resp.deinit();
     if (!resp.ok()) return;
@@ -751,10 +758,13 @@ fn onCodingGenKey(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const start = trpc.objString(obj, "start") orelse key[0..@min(key.len, 9)];
 
     // Persist to the desktop-settings store.
-    var store = credentials.Store.open(ctx.gpa) catch return;
-    defer store.deinit();
     store.setPersonalKey(key, key_id, start);
     store.save() catch {};
+
+    // Best-effort revoke of the replaced key (this device's old id only).
+    if (old_id) |oid| {
+        if (oid.len > 0) call(ctx, a, "users.revokePersonalApiKey", .{ .id = oid });
+    }
 
     // Show the raw key once (freed on close / next rebuild).
     if (ctx.last_minted_key) |old| ctx.gpa.free(old);

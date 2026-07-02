@@ -28,6 +28,7 @@ const sync = @import("../core/electric/sync_manager.zig");
 const credentials = @import("../core/credentials.zig");
 const steer_control = @import("../core/steer/control_channel.zig");
 const terminal_dock = @import("terminal_dock.zig");
+const terminal = @import("terminal.zig");
 const coding_launcher = @import("coding_launcher.zig");
 const run_launcher = @import("run_launcher.zig");
 const run_script = @import("run_script.zig");
@@ -291,7 +292,8 @@ fn setLoginContent(state: *AppState, box: gtk.Object) void {
 
 // --- Login: instance entry, then methods gated by /api/auth-config ---
 
-/// Screen 1: choose the instance (matches iOS InstanceView → LoginView flow).
+/// Screen 1: choose the instance — the cloud button first, then the self-host
+/// URL entry (matches the macOS MacLoginView instance picker).
 fn showInstanceEntry(state: *AppState) void {
     const box = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 14);
     gtk.gtk_widget_set_halign(box, gtk.ALIGN_CENTER);
@@ -302,31 +304,62 @@ fn showInstanceEntry(state: *AppState) void {
     gtk.gtk_label_set_markup(title, "<span size='xx-large' weight='bold'>Connect to Exponential</span>");
     gtk.gtk_box_append(box, title);
 
-    const subtitle = gtk.gtk_label_new("Enter your Exponential instance URL.");
+    const subtitle = gtk.gtk_label_new("Connect to a server");
     gtk.gtk_widget_add_css_class(subtitle, "dim-label");
     gtk.gtk_box_append(box, subtitle);
 
+    const cloud = widgets.button("Connect to Cloud", .primary, .default);
+    _ = gtk.g_signal_connect_data(cloud, "clicked", @ptrCast(&onCloudClicked), state, null, 0);
+    gtk.gtk_box_append(box, cloud);
+
+    const divider = gtk.gtk_label_new("or");
+    gtk.gtk_widget_add_css_class(divider, "dim-label");
+    gtk.gtk_box_append(box, divider);
+
     const inst = gtk.gtk_entry_new();
-    gtk.gtk_entry_set_placeholder_text(inst, "https://your-instance");
-    if (std.fmt.allocPrintSentinel(state.gpa, "{s}", .{state.login_instance orelse default_instance}, 0)) |z| {
-        defer state.gpa.free(z);
-        gtk.gtk_editable_set_text(inst, z.ptr);
-    } else |_| {}
+    gtk.gtk_entry_set_placeholder_text(inst, "https://your-instance.example.com");
+    // Prefill only a previously chosen self-hosted URL — a fresh start (and the
+    // cloud path) shows just the placeholder, like the macOS picker.
+    if (state.login_instance) |prev| {
+        if (!std.mem.eql(u8, prev, default_instance)) {
+            if (std.fmt.allocPrintSentinel(state.gpa, "{s}", .{prev}, 0)) |z| {
+                defer state.gpa.free(z);
+                gtk.gtk_editable_set_text(inst, z.ptr);
+            } else |_| {}
+        }
+    }
     state.instance_entry = inst;
     gtk.gtk_box_append(box, inst);
 
-    const cont = widgets.button("Continue", .primary, .default);
+    const cont = widgets.button("Continue", .outline, .default);
     _ = gtk.g_signal_connect_data(cont, "clicked", @ptrCast(&onContinueClicked), state, null, 0);
     gtk.gtk_box_append(box, cont);
 
     setLoginContent(state, box);
 }
 
+fn onCloudClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    if (state.login_instance) |p| state.gpa.free(p);
+    state.login_instance = state.gpa.dupe(u8, default_instance) catch null;
+    showLogin(state);
+}
+
 fn onContinueClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const state: *AppState = @ptrCast(@alignCast(data));
-    const instance = std.mem.span(gtk.gtk_editable_get_text(state.instance_entry));
+    const raw = std.mem.span(gtk.gtk_editable_get_text(state.instance_entry));
+    // Normalize like the macOS picker: trim, drop trailing slashes, default the
+    // scheme to https:// — a scheme-less host must never reach the URL opener
+    // (GLib's fallback can hand it to a file-path handler) — and reject empty.
+    var typed = std.mem.trim(u8, raw, " \t\r\n");
+    typed = std.mem.trimEnd(u8, typed, "/");
+    if (typed.len == 0) return;
+    const normalized = if (std.mem.indexOf(u8, typed, "://") == null)
+        std.fmt.allocPrint(state.gpa, "https://{s}", .{typed}) catch return
+    else
+        state.gpa.dupe(u8, typed) catch return;
     if (state.login_instance) |p| state.gpa.free(p);
-    state.login_instance = state.gpa.dupe(u8, instance) catch null;
+    state.login_instance = normalized;
     showLogin(state);
 }
 
@@ -446,7 +479,7 @@ fn launchOauth(state: *AppState, param: []const u8, value: []const u8) void {
         0,
     ) catch return;
     defer state.gpa.free(url);
-    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
+    gtk.openUrl(state.window, url.ptr);
 }
 
 fn onGoogleClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
@@ -609,6 +642,8 @@ fn enterTracker(state: *AppState) void {
                 .token = state.token,
                 .notify = &onSyncChanged,
                 .notify_ctx = state,
+                .on_auth_error = &onSyncAuthError,
+                .auth_error_ctx = state,
             };
             state.sync_engine.?.start() catch {};
             state.sync_started = true;
@@ -945,6 +980,15 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.gtk_menu_button_set_create_popup_func(play_btn, @ptrCast(&buildPlayMenu), state, null);
     gtk.adw_header_bar_pack_start(list_header, play_btn);
     state.play_menu_btn = play_btn;
+    // Terminal toggle (EXP-2): show/hide the bottom dock even when it has no
+    // tabs — expanding an EMPTY dock opens a fresh user-shell tab, so the dock
+    // is reachable without a coding session or run (JetBrains-style).
+    const term_btn = gtk.gtk_button_new();
+    gtk.gtk_button_set_icon_name(term_btn, "utilities-terminal-symbolic");
+    gtk.gtk_widget_set_tooltip_text(term_btn, "Toggle the terminal (Ctrl+J)");
+    gtk.gtk_widget_add_css_class(term_btn, "flat");
+    _ = gtk.g_signal_connect_data(term_btn, "clicked", @ptrCast(&onTerminalToggleClicked), state, null, 0);
+    gtk.adw_header_bar_pack_start(list_header, term_btn);
     // Web: header "New issue" is the default shadcn Button (primary, h-9).
     const new_issue = widgets.button("New issue", .primary, .default);
     _ = gtk.g_signal_connect_data(new_issue, "clicked", @ptrCast(&onNewIssueClicked), state, null, 0);
@@ -985,6 +1029,7 @@ fn buildTrackerUI(state: *AppState) void {
     const content_widget = blk: {
         if (terminal_dock.TerminalDock.create(state.gpa, state.app, nav)) |dock| {
             state.term_dock = dock;
+            dock.setNewShellHandler(onDockNewShell, state);
             gtk.gtk_widget_set_hexpand(dock.paned, 1);
             break :blk dock.paned;
         }
@@ -1046,6 +1091,14 @@ fn onWindowKey(_: gtk.Object, keyval: c_uint, _: c_uint, mods: c_uint, data: gtk
     if (ctrl_or_super and (keyval == 'b' or keyval == 'B')) {
         if (state.sidebar_pane) |pane| {
             gtk.gtk_widget_set_visible(pane, if (gtk.gtk_widget_get_visible(pane) != 0) 0 else 1);
+            return 1; // handled
+        }
+    }
+    // Ctrl/⌘+J toggles the terminal dock (EXP-2; works with zero tabs — an
+    // empty dock opens with a fresh user-shell tab).
+    if (ctrl_or_super and (keyval == 'j' or keyval == 'J')) {
+        if (state.term_dock != null) {
+            toggleTerminalDock(state);
             return 1; // handled
         }
     }
@@ -1657,7 +1710,7 @@ fn onFeedbackClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const base = std.mem.trimEnd(u8, inst, "/");
     var buf: [512]u8 = undefined;
     const url = std.fmt.bufPrintZ(&buf, "{s}/feedback", .{base}) catch return;
-    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
+    gtk.openUrl(state.window, url.ptr);
 }
 
 fn onInboxClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
@@ -2553,6 +2606,94 @@ fn codingError(err_ctx: ?*anyopaque, message: [*:0]const u8) void {
     showMessageDialog(state, "Start coding", std.mem.span(message));
 }
 
+// --- EXP-2: '+' user-shell tabs + empty-dock toggle ------------------------
+
+/// Header terminal button: same toggle as Ctrl+J.
+fn onTerminalToggleClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    toggleTerminalDock(state);
+}
+
+/// Show/hide the bottom terminal dock. Expanding an EMPTY dock spawns a fresh
+/// user-shell tab instead — a bare dock has nothing to show, and ghostty
+/// surfaces only initialise at nonzero size, so the tab mounts into the
+/// already-expanding dock (addTab reveals it at a real split position).
+fn toggleTerminalDock(state: *AppState) void {
+    const dock = state.term_dock orelse return;
+    if (!dock.collapsed) {
+        dock.collapse();
+        return;
+    }
+    if (gtk.adw_tab_view_get_n_pages(dock.tab_view) == 0) {
+        spawnShellTab(state);
+        return;
+    }
+    dock.expand();
+}
+
+/// The dock header's '+' (terminal_dock.setNewShellHandler).
+fn onDockNewShell(ctx: ?*anyopaque) void {
+    const state: *AppState = @ptrCast(@alignCast(ctx orelse return));
+    spawnShellTab(state);
+}
+
+const ShellExit = struct { state: *AppState, term: gtk.Object };
+
+/// Open a plain login-shell tab in the dock (EXP-2, JetBrains-style local
+/// terminal): `command = null` makes ghostty spawn the user's default shell.
+/// cwd = the active repo's clone dir when one is resolved AND cloned, else
+/// $HOME. Shell tabs get no exit strip/run history — when the shell exits the
+/// tab simply closes.
+fn spawnShellTab(state: *AppState) void {
+    const dock = state.term_dock orelse return;
+    const gpa = state.gpa;
+
+    var clone: ?[]u8 = null;
+    defer if (clone) |c| gpa.free(c);
+    if (state.preview_repo_slug) |repo| {
+        if (preview_config.repoCloneDir(gpa, repo)) |dir| {
+            if (storage.fileExists(dir)) clone = dir else gpa.free(dir);
+        } else |_| {}
+    }
+    const home: ?[]const u8 = if (std.c.getenv("HOME")) |h| std.mem.span(h) else null;
+
+    const ex = gpa.create(ShellExit) catch return;
+    ex.* = .{ .state = state, .term = null };
+    const term = terminal.create(gpa, .{
+        .cwd = clone orelse home,
+        .on_exit = onShellExit,
+        .on_exit_ctx = ex,
+    }) orelse {
+        gpa.destroy(ex);
+        showMessageDialog(state, "Terminal", "Couldn't create the terminal.");
+        return;
+    };
+    ex.term = term;
+
+    // Auto-incrementing titles: Local, Local (2), … (keys stay unique via the
+    // registry's generated `tab-N`; titles may repeat after closes — fine).
+    var title_buf: [32]u8 = undefined;
+    const shells = dock.registry.countKind(.shell);
+    const title: [:0]const u8 = if (shells == 0)
+        "Local"
+    else
+        std.fmt.bufPrintZ(&title_buf, "Local ({d})", .{shells + 1}) catch "Local";
+    dock.addTab("", .shell, term, title.ptr);
+}
+
+/// terminal.zig on_exit for a '+' shell tab — fires exactly once. A real exit
+/// (code >= 0: the user typed `exit`) arrives with the widgets alive → close
+/// the tab. The destroy fallback (-130: tab closed / teardown) arrives
+/// mid-teardown and must not touch any widget — free the bookkeeping only.
+fn onShellExit(ctx: ?*anyopaque, exit_code: i32) void {
+    const ex: *ShellExit = @ptrCast(@alignCast(ctx orelse return));
+    const state = ex.state;
+    const term = ex.term;
+    state.gpa.destroy(ex);
+    if (exit_code < 0) return;
+    if (state.term_dock) |dock| _ = dock.closeTabFor(term);
+}
+
 // --- async coding-first repo check ---
 
 const CodingCheckJob = struct {
@@ -2689,9 +2830,9 @@ fn freeOpenUrlCtx(p: gtk.gpointer) callconv(.c) void {
     ctx.gpa.destroy(ctx);
 }
 
-fn onOpenUrl(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+fn onOpenUrl(button: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *OpenUrlCtx = @ptrCast(@alignCast(data));
-    _ = gtk.g_app_info_launch_default_for_uri(ctx.url.ptr, null, null);
+    gtk.openUrl(gtk.gtk_widget_get_root(button), ctx.url.ptr);
 }
 
 /// Human label for an issue_status enum value (used by the merged activity
@@ -5045,6 +5186,83 @@ fn onSyncChanged(ctx: ?*anyopaque) callconv(.c) void {
     if (!state.refresh_pending.swap(true, .acq_rel)) {
         _ = gtk.g_idle_add(@ptrCast(&refreshIdle), state);
     }
+}
+
+/// First 401 from any shape thread — the credentials are dead server-side (the
+/// server 401s rather than silently serving the anonymous view, which would
+/// resync away every private row). Hop to the GTK main loop (same
+/// background→UI pattern as onSyncChanged) and prompt a re-login.
+fn onSyncAuthError(ctx: ?*anyopaque) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(ctx));
+    _ = gtk.g_idle_add(@ptrCast(&authErrorIdle), state);
+}
+
+fn authErrorIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    // Signed out between the 401 and this idle? The prompt is moot.
+    if (!state.sync_started) return 0;
+    showAuthErrorDialog(state);
+    return 0; // G_SOURCE_REMOVE
+}
+
+const AuthErrorCtx = struct { state: *AppState, dialog: gtk.Object };
+
+fn showAuthErrorDialog(state: *AppState) void {
+    const ctx = state.gpa.create(AuthErrorCtx) catch return;
+    ctx.state = state;
+
+    const dialog = gtk.adw_dialog_new();
+    gtk.adw_dialog_set_title(dialog, "Session expired");
+    gtk.adw_dialog_set_content_width(dialog, 420);
+    ctx.dialog = dialog;
+
+    const tv = gtk.adw_toolbar_view_new();
+    const header = gtk.adw_header_bar_new();
+    gtk.adw_toolbar_view_add_top_bar(tv, header);
+
+    const form = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 12);
+    gtk.gtk_widget_set_margin_top(form, 16);
+    gtk.gtk_widget_set_margin_bottom(form, 16);
+    gtk.gtk_widget_set_margin_start(form, 16);
+    gtk.gtk_widget_set_margin_end(form, 16);
+    const lbl = gtk.gtk_label_new("Your sign-in is no longer valid on this server, so syncing has stopped. Sign in again to keep this device up to date.");
+    gtk.gtk_label_set_wrap(lbl, 1);
+    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+    gtk.gtk_box_append(form, lbl);
+
+    const actions = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_set_halign(actions, gtk.ALIGN_END);
+    const later = gtk.gtk_button_new_with_label("Not now");
+    gtk.gtk_widget_add_css_class(later, "flat");
+    _ = gtk.g_signal_connect_data(later, "clicked", @ptrCast(&onAuthErrorDismiss), ctx, null, 0);
+    gtk.gtk_box_append(actions, later);
+    const signin = gtk.gtk_button_new_with_label("Sign in again");
+    gtk.gtk_widget_add_css_class(signin, "suggested-action");
+    _ = gtk.g_signal_connect_data(signin, "clicked", @ptrCast(&onAuthErrorSignIn), ctx, null, 0);
+    gtk.gtk_box_append(actions, signin);
+    gtk.gtk_box_append(form, actions);
+
+    gtk.adw_toolbar_view_set_content(tv, form);
+    gtk.adw_dialog_set_child(dialog, tv);
+    _ = gtk.g_signal_connect_data(dialog, "closed", @ptrCast(&onAuthErrorClosed), ctx, null, 0);
+    gtk.adw_dialog_present(dialog, state.window);
+}
+
+fn onAuthErrorClosed(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *AuthErrorCtx = @ptrCast(@alignCast(data));
+    ctx.state.gpa.destroy(ctx);
+}
+
+fn onAuthErrorDismiss(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *AuthErrorCtx = @ptrCast(@alignCast(data));
+    _ = gtk.adw_dialog_close(ctx.dialog); // frees ctx via onAuthErrorClosed
+}
+
+fn onAuthErrorSignIn(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *AuthErrorCtx = @ptrCast(@alignCast(data));
+    const state = ctx.state;
+    _ = gtk.adw_dialog_close(ctx.dialog); // frees ctx via onAuthErrorClosed
+    onSignOut(null, state); // tear down + back to the login screen
 }
 
 fn refreshIdle(data: gtk.gpointer) callconv(.c) c_int {

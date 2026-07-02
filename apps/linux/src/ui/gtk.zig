@@ -50,9 +50,17 @@ pub extern fn g_strfreev(str_array: ?[*]?[*:0]u8) void;
 // how the exp:// OAuth redirect reaches the primary instance.
 pub extern fn g_application_command_line_get_arguments(cmdline: Object, argc: *c_int) ?[*]?[*:0]u8;
 
-// --- GIO (open the OAuth URL in the default browser; register scheme handler) ---
-pub extern fn g_app_info_launch_default_for_uri(uri: [*:0]const u8, context: gpointer, @"error": gpointer) c_int;
+// --- GIO (spawn helper commands; register the exp:// scheme handler) ---
 pub extern fn g_spawn_command_line_async(command_line: [*:0]const u8, @"error": gpointer) c_int;
+pub extern fn g_error_free(@"error": ?*anyopaque) void;
+
+// GtkUriLauncher (GTK >= 4.10) — opens URLs via the XDG desktop portal, which
+// resolves the default browser in the full session environment. Call sites go
+// through `openUrl` below, never these directly.
+pub extern fn gtk_uri_launcher_new(uri: [*:0]const u8) Object;
+pub extern fn gtk_uri_launcher_get_uri(self: Object) ?[*:0]const u8;
+pub extern fn gtk_uri_launcher_launch(self: Object, parent: Object, cancellable: Object, callback: AsyncReadyCallback, user_data: gpointer) void;
+pub extern fn gtk_uri_launcher_launch_finish(self: Object, result: Object, @"error": ?*?*anyopaque) c_int;
 
 // --- Adwaita ---
 pub extern fn adw_application_new(app_id: [*:0]const u8, flags: c_uint) Object;
@@ -541,3 +549,78 @@ pub extern fn XQueryTree(display: ?*anyopaque, w: XID, root_return: *XID, parent
 pub extern fn XGetWindowProperty(display: ?*anyopaque, w: XID, property: Atom, long_offset: c_long, long_length: c_long, delete: c_int, req_type: Atom, actual_type_return: *Atom, actual_format_return: *c_int, nitems_return: *c_ulong, bytes_after_return: *c_ulong, prop_return: *?[*]u8) c_int;
 pub extern fn XFetchName(display: ?*anyopaque, w: XID, window_name_return: *?[*:0]u8) c_int;
 pub extern fn XFree(data: ?*anyopaque) c_int;
+
+// =========================================================================
+// openUrl — the ONE way to open a URL in the user's browser. It goes through
+// GtkUriLauncher (GTK >= 4.10) → the XDG desktop portal, which resolves the
+// browser in the full session environment. (The old
+// g_app_info_launch_default_for_uri path resolved the handler from GLib's
+// mime cache, which on fresh snap-based Ubuntu installs misses the browser's
+// .desktop (it lives outside XDG_DATA_DIRS) and falls back on content-type
+// (text/html ⊂ text/plain) — so a TEXT EDITOR grabbed https URLs.)
+// GTK >= 4.10 is a hard load-time requirement, not a runtime choice: the
+// binary links with BIND_NOW, so the loader resolves gtk_uri_launcher_* at
+// startup and aborts on an older GTK before any runtime version gate could
+// run. The effective floor is higher anyway — we import libadwaita 1.5
+// symbols (adw_dialog_new), which implies GTK >= 4.13 on any real distro.
+// =========================================================================
+
+/// Open `url` in the default browser. `window` is the parent GtkWindow for
+/// the portal and the failure dialog (null is allowed). On failure a modal
+/// shows the URL for manual copying instead of failing silently.
+pub fn openUrl(window: Object, url: [*:0]const u8) void {
+    const launcher = gtk_uri_launcher_new(url);
+    gtk_uri_launcher_launch(launcher, window, null, &onOpenUrlDone, window);
+    g_object_unref(launcher); // the async op holds its own ref
+}
+
+fn onOpenUrlDone(source: Object, result: Object, data: gpointer) callconv(.c) void {
+    var err: ?*anyopaque = null;
+    if (gtk_uri_launcher_launch_finish(source, result, &err) != 0) return;
+    if (err != null) g_error_free(err);
+    const uri = gtk_uri_launcher_get_uri(source) orelse return;
+    showOpenUrlFallback(data, uri);
+}
+
+/// "Couldn't open your browser" fallback: a modal with the URL as a
+/// selectable label (the same AdwDialog shell as app.zig's showMessageDialog).
+fn showOpenUrlFallback(window: Object, url: [*:0]const u8) void {
+    const dialog = adw_dialog_new();
+    adw_dialog_set_title(dialog, "Couldn't open your browser");
+    adw_dialog_set_content_width(dialog, 460);
+
+    const tv = adw_toolbar_view_new();
+    adw_toolbar_view_add_top_bar(tv, adw_header_bar_new());
+
+    const form = gtk_box_new(ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_top(form, 16);
+    gtk_widget_set_margin_bottom(form, 16);
+    gtk_widget_set_margin_start(form, 16);
+    gtk_widget_set_margin_end(form, 16);
+
+    const hint = gtk_label_new("No browser could be launched. Open this link manually:");
+    gtk_label_set_wrap(hint, 1);
+    gtk_widget_set_halign(hint, ALIGN_START);
+    gtk_box_append(form, hint);
+
+    const link = gtk_label_new(url);
+    gtk_label_set_selectable(link, 1);
+    gtk_label_set_wrap(link, 1);
+    gtk_widget_set_halign(link, ALIGN_START);
+    gtk_widget_add_css_class(link, "dim-label");
+    gtk_box_append(form, link);
+
+    const close = gtk_button_new_with_label("Close");
+    gtk_widget_add_css_class(close, "flat");
+    gtk_widget_set_halign(close, ALIGN_END);
+    _ = g_signal_connect_data(close, "clicked", @ptrCast(&onOpenUrlFallbackClose), dialog, null, 0);
+    gtk_box_append(form, close);
+
+    adw_toolbar_view_set_content(tv, form);
+    adw_dialog_set_child(dialog, tv);
+    adw_dialog_present(dialog, window);
+}
+
+fn onOpenUrlFallbackClose(_: Object, data: gpointer) callconv(.c) void {
+    _ = adw_dialog_close(data);
+}

@@ -1,8 +1,9 @@
 //! IDE-style collapsible bottom terminal dock (masterplan §4d). Wraps the
 //! content nav in a vertical GtkPaned; the bottom pane hosts an `AdwTabView`
 //! of embedded terminals — one tab per coding session (keyed by
-//! `coding_sessions.id`) or run-target launch, each owning its own ghostty
-//! surface + child process + worktree. Nothing is shared between tabs.
+//! `coding_sessions.id`), run-target launch, or plain user shell (the
+//! header's '+', JetBrains-style), each owning its own ghostty surface +
+//! child process + worktree. Nothing is shared between tabs.
 //!
 //! Detach: a tab can be popped out into its own window (drag the tab out of
 //! the strip, or the header's "move to new window" button). Either way the
@@ -29,6 +30,10 @@ pub const TerminalDock = struct {
     registry: tabs.TabRegistry,
     detached: std.ArrayListUnmanaged(*DetachedWindow) = .empty,
     collapsed: bool = true,
+    // '+' (new user-shell tab) hook — the spawn needs app state (active repo
+    // → cwd) the dock doesn't hold, so the app layer wires it in.
+    on_new_shell: ?*const fn (ctx: ?*anyopaque) void = null,
+    on_new_shell_ctx: ?*anyopaque = null,
     // Main-view handler ids — disconnected in destroy() so the late GTK
     // teardown (sign-out swaps the window content, destroying these widgets
     // afterwards) can never fire into a freed dock struct.
@@ -68,7 +73,7 @@ pub const TerminalDock = struct {
         const tab_view = gtk.adw_tab_view_new();
         gtk.gtk_widget_set_vexpand(tab_view, 1);
 
-        // Header: the tab strip + pop-out + collapse.
+        // Header: the tab strip + new-shell + pop-out + collapse.
         const header = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
         gtk.gtk_widget_set_margin_start(header, 8);
         gtk.gtk_widget_set_margin_end(header, 8);
@@ -79,6 +84,11 @@ pub const TerminalDock = struct {
         gtk.adw_tab_bar_set_autohide(bar, 0);
         gtk.gtk_widget_set_hexpand(bar, 1);
         gtk.gtk_box_append(header, bar);
+        const new_shell_btn = gtk.gtk_button_new();
+        gtk.gtk_button_set_icon_name(new_shell_btn, "list-add-symbolic");
+        gtk.gtk_widget_add_css_class(new_shell_btn, "flat");
+        gtk.gtk_widget_set_tooltip_text(new_shell_btn, "New terminal tab");
+        gtk.gtk_box_append(header, new_shell_btn);
         const popout_btn = gtk.gtk_button_new();
         gtk.gtk_button_set_icon_name(popout_btn, "window-new-symbolic");
         gtk.gtk_widget_add_css_class(popout_btn, "flat");
@@ -104,6 +114,7 @@ pub const TerminalDock = struct {
             .registry = tabs.TabRegistry.init(gpa),
         };
         gtk.gtk_widget_set_visible(dock_box, 0); // collapsed until a run mounts
+        _ = gtk.g_signal_connect_data(new_shell_btn, "clicked", @ptrCast(&onNewShell), self, null, 0);
         _ = gtk.g_signal_connect_data(collapse_btn, "clicked", @ptrCast(&onCollapse), self, null, 0);
         _ = gtk.g_signal_connect_data(popout_btn, "clicked", @ptrCast(&onPopOut), self, null, 0);
         self.sig_attached = gtk.g_signal_connect_data(tab_view, "page-attached", @ptrCast(&onMainPageAttached), self, null, 0);
@@ -139,6 +150,19 @@ pub const TerminalDock = struct {
     fn onCollapse(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
         const self: *TerminalDock = @ptrCast(@alignCast(data));
         self.collapse();
+    }
+
+    /// Wire the header's '+' (new user-shell tab, EXP-2). The dock stays GTK
+    /// plumbing only — the spawn (cwd resolution, ghostty create, addTab)
+    /// lives in the app layer, which holds the active-repo state.
+    pub fn setNewShellHandler(self: *TerminalDock, cb: *const fn (ctx: ?*anyopaque) void, ctx: ?*anyopaque) void {
+        self.on_new_shell = cb;
+        self.on_new_shell_ctx = ctx;
+    }
+
+    fn onNewShell(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+        const self: *TerminalDock = @ptrCast(@alignCast(data));
+        if (self.on_new_shell) |cb| cb(self.on_new_shell_ctx);
     }
 
     /// Add a terminal tab keyed by `key` (a `coding_sessions.id` or run-target

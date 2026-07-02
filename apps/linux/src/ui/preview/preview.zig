@@ -399,8 +399,8 @@ pub const PreviewController = struct {
 
     fn openInBrowser(self: *PreviewController, url: []const u8) void {
         const z = std.fmt.allocPrintSentinel(self.gpa, "{s}", .{url}, 0) catch return;
-        defer self.gpa.free(z);
-        _ = gtk.g_app_info_launch_default_for_uri(z.ptr, null, null);
+        defer self.gpa.free(z); // safe: GtkUriLauncher dups the uri string
+        gtk.openUrl(gtk.gtk_widget_get_root(self.pane.root), z.ptr);
     }
 
     // =====================================================================

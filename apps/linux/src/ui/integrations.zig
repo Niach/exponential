@@ -152,11 +152,11 @@ fn setStatus(ctx: *Ctx, msg: []const u8) void {
     if (arena.allocator().dupeZ(u8, msg)) |z| gtk.gtk_label_set_text(lbl, z.ptr) else |_| {}
 }
 
-fn onConnectWeb(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+fn onConnectWeb(button: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const ctx: *Ctx = @ptrCast(@alignCast(data));
     var buf: [512]u8 = undefined;
     const url = std.fmt.bufPrintZ(&buf, "{s}/account/integrations", .{std.mem.trimEnd(u8, ctx.instance, "/")}) catch return;
-    _ = gtk.g_app_info_launch_default_for_uri(url.ptr, null, null);
+    gtk.openUrl(gtk.gtk_widget_get_root(button), url.ptr);
 }
 
 fn onDisconnect(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {

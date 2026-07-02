@@ -141,7 +141,7 @@ fn shapeSmoke(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
         .token = token,
     };
 
-    const res = try client.pollOnce(false);
+    const res = try client.pollOnce();
     const rows = db.count(shape_name) catch -1;
     std.debug.print(
         "shape-smoke {s}{s}: HTTP {d}, {d} messages, {s} rows = {d}\n",
