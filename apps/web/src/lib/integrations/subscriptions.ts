@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issueSubscribers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
@@ -28,15 +28,13 @@ export async function ensureSubscribed(
     .limit(1)
   if (!u || u.isAgent) return
 
-  await tx
-    .insert(issueSubscribers)
-    .values({
-      issueId: args.issueId,
-      userId: args.userId,
-      workspaceId: args.workspaceId,
-      source: args.source,
-    })
-    .onConflictDoNothing({
-      target: [issueSubscribers.issueId, issueSubscribers.userId],
-    })
+  // Raw SQL: uniq_issue_subscribers_user is a PARTIAL unique index (user rows
+  // only; widget-reporter rows have null userId), so the conflict target must
+  // carry the index predicate — and drizzle 0.39 silently DROPS the
+  // `targetWhere` option from onConflictDoNothing (verified via .toSQL()).
+  await tx.execute(sql`
+    insert into issue_subscribers (issue_id, user_id, workspace_id, source)
+    values (${args.issueId}, ${args.userId}, ${args.workspaceId}, ${args.source})
+    on conflict (issue_id, user_id) where user_id is not null do nothing
+  `)
 }
