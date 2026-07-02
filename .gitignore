@@ -16,10 +16,8 @@ Caddyfile
 test-results
 recordings
 
-# Zig (apps/linux)
-.zig-cache
-zig-out
-temp/
+# Rust (apps/desktop)
+/apps/desktop/target
 
 # Built widget artifacts (emitted by packages/widget into the web public dir)
 apps/web/public/widget/

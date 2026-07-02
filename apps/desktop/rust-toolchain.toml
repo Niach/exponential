@@ -1,0 +1,4 @@
+# Pinned per masterplan-v3 §2.6/§3.7. Phase 1 (Spike B) validates stable against
+# the pinned gpui rev's own CI and bumps to a pinned 1.xx if needed.
+[toolchain]
+channel = "stable"

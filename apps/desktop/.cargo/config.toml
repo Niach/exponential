@@ -1,0 +1,5 @@
+# apps/desktop/.cargo/config.toml — per-target link flags (masterplan-v3 §3.7).
+# Linux pkg-config hints land in Phase 1 if the wgpu/gpui build reveals a need.
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=13.0"]

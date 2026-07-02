@@ -1,0 +1,43 @@
+name: build-desktop
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+jobs:
+  # Gate 1: the committed Rust generated files must match contract.json / tokens.json.
+  codegen-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @exp/domain-contract generate
+      - run: bun run --filter @exp/design-tokens generate
+      - name: Fail if the committed Rust files drifted
+        run: git diff --exit-code -- apps/desktop/crates/domain/src/contract.generated.rs apps/desktop/crates/theme/src/tokens.generated.rs
+
+  build:
+    needs: codegen-drift
+    strategy:
+      matrix:
+        include:
+          - os: macos-14 # arm64
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest # x86_64
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (wgpu/gpui)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - run: cargo build --release --manifest-path apps/desktop/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exp-desktop-${{ matrix.target }}
+          path: apps/desktop/target/release/exp-desktop

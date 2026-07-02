@@ -1,0 +1,19 @@
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "exp-desktop"
+path = "src/main.rs"
+
+[dependencies]
+ui = { path = "../ui" }
+theme = { path = "../theme" }
+domain = { path = "../domain" }
+sync = { path = "../sync" }
+api = { path = "../api" }
+terminal = { path = "../terminal" }
+steer = { path = "../steer" }
+coding = { path = "../coding" }

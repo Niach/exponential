@@ -1,6 +1,6 @@
 {
   "$schema": "./schema.json",
-  "description": "Canonical enum values shared by the web, iOS, and Android clients. Regenerate the per-language constants with `bun run --filter @exp/domain-contract generate`. The committed generated files (apps/ios/.../DomainContract.generated.swift, apps/android/.../DomainContract.generated.kt, apps/linux/.../contract.generated.zig) are checked in so native builds don't need a Node runtime.",
+  "description": "Canonical enum values shared by the web, iOS, Android, and desktop clients. Regenerate the per-language constants with `bun run --filter @exp/domain-contract generate`. The committed generated files (apps/ios/.../DomainContract.generated.swift, apps/android/.../DomainContract.generated.kt, apps/desktop/crates/domain/src/contract.generated.rs) are checked in so native builds don't need a Node runtime.",
   "issueStatus": {
     "values": ["backlog", "todo", "in_progress", "done", "cancelled", "duplicate"],
     "displayOrder": ["in_progress", "todo", "backlog", "done", "cancelled", "duplicate"]

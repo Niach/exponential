@@ -1,0 +1,26 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# gpui + backend selector + macros pinned to gpui-component's EXACT rev (LD-7).
+# The concrete rev/tag is fixed in Phase 1 ([03-desktop-architecture]); Phase 0
+# only needs the skeleton to compile, so heavy deps are added crate-by-crate.
+
+# Dev-profile opt-level overrides for layout/macro-heavy crates (masterplan-v3
+# §3.7 — gpui-component's own workspace does exactly this). Until the gpui deps
+# land in Phase 1 these specs match no packages and cargo emits a benign
+# "did not match any packages" warning.
+[profile.dev.package.taffy]
+opt-level = 3
+[profile.dev.package.gpui_macros]
+opt-level = 3
+[profile.dev.package.gpui]
+opt-level = 3
+[profile.dev.package.gpui_platform]
+opt-level = 3
