@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Packaging template (masterplan-v3 §3.7 / §12): consumed by the release-time
+     manual .app assembly, NOT loaded at runtime. Placeholders in ${...} are
+     substituted by the packaging script. The exp:// URL scheme registration is
+     what routes the OAuth callback / invite deep links into on_open_urls (§3.6). -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Exponential</string>
+    <key>CFBundleDisplayName</key>
+    <string>Exponential</string>
+    <key>CFBundleIdentifier</key>
+    <string>at.exponential.desktop</string>
+    <key>CFBundleExecutable</key>
+    <string>exp-desktop</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>${BUILD}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Exponential deep links</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>exp</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

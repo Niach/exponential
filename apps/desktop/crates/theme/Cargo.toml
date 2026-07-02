@@ -5,3 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# The only two screen-facing deps this crate is allowed (masterplan-v3 §3.1):
+# gpui for Rgba/Hsla/App, gpui-component for Theme/ThemeColor/ThemeTokens.
+# Mirrors how gpui-component's own crates/ui declares gpui (plain, no features).
+gpui.workspace = true
+gpui-component.workspace = true

@@ -17,3 +17,10 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 steer = { path = "../steer" }
 coding = { path = "../coding" }
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+gpui-component-assets.workspace = true
+rust-embed.workspace = true
+anyhow.workspace = true
+flume.workspace = true

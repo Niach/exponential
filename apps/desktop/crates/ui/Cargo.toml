@@ -12,3 +12,9 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 coding = { path = "../coding" }
 steer = { path = "../steer" }
+gpui.workspace = true
+gpui-component.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+dirs.workspace = true

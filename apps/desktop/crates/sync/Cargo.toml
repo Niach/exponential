@@ -6,3 +6,7 @@ license.workspace = true
 
 [dependencies]
 domain = { path = "../domain" }
+# gpui is allowed ONLY in src/collections.rs — the thin reactive seam (§3.1:
+# "Only sync::collections links gpui"). protocol/client/store/manager (Phase 2)
+# stay gpui-free and headless-testable.
+gpui.workspace = true

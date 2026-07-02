@@ -8,19 +8,67 @@ version = "0.1.0"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-# gpui + backend selector + macros pinned to gpui-component's EXACT rev (LD-7).
-# The concrete rev/tag is fixed in Phase 1 ([03-desktop-architecture]); Phase 0
-# only needs the skeleton to compile, so heavy deps are added crate-by-crate.
+# gpui + backend selector + macros pinned to gpui-component's EXACT rev (LD-7,
+# masterplan-v3 §3.1) — verified against the pinned gpui-component workspace
+# Cargo.toml (it declares these same three at this same zed rev, with the same
+# gpui_platform feature set). Crate versions at this rev (Spike B): gpui 0.2.2,
+# gpui_platform 0.1.0, gpui_macros 0.1.0.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = [
+    "font-kit",
+    "x11",
+    "wayland",
+    "runtime_shaders",
+] }
+gpui_macros = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
+# gpui-component is pinned by GIT REV, never by crates.io version. WARNING: crates.io
+# hosts an unrelated/older registry `gpui 0.2.2` and a `gpui-component 0.5.1` that
+# depends on it — resolving either would pull a SECOND gpui package id alongside the
+# git-pinned gpui above and split every gpui type in the tree (0.5.2 exists only in
+# git; it is not published). Never use the registry versions.
+# NB: gpui-component's own workspace carries a `[patch.crates-io]` for psm/stacker —
+# that patch is WASM-only tooling and is NOT needed here (confirmed by building this
+# workspace without it); cargo does not apply a git dependency's patch sections anyway.
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
+# Ships the 99 SVG icons gpui-component's `IconName` enum is generated from —
+# already a regular dependency of gpui-component itself (its build.rs publishes
+# the icons dir for the icon_named! macro), so this adds no new tree weight.
+# The app's AssetSource delegates icon lookups to it (§3.6 with_assets).
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
 
-# Dev-profile opt-level overrides for layout/macro-heavy crates (masterplan-v3
-# §3.7 — gpui-component's own workspace does exactly this). Until the gpui deps
-# land in Phase 1 these specs match no packages and cargo emits a benign
-# "did not match any packages" warning.
-[profile.dev.package.taffy]
-opt-level = 3
-[profile.dev.package.gpui_macros]
-opt-level = 3
-[profile.dev.package.gpui]
-opt-level = 3
-[profile.dev.package.gpui_platform]
-opt-level = 3
+alacritty_terminal = "0.26"                                            # UPSTREAM, Apache-2.0 — never Zed's GPL fork (resolves 0.26.0)
+portable-pty = "0.9"                                                   # resolves 0.9.0
+vte = { version = "0.15", features = ["std", "ansi"] }                 # "std" is required for StdSyncHandler (§6.4)
+rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }  # feature set matches §5.1
+ureq = { version = "2", features = ["tls"] }
+rustls = "0.23"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flume = "0.11"
+anyhow = "1"
+rust-embed = "8"    # embeds assets/ (Inter TTFs, future icons) into the binary — no runtime asset paths (§3.7)
+dirs = "6"          # per-user state dir for the DockAreaState layout persistence (§3.3)
+keyring = "3"
+open = "5"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+
+# Dev-profile opt-level overrides for the heavy layout/render/text crates
+# (masterplan-v3 §3.7 — adopted from gpui-component's own workspace, which does
+# exactly this; without them dev-profile layout is painfully slow).
+[profile.dev.package]
+gpui = { opt-level = 3 }
+gpui_platform = { opt-level = 3 }
+gpui_macros = { opt-level = 3 }
+taffy = { opt-level = 3 }
+resvg = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
+smol = { opt-level = 3 }
+tree-sitter = { opt-level = 3 }
+ropey = { opt-level = 3 }
+sum_tree = { opt-level = 3 }
+# The remainder of gpui-component's own dev list (same rationale, same source).
+lsp-types = { opt-level = 3 }
+markdown = { opt-level = 3 }
+xml5ever = { opt-level = 3 }

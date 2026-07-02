@@ -1,4 +1,7 @@
-# Pinned per masterplan-v3 §2.6/§3.7. Phase 1 (Spike B) validates stable against
-# the pinned gpui rev's own CI and bumps to a pinned 1.xx if needed.
+# Pinned per masterplan-v3 §3.7 — resolved by Spike B (2026-07-02), which built
+# and ran the whole pinned tree (zed rev 1d217ee… + gpui-component rev a9a7341c…)
+# under rustc 1.96.0 stable on aarch64-apple-darwin. Floor is 1.95.0 (Zed's own
+# pin at the rev); pinning is required because the gpui git rev tracks a specific
+# compiler surface.
 [toolchain]
-channel = "stable"
+channel = "1.96.0"

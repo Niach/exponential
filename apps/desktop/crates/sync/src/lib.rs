@@ -6,4 +6,14 @@
 //! projects the store into reactive `Entity`-backed collections.
 //!
 //! Dependency rule (§3.1): depends only on `domain`; `protocol`/`client`/
-//! `store`/`manager` must never depend on gpui.
+//! `store`/`manager` must never depend on gpui — **only `sync::collections`
+//! links gpui** (it is the single seam between the headless engine and the
+//! view tree).
+//!
+//! Phase-1 state: only [`collections::Store`] exists — the gpui global the
+//! §3.6 shell installs so multi-window shared state is proven before the
+//! engine lands underneath it.
+
+pub mod collections;
+
+pub use collections::{SharedState, Store};

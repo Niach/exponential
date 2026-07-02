@@ -1,0 +1,14 @@
+# Packaging template (masterplan-v3 §3.7 / §12): shipped inside the Linux
+# AppImage/.deb at release time, NOT loaded at runtime. The x-scheme-handler/exp
+# MimeType is what routes exp:// OAuth callbacks / invite deep links into
+# on_open_urls (§3.6) on Linux desktops.
+[Desktop Entry]
+Type=Application
+Name=Exponential
+Comment=Real-time issue tracker and coding IDE
+Exec=exp-desktop %U
+Icon=exponential
+Terminal=false
+Categories=Development;ProjectManagement;
+MimeType=x-scheme-handler/exp;
+StartupWMClass=exp-desktop
