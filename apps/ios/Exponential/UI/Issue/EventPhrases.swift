@@ -47,7 +47,7 @@ func eventField(_ payload: String?, _ key: String) -> String? {
 /// A rich activity phrase from the event type + payload (status from→to, PR #N,
 /// assigned/unassigned, label name). Resolves user/label names when the maps are
 /// supplied; falls back to the generic verb for events without a payload.
-/// Mirrors the web activity timeline (and the Linux `eventPhrase`).
+/// Mirrors the web activity timeline.
 func eventPhrase(
     _ event: IssueEventEntity,
     users: [String: UserEntity],

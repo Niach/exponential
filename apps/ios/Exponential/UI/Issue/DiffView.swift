@@ -3,8 +3,8 @@ import ExpUI
 import SwiftUI
 
 /// The PR diff for an issue, loaded once from `issues.prFiles`. Renders each
-/// changed file as a patch block with +/−/context line coloring. iOS mirror of
-/// `MacDiffView` (ExponentialMac/MacDiffView.swift). Read-only in v1.
+/// changed file as a patch block with +/−/context line coloring. Mirrors the
+/// web diff view (apps/web/src/components/diff-view.tsx). Read-only in v1.
 struct DiffView: View {
     let issueId: String
 

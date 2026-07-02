@@ -2,11 +2,7 @@ import cmark_gfm
 import cmark_gfm_extensions
 import Foundation
 import os
-#if os(iOS)
 import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
 
 private let log = Logger(subsystem: "com.exponential", category: "MarkdownConversion")
 

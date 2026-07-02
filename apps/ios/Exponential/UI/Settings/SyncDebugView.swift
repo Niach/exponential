@@ -5,6 +5,9 @@ import SwiftUI
 struct SyncDebugView: View {
     private let debug = SyncDebug.shared
 
+    @Environment(AppDependencies.self) private var deps
+    @State private var resyncing = false
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -12,6 +15,7 @@ struct SyncDebugView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     shapesSection
+                    resyncSection
                     logSection
                 }
                 .padding(.horizontal, 16)
@@ -81,6 +85,38 @@ struct SyncDebugView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .glassRow()
+    }
+
+    // Manual escape hatch (EXP-1#13): wipe the active account's synced rows +
+    // offsets and refetch all 14 shapes from scratch. resync() itself purges
+    // URLCache and is serialized per account inside SyncManager.
+    @ViewBuilder
+    private var resyncSection: some View {
+        if let accountId = deps.auth.activeAccountId {
+            Button {
+                guard !resyncing else { return }
+                resyncing = true
+                Task {
+                    await deps.syncManager.resync(accountId: accountId)
+                    resyncing = false
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text(resyncing ? "Resyncing…" : "Resync now")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassRow()
+            }
+            .buttonStyle(.plain)
+            .disabled(resyncing)
+        }
     }
 
     private var logSection: some View {

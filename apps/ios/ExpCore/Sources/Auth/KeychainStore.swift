@@ -1,74 +1,5 @@
 import Foundation
-#if !os(macOS)
 import Security
-#endif
-
-#if os(macOS)
-
-/// macOS credential store backed by a 0600 file in Application Support — NOT the
-/// system Keychain.
-///
-/// The Keychain prompts the user to "allow access" whenever the accessing app's
-/// code signature changes, which on macOS happens on *every* debug rebuild
-/// (ad-hoc / per-build signatures), so you'd re-enter your login password on
-/// each run. That friction isn't worth it for a locally-run desktop app, and no
-/// other secret here needs hardware-backed storage. The file lives in the app's
-/// Application Support container (user-readable only, 0600). iOS keeps the real
-/// Keychain (see the #else branch) — it has no such prompt and needs the shared
-/// access group so the Share Extension can read the token.
-public final class KeychainStore: Sendable {
-    private let lock = NSLock()
-    private let url: URL
-
-    public init() {
-        let dir = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Exponential", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        self.url = dir.appendingPathComponent("credentials.json")
-    }
-
-    public func get(_ key: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return load()[key]
-    }
-
-    public func set(_ key: String, value: String?) {
-        lock.lock()
-        defer { lock.unlock() }
-        var dict = load()
-        if let value {
-            dict[key] = value
-        } else {
-            dict.removeValue(forKey: key)
-        }
-        save(dict)
-    }
-
-    public func delete(_ key: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        var dict = load()
-        dict.removeValue(forKey: key)
-        save(dict)
-    }
-
-    private func load() -> [String: String] {
-        guard let data = try? Data(contentsOf: url),
-              let dict = try? JSONDecoder().decode([String: String].self, from: data)
-        else { return [:] }
-        return dict
-    }
-
-    private func save(_ dict: [String: String]) {
-        guard let data = try? JSONEncoder().encode(dict) else { return }
-        try? data.write(to: url, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    }
-}
-
-#else
 
 /// Keychain-backed string store, shared between the app and the Share Extension
 /// via a keychain access group ([SharedAppGroup.keychainAccessGroup]).
@@ -147,5 +78,3 @@ public final class KeychainStore: Sendable {
         SecItemDelete(query as CFDictionary)
     }
 }
-
-#endif

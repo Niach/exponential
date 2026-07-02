@@ -3,8 +3,8 @@ import XCTest
 
 // Cross-language parity gate: a 1:1 port of
 // packages/widget/src/annotate/shapes.test.ts. If the geometry diverges from
-// the TS source of truth (or the Linux Zig port), this fails — keeping the
-// flattened annotation pixels identical across web, macOS/iOS and Linux.
+// the TS source of truth, this fails — keeping the flattened annotation
+// pixels identical across web and iOS.
 final class AnnotationGeometryTests: XCTestCase {
     private func point(_ x: Double, _ y: Double) -> Point { Point(x: x, y: y) }
 

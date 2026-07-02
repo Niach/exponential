@@ -5,7 +5,7 @@ import Foundation
 // flattening is exact and the editor's display scale is a pure transform.
 // The cross-language parity gate (AnnotationGeometryTests / shapes.test.ts)
 // locks `normalizeRect` / `strokeWidthFor` / `arrowHead` / `isDegenerate`
-// to byte-identical results across web, iOS/macOS and Linux.
+// to byte-identical results across web and iOS.
 
 public enum AnnotationTool: String, Codable, CaseIterable, Sendable {
     case rect

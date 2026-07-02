@@ -33,21 +33,27 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = liveTimeoutSeconds + 30
+        // Never let URLCache answer a shape request. Electric snapshots ship
+        // `cache-control: public, max-age=604800`, so a cached (possibly
+        // empty, anonymously-authed) snapshot replayed on a bare offset=-1
+        // refetch would wipe every local row and re-save a stale handle —
+        // the poisoned-cache 409 loop. Shape reads must always hit the server.
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.urlCache = nil
         self.session = URLSession(configuration: config)
     }
 
     public func run() async throws {
         var backoffMs: UInt64 = 500
-        var pendingRefetch = false
         while !Task.isCancelled {
             do {
                 guard let baseUrl = baseUrlProvider(), let token = tokenProvider() else {
                     try await Task.sleep(for: .seconds(2))
                     continue
                 }
-                pendingRefetch = try await pollOnce(baseUrl: baseUrl, token: token, pendingRefetch: pendingRefetch)
+                let shouldPause = try await pollOnce(baseUrl: baseUrl, token: token)
                 backoffMs = 500
-                if pendingRefetch {
+                if shouldPause {
                     try await Task.sleep(for: .milliseconds(500))
                 }
             } catch is CancellationError {
@@ -66,23 +72,37 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         }
     }
 
-    /// Returns `true` when a refetch was triggered (409 or inline must-refetch)
-    /// and the next call should apply the replacement atomically.
-    private func pollOnce(baseUrl: String, token: String, pendingRefetch: Bool) async throws -> Bool {
+    /// Returns `true` when the next poll should be paced (a refetch is pending
+    /// after a 409 / inline must-refetch, or a non-live poll made no progress).
+    private func pollOnce(baseUrl: String, token: String) async throws -> Bool {
         let saved = try await pool.read { db in
             try ElectricOffset.fetchOne(db, key: shapeName)
         }
-        let isInitial = saved == nil
+        // A persisted needs_refetch row survives a quit between the 409 and the
+        // refetch, so the atomic DELETE+reinsert still happens after relaunch.
+        let refetching = saved?.needsRefetch ?? false
+        let wasLive = saved?.isLive ?? false
 
         var components = URLComponents(string: "\(baseUrl)\(urlPath)")!
-        if isInitial {
-            components.queryItems = [URLQueryItem(name: "offset", value: initialOffset)]
+        if saved == nil || refetching {
+            // Initial snapshot / post-409 refetch: offset=-1, plus the
+            // replacement handle Electric sent on the 409 (when we have one).
+            var query = [URLQueryItem(name: "offset", value: initialOffset)]
+            if let handle = saved?.handle, !handle.isEmpty {
+                query.append(URLQueryItem(name: "handle", value: handle))
+            }
+            components.queryItems = query
         } else {
-            components.queryItems = [
+            var query = [
                 URLQueryItem(name: "offset", value: saved!.offset),
                 URLQueryItem(name: "handle", value: saved!.handle),
-                URLQueryItem(name: "live", value: "true"),
             ]
+            // Only long-poll live once the snapshot completed (up-to-date
+            // seen); catch-up polls stay non-live per the Electric protocol.
+            if wasLive {
+                query.append(URLQueryItem(name: "live", value: "true"))
+            }
+            components.queryItems = query
         }
 
         var request = URLRequest(url: components.url!)
@@ -94,16 +114,24 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             throw ShapeError.invalidResponse
         }
 
-        logger.info("[\(self.shapeName)] HTTP \(httpResponse.statusCode), \(data.count) bytes, initial=\(isInitial)")
+        logger.info("[\(self.shapeName)] HTTP \(httpResponse.statusCode), \(data.count) bytes, live=\(wasLive), refetch=\(refetching)")
         SyncDebug.shared.log("[\(shapeName)] HTTP \(httpResponse.statusCode), \(data.count)B")
-        SyncDebug.shared.reportShape(name: shapeName, httpStatus: httpResponse.statusCode, isLive: !isInitial)
+        SyncDebug.shared.reportShape(name: shapeName, httpStatus: httpResponse.statusCode, isLive: wasLive)
 
         if httpResponse.statusCode == 409 {
-            try await pool.write { db in
-                try ElectricOffset.deleteOne(db, key: shapeName)
-            }
+            // The shape rotated. Electric sends the replacement handle in the
+            // response header — persist it with a needs_refetch marker instead
+            // of deleting the row, so the refetch targets the new handle and a
+            // quit before it lands still resumes into the atomic replacement.
             // Don't delete table data yet — leave stale rows visible until the
             // next poll re-fetches and replaces them atomically.
+            let newHandle = httpResponse.value(forHTTPHeaderField: "electric-handle") ?? ""
+            try await pool.write { db in
+                try ElectricOffset(
+                    shape: shapeName, handle: newHandle, offset: initialOffset,
+                    needsRefetch: true, isLive: false
+                ).save(db)
+            }
             return true
         }
 
@@ -121,13 +149,17 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         var messages = decodeMessages(data)
 
         // Handle inline must-refetch control message in the response body:
-        // strip it, clear the offset, and signal a pending refetch so the
-        // next poll replaces all rows atomically.
+        // strip it, mark the row needs_refetch (no handle — the old one is
+        // dead), and signal a pending refetch so the next poll replaces all
+        // rows atomically.
         let hasInlineMustRefetch = messages.contains { if case .mustRefetch = $0 { true } else { false } }
         if hasInlineMustRefetch {
             messages.removeAll { if case .mustRefetch = $0 { true } else { false } }
             try await pool.write { db in
-                try ElectricOffset.deleteOne(db, key: shapeName)
+                try ElectricOffset(
+                    shape: shapeName, handle: "", offset: initialOffset,
+                    needsRefetch: true, isLive: false
+                ).save(db)
             }
             if !messages.isEmpty {
                 try await onMessages(messages)
@@ -135,10 +167,15 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             return true
         }
 
+        // Only up-to-date flips the shape live — snapshot-end merely closes a
+        // snapshot chunk and catch-up polls must stay non-live until Electric
+        // says we reached head.
+        let sawUpToDate = messages.contains { if case .upToDate = $0 { true } else { false } }
+
         // After a 409 / inline must-refetch, this is the re-fetch with fresh
         // data. Prepend .mustRefetch so applyBatch does DELETE + INSERTs in
         // one transaction — ValueObservation never sees an empty table.
-        if pendingRefetch {
+        if refetching {
             messages.insert(.mustRefetch, at: 0)
         }
 
@@ -152,15 +189,23 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         }
 
         if let handle, let offset {
+            let live = sawUpToDate || (wasLive && !refetching)
             try await pool.write { db in
-                try ElectricOffset(shape: shapeName, handle: handle, offset: offset).save(db)
+                try ElectricOffset(
+                    shape: shapeName, handle: handle, offset: offset,
+                    needsRefetch: false, isLive: live
+                ).save(db)
             }
         }
 
-        return false
+        // Pace the loop when a non-live poll made no progress, so a response
+        // that never reaches up-to-date can't spin-request.
+        return !wasLive && !sawUpToDate && messages.isEmpty
     }
 
-    private func decodeMessages(_ data: Data) -> [ShapeMessage<T>] {
+    // Internal (not private) so ExpCoreTests can lock the wire-format mapping
+    // (controls incl. snapshot-end, string-coerced values, partial updates).
+    func decodeMessages(_ data: Data) -> [ShapeMessage<T>] {
         guard !data.isEmpty else { return [] }
 
         // Electric sends a JSON array of message objects. Parse using JSONSerialization
@@ -179,6 +224,10 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             switch control {
             case "up-to-date": return .upToDate
             case "must-refetch": return .mustRefetch
+            // Chunk boundary of a multi-response snapshot — recognized but
+            // carries no data; liveness is gated on up-to-date, never on
+            // snapshot-end.
+            case "snapshot-end": return nil
             default: return nil
             }
         }

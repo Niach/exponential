@@ -76,11 +76,6 @@ private struct ControlTicketInput: Encodable {
     let deviceLabel: String?
 }
 
-private struct PublisherTicketInput: Encodable {
-    let kind = "publisher"
-    let codingSessionId: String
-}
-
 private struct ViewerTicketInput: Encodable {
     let kind = "viewer"
     let codingSessionId: String
@@ -107,21 +102,13 @@ public final class SteerApi: Sendable {
         try await trpc.query(accountId: accountId, path: "steer.config")
     }
 
-    /// Mint a `control` ticket for the desktop's device-presence socket.
+    /// Mint a `control` ticket for a device-presence socket.
+    /// Retained for a future phone→desktop remote-input surface; not yet wired to UI.
     public func mintControlTicket(accountId: String, deviceLabel: String?) async throws -> SteerTicket {
         try await trpc.mutation(
             accountId: accountId,
             path: "steer.mintTicket",
             input: ControlTicketInput(deviceLabel: deviceLabel)
-        )
-    }
-
-    /// Mint a `publisher` ticket for a specific coding session's data socket.
-    public func mintPublisherTicket(accountId: String, codingSessionId: String) async throws -> SteerTicket {
-        try await trpc.mutation(
-            accountId: accountId,
-            path: "steer.mintTicket",
-            input: PublisherTicketInput(codingSessionId: codingSessionId)
         )
     }
 

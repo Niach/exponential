@@ -12,6 +12,7 @@ struct ServerDetailView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.dismiss) private var dismiss
     @State private var showRemoveConfirm = false
+    @State private var resyncing = false
 
     private var account: ServerAccount? {
         deps.auth.accounts.first { $0.id == accountId }
@@ -82,6 +83,25 @@ struct ServerDetailView: View {
         sectionStack(title: nil) {
             VStack(spacing: 6) {
                 if account?.token != nil {
+                    // Recovery hatch for a wedged local cache: wipe every synced
+                    // row + offset and refetch all shapes from scratch.
+                    Button {
+                        guard !resyncing else { return }
+                        resyncing = true
+                        Task {
+                            await deps.syncManager.resync(accountId: accountId)
+                            resyncing = false
+                        }
+                    } label: {
+                        actionRow(
+                            icon: "arrow.triangle.2.circlepath",
+                            title: resyncing ? "Resyncing…" : "Resync now",
+                            tint: .white
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(resyncing)
+
                     Button {
                         Task {
                             await deps.syncManager.signOut(accountId: accountId)

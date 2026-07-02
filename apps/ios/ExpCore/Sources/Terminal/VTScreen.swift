@@ -5,7 +5,7 @@ import Foundation
 // bytes come off the relay's binary frames and are folded into a cols×rows
 // cell grid the SwiftUI layer renders as monospaced attributed lines.
 //
-// Deliberately small — the REAL terminal (libghostty) runs on the desktop; a
+// Deliberately small — the REAL terminal runs on the desktop; a
 // mirror only needs the escapes interactive TUIs (claude code, shells) emit:
 //   grid + cursor addressing (CUP/CUU/…/VPA/CHA), SGR colors (16/256/RGB +
 //   bold/italic/underline/inverse/dim), erase ops (ED/EL/ECH/DCH/ICH/IL/DL),

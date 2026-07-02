@@ -1,9 +1,5 @@
 import Foundation
-#if os(iOS)
 import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
 
 extension NSAttributedString.Key {
     public static let markdownHeadingLevel = NSAttributedString.Key("exp.markdownHeadingLevel")
@@ -20,9 +16,8 @@ extension NSAttributedString.Key {
 }
 
 public enum MarkdownStyle {
-    // `nonisolated(unsafe)`: these are immutable font/color constants. On macOS
-    // NSFont/NSColor are not `Sendable`, so a plain `static let` trips strict
-    // concurrency; the values never mutate, so opting out is safe.
+    // `nonisolated(unsafe)`: these are immutable font/color constants that
+    // never mutate, so opting out of strict-concurrency checking is safe.
     public nonisolated(unsafe) static let bodyFont = PlatformFont.preferredFont(forTextStyle: .body)
     public nonisolated(unsafe) static let textColor = PlatformColor.white.withAlphaComponent(0.9)
     public nonisolated(unsafe) static let linkColor = PlatformColor(red: 0.42, green: 0.64, blue: 1.0, alpha: 1.0)
@@ -52,50 +47,32 @@ public enum MarkdownStyle {
     }
 }
 
-// MARK: - Cross-platform font-trait helpers
+// MARK: - Font-trait helpers
 
-/// Returns `font` with the bold trait added (UIKit `.traitBold` / AppKit `.bold`).
+/// Returns `font` with the bold trait added.
 public func expBoldFont(_ font: PlatformFont) -> PlatformFont {
     let descriptor = font.fontDescriptor
-    #if os(macOS)
-    let newDescriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.bold))
-    return PlatformFont(descriptor: newDescriptor, size: font.pointSize) ?? font
-    #else
     var traits = descriptor.symbolicTraits
     traits.insert(.traitBold)
     guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return font }
     return PlatformFont(descriptor: newDescriptor, size: font.pointSize)
-    #endif
 }
 
 /// Returns `font` with the italic trait added.
 public func expItalicFont(_ font: PlatformFont) -> PlatformFont {
     let descriptor = font.fontDescriptor
-    #if os(macOS)
-    let newDescriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.italic))
-    return PlatformFont(descriptor: newDescriptor, size: font.pointSize) ?? font
-    #else
     var traits = descriptor.symbolicTraits
     traits.insert(.traitItalic)
     guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return font }
     return PlatformFont(descriptor: newDescriptor, size: font.pointSize)
-    #endif
 }
 
 public func expFontHasBold(_ font: PlatformFont?) -> Bool {
     guard let font else { return false }
-    #if os(macOS)
-    return font.fontDescriptor.symbolicTraits.contains(.bold)
-    #else
     return font.fontDescriptor.symbolicTraits.contains(.traitBold)
-    #endif
 }
 
 public func expFontHasItalic(_ font: PlatformFont?) -> Bool {
     guard let font else { return false }
-    #if os(macOS)
-    return font.fontDescriptor.symbolicTraits.contains(.italic)
-    #else
     return font.fontDescriptor.symbolicTraits.contains(.traitItalic)
-    #endif
 }

@@ -1,9 +1,5 @@
 import Foundation
-#if os(iOS)
 import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
 
 extension NSAttributedString.Key {
     /// Render-only marker on a `#IDENTIFIER` token that resolved to a local

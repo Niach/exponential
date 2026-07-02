@@ -54,8 +54,7 @@ public final class TrpcClient: Sendable {
 
     /// GET an input-less tRPC `query` procedure and decode the same
     /// `{result:{data}}` envelope `mutation` uses. tRPC routes reads as GET, so
-    /// POSTing to a `.query` returns 405 — use this for those. Mirrors the
-    /// Linux `trpc.query` helper in `apps/linux/src/core/api/trpc.zig`.
+    /// POSTing to a `.query` returns 405 — use this for those.
     public func query<O: Decodable>(accountId: String, path: String) async throws -> O {
         let base = try baseUrl(for: accountId)
         guard let url = URL(string: "\(base)/api/trpc/\(path)") else {
@@ -76,7 +75,7 @@ public final class TrpcClient: Sendable {
     /// GET a tRPC `query` procedure that takes an input. The server uses NO
     /// transformer (`initTRPC.context().create()`), so the input is the raw JSON
     /// value percent-encoded into `?input=…` (NOT the batched `{"0":{json}}`
-    /// form). Mirrors the Linux `trpc.queryInput` helper.
+    /// form).
     public func query<I: Encodable, O: Decodable>(accountId: String, path: String, input: I) async throws -> O {
         let base = try baseUrl(for: accountId)
         let json = try JSONEncoder().encode(input)

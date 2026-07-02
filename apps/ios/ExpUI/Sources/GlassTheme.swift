@@ -142,7 +142,7 @@ public enum Accent {
 // MARK: - Status Colors
 
 // Semantic status/priority colors come from the shared design tokens
-// (packages/design-tokens) so web/iOS/Android/Linux stay in lockstep. The glass
+// (packages/design-tokens) so all clients stay in lockstep. The glass
 // materials are deliberately NOT tokenized.
 public enum StatusColor {
     public static let backlog = DesignTokens.Semantic.neutral
