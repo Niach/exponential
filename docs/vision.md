@@ -12,7 +12,7 @@ Exponential is the ultimate Linear alternative — simpler and cheaper — that 
 
 ## What Exponential is
 
-Exponential is an issue tracker with the simplicity of Linear — and simplicity *is* the moat, not a limitation we apologize for. You get a fast, real-time tracker: issues, projects, labels, priorities, comments, My Issues, an inbox. Nothing you have to learn. Nothing you have to configure. It syncs live across web, iOS, Android, macOS, and Linux.
+Exponential is an issue tracker with the simplicity of Linear — and simplicity *is* the moat, not a limitation we apologize for. You get a fast, real-time tracker: issues, projects, labels, priorities, comments, My Issues, an inbox. Nothing you have to learn. Nothing you have to configure. It syncs live across web, iOS, Android, and the desktop app (macOS and Linux).
 
 But Exponential has a superpower Linear will never have: **the fix flow is built in.** Every issue can become a coding task. Click **Start coding** on an issue and Claude opens right there in the desktop's embedded terminal — seeded with a plan-first prompt (issue title, description, relevant comments) and told to propose a concise plan, wait for your go-ahead, then implement. Permissions are bypassed, so you never babysit accept prompts; it's fully interactive from the first keystroke. It works in a dedicated git worktree, and when it's done it commits, pushes the `exp/<IDENTIFIER>` branch, and opens its own pull request. One issue = one PR = one worktree. The desktop app is a real IDE — an embedded terminal, JetBrains-style run configs with a play button, concurrent coding sessions, multi-window, and syntax-highlighted PR diff review. The web and mobile apps are the coordination and *remote-control* surface: you can create and triage issues, review diffs, and — the part nobody else does — **watch a live coding terminal running on your desktop and type into it, from your phone.**
 
@@ -30,10 +30,10 @@ The split is locked and load-bearing. The desktop is where code runs. The web an
 
 | Surface | Role | Has |
 | --- | --- | --- |
-| **Desktop** — macOS (SwiftUI, glass) · Linux (Zig/GTK4, web pixel-parity) | The **IDE**. Where coding sessions and builds actually run. | Embedded libghostty terminal, JetBrains-style run configs + play button, concurrent coding sessions, multi-window (detached terminal/diff/preview), syntax-highlighted side-by-side diff review |
+| **Desktop** — one cross-platform app (Rust: gpui.rs + gpui-component), pixel-parity with web, on macOS and Linux | The **IDE**. Where coding sessions and builds actually run. | Embedded terminal (alacritty_terminal, over a PTY the app owns directly), JetBrains-style run configs + play button, concurrent coding sessions, multi-window (detached terminal/diff), syntax-highlighted side-by-side diff review, and it is the steer-relay **publisher** that tees the live session to your phone |
 | **Web** + **Mobile** — iOS (native glass) · Android (Compose) | The **coordination + remote-control** surface. | Create/triage/assign, comments, My Issues, Inbox, review the same diff, **watch + steer a live desktop coding session** — no local terminal, no local agent runtime, no bundled CLI |
 
-The desktop runs Claude interactively inside libghostty — one terminal, one worktree, one child process per session. There is no headless loop and no shared runtime: each window is just its own terminal driving its own `claude` in its own worktree. Web and mobile stay pure coordination surfaces on purpose.
+The desktop runs Claude interactively inside an embedded terminal (alacritty_terminal, over a PTY the app owns directly) — one terminal, one worktree, one child process per session. There is no headless loop and no shared runtime: each window is just its own terminal driving its own `claude` in its own worktree. Because the desktop owns the PTY master, it tees the live session out to the relay for phone steering with no extra plumbing. Web and mobile stay pure coordination surfaces on purpose.
 
 ---
 
@@ -60,7 +60,7 @@ That's the moat in one story: an issue went from *reported while you were away* 
 5. **Self-hosted-first parity.** Every feature works self-hosted at full fidelity. The relay works LAN-only or outbound-friendly; email runs on SMTP or degrades to a clean no-op. Only billing degrades — to unlimited.
 6. **Outbound-only, storage-free, NAT-friendly.** The desktop dials out — to GitHub via the App token model (no stored secrets; a JIT installation token is fetched per session), to the relay for steering, to the push service. It works behind any NAT with zero inbound ports and zero friction.
 7. **Legible from phone to desktop.** One issue = one PR = one worktree = one steerable session — coordination clients read the issue's PR plus a live coding session, so the fix stays readable on any screen.
-8. **Five-client Electric lockstep.** Parity is a discipline, not an aspiration. macOS stays glass; Linux reaches web pixel-parity and leaps ahead with a real diff view. The same shapes sync everywhere or they don't ship.
+8. **Four-surface Electric lockstep.** Parity is a discipline, not an aspiration. Web, iOS, Android, and the gpui desktop app all sync the same fourteen shapes — the same shapes sync everywhere or they don't ship. The desktop is the one surface that runs coding sessions and publishes to the steer relay; the others coordinate and remote-control. The desktop reaches pixel-parity with web (shadcn look via gpui-component) and leaps ahead with a real embedded terminal and a syntax-highlighted side-by-side diff view.
 
 ---
 
