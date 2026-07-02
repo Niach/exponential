@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { SlidersHorizontal, Trash2 } from "lucide-react"
+import { SquareTerminal, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,7 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
-import { ProjectPreviewSettingsDialog } from "@/components/workspace/project-preview-settings-dialog"
+import { ProjectRunConfigsDialog } from "@/components/workspace/project-run-configs-dialog"
 
 export function WorkspaceProjectsSection({
   workspaceId,
@@ -34,13 +34,15 @@ export function WorkspaceProjectsSection({
     name: string
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [previewTargetId, setPreviewTargetId] = useState<string | null>(null)
+  const [runConfigsProjectId, setRunConfigsProjectId] = useState<
+    string | null
+  >(null)
 
   // The section is only rendered for workspace owners (see settings route), so
-  // the per-project preview dialog is always editable here — but pass an
-  // explicit flag so the dialog can gate the mutation defensively.
-  const previewTarget =
-    visibleProjects.find((p) => p.id === previewTargetId) ?? null
+  // the per-project run-commands dialog is always editable here — but pass an
+  // explicit flag so the dialog can gate the mutations defensively.
+  const runConfigsProject =
+    visibleProjects.find((p) => p.id === runConfigsProjectId) ?? null
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -96,10 +98,10 @@ export function WorkspaceProjectsSection({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 shrink-0 text-muted-foreground"
-                    title="Run Targets & Preview"
-                    onClick={() => setPreviewTargetId(project.id)}
+                    title="Run commands"
+                    onClick={() => setRunConfigsProjectId(project.id)}
                   >
-                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    <SquareTerminal className="h-3.5 w-3.5" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -155,13 +157,12 @@ export function WorkspaceProjectsSection({
         </DialogContent>
       </Dialog>
 
-      <ProjectPreviewSettingsDialog
-        project={previewTarget}
-        workspaceProjects={visibleProjects}
+      <ProjectRunConfigsDialog
+        project={runConfigsProject}
         isOwner
-        open={previewTargetId !== null}
+        open={runConfigsProjectId !== null}
         onOpenChange={(open) => {
-          if (!open) setPreviewTargetId(null)
+          if (!open) setRunConfigsProjectId(null)
         }}
       />
     </>

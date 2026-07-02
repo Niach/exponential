@@ -5,6 +5,7 @@ import {
   projectRepositories,
   projects,
   repositories,
+  runConfigs,
   widgetConfigs,
   workspaceMembers,
   workspaces,
@@ -169,6 +170,49 @@ const DOGFOOD_TARGETS: ProjectPreviewMirror[`targets`] = [
   { id: `ios-prod`, name: `iOS Prod`, platform: `ios` },
 ]
 
+// DB run configs seeded for the dogfood project (EXP-2: run commands live in
+// the database, not the repo file). Mirrors the web entry of DOGFOOD_TARGETS /
+// `.exponential/config.json` as plain terminal commands; the legacy preview
+// mirror seeding above stays intact until the desktops switch over. Desktops
+// gate execution behind the per-device Trust & Run prompt.
+const DOGFOOD_RUN_CONFIGS: {
+  name: string
+  argv: string[]
+  cwd: string | null
+}[] = [
+  { name: `Install deps`, argv: [`bun`, `install`], cwd: null },
+  { name: `Web`, argv: [`bun`, `dev`], cwd: null },
+]
+
+// Seed once: skip if the project already has ANY run configs so hand edits
+// are never clobbered (same never-overwrite rule as the preview mirror).
+async function ensureDogfoodRunConfigs(
+  workspaceId: string,
+  projectId: string
+) {
+  const [existing] = await db
+    .select({ id: runConfigs.id })
+    .from(runConfigs)
+    .where(eq(runConfigs.projectId, projectId))
+    .limit(1)
+  if (existing) return
+
+  await db
+    .insert(runConfigs)
+    .values(
+      DOGFOOD_RUN_CONFIGS.map((config, index) => ({
+        projectId,
+        workspaceId,
+        name: config.name,
+        argv: config.argv,
+        cwd: config.cwd,
+        env: {},
+        sortOrder: index + 1,
+      }))
+    )
+    .onConflictDoNothing({ target: [runConfigs.projectId, runConfigs.name] })
+}
+
 // Upsert a `repositories` row for the dogfood repo and make it the dogfood
 // project's PRIMARY link, so the coding launcher can resolve a clone target and
 // dogfood coding works end-to-end. Replaces the removed `projects.githubRepo`
@@ -265,6 +309,7 @@ async function ensureDogfoodProject(
       })
       .where(eq(projects.id, publicProjectId))
   }
+  await ensureDogfoodRunConfigs(publicWorkspaceId, publicProjectId)
   await ensureDogfoodRepoLink(publicWorkspaceId, publicProjectId, repo)
 }
 
