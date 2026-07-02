@@ -19,6 +19,10 @@ public final class SyncManager: @unchecked Sendable {
     private let lock = NSLock()
     private var pipelines: [String: [Task<Void, Never>]] = [:]
     private var observationTask: Task<Void, Never>?
+    // Accounts with a resync in flight — a concurrent second resync would
+    // relaunch the pipeline and overwrite `pipelines[accountId]`, orphaning
+    // 14 uncancellable shape Tasks (duplicate long-polls racing the wipe).
+    private var resyncing: Set<String> = []
 
     public init(auth: AuthRepository, db: DatabaseManager) {
         self.auth = auth
@@ -55,6 +59,35 @@ public final class SyncManager: @unchecked Sendable {
         // happens via DatabaseManager.deleteFiles(forAccountId:) from Settings.
         let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
         for task in tasks { task.cancel() }
+    }
+
+    /// Full local resync ("Resync now"): cancel the account's pipeline, purge
+    /// any URL-cached shape responses (poisoned-cache guard), wipe every synced
+    /// row + saved offset, then relaunch so all 14 shapes refetch from scratch.
+    public func resync(accountId: String) async {
+        // Serialize per account: bail if a resync is already running so a
+        // double-trigger can never launch a second pipeline over the first.
+        let alreadyResyncing = lock.withLock { !resyncing.insert(accountId).inserted }
+        if alreadyResyncing {
+            SyncDebug.shared.log("[resync] already in flight for account, ignoring")
+            return
+        }
+        defer { lock.withLock { _ = resyncing.remove(accountId) } }
+
+        let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
+        for task in tasks { task.cancel() }
+        // Give any in-flight batch write a beat to drain before wiping.
+        try? await Task.sleep(for: .milliseconds(250))
+        URLCache.shared.removeAllCachedResponses()
+        do {
+            try db.clearAllData(forAccountId: accountId)
+        } catch {
+            logger.error("Resync: clearAllData failed for \(accountId, privacy: .public): \(error.localizedDescription)")
+        }
+        guard auth.accounts.first(where: { $0.id == accountId })?.token != nil,
+              let pool = try? db.pool(forAccountId: accountId) else { return }
+        SyncDebug.shared.log("[resync] wiped local data, relaunching pipeline")
+        launchPipeline(accountId: accountId, pool: pool)
     }
 
     /// Wait up to ~5s for the active account's workspaces shape to land its

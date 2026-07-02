@@ -103,7 +103,8 @@ final class MacAppDependencies: @unchecked Sendable {
         self.repositoriesApi = repositoriesApi
         let codingSessionsApi = CodingSessionsApi(trpc: trpc)
         self.codingSessionsApi = codingSessionsApi
-        self.usersApi = UsersApi(trpc: trpc)
+        let usersApi = UsersApi(trpc: trpc)
+        self.usersApi = usersApi
         let steerApi = SteerApi(trpc: trpc)
         self.steerApi = steerApi
         // The collapsible bottom terminal dock — shared by MacShell (renders it)
@@ -124,6 +125,7 @@ final class MacAppDependencies: @unchecked Sendable {
                 repositoriesApi: repositoriesApi,
                 codingSessionsApi: codingSessionsApi,
                 steerApi: steerApi,
+                usersApi: usersApi,
                 db: db,
                 settings: codingSettings,
                 toasts: toastCenter,

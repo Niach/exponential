@@ -1,20 +1,20 @@
+import AppKit
 import ExpCore
 import ExpUI
 import SwiftUI
 
 /// Integrations panel mirroring the iOS `IntegrationsView`, adapted to a macOS
-/// sheet. Google Calendar status + Backfill + Disconnect; "Connect" opens the
-/// web integrations page (the OAuth link flow stays web-only, matching iOS).
+/// sheet. Shows the GitHub App install state (web /account/integrations parity);
+/// the install/manage flow lives on github.com — the button opens the default
+/// browser and the status re-queries when the window regains focus.
 struct MacIntegrationsView: View {
     @Environment(MacAppDependencies.self) private var deps
     @Environment(\.dismiss) private var dismiss
     let accountId: String
 
-    @State private var googleConnected = false
-    @State private var googleConnectedAt: String?
+    @State private var status: GithubStatusResult?
     @State private var loading = true
     @State private var error: String?
-    @State private var backfilling = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,42 +29,32 @@ struct MacIntegrationsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
-                        Image(systemName: "calendar").font(.title2)
+                        Image(systemName: "chevron.left.forwardslash.chevron.right").font(.title2)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Google Calendar").font(.body.weight(.medium))
-                            Text("Sync issue due dates as calendar events")
+                            Text("GitHub").font(.body.weight(.medium))
+                            Text("Install the Exponential GitHub App on the repos you want to code on. It opens pull requests, reads diffs, and lets your coding sessions clone + push — scoped to just those repos.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
 
-                    if loading {
+                    if loading && status == nil {
                         ProgressView()
-                    } else if googleConnected {
-                        HStack(spacing: 6) {
-                            Circle().fill(.green).frame(width: 8, height: 8)
-                            Text("Connected").font(.caption).foregroundStyle(.green)
-                            if let at = googleConnectedAt {
-                                Text("since \(at.prefix(10))").font(.caption).foregroundStyle(.secondary)
+                    } else if let status {
+                        if !status.configured {
+                            Text("GitHub isn't configured for this server.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else if status.installed {
+                            HStack(spacing: 6) {
+                                Circle().fill(.green).frame(width: 8, height: 8)
+                                Text(installedLabel(status)).font(.caption).foregroundStyle(.green)
                             }
-                        }
-                        HStack(spacing: 10) {
-                            Button { Task { await backfill() } } label: {
-                                HStack(spacing: 4) {
-                                    if backfilling { ProgressView().controlSize(.small) }
-                                    Text("Backfill")
-                                }
+                            if status.installUrl != nil {
+                                Button("Manage / add repos…") { openInstall(status) }
                             }
-                            .disabled(backfilling)
-
-                            Button(role: .destructive) { Task { await disconnect() } } label: {
-                                Text("Disconnect")
-                            }
-                        }
-                    } else {
-                        Text("Not connected").font(.caption).foregroundStyle(.secondary)
-                        Button("Connect…") {
-                            if let base = deps.auth.instanceUrl, let url = URL(string: "\(base)/account/integrations") {
-                                Platform.open(url)
+                        } else {
+                            Text("Not installed").font(.caption).foregroundStyle(.secondary)
+                            if status.installUrl != nil {
+                                Button("Install GitHub App…") { openInstall(status) }
                             }
                         }
                     }
@@ -80,36 +70,34 @@ struct MacIntegrationsView: View {
         }
         .frame(width: 520, height: 360)
         .task { await loadStatus() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Re-check after returning from the browser install flow.
+            Task { await loadStatus() }
+        }
+    }
+
+    private func installedLabel(_ status: GithubStatusResult) -> String {
+        status.accounts.isEmpty
+            ? "Installed"
+            : "Installed · \(status.accounts.joined(separator: ", "))"
+    }
+
+    private func openInstall(_ status: GithubStatusResult) {
+        if let urlString = status.installUrl, let url = URL(string: urlString) {
+            Platform.open(url)
+        }
     }
 
     private func loadStatus() async {
         do {
-            let status = try await deps.integrationsApi.googleStatus(accountId: accountId)
-            googleConnected = status.connected
-            googleConnectedAt = status.connectedAt
+            status = try await deps.integrationsApi.githubStatus(accountId: accountId)
+            // Clear any stale failure banner — this view re-queries on window
+            // focus, so a past error must not outlive a successful load.
+            error = nil
             loading = false
         } catch {
             self.error = error.localizedDescription
             loading = false
         }
-    }
-
-    private func disconnect() async {
-        do {
-            try await deps.integrationsApi.googleDisconnect(accountId: accountId)
-            googleConnected = false
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    private func backfill() async {
-        backfilling = true
-        do {
-            try await deps.integrationsApi.googleBackfill(accountId: accountId)
-        } catch {
-            self.error = error.localizedDescription
-        }
-        backfilling = false
     }
 }

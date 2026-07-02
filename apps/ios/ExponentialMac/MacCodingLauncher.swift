@@ -10,8 +10,8 @@ import GRDB
 /// 2. Mint a JIT push token — `repositories.installationToken`.
 /// 3. Host-side git — clone/fetch + worktree + `exp/<IDENTIFIER>` branch + a
 ///    token-embedded `origin` remote (via `GitWorktree`, never `gh`).
-/// 4. Write `.mcp.json` (web `/api/mcp` + personal API key) and a plan-first
-///    `PROMPT.md` into the worktree.
+/// 4. Write `.mcp.json` (web `/api/mcp` + personal API key, auto-minted on
+///    first use) and a plan-first `PROMPT.md` into the worktree.
 /// 5. Open a `coding_sessions` row (`running`).
 /// 6. Spawn `claude --dangerously-skip-permissions` (cwd = worktree) in the
 ///    embedded ghostty terminal; end the session when the run closes.
@@ -28,6 +28,7 @@ final class MacCodingLauncher {
     private let repositoriesApi: RepositoriesApi
     private let codingSessionsApi: CodingSessionsApi
     private let steerApi: SteerApi
+    private let usersApi: UsersApi
     private let db: DatabaseManager
     private let settings: MacCodingSettings
     private let toasts: MacToastCenter
@@ -52,6 +53,7 @@ final class MacCodingLauncher {
         repositoriesApi: RepositoriesApi,
         codingSessionsApi: CodingSessionsApi,
         steerApi: SteerApi,
+        usersApi: UsersApi,
         db: DatabaseManager,
         settings: MacCodingSettings,
         toasts: MacToastCenter,
@@ -61,6 +63,7 @@ final class MacCodingLauncher {
         self.repositoriesApi = repositoriesApi
         self.codingSessionsApi = codingSessionsApi
         self.steerApi = steerApi
+        self.usersApi = usersApi
         self.db = db
         self.settings = settings
         self.toasts = toasts
@@ -111,10 +114,14 @@ final class MacCodingLauncher {
             return
         }
 
-        // Personal API key (written into .mcp.json so claude auths as the user).
-        guard settings.hasPersonalKey, let personalKey = settings.personalApiKey else {
+        // Personal API key (written into .mcp.json so claude auths as the user) —
+        // auto-minted on first start, invisible plumbing the user never manages.
+        let personalKey: String
+        do {
+            personalKey = try await ensurePersonalApiKey(accountId: accountId)
+        } catch {
             toasts.show(
-                "Generate a personal API key in Settings → Coding first.",
+                "Couldn't create your personal API key: \(error.localizedDescription)",
                 style: .error, duration: .seconds(6))
             return
         }
@@ -234,6 +241,40 @@ final class MacCodingLauncher {
         toasts.show(
             "Coding session started for \(identifier) — watch it in the terminal.",
             style: .success)
+    }
+
+    // MARK: - Personal API key auto-mint (EXP-2)
+
+    // In-flight mint, shared by concurrent starts (local play button + remote
+    // start_session can race) so we never orphan a second just-minted key.
+    private var mintKeyTask: Task<String, Error>?
+
+    /// Return the stored personal expu_ key, minting one on first use. The key
+    /// is named after this device so a lost local copy can later be revoked
+    /// per-device — never blanket-revoke (other devices hold their own keys).
+    private func ensurePersonalApiKey(accountId: String) async throws -> String {
+        if let key = settings.personalApiKey, !key.isEmpty { return key }
+        // Joiners only await — they must never clear the slot, or a slow
+        // joiner unwinding after a failed attempt could nil out a NEWER task
+        // installed by a retry (or two joiners could double-clear).
+        if let existing = mintKeyTask {
+            return try await existing.value
+        }
+        let api = usersApi
+        let settings = settings
+        let name = "Device: \(Self.deviceLabel)"
+        let task = Task { @MainActor [weak self] in
+            // The task clears its own slot on completion (success or failure).
+            // While this task occupies the slot no other task can be created
+            // (creation requires a nil slot), so this can never clear a newer
+            // task — and the defer runs before any awaiter resumes.
+            defer { self?.mintKeyTask = nil }
+            let minted = try await api.mintPersonalApiKey(accountId: accountId, name: name)
+            settings.setPersonalKey(minted)
+            return minted.key
+        }
+        mintKeyTask = task
+        return try await task.value
     }
 
     // MARK: - Steer publisher attach/detach (masterplan §3.3)

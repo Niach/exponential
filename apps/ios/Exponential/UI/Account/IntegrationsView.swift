@@ -1,3 +1,4 @@
+import ExpCore
 import ExpUI
 import SwiftUI
 
@@ -5,11 +6,9 @@ struct IntegrationsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.scenePhase) private var scenePhase
-    @State private var googleConnected = false
-    @State private var googleConnectedAt: String?
+    @State private var status: GithubStatusResult?
     @State private var loading = true
     @State private var error: String?
-    @State private var backfilling = false
 
     var body: some View {
         ZStack {
@@ -17,94 +16,76 @@ struct IntegrationsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Google Calendar card
+                    // GitHub App card (mirrors web /account/integrations)
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 10) {
-                            Image(systemName: "calendar")
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
                                 .font(.title2)
                                 .foregroundStyle(.white)
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Google Calendar")
+                                Text("GitHub")
                                     .font(.body.weight(.medium))
                                     .foregroundStyle(.white)
 
-                                Text("Sync issue due dates as calendar events")
+                                Text("Install the Exponential GitHub App on the repos you want to code on. It opens pull requests, reads diffs, and lets your desktop coding sessions clone + push — scoped to just those repos.")
                                     .font(.caption)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
                         }
 
-                        if loading {
+                        if loading && status == nil {
                             ProgressView().tint(.white)
-                        } else if googleConnected {
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(.green)
-                                    .frame(width: 8, height: 8)
-                                Text("Connected")
-                                    .font(.caption)
-                                    .foregroundStyle(.green)
-                                if let at = googleConnectedAt {
-                                    Text("since \(at.prefix(10))")
-                                        .font(.caption)
-                                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                }
-                            }
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    Task { await backfill() }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        if backfilling {
-                                            ProgressView().tint(.white)
-                                        }
-                                        Text("Backfill")
-                                    }
-                                    .font(.subheadline)
-                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                }
-                                .glassButton()
-                                .disabled(backfilling)
-                                .buttonStyle(.plain)
-
-                                Button {
-                                    Task { await disconnect() }
-                                } label: {
-                                    Text("Disconnect")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.red.opacity(0.8))
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 8)
-                                }
-                                .glassButton()
-                                .buttonStyle(.plain)
-                            }
-                        } else {
-                            // Connecting needs Better Auth's linkSocial (calendar
-                            // scope), which has no native bridge — open the web
-                            // settings page (matches macOS); the status refreshes
-                            // when the app returns to the foreground.
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Not connected")
+                        } else if let status {
+                            if !status.configured {
+                                Text("GitHub isn't configured for this server.")
                                     .font(.caption)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                Button {
-                                    if let base = deps.auth.instanceBaseURL(forAccountId: accountId) {
-                                        Platform.open(base.appending(path: "account/integrations"))
-                                    }
-                                } label: {
-                                    Text("Connect…")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 8)
+                            } else if status.installed {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(.green)
+                                        .frame(width: 8, height: 8)
+                                    Text(installedLabel(status))
+                                        .font(.caption)
+                                        .foregroundStyle(.green)
                                 }
-                                .glassButton()
-                                .buttonStyle(.plain)
+
+                                if status.installUrl != nil {
+                                    Button {
+                                        openInstall(status)
+                                    } label: {
+                                        Text("Manage / add repos")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 8)
+                                    }
+                                    .glassButton()
+                                    .buttonStyle(.plain)
+                                }
+                            } else {
+                                // The install flow lives on github.com — open the
+                                // browser (matches macOS); the status refreshes when
+                                // the app returns to the foreground.
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Not installed")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                    if status.installUrl != nil {
+                                        Button {
+                                            openInstall(status)
+                                        } label: {
+                                            Text("Install GitHub App")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 8)
+                                        }
+                                        .glassButton()
+                                        .buttonStyle(.plain)
+                                    }
+                                }
                             }
                         }
 
@@ -125,39 +106,33 @@ struct IntegrationsView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task { await loadStatus() }
         .onChange(of: scenePhase) { _, newPhase in
-            // Re-check after returning from the web connect flow.
+            // Re-check after returning from the GitHub install flow.
             if newPhase == .active { Task { await loadStatus() } }
+        }
+    }
+
+    private func installedLabel(_ status: GithubStatusResult) -> String {
+        status.accounts.isEmpty
+            ? "Installed"
+            : "Installed · \(status.accounts.joined(separator: ", "))"
+    }
+
+    private func openInstall(_ status: GithubStatusResult) {
+        if let urlString = status.installUrl, let url = URL(string: urlString) {
+            Platform.open(url)
         }
     }
 
     private func loadStatus() async {
         do {
-            let status = try await deps.integrationsApi.googleStatus(accountId: accountId)
-            googleConnected = status.connected
-            googleConnectedAt = status.connectedAt
+            status = try await deps.integrationsApi.githubStatus(accountId: accountId)
+            // Clear any stale failure banner — this view re-queries on
+            // foreground, so a past error must not outlive a successful load.
+            error = nil
             loading = false
         } catch {
             self.error = error.localizedDescription
             loading = false
         }
-    }
-
-    private func disconnect() async {
-        do {
-            try await deps.integrationsApi.googleDisconnect(accountId: accountId)
-            googleConnected = false
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    private func backfill() async {
-        backfilling = true
-        do {
-            try await deps.integrationsApi.googleBackfill(accountId: accountId)
-        } catch {
-            self.error = error.localizedDescription
-        }
-        backfilling = false
     }
 }

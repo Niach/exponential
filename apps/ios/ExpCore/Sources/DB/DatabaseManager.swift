@@ -333,6 +333,18 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v2: 409-refetch persistence + live gating on electric_offsets —
+        // `needs_refetch` survives a quit between a 409 and its refetch (the
+        // next launch still applies the atomic DELETE+reinsert), `is_live`
+        // records that up-to-date was seen so only then do polls switch to
+        // live long-polling.
+        migrator.registerMigration("v2_offset_refetch_state") { db in
+            try db.alter(table: "electric_offsets") { t in
+                t.add(column: "needs_refetch", .boolean).notNull().defaults(to: false)
+                t.add(column: "is_live", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 

@@ -109,12 +109,37 @@ struct MacShell: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            syncBanner
             splitView
             terminalDockView
         }
         .overlay(alignment: .bottom) {
             MacToastOverlay(center: deps.toastCenter)
                 .padding(.bottom, deps.terminalDock.isMounted && deps.terminalDock.isExpanded ? deps.terminalDock.dockHeight + 30 : 0)
+        }
+    }
+
+    /// Thin status banner when live sync is degraded (offline / expired
+    /// session). Mirrors the iOS AppNavigator banner; the unauthorized case
+    /// points at the re-auth path instead of being silently swallowed.
+    @ViewBuilder
+    private var syncBanner: some View {
+        let health = SyncDebug.shared.health
+        if health != .ok {
+            HStack(spacing: 6) {
+                Image(systemName: health == .unauthorized ? "person.crop.circle.badge.exclamationmark" : "wifi.slash")
+                    .font(.caption2)
+                Text(health == .unauthorized
+                    ? "Session expired — sign out and back in (Settings → Accounts) to keep syncing"
+                    : "Can't reach the server — showing cached data")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(.orange.opacity(0.35))
+            .background(.ultraThinMaterial)
         }
     }
 

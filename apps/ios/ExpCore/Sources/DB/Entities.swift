@@ -9,11 +9,27 @@ public struct ElectricOffset: Codable, FetchableRecord, PersistableRecord, Senda
     public let shape: String
     public let handle: String
     public let offset: String
+    /// A 409 / must-refetch happened and the next poll must refetch from
+    /// scratch (offset -1, atomic DELETE+reinsert). Persisted so a quit
+    /// between the 409 and the refetch can't strand stale rows. `handle` then
+    /// holds the replacement handle from the 409 response ("" when unknown).
+    public let needsRefetch: Bool
+    /// True once up-to-date was seen for the current handle — only then do
+    /// polls switch to live long-polling.
+    public let isLive: Bool
 
-    public init(shape: String, handle: String, offset: String) {
+    public init(shape: String, handle: String, offset: String, needsRefetch: Bool = false, isLive: Bool = false) {
         self.shape = shape
         self.handle = handle
         self.offset = offset
+        self.needsRefetch = needsRefetch
+        self.isLive = isLive
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case shape, handle, offset
+        case needsRefetch = "needs_refetch"
+        case isLive = "is_live"
     }
 }
 

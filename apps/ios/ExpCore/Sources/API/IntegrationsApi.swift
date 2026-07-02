@@ -1,16 +1,21 @@
 import Foundation
 
-public struct GoogleStatusResult: Decodable, Sendable {
-    public let connected: Bool
-    public let connectedAt: String?
+/// GitHub App install state for the signed-in user (mirrors the web
+/// `integrations.github.status` output). `installUrl` can be nil even when
+/// configured (server without `GITHUB_APP_SLUG`).
+public struct GithubStatusResult: Decodable, Sendable {
+    public let configured: Bool
+    public let installed: Bool
+    public let installUrl: String?
+    public let accounts: [String]
 
-    public init(connected: Bool, connectedAt: String?) {
-        self.connected = connected
-        self.connectedAt = connectedAt
+    public init(configured: Bool, installed: Bool, installUrl: String?, accounts: [String]) {
+        self.configured = configured
+        self.installed = installed
+        self.installUrl = installUrl
+        self.accounts = accounts
     }
 }
-
-private struct EmptyIntegrationInput: Encodable {}
 
 /// One repo the user's GitHub App can connect (mirrors web `InstallationRepo`).
 /// JSON keys are camelCase so the plain decoder maps them directly; `private` is
@@ -38,21 +43,13 @@ public final class IntegrationsApi: Sendable {
         self.trpc = trpc
     }
 
-    public func googleStatus(accountId: String) async throws -> GoogleStatusResult {
-        // Server defines integrations.google.status as a `.query` (GET).
-        try await trpc.query(accountId: accountId, path: "integrations.google.status")
+    /// GitHub App install state, for the account integrations card.
+    public func githubStatus(accountId: String) async throws -> GithubStatusResult {
+        try await trpc.query(accountId: accountId, path: "integrations.github.status")
     }
 
     /// Repos the user's GitHub App is installed on, for the connect-repo picker.
     public func githubRepos(accountId: String) async throws -> GithubReposResult {
         try await trpc.query(accountId: accountId, path: "integrations.github.repos")
-    }
-
-    public func googleDisconnect(accountId: String) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "integrations.google.disconnect", input: EmptyIntegrationInput())
-    }
-
-    public func googleBackfill(accountId: String) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "integrations.google.backfill", input: EmptyIntegrationInput())
     }
 }

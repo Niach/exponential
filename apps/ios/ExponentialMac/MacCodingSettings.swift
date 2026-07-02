@@ -102,18 +102,12 @@ final class MacCodingSettings {
     }
 
     /// Store a freshly-minted key + revoke id + display prefix, and persist.
+    /// Minted automatically by the launcher on the first coding session (EXP-2)
+    /// — the user never manages this key by hand.
     func setPersonalKey(_ minted: MintedApiKey) {
         personalApiKey = minted.key
         personalApiKeyId = minted.id
         personalApiKeyStart = minted.start
-        save()
-    }
-
-    /// Forget the local key (after a server-side revoke).
-    func clearPersonalKey() {
-        personalApiKey = nil
-        personalApiKeyId = nil
-        personalApiKeyStart = nil
         save()
     }
 }
