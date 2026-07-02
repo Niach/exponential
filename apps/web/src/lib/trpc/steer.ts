@@ -8,6 +8,7 @@ import {
   getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
 import { resolveProjectRepository } from "@/lib/trpc/repositories"
+import { assertWithinCodingSessionLimit } from "@/lib/billing"
 import {
   getSteerRelayConfig,
   mintSteerTicket,
@@ -155,6 +156,10 @@ export const steerRouter = router({
           message: `No repository linked to this project — link one in workspace settings`,
         })
       }
+
+      // Fail fast on the concurrent-session plan cap before waking the
+      // desktop; codingSessions.start re-checks authoritatively.
+      await assertWithinCodingSessionLimit(issueCtx.workspaceId)
 
       const result = await relayPostStart(config, {
         userId,

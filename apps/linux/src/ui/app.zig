@@ -33,6 +33,7 @@ const preview_panel = @import("preview/preview_panel.zig");
 const preview = @import("preview/preview.zig");
 const preview_config = @import("preview/preview_config.zig");
 const api_projects = @import("../core/api/projects.zig");
+const diff = @import("../core/diff.zig");
 
 extern fn readlink(path: [*:0]const u8, buf: [*]u8, bufsiz: usize) isize;
 
@@ -59,7 +60,9 @@ const AppState = struct {
     steer_ctrl: ?*steer_control.ControlChannel = null, // relay device presence (remote "Start on my desktop")
     instance: ?[]u8 = null, // duped; SyncManager borrows it
     token: ?[]u8 = null,
-    issue_list: gtk.Object = null,
+    user_id: ?[]u8 = null, // the signed-in user's id (steer banner self-check)
+    issue_list: gtk.Object = null, // GtkListView (virtualized; §4e)
+    list_snapshot: ?*ListSnapshot = null, // row data backing the list view binds
     sidebar_pane: gtk.Object = null, // the sidebar toolbar (toggled with Ctrl+B)
     sidebar_list: gtk.Object = null,
     sidebar_account: gtk.Object = null,
@@ -104,6 +107,28 @@ const AppState = struct {
 /// A label currently used as a filter — name/colour kept so pills can render it
 /// without a re-query.
 const FilterLabel = struct { id: []u8, name: []u8, color: []u8 };
+
+/// One entry of the flattened issue list the GtkListView renders: a collapsible
+/// status group header, an issue row (+ its label chips), or the empty state.
+const RowEntry = union(enum) {
+    header: struct { status: []const u8, count: usize },
+    issue: struct { row: Database.IssueRow, chips: []const Database.LabelChip },
+    empty,
+};
+
+/// The row-data snapshot backing the virtualized issue list. All strings the
+/// entries reference live in `arena`, which stays alive until the NEXT refresh
+/// swaps a new snapshot in (factory binds happen lazily on scroll, so the data
+/// must outlive refreshIssues itself).
+const ListSnapshot = struct {
+    arena: std.heap.ArenaAllocator,
+    rows: []const RowEntry = &.{},
+
+    fn destroy(self: *ListSnapshot, gpa: std.mem.Allocator) void {
+        self.arena.deinit();
+        gpa.destroy(self);
+    }
+};
 
 /// A run target loaded for the active project's preview pane. Holds an owned
 /// arena with the parsed RunTarget so the picker → Run callback can dispatch by
@@ -285,9 +310,7 @@ fn showInstanceEntry(state: *AppState) void {
     state.instance_entry = inst;
     gtk.gtk_box_append(box, inst);
 
-    const cont = gtk.gtk_button_new_with_label("Continue");
-    gtk.gtk_widget_add_css_class(cont, "suggested-action");
-    gtk.gtk_widget_add_css_class(cont, "pill");
+    const cont = widgets.button("Continue", .primary, .default);
     _ = gtk.g_signal_connect_data(cont, "clicked", @ptrCast(&onContinueClicked), state, null, 0);
     gtk.gtk_box_append(box, cont);
 
@@ -355,8 +378,7 @@ fn showLogin(state: *AppState) void {
 
     if (cfg.googleLoginEnabled()) {
         has_oauth = true;
-        const g = gtk.gtk_button_new_with_label("Continue with Google");
-        gtk.gtk_widget_add_css_class(g, "pill");
+        const g = widgets.button("Continue with Google", .outline, .default);
         _ = gtk.g_signal_connect_data(g, "clicked", @ptrCast(&onGoogleClicked), state, null, 0);
         gtk.gtk_box_append(box, g);
     }
@@ -369,8 +391,7 @@ fn showLogin(state: *AppState) void {
             has_oauth = true;
             const lbl = std.fmt.allocPrintSentinel(state.gpa, "Continue with {s}", .{pname}, 0) catch continue;
             defer state.gpa.free(lbl);
-            const btn = gtk.gtk_button_new_with_label(lbl.ptr);
-            gtk.gtk_widget_add_css_class(btn, "pill");
+            const btn = widgets.button(lbl.ptr, .outline, .default);
             // stash the provider id on the button (GLib-owned; freed on destroy).
             if (state.gpa.dupeZ(u8, pid)) |tmp| {
                 defer state.gpa.free(tmp);
@@ -397,8 +418,7 @@ fn showLogin(state: *AppState) void {
         state.password_entry = pw;
         gtk.gtk_box_append(box, pw);
 
-        const signin = gtk.gtk_button_new_with_label("Sign in");
-        gtk.gtk_widget_add_css_class(signin, "suggested-action");
+        const signin = widgets.button("Sign in", .primary, .default);
         _ = gtk.g_signal_connect_data(signin, "clicked", @ptrCast(&onPasswordSignIn), state, null, 0);
         gtk.gtk_box_append(box, signin);
     } else if (!has_oauth) {
@@ -558,6 +578,9 @@ fn enterTracker(state: *AppState) void {
     if (state.token == null) {
         if (active.token) |t| state.token = state.gpa.dupe(u8, t) catch null;
     }
+    if (state.user_id == null) {
+        if (active.user_id) |u| state.user_id = state.gpa.dupe(u8, u) catch null;
+    }
     const account_id = state.gpa.dupe(u8, active.id) catch return;
     defer state.gpa.free(account_id);
 
@@ -643,6 +666,7 @@ fn onSteerStartIdle(data: gtk.gpointer) callconv(.c) c_int {
         .gpa = state.gpa,
         .instance = inst,
         .token = state.token,
+        .user_id = state.user_id,
         .db = db,
         .issue_id = rs.issue_id,
         .mount = codingMount,
@@ -671,6 +695,8 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.instance = null;
     if (state.token) |p| state.gpa.free(p);
     state.token = null;
+    if (state.user_id) |p| state.gpa.free(p);
+    state.user_id = null;
     if (state.selected_project_id) |p| state.gpa.free(p);
     state.selected_project_id = null;
     if (state.selected_project_name) |p| state.gpa.free(p);
@@ -696,8 +722,10 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     if (state.preview_repo_slug) |p| state.gpa.free(p);
     state.preview_repo_slug = null;
     state.preview_split = null;
-    // The dock's GTK widgets die with the window content; free our struct.
-    if (state.term_dock) |d| state.gpa.destroy(d);
+    // Tear down the dock: closes any detached terminal windows (ending their
+    // sessions) and disarms every handler pointing at the dock struct BEFORE
+    // the main window content (holding the docked tabs) is swapped out.
+    if (state.term_dock) |d| d.destroy();
     state.term_dock = null;
     if (state.active_workspace_id) |p| state.gpa.free(p);
     state.active_workspace_id = null;
@@ -708,6 +736,8 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     state.collapsed = @splat(false);
     clearFilters(state);
     state.issue_list = null;
+    if (state.list_snapshot) |snap| snap.destroy(state.gpa);
+    state.list_snapshot = null;
     state.sidebar_pane = null;
     state.sidebar_list = null;
     state.sidebar_account = null;
@@ -900,8 +930,8 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.gtk_widget_add_css_class(preview_btn, "flat");
     _ = gtk.g_signal_connect_data(preview_btn, "clicked", @ptrCast(&onPreviewToggle), state, null, 0);
     gtk.adw_header_bar_pack_start(list_header, preview_btn);
-    const new_issue = gtk.gtk_button_new_with_label("New issue");
-    gtk.gtk_widget_add_css_class(new_issue, "suggested-action");
+    // Web: header "New issue" is the default shadcn Button (primary, h-9).
+    const new_issue = widgets.button("New issue", .primary, .default);
     _ = gtk.g_signal_connect_data(new_issue, "clicked", @ptrCast(&onNewIssueClicked), state, null, 0);
     gtk.adw_header_bar_pack_end(list_header, new_issue);
     gtk.adw_toolbar_view_add_top_bar(list_toolbar, list_header);
@@ -915,9 +945,16 @@ fn buildTrackerUI(state: *AppState) void {
     gtk.gtk_box_append(center, pills);
     state.pills_box = pills;
 
-    const list = gtk.gtk_list_box_new();
-    gtk.gtk_widget_add_css_class(list, "navigation-sidebar");
-    _ = gtk.g_signal_connect_data(list, "row-activated", @ptrCast(&onIssueActivated), state, null, 0);
+    // Virtualized issue list (§4e): GtkListView + a signal factory that binds
+    // recycled rows from the AppState snapshot — only visible rows exist as
+    // widgets. Single-click activation keeps the web's click-to-open behavior
+    // (and header rows toggle their group's collapse).
+    const factory = gtk.gtk_signal_list_item_factory_new();
+    _ = gtk.g_signal_connect_data(factory, "bind", @ptrCast(&onIssueItemBind), state, null, 0);
+    const list = gtk.gtk_list_view_new(null, factory);
+    gtk.gtk_widget_add_css_class(list, "exp-issue-list");
+    gtk.gtk_list_view_set_single_click_activate(list, 1);
+    _ = gtk.g_signal_connect_data(list, "activate", @ptrCast(&onIssueRowActivate), state, null, 0);
     const issue_scrolled = gtk.gtk_scrolled_window_new();
     gtk.gtk_widget_set_vexpand(issue_scrolled, 1);
     gtk.gtk_scrolled_window_set_child(issue_scrolled, list);
@@ -931,7 +968,7 @@ fn buildTrackerUI(state: *AppState) void {
     // Wrap the content nav in an IDE-style vertical split with a collapsible
     // bottom terminal dock (used by the embedded ghostty terminal).
     const content_widget = blk: {
-        if (terminal_dock.TerminalDock.create(state.gpa, nav)) |dock| {
+        if (terminal_dock.TerminalDock.create(state.gpa, state.app, nav)) |dock| {
             state.term_dock = dock;
             gtk.gtk_widget_set_hexpand(dock.paned, 1);
             break :blk dock.paned;
@@ -1007,11 +1044,15 @@ fn buildFilterBar(state: *AppState) gtk.Object {
     gtk.gtk_widget_set_margin_top(bar, 4);
     gtk.gtk_widget_set_margin_bottom(bar, 8);
 
-    const tabs = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 0);
-    gtk.gtk_widget_add_css_class(tabs, "linked");
+    // Web tabs: ghost rounded-full h-7 px-3 text-xs; active = bg-accent
+    // text-foreground (issue-filter-bar.tsx) — pill tabs, not a linked group.
+    const tabs = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 4);
     const all = gtk.gtk_button_new_with_label("All");
     const active = gtk.gtk_button_new_with_label("Active");
     const backlog = gtk.gtk_button_new_with_label("Backlog");
+    gtk.gtk_widget_add_css_class(all, "exp-tab");
+    gtk.gtk_widget_add_css_class(active, "exp-tab");
+    gtk.gtk_widget_add_css_class(backlog, "exp-tab");
     _ = gtk.g_signal_connect_data(all, "clicked", @ptrCast(&onTabAll), state, null, 0);
     _ = gtk.g_signal_connect_data(active, "clicked", @ptrCast(&onTabActive), state, null, 0);
     _ = gtk.g_signal_connect_data(backlog, "clicked", @ptrCast(&onTabBacklog), state, null, 0);
@@ -1045,7 +1086,7 @@ fn styleTabs(state: *AppState) void {
     };
     for (state.tab_buttons, 0..) |btn, i| {
         if (btn == null) continue;
-        if (i == active_idx) gtk.gtk_widget_add_css_class(btn, "suggested-action") else gtk.gtk_widget_remove_css_class(btn, "suggested-action");
+        if (i == active_idx) gtk.gtk_widget_add_css_class(btn, "exp-tab-active") else gtk.gtk_widget_remove_css_class(btn, "exp-tab-active");
     }
 }
 
@@ -1910,57 +1951,46 @@ fn onPrDiffDone(data: gtk.gpointer) callconv(.c) c_int {
     return 0; // G_SOURCE_REMOVE
 }
 
+/// One changed file, web-parity with diff-view.tsx's FilePatch card: rounded
+/// bordered card, muted header (mono filename + coloured "+N -N"), and — new
+/// for §4e — a side-by-side syntax-highlighted read-only GtkSourceView pair
+/// driven by the line-anchored core/diff.zig hunk model.
 fn diffFileWidget(a: std.mem.Allocator, f: DiffFile) gtk.Object {
     const card = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
-    gtk.gtk_widget_add_css_class(card, "card");
+    gtk.gtk_widget_add_css_class(card, "exp-diff-card");
 
     const hdr = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
-    gtk.gtk_widget_set_margin_start(hdr, 8);
-    gtk.gtk_widget_set_margin_end(hdr, 8);
-    gtk.gtk_widget_set_margin_top(hdr, 6);
-    gtk.gtk_widget_set_margin_bottom(hdr, 6);
+    gtk.gtk_widget_add_css_class(hdr, "exp-diff-header");
     const name = gtk.gtk_label_new(f.filename.ptr);
-    gtk.gtk_widget_add_css_class(name, "diff-line");
+    gtk.gtk_widget_add_css_class(name, "exp-diff-file");
     gtk.gtk_widget_set_halign(name, gtk.ALIGN_START);
     gtk.gtk_widget_set_hexpand(name, 1);
     gtk.gtk_label_set_ellipsize(name, gtk.ELLIPSIZE_END);
     gtk.gtk_box_append(hdr, name);
     const counts = gtk.gtk_label_new(null);
-    if (std.fmt.allocPrintSentinel(a, "+{d} -{d}", .{ f.additions, f.deletions }, 0)) |t| {
-        gtk.gtk_label_set_text(counts, t.ptr);
+    if (std.fmt.allocPrintSentinel(a, "<span foreground='#34d399'>+{d}</span> <span foreground='#fb7185'>-{d}</span>", .{ f.additions, f.deletions }, 0)) |t| {
+        gtk.gtk_label_set_markup(counts, t.ptr);
     } else |_| {}
-    gtk.gtk_widget_add_css_class(counts, "diff-line");
+    gtk.gtk_widget_add_css_class(counts, "exp-diff-file");
     gtk.gtk_box_append(hdr, counts);
     gtk.gtk_box_append(card, hdr);
 
-    if (f.patch) |patch| {
-        const lines = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
-        gtk.gtk_widget_set_margin_start(lines, 8);
-        gtk.gtk_widget_set_margin_bottom(lines, 6);
-        var it = std.mem.splitScalar(u8, patch, '\n');
-        while (it.next()) |line| {
-            const ll = gtk.gtk_label_new(null);
-            if (std.fmt.allocPrintSentinel(a, "{s}", .{if (line.len == 0) " " else line}, 0)) |t| {
-                gtk.gtk_label_set_text(ll, t.ptr);
-            } else |_| {}
-            gtk.gtk_widget_add_css_class(ll, "diff-line");
-            if (line.len > 0) {
-                if (line[0] == '+') {
-                    gtk.gtk_widget_add_css_class(ll, "diff-add");
-                } else if (line[0] == '-') {
-                    gtk.gtk_widget_add_css_class(ll, "diff-del");
-                } else if (std.mem.startsWith(u8, line, "@@")) {
-                    gtk.gtk_widget_add_css_class(ll, "diff-hunk");
-                }
-            }
-            gtk.gtk_widget_set_halign(ll, gtk.ALIGN_START);
-            gtk.gtk_box_append(lines, ll);
-        }
-        gtk.gtk_box_append(card, lines);
+    const rows: []const diff.Row = if (f.patch) |patch|
+        diff.parseSideBySide(a, patch) catch &.{}
+    else
+        &.{};
+
+    if (rows.len > 0) {
+        const columns = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 0);
+        gtk.gtk_box_append(columns, diffColumn(a, f.filename, rows, .old));
+        gtk.gtk_box_append(columns, gtk.gtk_separator_new(gtk.ORIENTATION_VERTICAL));
+        gtk.gtk_box_append(columns, diffColumn(a, f.filename, rows, .new));
+        gtk.gtk_box_append(card, columns);
     } else {
         const lbl = gtk.gtk_label_new(if (std.mem.eql(u8, f.status, "renamed")) "Renamed." else "No textual diff (binary or too large).");
         gtk.gtk_widget_add_css_class(lbl, "dim-label");
-        gtk.gtk_widget_set_margin_start(lbl, 8);
+        gtk.gtk_widget_set_margin_start(lbl, 12);
+        gtk.gtk_widget_set_margin_top(lbl, 6);
         gtk.gtk_widget_set_margin_bottom(lbl, 6);
         gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
         gtk.gtk_box_append(card, lbl);
@@ -1968,21 +1998,116 @@ fn diffFileWidget(a: std.mem.Allocator, f: DiffFile) gtk.Object {
     return card;
 }
 
-fn onIssueActivated(_: gtk.Object, row: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const state: *AppState = @ptrCast(@alignCast(data));
-    if (row == null) return;
-    const child = gtk.gtk_list_box_row_get_child(row);
+const DiffSide = enum { old, new };
 
-    // Group headers toggle collapse; issue rows open the detail pane.
-    if (gtk.g_object_get_data(child, "exp-toggle-status")) |raw| {
-        const status_value = std.mem.span(@as([*:0]const u8, @ptrCast(raw)));
-        const idx = statusDisplayIndex(status_value);
-        state.collapsed[idx] = !state.collapsed[idx];
-        refreshIssues(state);
-        return;
+/// One side (old/new) of the side-by-side diff: a read-only GtkSourceView with
+/// language guessed from the filename, the Adwaita-dark style scheme, and
+/// per-line paragraph backgrounds for add/del/hunk/filler rows. Buffer line i
+/// == rows[i] — the alignment IS the row model, so both columns scroll in step
+/// inside the page's one vertical scroller; each column h-scrolls on its own.
+fn diffColumn(a: std.mem.Allocator, filename: [:0]const u8, rows: []const diff.Row, side: DiffSide) gtk.Object {
+    // Column text: one buffer line per aligned row.
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    for (rows, 0..) |row, i| {
+        if (i > 0) text.append(a, '\n') catch break;
+        text.appendSlice(a, switch (side) {
+            .old => row.old_text,
+            .new => row.new_text,
+        }) catch break;
     }
-    const raw = gtk.g_object_get_data(child, "exp-issue-id") orelse return;
-    showIssueDetail(state, std.mem.span(@as([*:0]const u8, @ptrCast(raw))));
+    text.append(a, 0) catch return gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
+
+    const buffer = gtk.gtk_source_buffer_new(null);
+    const lm = gtk.gtk_source_language_manager_get_default();
+    gtk.gtk_source_buffer_set_language(buffer, gtk.gtk_source_language_manager_guess_language(lm, filename.ptr, null));
+    const schemes = gtk.gtk_source_style_scheme_manager_get_default();
+    gtk.gtk_source_buffer_set_style_scheme(buffer, gtk.gtk_source_style_scheme_manager_get_scheme(schemes, "Adwaita-dark"));
+    gtk.gtk_source_buffer_set_highlight_syntax(buffer, 1);
+    gtk.gtk_text_buffer_set_text(buffer, @ptrCast(text.items.ptr), -1);
+
+    // Line tint tags — the web DiffView palette (emerald/rose/indigo tints);
+    // filler cells (no line on this side) get a faint neutral wash.
+    _ = gtk.gtk_text_buffer_create_tag(buffer, "add", @as([*:0]const u8, "paragraph-background"), @as([*:0]const u8, "rgba(16,185,129,0.10)"), @as(?*anyopaque, null));
+    _ = gtk.gtk_text_buffer_create_tag(buffer, "del", @as([*:0]const u8, "paragraph-background"), @as([*:0]const u8, "rgba(244,63,94,0.10)"), @as(?*anyopaque, null));
+    _ = gtk.gtk_text_buffer_create_tag(buffer, "hunk", @as([*:0]const u8, "paragraph-background"), @as([*:0]const u8, "rgba(99,102,241,0.05)"), @as([*:0]const u8, "foreground"), @as([*:0]const u8, "#a5b4fc"), @as(?*anyopaque, null));
+    _ = gtk.gtk_text_buffer_create_tag(buffer, "filler", @as([*:0]const u8, "paragraph-background"), @as([*:0]const u8, "rgba(255,255,255,0.03)"), @as(?*anyopaque, null));
+
+    for (rows, 0..) |row, i| {
+        const kind = switch (side) {
+            .old => row.old_kind,
+            .new => row.new_kind,
+        };
+        const tag: ?[*:0]const u8 = switch (kind) {
+            .add => "add",
+            .del => "del",
+            .hunk => "hunk",
+            .empty => "filler",
+            .context => null,
+        };
+        if (tag) |t| {
+            var start: [128]u8 align(8) = undefined;
+            var end: [128]u8 align(8) = undefined;
+            _ = gtk.gtk_text_buffer_get_iter_at_line(buffer, &start, @intCast(i));
+            _ = gtk.gtk_text_buffer_get_iter_at_line(buffer, &end, @intCast(i + 1));
+            if (i + 1 >= rows.len) gtk.gtk_text_buffer_get_end_iter(buffer, &end);
+            gtk.gtk_text_buffer_apply_tag_by_name(buffer, t, &start, &end);
+        }
+    }
+
+    const view = gtk.gtk_source_view_new_with_buffer(buffer);
+    gtk.g_object_unref(buffer); // the view holds its own ref
+    gtk.gtk_text_view_set_editable(view, 0);
+    gtk.gtk_text_view_set_cursor_visible(view, 0);
+    gtk.gtk_text_view_set_monospace(view, 1);
+    gtk.gtk_widget_add_css_class(view, "exp-diff-code");
+
+    // Per-column horizontal scrolling; vertical growth follows the content so
+    // the page's outer scroller keeps both columns aligned.
+    const scrolled = gtk.gtk_scrolled_window_new();
+    gtk.gtk_scrolled_window_set_policy(scrolled, gtk.POLICY_AUTOMATIC, gtk.POLICY_NEVER);
+    gtk.gtk_scrolled_window_set_propagate_natural_height(scrolled, 1);
+    gtk.gtk_widget_set_hexpand(scrolled, 1);
+    gtk.gtk_scrolled_window_set_child(scrolled, view);
+    return scrolled;
+}
+
+/// Factory "bind" — build the row widget for the snapshot entry at this
+/// position. Recycled items simply get a fresh child (GTK destroys the old
+/// one); all strings GTK needs are copied by the label/tooltip setters, so the
+/// per-bind arena can die immediately.
+fn onIssueItemBind(_: gtk.Object, item: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const snap = state.list_snapshot orelse return;
+    const pos = gtk.gtk_list_item_get_position(item);
+    if (pos >= snap.rows.len) return;
+
+    var arena = std.heap.ArenaAllocator.init(state.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const child = switch (snap.rows[pos]) {
+        .header => |h| statusGroupHeader(state, h.status, h.count),
+        .issue => |entry| issueRow(a, entry.row, entry.chips),
+        .empty => emptyState(state),
+    };
+    gtk.gtk_list_item_set_child(item, child);
+}
+
+/// List-view "activate" (single-click): group headers toggle collapse; issue
+/// rows open the detail pane.
+fn onIssueRowActivate(_: gtk.Object, position: c_uint, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const snap = state.list_snapshot orelse return;
+    if (position >= snap.rows.len) return;
+    switch (snap.rows[position]) {
+        .header => |h| {
+            const idx = statusDisplayIndex(h.status);
+            state.collapsed[idx] = !state.collapsed[idx];
+            refreshIssues(state); // swaps the snapshot — h is dead after this
+        },
+        .issue => |entry| showIssueDetail(state, entry.row.id),
+        .empty => {},
+    }
 }
 
 fn showIssueDetail(state: *AppState, id: []const u8) void {
@@ -2380,6 +2505,7 @@ fn onStartCoding(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
         .gpa = state.gpa,
         .instance = inst,
         .token = state.token,
+        .user_id = state.user_id,
         .db = db,
         .issue_id = ctx.issue_id,
         .mount = codingMount,
@@ -2389,10 +2515,12 @@ fn onStartCoding(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     });
 }
 
-/// Main-thread mount hook: drop the ready ghostty terminal into the bottom dock.
-fn codingMount(mount_ctx: ?*anyopaque, term: gtk.Object, title: [*:0]const u8) void {
+/// Main-thread mount hook: add the ready ghostty terminal as a dock tab keyed
+/// by its coding session id (empty key ⇒ the dock generates one). Concurrent
+/// sessions coexist — one tab each (§4d).
+fn codingMount(mount_ctx: ?*anyopaque, term: gtk.Object, title: [*:0]const u8, key: [*:0]const u8) void {
     const state: *AppState = @ptrCast(@alignCast(mount_ctx orelse return));
-    if (state.term_dock) |dock| dock.mountTerminal(term, title);
+    if (state.term_dock) |dock| dock.addTab(std.mem.span(key), .coding, term, title);
 }
 
 /// Main-thread error hook: surface the failure / "link a repository" CTA.
@@ -4616,12 +4744,16 @@ fn refreshIssues(state: *AppState) void {
     if (state.issue_list == null) return;
     const db = if (state.db) |*d| d else return;
 
-    var arena = std.heap.ArenaAllocator.init(state.gpa);
-    defer arena.deinit();
-    const a = arena.allocator();
+    // Build a NEW snapshot (its arena owns everything the rows reference —
+    // factory binds read it lazily while scrolling, long after this returns).
+    const snap = state.gpa.create(ListSnapshot) catch return;
+    snap.* = .{ .arena = std.heap.ArenaAllocator.init(state.gpa) };
+    const a = snap.arena.allocator();
 
-    // Center title: project name (or "All Issues") + the filtered count.
-    const issues = db.listIssues(a, state.selected_project_id, state.active_workspace_id, 2000) catch return;
+    const issues = db.listIssues(a, state.selected_project_id, state.active_workspace_id, 2000) catch {
+        snap.destroy(state.gpa);
+        return;
+    };
 
     // issue_id → its label chips (one query, bucketed — no N+1). Used for both
     // the row dots and the label filter.
@@ -4634,8 +4766,7 @@ fn refreshIssues(state: *AppState) void {
         }
     } else |_| {}
 
-    gtk.gtk_list_box_remove_all(state.issue_list);
-
+    var rows: std.ArrayListUnmanaged(RowEntry) = .empty;
     var shown: usize = 0;
     for (format.status_display_order) |status_value| {
         // Explicit status filter (from the popover) hides whole groups.
@@ -4654,20 +4785,37 @@ fn refreshIssues(state: *AppState) void {
         if (group.items.len == 0) continue;
         shown += group.items.len;
 
-        gtk.gtk_list_box_append(state.issue_list, statusGroupHeader(state, status_value, group.items.len));
+        rows.append(a, .{ .header = .{ .status = status_value, .count = group.items.len } }) catch {};
         if (state.collapsed[statusDisplayIndex(status_value)]) continue;
 
         for (group.items) |iss| {
             const chips_for = if (issue_labels.get(iss.id)) |list| list.items else &[_]Database.LabelChip{};
-            gtk.gtk_list_box_append(state.issue_list, issueRow(state, a, iss, chips_for));
+            rows.append(a, .{ .issue = .{ .row = iss, .chips = chips_for } }) catch {};
         }
     }
 
-    if (shown == 0) gtk.gtk_list_box_append(state.issue_list, emptyState(state));
+    if (shown == 0) rows.append(a, .empty) catch {};
+    snap.rows = rows.toOwnedSlice(a) catch &.{};
+
+    // Swap the snapshot in BEFORE the model (set_model rebinds visible rows,
+    // and those binds must read the new data); free the old one after.
+    const old = state.list_snapshot;
+    state.list_snapshot = snap;
+
+    // The GListModel is just positions — one string per row entry; the factory
+    // binds by position from the snapshot.
+    const string_list = gtk.gtk_string_list_new(null);
+    for (0..snap.rows.len) |_| gtk.gtk_string_list_append(string_list, "");
+    const sel = gtk.gtk_no_selection_new(string_list); // takes ownership of string_list
+    gtk.gtk_list_view_set_model(state.issue_list, sel);
+    gtk.g_object_unref(sel); // the view holds its own ref
+
+    if (old) |o| o.destroy(state.gpa);
 
     const title = state.selected_project_name orelse "All Issues";
     if (state.list_page) |lp| {
-        if (std.fmt.allocPrintSentinel(a, "{s}  ·  {d}", .{ title, shown }, 0)) |hdr| {
+        var hbuf: [256]u8 = undefined;
+        if (std.fmt.bufPrintZ(&hbuf, "{s}  ·  {d}", .{ title, shown })) |hdr| {
             gtk.adw_navigation_page_set_title(lp, hdr.ptr);
         } else |_| {}
     }
@@ -4705,18 +4853,19 @@ fn matchesSearch(state: *AppState, title: []const u8) bool {
 }
 
 /// A collapsible status group header (chevron + status icon + label + count),
-/// tagged so a row-activation toggles its collapsed state.
+/// tagged so a row-activation toggles its collapsed state. Mirrors the web
+/// group header (issue-list.tsx): pl-3 pr-6 py-1.5, per-status tinted
+/// background, text-sm font-medium label + text-xs muted count.
 fn statusGroupHeader(state: *AppState, status_value: []const u8, count: usize) gtk.Object {
     const opt = format.status(status_value);
     const collapsed = state.collapsed[statusDisplayIndex(status_value)];
 
     const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
     gtk.gtk_widget_add_css_class(row, "exp-group-header");
-    gtk.gtk_widget_set_margin_top(row, 4);
-    gtk.gtk_widget_set_margin_start(row, 8);
-    gtk.gtk_widget_set_margin_end(row, 8);
-    gtk.gtk_widget_set_margin_top(row, 6);
-    gtk.gtk_widget_set_margin_bottom(row, 2);
+    var sbuf: [48]u8 = undefined;
+    if (std.fmt.bufPrintZ(&sbuf, "exp-group-{s}", .{status_value})) |cls| {
+        gtk.gtk_widget_add_css_class(row, cls.ptr);
+    } else |_| {}
 
     const chevron = gtk.gtk_label_new(if (collapsed) "▸" else "▾");
     gtk.gtk_widget_add_css_class(chevron, "dim-label");
@@ -4727,62 +4876,74 @@ fn statusGroupHeader(state: *AppState, status_value: []const u8, count: usize) g
     var nbuf: [80]u8 = undefined;
     if (std.fmt.bufPrintZ(&nbuf, "<b>{s}</b>", .{opt.label})) |z| gtk.gtk_label_set_markup(lbl, z.ptr) else |_| {}
     gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
-    gtk.gtk_widget_set_hexpand(lbl, 1);
     gtk.gtk_box_append(row, lbl);
 
     const cnt = gtk.gtk_label_new(null);
     var cbuf: [16]u8 = undefined;
     if (std.fmt.bufPrintZ(&cbuf, "{d}", .{count})) |z| gtk.gtk_label_set_text(cnt, z.ptr) else |_| {}
     gtk.gtk_widget_add_css_class(cnt, "dim-label");
+    gtk.gtk_widget_add_css_class(cnt, "exp-text-xs");
+    gtk.gtk_widget_set_hexpand(cnt, 1);
+    gtk.gtk_widget_set_halign(cnt, gtk.ALIGN_START);
     gtk.gtk_box_append(row, cnt);
 
-    if (state.gpa.dupeZ(u8, status_value)) |tmp| {
-        defer state.gpa.free(tmp);
-        gtk.g_object_set_data_full(row, "exp-toggle-status", @ptrCast(gtk.g_strdup(tmp.ptr)), @ptrCast(&gtk.g_free));
-    } else |_| {}
     return row;
 }
 
-/// A dense issue row: priority · identifier · status · title · label dots · due.
-fn issueRow(state: *AppState, arena: std.mem.Allocator, iss: Database.IssueRow, chips: []const Database.LabelChip) gtk.Object {
-    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 10);
-    gtk.gtk_widget_set_margin_top(row, 5);
-    gtk.gtk_widget_set_margin_bottom(row, 5);
-    gtk.gtk_widget_set_margin_start(row, 14);
-    gtk.gtk_widget_set_margin_end(row, 10);
-    if (state.gpa.dupeZ(u8, iss.id)) |tmp| {
-        defer state.gpa.free(tmp);
-        gtk.g_object_set_data_full(row, "exp-issue-id", @ptrCast(gtk.g_strdup(tmp.ptr)), @ptrCast(&gtk.g_free));
-    } else |_| {}
+/// A fixed-width grid cell (one column of the web issue-row grid). The child
+/// centres inside the cell unless `align_start` pins it to the leading edge.
+fn gridCell(width: c_int, child: gtk.Object, halign: c_int) gtk.Object {
+    const cell = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 0);
+    gtk.gtk_widget_set_size_request(cell, width, -1);
+    gtk.gtk_widget_set_halign(child, halign);
+    gtk.gtk_widget_set_hexpand(child, 1);
+    gtk.gtk_box_append(cell, child);
+    return cell;
+}
 
-    gtk.gtk_box_append(row, widgets.priorityIcon(iss.priority));
+/// A dense issue row mirroring the web md grid (issue-list.tsx):
+/// grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem] — priority 24 ·
+/// identifier 72 · status 24 · title 1fr · labels auto · assignee 28 · due 72,
+/// h-10 (40px), px-6, hover tint + hairline bottom border (via .exp-issue-row).
+fn issueRow(arena: std.mem.Allocator, iss: Database.IssueRow, chips: []const Database.LabelChip) gtk.Object {
+    const row = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 0);
+    gtk.gtk_widget_add_css_class(row, "exp-issue-row");
 
+    // 24px priority cell, centred.
+    gtk.gtk_box_append(row, gridCell(24, widgets.priorityIcon(iss.priority), gtk.ALIGN_CENTER));
+
+    // 72px identifier cell — text-xs muted mono, truncating.
     const ident = gtk.gtk_label_new(iss.identifier.ptr);
-    gtk.gtk_widget_add_css_class(ident, "monospace");
-    gtk.gtk_widget_add_css_class(ident, "dim-label");
-    gtk.gtk_widget_set_halign(ident, gtk.ALIGN_START);
-    gtk.gtk_box_append(row, ident);
+    gtk.gtk_widget_add_css_class(ident, "exp-ident");
+    gtk.gtk_label_set_ellipsize(ident, gtk.ELLIPSIZE_END);
+    gtk.gtk_label_set_xalign(ident, 0.0);
+    gtk.gtk_box_append(row, gridCell(72, ident, gtk.ALIGN_START));
 
-    gtk.gtk_box_append(row, widgets.statusIcon(iss.status));
+    // 24px status cell, centred.
+    gtk.gtk_box_append(row, gridCell(24, widgets.statusIcon(iss.status), gtk.ALIGN_CENTER));
 
-    // Repeat glyph before the title for recurring issues (mirrors the web list).
+    // 1fr title cell — ml-2, gap-1.5, optional repeat glyph, truncating title.
+    const title_box = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
+    gtk.gtk_widget_set_margin_start(title_box, 8);
+    gtk.gtk_widget_set_hexpand(title_box, 1);
     if (iss.recurrence_interval > 0) {
         const rec = gtk.gtk_label_new(null);
-        gtk.gtk_label_set_markup(rec, "<span foreground='#818cf8'>\u{1F501}</span>");
+        gtk.gtk_label_set_markup(rec, "<span foreground='#a3a3a3'>\u{1F501}</span>");
         gtk.gtk_widget_set_tooltip_text(rec, "Recurring");
-        gtk.gtk_box_append(row, rec);
+        gtk.gtk_box_append(title_box, rec);
     }
-
     const title = gtk.gtk_label_new(iss.title.ptr);
     gtk.gtk_widget_set_halign(title, gtk.ALIGN_START);
     gtk.gtk_widget_set_hexpand(title, 1);
     gtk.gtk_label_set_ellipsize(title, gtk.ELLIPSIZE_END);
     gtk.gtk_label_set_xalign(title, 0.0);
-    gtk.gtk_box_append(row, title);
+    gtk.gtk_box_append(title_box, title);
+    gtk.gtk_box_append(row, title_box);
 
-    // Label pills (dot + name), up to 3, with a "+N" overflow — matches the web row.
+    // auto labels cell — ml-4, gap-1.5 pills, "+N" overflow past 3.
     if (chips.len > 0) {
-        const pills = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 4);
+        const pills = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 6);
+        gtk.gtk_widget_set_margin_start(pills, 16);
         for (chips, 0..) |c, i| {
             if (i >= 3) break;
             gtk.gtk_box_append(pills, widgets.chip(arena, c.name, c.color));
@@ -4793,22 +4954,36 @@ fn issueRow(state: *AppState, arena: std.mem.Allocator, iss: Database.IssueRow, 
                 gtk.gtk_label_set_text(more, z.ptr);
             } else |_| {}
             gtk.gtk_widget_add_css_class(more, "dim-label");
+            gtk.gtk_widget_add_css_class(more, "exp-text-xs");
             gtk.gtk_box_append(pills, more);
         }
         gtk.gtk_box_append(row, pills);
     }
 
+    // 28px assignee cell, centred (empty when unassigned, like the web's
+    // placeholder-only dropdown).
+    const assignee: gtk.Object = if (iss.assignee.len > 0)
+        widgets.avatar(arena, iss.assignee)
+    else
+        gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 0);
+    gtk.gtk_box_append(row, gridCell(28, assignee, gtk.ALIGN_CENTER));
+
+    // 72px due-date cell, right-aligned text-xs.
+    const due_cell = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 0);
+    gtk.gtk_widget_set_size_request(due_cell, 72, -1);
     if (iss.due_date.len > 0) {
         if (format.formatDue(arena, iss.due_date) catch null) |due| {
             const lbl = gtk.gtk_label_new(null);
             if (std.fmt.allocPrintSentinel(arena, "<span foreground='{s}'>🗓 {s}</span>", .{ due.color, due.text }, 0)) |m| {
                 gtk.gtk_label_set_markup(lbl, m.ptr);
             } else |_| {}
-            gtk.gtk_box_append(row, lbl);
+            gtk.gtk_widget_add_css_class(lbl, "exp-text-xs");
+            gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_END);
+            gtk.gtk_widget_set_hexpand(lbl, 1);
+            gtk.gtk_box_append(due_cell, lbl);
         }
     }
-
-    if (iss.assignee.len > 0) gtk.gtk_box_append(row, widgets.avatar(arena, iss.assignee));
+    gtk.gtk_box_append(row, due_cell);
 
     return row;
 }

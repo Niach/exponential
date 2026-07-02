@@ -31,9 +31,11 @@ const host_pty = @import("../core/steer/host_pty.zig");
 const steer_pub = @import("../core/steer/publisher.zig");
 const Database = @import("../core/db/database.zig").Database;
 
-/// Insert a ready ghostty terminal into the UI (main thread). `title` is a issue
-/// identifier like "EXP-123".
-pub const MountFn = *const fn (ctx: ?*anyopaque, term: gtk.Object, title: [*:0]const u8) void;
+/// Insert a ready ghostty terminal into the UI (main thread). `title` is an
+/// issue identifier like "EXP-123"; `key` is the tab key for the dock's
+/// AdwTabView — the `coding_sessions.id` when a session row exists, else ""
+/// (the dock generates a unique key).
+pub const MountFn = *const fn (ctx: ?*anyopaque, term: gtk.Object, title: [*:0]const u8, key: [*:0]const u8) void;
 /// Surface a launcher error / CTA (main thread).
 pub const ErrorFn = *const fn (ctx: ?*anyopaque, message: [*:0]const u8) void;
 
@@ -46,6 +48,9 @@ pub const Request = struct {
     gpa: std.mem.Allocator,
     instance: []const u8,
     token: ?[]const u8,
+    /// The signed-in user's id (Better Auth) — used to tell a REMOTE steerer
+    /// from the local user steering via their own viewer (§3.4 banner).
+    user_id: ?[]const u8 = null,
     /// The local synced DB — read (on the calling/main thread) for the issue's
     /// identifier / title / description. Never touched off the main thread.
     db: *Database,
@@ -64,6 +69,7 @@ const Job = struct {
     gpa: std.mem.Allocator,
     instance: []u8,
     token: ?[]u8,
+    user_id: ?[]u8,
     issue_id: []u8,
     identifier: []u8,
     title: []u8,
@@ -98,17 +104,20 @@ pub fn start(req: Request) void {
     const title = gpa.dupe(u8, issue.title) catch return free3(gpa, instance, issue_id, identifier);
     const description = gpa.dupe(u8, issue.description) catch return free4(gpa, instance, issue_id, identifier, title);
     const token: ?[]u8 = if (req.token) |t| (gpa.dupe(u8, t) catch null) else null;
+    const user_id: ?[]u8 = if (req.user_id) |u| (gpa.dupe(u8, u) catch null) else null;
 
     const job = gpa.create(Job) catch {
         free4(gpa, instance, issue_id, identifier, title);
         gpa.free(description);
         if (token) |t| gpa.free(t);
+        if (user_id) |u| gpa.free(u);
         return;
     };
     job.* = .{
         .gpa = gpa,
         .instance = instance,
         .token = token,
+        .user_id = user_id,
         .issue_id = issue_id,
         .identifier = identifier,
         .title = title,
@@ -148,6 +157,7 @@ fn freeJob(job: *Job) void {
     const gpa = job.gpa;
     gpa.free(job.instance);
     if (job.token) |t| gpa.free(t);
+    if (job.user_id) |u| gpa.free(u);
     gpa.free(job.issue_id);
     gpa.free(job.identifier);
     gpa.free(job.title);
@@ -369,12 +379,14 @@ const MountData = struct {
     mount_ctx: ?*anyopaque,
     instance: []u8,
     token: ?[]u8,
+    user_id: ?[]u8, // §3.4: distinguish remote steerers from the local user
     session_id: []u8, // "" ⇒ no coding_sessions.end call
     issue_id: []u8, // for the publisher's hello frame
     steer: bool, // relay enabled ⇒ host-PTY terminal + publisher
     cwd: []u8,
     command: []u8,
     title: [:0]u8,
+    key: [:0]u8, // dock-tab key (the session id; "" ⇒ dock generates one)
 };
 
 fn scheduleMount(job: *Job, worktree: []const u8, session_id: []const u8, steer: bool) void {
@@ -395,6 +407,8 @@ fn buildMountData(job: *Job, worktree: []const u8, session_id: []const u8, steer
     errdefer gpa.free(md.instance);
     md.token = if (job.token) |t| try gpa.dupe(u8, t) else null;
     errdefer if (md.token) |t| gpa.free(t);
+    md.user_id = if (job.user_id) |u| try gpa.dupe(u8, u) else null;
+    errdefer if (md.user_id) |u| gpa.free(u);
     md.session_id = try gpa.dupe(u8, session_id); // "" ⇒ 0-len heap slice
     errdefer gpa.free(md.session_id);
     md.issue_id = try gpa.dupe(u8, job.issue_id);
@@ -407,6 +421,8 @@ fn buildMountData(job: *Job, worktree: []const u8, session_id: []const u8, steer
     md.command = try gpa.dupe(u8, "sh .exp-run.sh");
     errdefer gpa.free(md.command);
     md.title = try gpa.dupeZ(u8, job.identifier);
+    errdefer gpa.free(md.title);
+    md.key = try gpa.dupeZ(u8, session_id);
     _ = gtk.g_idle_add(@ptrCast(&onMountMain), md);
 }
 
@@ -425,11 +441,13 @@ fn onMountMain(data: gtk.gpointer) callconv(.c) c_int {
     defer {
         gpa.free(md.instance);
         if (md.token) |t| gpa.free(t);
+        if (md.user_id) |u| gpa.free(u);
         gpa.free(md.session_id); // always heap (dup of "" when no row)
         gpa.free(md.issue_id);
         gpa.free(md.cwd);
         gpa.free(md.command);
         gpa.free(md.title);
+        gpa.free(md.key);
         gpa.destroy(md);
     }
 
@@ -456,7 +474,7 @@ fn onMountMain(data: gtk.gpointer) callconv(.c) c_int {
         }
         return 0;
     };
-    md.mount(md.mount_ctx, term, md.title.ptr);
+    md.mount(md.mount_ctx, term, md.title.ptr, md.key.ptr);
     return 0; // G_SOURCE_REMOVE
 }
 
@@ -558,16 +576,23 @@ fn dataObject(resp: *const trpc.Response) ?std.json.ObjectMap {
 // session ended, SIGKILLs the child group, and defers the joins to a follow-up
 // idle so libghostty's surface is fully freed first (destroyTerm frees the
 // surface right after firing on_exit).
+//
+// §3.4 banner: the mounted tab child is a wrapper box (hidden "Remote
+// steering — <name>" strip + the GLArea) so presence can surface the remote
+// claim; "Take over" sends release-then-claim on the publisher socket.
 
 const SteerSession = struct {
     gpa: std.mem.Allocator,
     refs: std.atomic.Value(u32),
     instance: []u8,
     token: ?[]u8,
+    user_id: ?[]u8, // the local signed-in user (for the §3.4 banner)
     session_id: []u8,
     pty: ?*host_pty.HostPty = null,
     publisher: ?*steer_pub.Publisher = null,
     area: gtk.Object = null,
+    banner: gtk.Object = null, // §3.4 "Remote steering" strip (main thread)
+    banner_label: gtk.Object = null,
     term_alive: bool = false, // main thread only
     ended: bool = false, // main thread only: codingSessions.end already fired
     child_exited: bool = false, // main thread mirror
@@ -582,6 +607,7 @@ const SteerSession = struct {
         const gpa = self.gpa;
         gpa.free(self.instance);
         if (self.token) |t| gpa.free(t);
+        if (self.user_id) |u| gpa.free(u);
         gpa.free(self.session_id);
         gpa.destroy(self);
     }
@@ -595,14 +621,17 @@ fn mountSteerTerminal(md: *MountData) bool {
 
     const instance = gpa.dupe(u8, md.instance) catch return false;
     const token: ?[]u8 = if (md.token) |t| (gpa.dupe(u8, t) catch null) else null;
+    const user_id: ?[]u8 = if (md.user_id) |u| (gpa.dupe(u8, u) catch null) else null;
     const session_id = gpa.dupe(u8, md.session_id) catch {
         gpa.free(instance);
         if (token) |t| gpa.free(t);
+        if (user_id) |u| gpa.free(u);
         return false;
     };
     const session = gpa.create(SteerSession) catch {
         gpa.free(instance);
         if (token) |t| gpa.free(t);
+        if (user_id) |u| gpa.free(u);
         gpa.free(session_id);
         return false;
     };
@@ -611,6 +640,7 @@ fn mountSteerTerminal(md: *MountData) bool {
         .refs = std.atomic.Value(u32).init(1), // the terminal/main owner
         .instance = instance,
         .token = token,
+        .user_id = user_id,
         .session_id = session_id,
     };
 
@@ -625,6 +655,7 @@ fn mountSteerTerminal(md: *MountData) bool {
         .on_input = onRemoteInput,
         .on_kill = onRemoteKill,
         .on_remote_resize = onRemoteResize,
+        .on_presence = onPresenceFrame,
         .ctx = session,
     });
 
@@ -660,9 +691,33 @@ fn mountSteerTerminal(md: *MountData) bool {
         session.unref();
         return false;
     };
+
+    // §3.4 local steering banner: the tab child is a wrapper box holding a
+    // hidden "Remote steering — <name>" strip above the terminal, so a tab
+    // detach reparents banner + ghostty surface together. Local typing is
+    // never gated — the banner only surfaces the claim + offers "Take over".
+    const wrapper = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 0);
+    const banner = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    gtk.gtk_widget_add_css_class(banner, "exp-steer-banner");
+    const banner_label = gtk.gtk_label_new("Remote steering");
+    gtk.gtk_widget_set_halign(banner_label, gtk.ALIGN_START);
+    gtk.gtk_widget_set_hexpand(banner_label, 1);
+    gtk.gtk_label_set_ellipsize(banner_label, gtk.ELLIPSIZE_END);
+    gtk.gtk_box_append(banner, banner_label);
+    const takeover_btn = gtk.gtk_button_new_with_label("Take over");
+    gtk.gtk_widget_add_css_class(takeover_btn, "flat");
+    gtk.gtk_widget_set_tooltip_text(takeover_btn, "Reclaim steering from the remote viewer");
+    _ = gtk.g_signal_connect_data(takeover_btn, "clicked", @ptrCast(&onTakeOverClicked), session, null, 0);
+    gtk.gtk_box_append(banner, takeover_btn);
+    gtk.gtk_widget_set_visible(banner, 0); // shown only while a remote steers
+    gtk.gtk_box_append(wrapper, banner);
+    gtk.gtk_box_append(wrapper, term);
+
     session.area = term;
+    session.banner = banner;
+    session.banner_label = banner_label;
     session.term_alive = true;
-    md.mount(md.mount_ctx, term, md.title.ptr);
+    md.mount(md.mount_ctx, wrapper, md.title.ptr, md.key.ptr);
     return true;
 }
 
@@ -773,6 +828,71 @@ fn remoteKillIdle(data: gtk.gpointer) callconv(.c) c_int {
     return 0;
 }
 
+// --- §3.4 presence → the "Remote steering — <name>" banner ---
+
+const PresenceData = struct {
+    session: *SteerSession,
+    steerer_id: ?[]u8,
+    steerer_name: ?[]u8,
+};
+
+/// Publisher presence callback — SOCKET thread. Dupe + hop to the main loop.
+fn onPresenceFrame(ctx: ?*anyopaque, steerer_id: ?[]const u8, steerer_name: ?[]const u8) void {
+    const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
+    const gpa = session.gpa;
+    const pd = gpa.create(PresenceData) catch return;
+    pd.* = .{
+        .session = session,
+        // A failed id dupe degrades to "nobody steering" — hide, never crash.
+        .steerer_id = if (steerer_id) |s| (gpa.dupe(u8, s) catch null) else null,
+        .steerer_name = if (steerer_name) |s| (gpa.dupe(u8, s) catch null) else null,
+    };
+    session.ref();
+    _ = gtk.g_idle_add(@ptrCast(&presenceIdle), pd);
+}
+
+fn presenceIdle(data: gtk.gpointer) callconv(.c) c_int {
+    const pd: *PresenceData = @ptrCast(@alignCast(data));
+    const session = pd.session;
+    const gpa = session.gpa;
+    defer {
+        if (pd.steerer_id) |s| gpa.free(s);
+        if (pd.steerer_name) |s| gpa.free(s);
+        gpa.destroy(pd);
+        session.unref();
+    }
+    if (!session.term_alive) return 0;
+    const banner = session.banner orelse return 0;
+
+    // Only a REMOTE steerer raises the banner — the local user steering via
+    // their own viewer (same userId) is not "remote steering".
+    const remote_who: ?[]const u8 = blk: {
+        const id = pd.steerer_id orelse break :blk null;
+        if (session.user_id) |own| {
+            if (std.mem.eql(u8, own, id)) break :blk null;
+        }
+        break :blk (pd.steerer_name orelse id);
+    };
+    if (remote_who) |who| {
+        if (std.fmt.allocPrintSentinel(gpa, "Remote steering — {s}", .{who}, 0)) |z| {
+            defer gpa.free(z);
+            gtk.gtk_label_set_text(session.banner_label, z.ptr);
+        } else |_| {}
+        gtk.gtk_widget_set_visible(banner, 1);
+    } else {
+        gtk.gtk_widget_set_visible(banner, 0);
+    }
+    return 0; // G_SOURCE_REMOVE
+}
+
+/// "Take over" (main thread): release-then-claim on the local user's behalf —
+/// their machine wins (§3.4). The banner hides when the resulting presence
+/// broadcast reports the remote claim gone.
+fn onTakeOverClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const session: *SteerSession = @ptrCast(@alignCast(data));
+    if (session.publisher) |p| p.takeOver();
+}
+
 fn onRemoteResize(ctx: ?*anyopaque, cols: u16, rows: u16) void {
     const session: *SteerSession = @ptrCast(@alignCast(ctx orelse return));
     const rd = session.gpa.create(RemoteResizeData) catch return;
@@ -805,6 +925,8 @@ fn onSteerTermClosed(ctx: ?*anyopaque, exit_code: i32) void {
     session.torn_down = true;
     session.term_alive = false;
     session.area = null;
+    session.banner = null; // dies with the wrapper (same dispose cascade)
+    session.banner_label = null;
     endSteerSession(session, "closed");
     // Signal-only here: destroyTerm frees the ghostty surface right after this
     // callback, so the joins are deferred to a follow-up idle. The master fd

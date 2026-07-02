@@ -3,6 +3,7 @@ import { db } from "@/db/connection"
 import { issues, projectRepositories, projects, repositories } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 
 // Parse a workspace issue identifier ("MET-12") out of a PR head-branch name.
 // Matches the launcher's `exp/<IDENTIFIER>` convention and any custom prefix
@@ -64,7 +65,7 @@ export async function applyPrOpenedState(opts: {
   branch: string
   actorUserId?: string | null
 }): Promise<void> {
-  await db.transaction(async (tx) => {
+  const applied = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     void txId
 
@@ -75,8 +76,8 @@ export async function applyPrOpenedState(opts: {
       .where(eq(issues.id, opts.issueId))
       .limit(1)
 
-    if (!current) return
-    if (current.prUrl) return // already linked (idempotent)
+    if (!current) return false
+    if (current.prUrl) return false // already linked (idempotent)
 
     await tx
       .update(issues)
@@ -99,7 +100,20 @@ export async function applyPrOpenedState(opts: {
         branch: opts.branch,
       },
     })
+    return true
   })
+
+  // Notify only when this call actually linked the PR (the idempotent guard
+  // above makes the MCP-open + webhook pair single-fire). The MCP open_pr
+  // path writes the linkage itself and notifies separately; deliver()'s
+  // dedupe window absorbs the overlap.
+  if (applied) {
+    fireAndForgetPrNotify({
+      issueId: opts.issueId,
+      type: `pr_opened`,
+      actorUserId: opts.actorUserId ?? null,
+    })
+  }
 }
 
 // Shared PR-merge writer, callable outside tRPC (webhook + self-hosted cron).
@@ -115,7 +129,7 @@ export async function applyPrMergeState(opts: {
   mergedAt?: Date | null
   actorUserId?: string | null
 }): Promise<void> {
-  await db.transaction(async (tx) => {
+  const applied = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     void txId
 
@@ -131,8 +145,8 @@ export async function applyPrMergeState(opts: {
       .limit(1)
 
     // Unknown issue, or already merged → nothing to do (idempotent).
-    if (!current) return
-    if (current.prState === `merged`) return
+    if (!current) return false
+    if (current.prState === `merged`) return false
 
     await tx
       .update(issues)
@@ -149,5 +163,18 @@ export async function applyPrMergeState(opts: {
       type: `pr_merged`,
       payload: { prUrl: opts.prUrl ?? current.prUrl ?? null },
     })
+    return true
   })
+
+  // Inside the open→merged idempotent guard: the webhook and the self-hosted
+  // outbound cron can both call this, but only the transition that actually
+  // flipped the state fans out — so an away phone gets exactly one
+  // "it's merged" notification on in-app + push + email.
+  if (applied) {
+    fireAndForgetPrNotify({
+      issueId: opts.issueId,
+      type: `pr_merged`,
+      actorUserId: opts.actorUserId ?? null,
+    })
+  }
 }

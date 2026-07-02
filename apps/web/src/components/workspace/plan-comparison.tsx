@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import type { PlanTier } from "@/lib/billing"
 import { cn } from "@/lib/utils"
 
+// The real paid differentiators: members, projects, repositories, storage,
+// concurrent coding sessions. Push + email notifications are free on every
+// tier and deliberately NOT a row here — delivery is never paywalled.
 type TierInfo = {
   tier: PlanTier
   name: string
@@ -13,9 +16,9 @@ type TierInfo = {
   period: string
   members: string
   projects: string
+  repositories: string
   storage: string
-  push: boolean
-  coding: boolean
+  codingSessions: string
 }
 
 const TIERS: TierInfo[] = [
@@ -26,9 +29,9 @@ const TIERS: TierInfo[] = [
     period: `forever`,
     members: `1 member`,
     projects: `3 projects`,
+    repositories: `1 repository`,
     storage: `50 MB`,
-    push: false,
-    coding: true,
+    codingSessions: `1 concurrent coding session`,
   },
   {
     tier: `pro`,
@@ -37,9 +40,9 @@ const TIERS: TierInfo[] = [
     period: `/year`,
     members: `5 members`,
     projects: `10 projects`,
+    repositories: `10 repositories`,
     storage: `1 GB`,
-    push: true,
-    coding: true,
+    codingSessions: `3 concurrent coding sessions`,
   },
   {
     tier: `business`,
@@ -47,10 +50,10 @@ const TIERS: TierInfo[] = [
     price: `$60`,
     period: `/year`,
     members: `25 members`,
-    projects: `Unlimited`,
+    projects: `Unlimited projects`,
+    repositories: `Unlimited repositories`,
     storage: `10 GB`,
-    push: true,
-    coding: true,
+    codingSessions: `Unlimited coding sessions`,
   },
 ]
 
@@ -158,12 +161,9 @@ export function PlanComparison({
                 <div className="space-y-2">
                   <FeatureRow label={t.members} enabled />
                   <FeatureRow label={t.projects} enabled />
+                  <FeatureRow label={t.repositories} enabled />
                   <FeatureRow label={`${t.storage} storage`} enabled />
-                  <FeatureRow
-                    label="Push notifications"
-                    enabled={t.push}
-                  />
-                  <FeatureRow label="Desktop coding sessions" enabled={t.coding} />
+                  <FeatureRow label={t.codingSessions} enabled />
                 </div>
 
                 {canUpgrade && (

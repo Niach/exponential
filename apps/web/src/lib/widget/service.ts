@@ -6,6 +6,7 @@ import { db } from "@/db/connection"
 import {
   attachments,
   issues,
+  issueSubscribers,
   widgetConfigs,
   widgetSubmissions,
 } from "@/db/schema"
@@ -234,6 +235,21 @@ export async function createWidgetSubmission(args: {
           url: buildAttachmentUrl(attachmentId),
           width: dimensions?.width ?? null,
           height: dimensions?.height ?? null,
+        })
+      }
+
+      // One-way helpdesk (§6.4): record the external reporter as a
+      // `widget_reporter` subscriber (null userId + email — no throwaway users
+      // row). They receive the clean resolution email when the issue closes;
+      // member fan-out ignores these rows (it filters on non-null userId).
+      if (fields.data.email) {
+        await tx.insert(issueSubscribers).values({
+          issueId,
+          userId: null,
+          email: fields.data.email,
+          workspaceId: config.workspaceId,
+          source: `widget_reporter`,
+          unsubscribed: false,
         })
       }
 

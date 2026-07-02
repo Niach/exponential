@@ -98,6 +98,8 @@ fn linkGui(mod: *std.Build.Module, enable_webkit: bool, enable_x11: bool) void {
     mod.linkSystemLibrary("gtk4", .{});
     mod.linkSystemLibrary("libadwaita-1", .{});
     mod.linkSystemLibrary("gio-2.0", .{});
+    // Side-by-side syntax-highlighted PR diff view (§4e).
+    mod.linkSystemLibrary("gtksourceview-5", .{});
     // Annotation overlay rendering + screenshot flatten.
     mod.linkSystemLibrary("cairo", .{});
     mod.linkSystemLibrary("gdk-pixbuf-2.0", .{});

@@ -196,7 +196,7 @@ apps/web/src/
 
 ### Electric Shape Proxies
 
-Each synced table gets a shape proxy in `apps/web/src/routes/api/shapes/`, built with the shared `createShapeRouteHandler` (`lib/shape-route.ts`). The proxy authenticates the request, then forwards to Electric. Client collections in `apps/web/src/lib/collections.ts` point to these proxy URLs. There is one proxy per synced table — workspaces, projects, issues, labels, issue-labels, users, workspace-members, workspace-invites, comments, attachments, notifications, issue-events, issue-subscribers, and coding-sessions (14 total, matching the 14 synced shapes).
+Each synced table gets a shape proxy in `apps/web/src/routes/api/shapes/`, built with the shared `createShapeRouteHandler` (`lib/shape-route.ts`). The proxy authenticates the request, then forwards to Electric. A proxy may pin a server-side `columns` allowlist that clients cannot widen — `issue-subscribers` uses this to EXCLUDE the reporter `email` column from sync (widget-reporter PII stays server-only; the resolution-email path reads the DB directly). Client collections in `apps/web/src/lib/collections.ts` point to these proxy URLs. There is one proxy per synced table — workspaces, projects, issues, labels, issue-labels, users, workspace-members, workspace-invites, comments, attachments, notifications, issue-events, issue-subscribers, and coding-sessions (14 total, matching the 14 synced shapes).
 
 ### Electric Collections
 
@@ -263,6 +263,11 @@ AUTH_PASSWORD_ENABLED         # Enable email/password login (default: true)
 AUTH_SIGNUP_ENABLED           # Public password sign-up ('true'/'false'; default: on in dev, OFF in production)
 RESEND_API_KEY                # Resend API key — enables password reset + email verification (unset = email flows off)
 EMAIL_FROM                    # Verified sender, e.g. "Exponential <noreply@exponential.at>"
+SMTP_HOST                     # SMTP alternative to Resend for ALL outgoing mail (self-host; Resend wins when both set)
+SMTP_PORT                     # SMTP port (default 587)
+SMTP_USER                     # SMTP auth user (optional)
+SMTP_PASS                     # SMTP auth password (optional)
+SMTP_SECURE                   # 'true' for implicit TLS (port 465)
 OIDC_PROVIDERS                # JSON array of OIDC providers — the primary OIDC mechanism (see .env.example)
 # Legacy single-provider OIDC (used only when OIDC_PROVIDERS is unset):
 AUTH_OIDC_ENABLED             # Enable legacy single-provider OIDC (default: false)

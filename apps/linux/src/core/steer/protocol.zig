@@ -73,6 +73,12 @@ pub fn byeFrame(gpa: std.mem.Allocator, outcome: ?[]const u8) ![]u8 {
     return out.toOwnedSlice(gpa);
 }
 
+/// §3.4 local take-over, sent on the PUBLISHER socket: release the remote
+/// steerer's claim, then claim for the local user (their machine wins).
+/// Constant payloads — match protocol.ts `releaseFrame` / `claimFrame`.
+pub const release_frame: []const u8 = "{\"t\":\"release\"}";
+pub const claim_frame: []const u8 = "{\"t\":\"claim\"}";
+
 /// A binary terminal-output frame: opcode `0x01` + verbatim PTY bytes.
 pub fn outputFrame(gpa: std.mem.Allocator, bytes: []const u8) ![]u8 {
     const frame = try gpa.alloc(u8, bytes.len + 1);
@@ -131,8 +137,11 @@ pub const Inbound = union(enum) {
     kill,
     /// Publisher socket: the steerer resized their view → update PTY winsize.
     resize: struct { cols: u16, rows: u16 },
-    /// Who's watching/steering (steererId null ⇒ nobody holds the claim).
-    presence: ?[]const u8, // steererId
+    /// Who's watching/steering. `steerer_id` null ⇒ nobody holds the claim;
+    /// `steerer_name` is the steerer's display name resolved from the frame's
+    /// viewers list (null when the steerer isn't listed) — drives the local
+    /// "Remote steering — <name>" banner (§3.4).
+    presence: struct { steerer_id: ?[]const u8, steerer_name: ?[]const u8 },
     bye,
     err,
     unknown,
@@ -162,7 +171,25 @@ pub fn parseInbound(arena: std.mem.Allocator, text: []const u8) ?Inbound {
         return .{ .resize = .{ .cols = cols, .rows = rows } };
     }
     if (std.mem.eql(u8, t, "presence")) {
-        return .{ .presence = objString(obj, "steererId") };
+        const sid = objString(obj, "steererId");
+        var name: ?[]const u8 = null;
+        if (sid) |id| {
+            if (obj.get("viewers")) |vv| switch (vv) {
+                .array => |arr| for (arr.items) |item| {
+                    const vo = switch (item) {
+                        .object => |o| o,
+                        else => continue,
+                    };
+                    const uid = objString(vo, "userId") orelse continue;
+                    if (std.mem.eql(u8, uid, id)) {
+                        name = objString(vo, "name");
+                        break;
+                    }
+                },
+                else => {},
+            };
+        }
+        return .{ .presence = .{ .steerer_id = sid, .steerer_name = name } };
     }
     if (std.mem.eql(u8, t, "bye")) return .bye;
     if (std.mem.eql(u8, t, "error")) return .err;
@@ -314,13 +341,38 @@ test "parseInbound round-trips every server frame kind" {
     try testing.expectEqual(@as(u16, 40), rz.resize.rows);
 
     const pres = parseInbound(a, "{\"t\":\"presence\",\"viewers\":[],\"steererId\":\"u-2\"}").?;
-    try testing.expectEqualStrings("u-2", pres.presence.?);
+    try testing.expectEqualStrings("u-2", pres.presence.steerer_id.?);
+    try testing.expect(pres.presence.steerer_name == null); // not in viewers
     const pres_none = parseInbound(a, "{\"t\":\"presence\",\"viewers\":[],\"steererId\":null}").?;
-    try testing.expect(pres_none.presence == null);
+    try testing.expect(pres_none.presence.steerer_id == null);
 
     try testing.expectEqual(Inbound.unknown, parseInbound(a, "{\"t\":\"wat\"}").?);
     try testing.expect(parseInbound(a, "not json") == null);
     try testing.expect(parseInbound(a, "{\"nope\":1}") == null);
+}
+
+test "presence resolves the steerer's display name from the viewers list" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const pres = parseInbound(a,
+        \\{"t":"presence","viewers":[{"userId":"u-1","name":"Ada","perm":"steer"},{"userId":"u-2","name":"Bob","perm":"view"}],"steererId":"u-1"}
+    ).?;
+    try testing.expectEqualStrings("u-1", pres.presence.steerer_id.?);
+    try testing.expectEqualStrings("Ada", pres.presence.steerer_name.?);
+
+    // Steerer not among the viewers (e.g. just disconnected) ⇒ id only.
+    const unlisted = parseInbound(a,
+        \\{"t":"presence","viewers":[{"userId":"u-2","name":"Bob","perm":"view"}],"steererId":"u-9"}
+    ).?;
+    try testing.expectEqualStrings("u-9", unlisted.presence.steerer_id.?);
+    try testing.expect(unlisted.presence.steerer_name == null);
+}
+
+test "take-over release/claim frames match protocol.ts field names" {
+    try testing.expectEqualStrings("{\"t\":\"release\"}", release_frame);
+    try testing.expectEqualStrings("{\"t\":\"claim\"}", claim_frame);
 }
 
 test "ring buffer keeps the most recent bytes across wraps" {

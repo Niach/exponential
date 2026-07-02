@@ -1,15 +1,58 @@
-// Transactional email via Resend (https://resend.com). Plain fetch — no SDK
-// dependency. When RESEND_API_KEY is unset (e.g. self-hosted without email),
-// every send is a logged no-op so auth flows degrade gracefully instead of
-// throwing; `emailEnabled` lets the UI hide email-dependent affordances
-// (forgot-password) on such instances.
+// Transactional email — the SINGLE sender for the whole app. Two transports:
+//
+//   1. Resend (cloud): RESEND_API_KEY set → plain fetch, no SDK.
+//   2. SMTP (self-host): SMTP_HOST set → nodemailer (lazy-imported so the
+//      module graph stays light when SMTP is unused).
+//
+// Resend wins when both are configured. With neither, every send is a logged
+// no-op so auth + notification flows degrade gracefully instead of throwing;
+// `emailEnabled` lets the UI hide email-dependent affordances (forgot-password,
+// the email-notification prefs panel) on such instances.
+
+import type { Transporter } from "nodemailer"
 
 const RESEND_ENDPOINT = `https://api.resend.com/emails`
 
-export const emailEnabled = Boolean(process.env.RESEND_API_KEY)
+export type EmailProvider = `resend` | `smtp`
+
+export type EmailSendResult = {
+  // false only when no transport is configured (the logged no-op).
+  delivered: boolean
+  provider: EmailProvider | null
+  messageId: string | null
+}
+
+export const emailEnabled = Boolean(
+  process.env.RESEND_API_KEY || process.env.SMTP_HOST
+)
 
 function fromAddress(): string {
   return process.env.EMAIL_FROM ?? `Exponential <noreply@exponential.at>`
+}
+
+// Lazy nodemailer transporter singleton (SMTP self-host path). The runtime
+// import stays dynamic so nodemailer is only loaded when SMTP is configured.
+let smtpTransporter: Transporter | null = null
+
+async function getSmtpTransporter() {
+  if (smtpTransporter) return smtpTransporter
+  const nodemailer = await import(`nodemailer`)
+  const port = Number(process.env.SMTP_PORT ?? 587)
+  smtpTransporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    // Implicit TLS for 465 unless overridden; STARTTLS otherwise.
+    secure: process.env.SMTP_SECURE
+      ? process.env.SMTP_SECURE === `true`
+      : port === 465,
+    auth: process.env.SMTP_USER
+      ? {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        }
+      : undefined,
+  })
+  return smtpTransporter
 }
 
 export async function sendEmail(args: {
@@ -17,49 +60,96 @@ export async function sendEmail(args: {
   subject: string
   html: string
   text: string
-}): Promise<void> {
+  headers?: Record<string, string>
+}): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) {
-    process.stderr.write(
-      `[email] RESEND_API_KEY unset — dropping "${args.subject}" to ${args.to}\n`
-    )
-    return
+
+  if (apiKey) {
+    const res = await fetch(RESEND_ENDPOINT, {
+      method: `POST`,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": `application/json`,
+      },
+      body: JSON.stringify({
+        from: fromAddress(),
+        to: [args.to],
+        subject: args.subject,
+        html: args.html,
+        text: args.text,
+        ...(args.headers ? { headers: args.headers } : {}),
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => ``)
+      throw new Error(`Resend ${res.status}: ${body.slice(0, 300)}`)
+    }
+    const json = (await res.json().catch(() => null)) as { id?: string } | null
+    return {
+      delivered: true,
+      provider: `resend`,
+      messageId: json?.id ?? null,
+    }
   }
-  const res = await fetch(RESEND_ENDPOINT, {
-    method: `POST`,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": `application/json`,
-    },
-    body: JSON.stringify({
+
+  if (process.env.SMTP_HOST) {
+    const transporter = await getSmtpTransporter()
+    const info = await transporter.sendMail({
       from: fromAddress(),
-      to: [args.to],
+      to: args.to,
       subject: args.subject,
       html: args.html,
       text: args.text,
-    }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => ``)
-    throw new Error(`Resend ${res.status}: ${body.slice(0, 300)}`)
+      headers: args.headers,
+    })
+    return {
+      delivered: true,
+      provider: `smtp`,
+      messageId: (info as { messageId?: string }).messageId ?? null,
+    }
   }
+
+  process.stderr.write(
+    `[email] no transport configured (RESEND_API_KEY / SMTP_HOST unset) — dropping "${args.subject}" to ${args.to}\n`
+  )
+  return { delivered: false, provider: null, messageId: null }
 }
 
-// Minimal dark-friendly template shared by the auth emails: a heading, one
-// line of context, and a single action button (plus the raw link for clients
-// that strip styles).
+// Headings/bodies interpolate user content (issue titles, comment previews) —
+// escape them so a title like `<img onerror=…>` can't inject markup into the
+// rendered email.
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, `&amp;`)
+    .replace(/</g, `&lt;`)
+    .replace(/>/g, `&gt;`)
+    .replace(/"/g, `&quot;`)
+    .replace(/'/g, `&#39;`)
+}
+
+// Minimal dark-friendly template shared by the auth + notification emails: a
+// heading, one line of context, a single action button (plus the raw link for
+// clients that strip styles), and an optional unsubscribe footer.
 function actionEmailHtml(args: {
   heading: string
   body: string
   actionLabel: string
   actionUrl: string
+  unsubscribeUrl?: string
 }): string {
+  const unsubscribeFooter = args.unsubscribeUrl
+    ? `
+      <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:#a1a1aa;">
+        You receive these emails because notifications are enabled for your account.
+        <a href="${args.unsubscribeUrl}" style="color:#71717a;">Unsubscribe from email notifications</a>
+      </p>`
+    : ``
   return `<!doctype html>
 <html>
   <body style="margin:0;padding:32px 16px;background:#fafafa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
     <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
-      <h1 style="margin:0 0 12px;font-size:18px;">${args.heading}</h1>
-      <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#3f3f46;">${args.body}</p>
+      <h1 style="margin:0 0 12px;font-size:18px;">${escapeHtml(args.heading)}</h1>
+      <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#3f3f46;">${escapeHtml(args.body)}</p>
       <a href="${args.actionUrl}"
          style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px;">
         ${args.actionLabel}
@@ -67,7 +157,7 @@ function actionEmailHtml(args: {
       <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:#a1a1aa;">
         If the button doesn't work, copy this link into your browser:<br/>
         <a href="${args.actionUrl}" style="color:#71717a;word-break:break-all;">${args.actionUrl}</a>
-      </p>
+      </p>${unsubscribeFooter}
     </div>
   </body>
 </html>`
@@ -104,5 +194,59 @@ export async function sendVerificationEmail(args: {
       actionUrl: args.url,
     }),
     text: `Verify your email for Exponential: ${args.url}`,
+  })
+}
+
+// The third delivery channel of deliver() — one notification, one email, with
+// a deep-link action button and a one-click unsubscribe (RFC 8058 headers).
+export async function sendNotificationEmail(args: {
+  to: string
+  subject: string
+  heading: string
+  body: string
+  actionUrl: string
+  unsubscribeUrl: string
+}): Promise<EmailSendResult> {
+  return await sendEmail({
+    to: args.to,
+    subject: args.subject,
+    html: actionEmailHtml({
+      heading: args.heading,
+      body: args.body,
+      actionLabel: `Open in Exponential`,
+      actionUrl: args.actionUrl,
+      unsubscribeUrl: args.unsubscribeUrl,
+    }),
+    text: `${args.heading}\n\n${args.body}\n\nOpen in Exponential: ${args.actionUrl}\n\nUnsubscribe from email notifications: ${args.unsubscribeUrl}`,
+    headers: {
+      "List-Unsubscribe": `<${args.unsubscribeUrl}>`,
+      "List-Unsubscribe-Post": `List-Unsubscribe=One-Click`,
+    },
+  })
+}
+
+// One-way helpdesk resolution notice for an external widget reporter. CLEAN
+// reporter-facing copy only — no assignee names, no page/UA metadata, none of
+// the internal buildWidgetDescription block, no workspace context, no links
+// into the app (reporters have no account).
+export async function sendReporterResolutionEmail(args: {
+  to: string
+  issueTitle: string
+}): Promise<EmailSendResult> {
+  const heading = `Your report has been resolved`
+  const body = `Your report "${args.issueTitle}" has been resolved. Thanks for the feedback!`
+  return await sendEmail({
+    to: args.to,
+    subject: `Your report "${args.issueTitle}" has been resolved`,
+    html: `<!doctype html>
+<html>
+  <body style="margin:0;padding:32px 16px;background:#fafafa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
+    <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
+      <h1 style="margin:0 0 12px;font-size:18px;">${escapeHtml(heading)}</h1>
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#3f3f46;">${escapeHtml(body)}</p>
+    </div>
+  </body>
+</html>`,
+    text: body,
   })
 }

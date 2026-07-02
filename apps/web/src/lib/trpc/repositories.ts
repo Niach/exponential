@@ -9,6 +9,7 @@ import {
   getProjectWorkspaceId,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
+import { assertWithinPlanLimits } from "@/lib/billing"
 import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 
 // GitHub installation tokens last ~1h; we hand back a conservative 55-minute
@@ -136,6 +137,9 @@ export const repositoriesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
+      // Plan cap on connected (non-archived) repos — throws PRECONDITION_FAILED
+      // with an upgrade-nudge message; self-hosted is unlimited.
+      await assertWithinPlanLimits(input.workspaceId, `repositories`)
 
       const token = await resolveRepoInstallationToken(input.fullName)
       if (!token) {

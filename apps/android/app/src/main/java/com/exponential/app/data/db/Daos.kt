@@ -60,6 +60,10 @@ interface IssueDao {
     @Query("SELECT * FROM issues")
     fun observeAll(): Flow<List<IssueEntity>>
 
+    // Cross-project "My Issues" view (masterplan §5a): everything assigned to me.
+    @Query("SELECT * FROM issues WHERE assignee_id = :userId AND archived_at IS NULL ORDER BY sort_order, created_at")
+    fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
+
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
@@ -78,6 +82,10 @@ interface LabelDao {
     @Query("SELECT * FROM labels WHERE workspace_id = :workspaceId ORDER BY sort_order, name")
     fun observeByWorkspace(workspaceId: String): Flow<List<LabelEntity>>
 
+    // Cross-workspace list for the "My Issues" rows (labels span projects there).
+    @Query("SELECT * FROM labels ORDER BY sort_order, name")
+    fun observeAll(): Flow<List<LabelEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: LabelEntity)
 
@@ -95,6 +103,9 @@ interface IssueLabelDao {
 
     @Query("SELECT * FROM issue_labels WHERE workspace_id = :workspaceId")
     fun observeByWorkspace(workspaceId: String): Flow<List<IssueLabelEntity>>
+
+    @Query("SELECT * FROM issue_labels")
+    fun observeAllJoins(): Flow<List<IssueLabelEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueLabelEntity)
@@ -158,6 +169,9 @@ interface CommentDao {
 interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE issue_id = :issueId ORDER BY started_at DESC")
     fun observeByIssue(issueId: String): Flow<List<CodingSessionEntity>>
+
+    @Query("SELECT * FROM coding_sessions WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<CodingSessionEntity?>
 
     @Query("SELECT * FROM coding_sessions WHERE workspace_id = :workspaceId")
     fun observeByWorkspace(workspaceId: String): Flow<List<CodingSessionEntity>>

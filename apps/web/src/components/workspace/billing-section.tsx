@@ -99,7 +99,9 @@ export function WorkspaceBillingSection({
   }
 
   return (
-    <div className="space-y-4">
+    // `billing` anchors the upgrade-nudge deep links (e.g. from the
+    // repositories section when a plan cap is hit).
+    <div id="billing" className="scroll-mt-6 space-y-4">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -137,6 +139,11 @@ export function WorkspaceBillingSection({
             label="Projects"
             current={usage.projects}
             max={limits.projects}
+          />
+          <UsageBar
+            label="Repositories"
+            current={usage.repositories}
+            max={limits.repositories}
           />
           <UsageBar
             label="Storage"

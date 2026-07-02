@@ -28,6 +28,7 @@ import type { Context } from "@/lib/trpc"
 import { createPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { err, ok } from "./helpers"
 import type { McpUser } from "./server"
 
@@ -853,6 +854,15 @@ export function registerExponentialTools(
               branch: headBranch,
             },
           })
+        })
+
+        // Away/phone flow: "PR opened" reaches assignee + subscribers on
+        // in-app + push + email (deliver()'s dedupe window absorbs the
+        // near-simultaneous GitHub webhook `opened` fan-out).
+        fireAndForgetPrNotify({
+          issueId: id,
+          type: `pr_opened`,
+          actorUserId: user.id,
         })
 
         return ok({ url: created.url, number: created.number })

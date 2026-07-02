@@ -299,8 +299,39 @@ struct MacShell: View {
                 if dock.isExpanded {
                     TerminalDockHost(dock: dock)
                         .frame(height: dock.dockHeight)
+                        .overlay(alignment: .topTrailing) {
+                            remoteSteerBanner(dock: dock)
+                        }
                 }
             }
+        }
+    }
+
+    /// "Remote steering — <name>" over the terminal when a REMOTE viewer holds
+    /// the steer claim (relay presence via the session's publisher, §3.4).
+    /// Local input is never gated — Take over just nudges the claim back
+    /// (release-then-claim) and clears the banner.
+    @ViewBuilder
+    private func remoteSteerBanner(dock: MacTerminalDock) -> some View {
+        if let sessionId = dock.currentRunId,
+           let publisher = deps.codingLauncher.publisher(forSession: sessionId),
+           let name = publisher.remoteSteererName {
+            HStack(spacing: 8) {
+                Image(systemName: "keyboard")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                Text("Remote steering — \(name)")
+                    .font(.caption.weight(.medium))
+                Button("Take over") { publisher.takeOver() }
+                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().stroke(Color.orange.opacity(0.5), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+            .padding(10)
         }
     }
 

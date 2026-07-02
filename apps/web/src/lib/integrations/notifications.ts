@@ -1,8 +1,28 @@
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issueSubscribers, issues, projects, users } from "@/db/schema"
+import {
+  emailDeliveries,
+  issueSubscribers,
+  issues,
+  projects,
+  users,
+  widgetSubmissions,
+  workspaces,
+} from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
-import { canUsePush } from "@/lib/billing"
+import {
+  emailEnabled,
+  sendNotificationEmail,
+  sendReporterResolutionEmail,
+} from "@/lib/email"
+import { emailRecipients } from "@/lib/notification-prefs"
+import {
+  appBaseUrl,
+  buildIssueDeepLinkPath,
+  buildUnsubscribeUrl,
+  isResolutionStatus,
+  shouldSendReporterResolution,
+} from "@/lib/notification-email-policy"
 import type { NotificationType } from "@/lib/domain"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
@@ -16,6 +36,9 @@ interface IssueMeta {
   identifier: string
   title: string
   workspaceId: string
+  workspaceSlug: string
+  projectSlug: string
+  assigneeId: string | null
 }
 
 async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
@@ -25,9 +48,13 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
       identifier: issues.identifier,
       title: issues.title,
       workspaceId: projects.workspaceId,
+      workspaceSlug: workspaces.slug,
+      projectSlug: projects.slug,
+      assigneeId: issues.assigneeId,
     })
     .from(issues)
     .innerJoin(projects, eq(projects.id, issues.projectId))
+    .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
     .where(eq(issues.id, issueId))
     .limit(1)
   return row ?? null
@@ -59,7 +86,7 @@ async function withoutBots(userIds: string[]): Promise<string[]> {
 // the one-way resolution email, not in-app/push notifications.
 async function subscriberRecipients(
   issueId: string,
-  actorUserId: string
+  actorUserId: string | null
 ): Promise<string[]> {
   const rows = await db
     .select({ userId: issueSubscribers.userId })
@@ -72,13 +99,14 @@ async function subscriberRecipients(
       )
     )
   const ids = new Set(rows.map((r) => r.userId as string))
-  ids.delete(actorUserId)
+  if (actorUserId) ids.delete(actorUserId)
   return [...ids]
 }
 
-// Write the in-app notification row(s) ALWAYS, and fire a push only when the
-// workspace plan allows it (the row-write is decoupled from canUsePush so the
-// inbox works on free plans; D7). Recipients are de-duped and agent-filtered.
+// Fan out one logical event on all three channels: the in-app notification row
+// is written ALWAYS, then push and email fire off the same deduped delivered
+// set. Push and email are free delivery channels — neither is plan-gated.
+// Recipients are de-duped and bot-filtered.
 //
 // Idempotency: the fire-and-forget callers can run twice for one logical event
 // (e.g. concurrent comment creations fanning out to the same subscribers), and
@@ -86,12 +114,12 @@ async function subscriberRecipients(
 // migration (out of scope here), so the insert dedupes in-query instead:
 // INSERT … SELECT … WHERE NOT EXISTS an identical recent row (same recipient,
 // issue, type, title and body within a short window). RETURNING tells us which
-// rows
-// actually landed, so the push fan-out skips deduped recipients too. Two
-// transactions racing in the same instant can still both pass the NOT EXISTS
-// check (it can't see uncommitted rows) — a unique partial index would close
-// that residual window — but this removes the practical double-writes at
-// lowest risk.
+// rows actually landed, so the push AND email fan-outs skip deduped recipients
+// too (email additionally claims a per-notification email_deliveries row, so a
+// notification row can never produce two emails). Two transactions racing in
+// the same instant can still both pass the NOT EXISTS check (it can't see
+// uncommitted rows) — a unique partial index would close that residual window —
+// but this removes the practical double-writes at lowest risk.
 const NOTIFICATION_DEDUPE_WINDOW = `30 seconds`
 
 async function deliver(args: {
@@ -105,7 +133,6 @@ async function deliver(args: {
   const recipients = await withoutBots([...new Set(args.recipientIds)])
   if (recipients.length === 0) return
 
-  const canPush = await canUsePush(args.issue.workspaceId)
   const now = new Date()
 
   const inserted = await db.execute(sql`
@@ -116,7 +143,7 @@ async function deliver(args: {
       ${args.type}::notification_type,
       ${args.title},
       ${args.body},
-      ${canPush ? now : null}::timestamptz
+      ${now}::timestamptz
     from unnest(${sql.param(recipients)}::text[]) as r(user_id)
     where not exists (
       select 1
@@ -128,29 +155,138 @@ async function deliver(args: {
         and existing.body is not distinct from ${args.body}::text
         and existing.created_at > now() - interval '${sql.raw(NOTIFICATION_DEDUPE_WINDOW)}'
     )
-    returning user_id
+    returning id, user_id
   `)
-  const deliveredIds = inserted.rows.map((row) => row.user_id as string)
+  const delivered = inserted.rows.map((row) => ({
+    notificationId: row.id as string,
+    userId: row.user_id as string,
+  }))
+  if (delivered.length === 0) return
 
-  if (!canPush) return
+  // Push and email fan out independently — a failure on one channel never
+  // blocks the other, and neither ever throws out of deliver().
+  await Promise.all([
+    Promise.all(
+      delivered.map((d) =>
+        sendToUser(d.userId, {
+          title: args.title,
+          body: args.body ?? args.issue.title,
+          data: {
+            type: args.pushType,
+            issueId: args.issue.id,
+            identifier: args.issue.identifier,
+          },
+        }).catch((err) => {
+          console.error(`[notify] push to ${d.userId} failed:`, err)
+        })
+      )
+    ),
+    fanOutEmails({
+      delivered,
+      issue: args.issue,
+      type: args.type,
+      title: args.title,
+      body: args.body,
+    }).catch((err) => {
+      console.error(`[notify] email fan-out failed:`, err)
+    }),
+  ])
+}
+
+// The third delivery leg: for each delivered in-app notification, resolve
+// email eligibility (user_notification_prefs; missing row = defaults) and send
+// one email with a deep link into the app. Every send writes an
+// email_deliveries ledger row keyed on the notification id (unique), which is
+// claimed BEFORE sending — so re-runs can never double-email. Never throws;
+// per-recipient failures are logged.
+async function fanOutEmails(args: {
+  delivered: { notificationId: string; userId: string }[]
+  issue: IssueMeta
+  type: NotificationType
+  title: string
+  body: string | null
+}): Promise<void> {
+  if (!emailEnabled) return
+
+  const notificationByUser = new Map(
+    args.delivered.map((d) => [d.userId, d.notificationId])
+  )
+  const recipients = await emailRecipients(
+    [...notificationByUser.keys()],
+    args.type
+  )
+  if (recipients.length === 0) return
+
+  const base = appBaseUrl()
+  const actionUrl = `${base}${buildIssueDeepLinkPath({
+    workspaceSlug: args.issue.workspaceSlug,
+    projectSlug: args.issue.projectSlug,
+    identifier: args.issue.identifier,
+  })}`
+
   await Promise.all(
-    deliveredIds.map((userId) =>
-      sendToUser(userId, {
-        title: args.title,
-        body: args.body ?? args.issue.title,
-        data: {
-          type: args.pushType,
-          issueId: args.issue.id,
-          identifier: args.issue.identifier,
-        },
-      })
-    )
+    recipients.map(async (recipient) => {
+      try {
+        const notificationId = notificationByUser.get(recipient.userId)
+        if (!notificationId) return
+
+        // Claim the per-notification ledger row first (unique on
+        // notification_id) — idempotency even across concurrent re-runs.
+        const claimed = await db
+          .insert(emailDeliveries)
+          .values({
+            userId: recipient.userId,
+            toEmail: recipient.email,
+            notificationId,
+            issueId: args.issue.id,
+            kind: `notification`,
+          })
+          .onConflictDoNothing({ target: emailDeliveries.notificationId })
+          .returning({ id: emailDeliveries.id })
+        if (claimed.length === 0) return
+
+        try {
+          const result = await sendNotificationEmail({
+            to: recipient.email,
+            subject: args.title,
+            heading: args.title,
+            body: args.body ?? args.issue.title,
+            actionUrl,
+            unsubscribeUrl: buildUnsubscribeUrl(
+              base,
+              recipient.unsubscribeToken
+            ),
+          })
+          await db
+            .update(emailDeliveries)
+            .set({
+              status: result.delivered ? `sent` : `failed`,
+              provider: result.provider,
+              providerMessageId: result.messageId,
+              sentAt: result.delivered ? new Date() : null,
+              error: result.delivered ? null : `no email transport configured`,
+            })
+            .where(eq(emailDeliveries.id, claimed[0].id))
+        } catch (sendErr) {
+          await db
+            .update(emailDeliveries)
+            .set({
+              status: `failed`,
+              error: String(sendErr).slice(0, 1000),
+            })
+            .where(eq(emailDeliveries.id, claimed[0].id))
+          throw sendErr
+        }
+      } catch (err) {
+        console.error(`[notify] email to ${recipient.email} failed:`, err)
+      }
+    })
   )
 }
 
 /**
  * Notify the new assignee that an issue was assigned to them (targeted). Writes
- * an `issue_assigned` row (previously this was push-only) + a plan-gated push.
+ * an `issue_assigned` row + push + email.
  */
 export function fireAndForgetAssignmentNotify(args: {
   issueId: string
@@ -268,6 +404,161 @@ export function fireAndForgetStatusChangeNotify(args: {
       })
     } catch (err) {
       console.error(`[notify] status change failed:`, err)
+    }
+  })()
+}
+
+/**
+ * PR lifecycle fan-out (pr_opened from the MCP open_pr tool + the webhook's
+ * out-of-band linking; pr_merged from applyPrMergeState's idempotent guard).
+ * Targets the assignee + active subscribers, minus the actor — the away/phone
+ * flow's "PR opened" / "it's merged" on all three channels. actorUserId is
+ * null for webhook/cron-driven merges with no mapped app user.
+ */
+export function fireAndForgetPrNotify(args: {
+  issueId: string
+  type: `pr_opened` | `pr_merged`
+  actorUserId?: string | null
+}): void {
+  const { issueId, type } = args
+  const actorUserId = args.actorUserId ?? null
+
+  void (async () => {
+    try {
+      const issue = await loadIssueMeta(issueId)
+      if (!issue) return
+
+      const recipients = new Set(
+        await subscriberRecipients(issueId, actorUserId)
+      )
+      if (issue.assigneeId && issue.assigneeId !== actorUserId) {
+        recipients.add(issue.assigneeId)
+      }
+      if (recipients.size === 0) return
+
+      const name = actorUserId ? await actorName(actorUserId) : null
+      const title =
+        type === `pr_opened`
+          ? name
+            ? `${name} opened a pull request for ${issue.identifier}`
+            : `A pull request was opened for ${issue.identifier}`
+          : name
+            ? `${name} merged the pull request for ${issue.identifier}`
+            : `The pull request for ${issue.identifier} was merged`
+
+      await deliver({
+        issue,
+        recipientIds: [...recipients],
+        type,
+        pushType: type,
+        title,
+        body: issue.title,
+      })
+    } catch (err) {
+      console.error(`[notify] pr ${type} failed:`, err)
+    }
+  })()
+}
+
+/**
+ * One-way helpdesk (§6.4): when a widget-reported issue is closed
+ * (done/cancelled), email the external reporter(s) a CLEAN resolution notice —
+ * no internal metadata, no in-app/push rows (reporters have no account).
+ *
+ * Exactly once per close: widget_submissions.resolvedNotifiedAt is claimed
+ * atomically (set-once, never cleared on reopen), so a reopen→re-close never
+ * re-emails. With no email transport configured the send is skipped WITHOUT
+ * claiming the flag, so configuring email later still allows the notice on the
+ * next close. Never throws.
+ */
+export function fireAndForgetReporterResolution(args: {
+  issueId: string
+  toStatus: string
+}): void {
+  const { issueId, toStatus } = args
+  if (!isResolutionStatus(toStatus)) return
+
+  void (async () => {
+    try {
+      // Self-host optionality (§6.6): no transport → skip silently, leave the
+      // flag unset.
+      if (!emailEnabled) return
+
+      const [submission] = await db
+        .select({
+          id: widgetSubmissions.id,
+          resolvedNotifiedAt: widgetSubmissions.resolvedNotifiedAt,
+        })
+        .from(widgetSubmissions)
+        .where(eq(widgetSubmissions.issueId, issueId))
+        .limit(1)
+      if (!submission) return
+      if (
+        !shouldSendReporterResolution({
+          toStatus,
+          resolvedNotifiedAt: submission.resolvedNotifiedAt,
+        })
+      ) {
+        return
+      }
+
+      const reporterRows = await db
+        .select({ email: issueSubscribers.email })
+        .from(issueSubscribers)
+        .where(
+          and(
+            eq(issueSubscribers.issueId, issueId),
+            eq(issueSubscribers.source, `widget_reporter`),
+            eq(issueSubscribers.unsubscribed, false),
+            isNotNull(issueSubscribers.email)
+          )
+        )
+      const emails = [...new Set(reporterRows.map((r) => r.email as string))]
+      if (emails.length === 0) return
+
+      // Atomic set-once claim — concurrent closers race on the NULL check.
+      const claimed = await db
+        .update(widgetSubmissions)
+        .set({ resolvedNotifiedAt: new Date() })
+        .where(
+          and(
+            eq(widgetSubmissions.id, submission.id),
+            isNull(widgetSubmissions.resolvedNotifiedAt)
+          )
+        )
+        .returning({ id: widgetSubmissions.id })
+      if (claimed.length === 0) return
+
+      const issue = await loadIssueMeta(issueId)
+      const issueTitle = issue?.title ?? `Your report`
+
+      await Promise.all(
+        emails.map(async (email) => {
+          try {
+            const result = await sendReporterResolutionEmail({
+              to: email,
+              issueTitle,
+            })
+            await db.insert(emailDeliveries).values({
+              userId: null,
+              toEmail: email,
+              issueId,
+              kind: `widget_resolution`,
+              status: result.delivered ? `sent` : `failed`,
+              provider: result.provider,
+              providerMessageId: result.messageId,
+              sentAt: result.delivered ? new Date() : null,
+            })
+          } catch (err) {
+            console.error(
+              `[notify] reporter resolution email to ${email} failed:`,
+              err
+            )
+          }
+        })
+      )
+    } catch (err) {
+      console.error(`[notify] reporter resolution failed:`, err)
     }
   })()
 }

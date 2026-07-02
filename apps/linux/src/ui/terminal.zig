@@ -276,8 +276,10 @@ pub fn create(gpa: std.mem.Allocator, opts: Options) ?gtk.Object {
     // Own the state for the widget's lifetime; freed on destroy.
     gtk.g_object_set_data_full(area, "exp-term", term, destroyTerm);
 
-    // Signals: realize (GL ctx), resize (create + size), render (draw).
+    // Signals: realize (GL ctx), unrealize (GL ctx teardown — fires on tab
+    // detach/reparent), resize (create + size), render (draw).
     _ = gtk.g_signal_connect_data(area, "realize", @ptrCast(&onRealize), term, null, 0);
+    _ = gtk.g_signal_connect_data(area, "unrealize", @ptrCast(&onUnrealize), term, null, 0);
     _ = gtk.g_signal_connect_data(area, "resize", @ptrCast(&onResize), term, null, 0);
     _ = gtk.g_signal_connect_data(area, "render", @ptrCast(&onRender), term, null, 0);
 
@@ -358,6 +360,20 @@ fn onRealize(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
         return;
     }
     if (term.surface != null) g.ghostty_surface_display_realized(term.surface);
+}
+
+/// The GLArea is being unrealized — its GL context dies with the old native
+/// surface. Fires on tab detach/reparent into another window (§4d) BEFORE
+/// GtkGLArea's default unrealize drops the context (widget "unrealize" is
+/// RUN_LAST), so ghostty can release its GL resources against the
+/// still-current context; the next `onRealize` re-creates them in the new
+/// window's context via ghostty_surface_display_realized. The child process
+/// is untouched — reparent, never recreate.
+fn onUnrealize(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const term: *Term = @ptrCast(@alignCast(data orelse return));
+    if (term.surface == null) return;
+    gtk.gtk_gl_area_make_current(term.area);
+    g.ghostty_surface_display_unrealized(term.surface);
 }
 
 fn onResize(_: gtk.Object, width: c_int, height: c_int, data: gtk.gpointer) callconv(.c) void {

@@ -11,6 +11,7 @@ import { SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceMobileTopbar } from "@/components/workspace/mobile-topbar"
 import { WorkspaceSidebar } from "@/components/workspace/sidebar"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
+import { IssueRefProvider } from "@/components/issue-ref-provider"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
@@ -72,23 +73,30 @@ function WorkspaceLayout() {
 
   return (
     <SidebarProvider>
-      <FeedbackWidgetProvider />
-      <WorkspaceSidebar
+      {/* Workspace-scoped `#IDENTIFIER` resolution for pill rendering, the
+          composer autocomplete and the duplicate-of picker. */}
+      <IssueRefProvider
+        workspaceId={workspace?.id}
         workspaceSlug={workspaceSlug}
-        workspace={workspace}
-        projects={projects}
-      />
-
-      <main className="flex-1 flex flex-col min-h-screen">
-        <WorkspaceMobileTopbar
+      >
+        <FeedbackWidgetProvider />
+        <WorkspaceSidebar
           workspaceSlug={workspaceSlug}
-          projects={projects ?? []}
-          workspaceId={workspace?.id}
+          workspace={workspace}
+          projects={projects}
         />
-        <div className="flex-1">
-          <Outlet />
-        </div>
-      </main>
+
+        <main className="flex-1 flex flex-col min-h-screen">
+          <WorkspaceMobileTopbar
+            workspaceSlug={workspaceSlug}
+            projects={projects ?? []}
+            workspaceId={workspace?.id}
+          />
+          <div className="flex-1">
+            <Outlet />
+          </div>
+        </main>
+      </IssueRefProvider>
     </SidebarProvider>
   )
 }

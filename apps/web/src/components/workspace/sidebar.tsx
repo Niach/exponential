@@ -1,8 +1,10 @@
 import { useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
+  Bell,
   Check,
   ChevronsUpDown,
+  CircleUser,
   FolderKanban,
   Inbox,
   LogIn,
@@ -206,6 +208,19 @@ export function WorkspaceSidebar({
                   {isAuthed && (
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
+                        <Link
+                          to="/w/$workspaceSlug/my-issues"
+                          params={{ workspaceSlug }}
+                        >
+                          <CircleUser className="h-4 w-4" />
+                          <span>My Issues</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAuthed && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
                         <Link to="/w/$workspaceSlug/inbox" params={{ workspaceSlug }}>
                           <Inbox className="h-4 w-4" />
                           <span>Inbox</span>
@@ -312,6 +327,12 @@ export function WorkspaceSidebar({
                 >
                   <Plug className="mr-2 h-4 w-4" />
                   Integrations
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => navigate({ to: `/account/notifications` })}
+                >
+                  <Bell className="mr-2 h-4 w-4" />
+                  Notifications
                 </DropdownMenuItem>
                 {!showChrome && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>

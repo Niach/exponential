@@ -22,8 +22,10 @@ test {
     _ = @import("core/steer/publisher.zig");
     _ = @import("core/db/database.zig");
     _ = @import("core/db/migrations.zig");
+    _ = @import("core/diff.zig"); // unified patch → side-by-side hunk model (§4e)
     _ = @import("core/annotate/geometry.zig");
     _ = @import("ui/preview/preview_config.zig"); // GTK-free parse + trust + doctor
     _ = @import("ui/oauth.zig");
     _ = @import("ui/format.zig"); // GTK-free presentation helpers
+    _ = @import("ui/tab_registry.zig"); // GTK-free terminal-dock tab bookkeeping (§4d)
 }

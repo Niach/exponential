@@ -12,6 +12,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.header
 import io.ktor.serialization.kotlinx.json.json
 import javax.inject.Singleton
@@ -35,6 +36,9 @@ object HttpClientModule {
         HttpClient(CIO) {
             expectSuccess = false
             install(ContentNegotiation) { json(json) }
+            // Steer viewer sockets (relay PTY mirror, masterplan §5c) ride the
+            // same client; the plugin is inert for plain HTTP calls.
+            install(WebSockets)
             if (BuildConfig.DEBUG) {
                 install(Logging) {
                     level = LogLevel.INFO

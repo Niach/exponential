@@ -1,7 +1,10 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { workspaceMembers } from "@/db/schema"
+import { issues, projects, workspaceMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
+import { extractIssueRefs } from "@/lib/issue-refs"
+
+export { extractIssueRefs }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -42,4 +45,31 @@ export async function resolveMentions(
     )
 
   return [...new Set(rows.map((r) => r.id))]
+}
+
+// Resolve `#IDENTIFIER` issue references (see lib/issue-refs.ts for the token
+// contract) to issues in the same workspace — mirroring resolveMentions, so a
+// reference only counts when the target issue is actually visible there. v1
+// keeps references as plain links (no notification fan-out); this resolver is
+// the anchor point for a future "referenced-in" signal.
+export async function resolveIssueRefs(
+  tx: Tx,
+  text: string,
+  workspaceId: string
+): Promise<Array<{ id: string; identifier: string }>> {
+  const identifiers = extractIssueRefs(text)
+  if (identifiers.length === 0) return []
+
+  const rows = await tx
+    .select({ id: issues.id, identifier: issues.identifier })
+    .from(issues)
+    .innerJoin(projects, eq(projects.id, issues.projectId))
+    .where(
+      and(
+        eq(projects.workspaceId, workspaceId),
+        inArray(issues.identifier, identifiers)
+      )
+    )
+
+  return rows
 }

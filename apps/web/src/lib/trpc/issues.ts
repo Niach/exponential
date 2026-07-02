@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, issues, issueLabels, labels } from "@/db/schema"
+import { attachments, issues, issueLabels, labels, projects } from "@/db/schema"
 import { eq, inArray } from "drizzle-orm"
 import {
   resolveWorkspaceAccess,
@@ -44,6 +44,7 @@ import {
 } from "@/lib/issue-recurrence"
 import {
   fireAndForgetAssignmentNotify,
+  fireAndForgetReporterResolution,
   fireAndForgetStatusChangeNotify,
 } from "@/lib/integrations/notifications"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
@@ -208,8 +209,10 @@ export const issuesRouter = router({
         endTime: timeOnlySchema.nullable().optional(),
         recurrenceInterval: recurrenceIntervalSchema.nullable().optional(),
         recurrenceUnit: recurrenceUnitSchema.nullable().optional(),
-        // Canonical issue this one duplicates (pairs with status='duplicate').
-        // Plain pass-through for now — no mark-as-duplicate UX yet.
+        // Canonical issue this one duplicates. Kept in lockstep with the
+        // 'duplicate' status inside the transaction below: marking forces
+        // status='duplicate'; unmarking (null) restores backlog; moving to any
+        // other status clears the link.
         duplicateOfId: z.string().uuid().nullable().optional(),
         archivedAt: z
           .union([z.string().datetime({ offset: true }), z.string().datetime()])
@@ -237,6 +240,9 @@ export const issuesRouter = router({
         )
       ) {
         applyModerationRestrictions(updates as Record<string, unknown>)
+        // duplicateOfId isn't in the shared moderation field list (it's
+        // web-schema-specific), but it drives a status change — strip it too.
+        delete updates.duplicateOfId
       }
 
       if (
@@ -262,6 +268,7 @@ export const issuesRouter = router({
             assigneeId: issues.assigneeId,
             recurrenceInterval: issues.recurrenceInterval,
             recurrenceUnit: issues.recurrenceUnit,
+            duplicateOfId: issues.duplicateOfId,
           })
           .from(issues)
           .where(eq(issues.id, id))
@@ -277,13 +284,55 @@ export const issuesRouter = router({
         previousAssigneeId = currentIssue.assigneeId
         const setValues: Record<string, unknown> = { ...updates }
 
+        // Keep duplicateOfId and the 'duplicate' status in lockstep,
+        // atomically in this one UPDATE (masterplan §5e).
+        if (updates.duplicateOfId !== undefined) {
+          if (updates.duplicateOfId !== null) {
+            if (updates.duplicateOfId === id) {
+              throw new TRPCError({
+                code: `BAD_REQUEST`,
+                message: `An issue cannot be a duplicate of itself`,
+              })
+            }
+            // The canonical issue must live in the same workspace.
+            const [canonical] = await tx
+              .select({ workspaceId: projects.workspaceId })
+              .from(issues)
+              .innerJoin(projects, eq(projects.id, issues.projectId))
+              .where(eq(issues.id, updates.duplicateOfId))
+              .limit(1)
+            if (
+              !canonical ||
+              canonical.workspaceId !== issueContext.workspaceId
+            ) {
+              throw new TRPCError({
+                code: `BAD_REQUEST`,
+                message: `Canonical issue must be in the same workspace`,
+              })
+            }
+            setValues.status = `duplicate`
+          } else if ((updates.status ?? currentIssue.status) === `duplicate`) {
+            // Unmarking: 'duplicate' no longer applies. The prior status isn't
+            // stored, so restore the neutral default.
+            setValues.status = `backlog`
+          }
+        } else if (
+          updates.status !== undefined &&
+          updates.status !== `duplicate` &&
+          currentIssue.duplicateOfId !== null
+        ) {
+          // Moving off 'duplicate' via a plain status change also unmarks.
+          setValues.duplicateOfId = null
+        }
+
+        const nextStatus = setValues.status as string | undefined
         if (
-          updates.status === `done` ||
-          updates.status === `cancelled` ||
-          updates.status === `duplicate`
+          nextStatus === `done` ||
+          nextStatus === `cancelled` ||
+          nextStatus === `duplicate`
         ) {
           setValues.completedAt = new Date()
-        } else if (updates.status) {
+        } else if (nextStatus) {
           setValues.completedAt = null
         }
 
@@ -457,6 +506,12 @@ export const issuesRouter = router({
           issueId: issue.id,
           actorUserId: ctx.session.user.id,
           fromStatus: statusChange.from,
+          toStatus: statusChange.to,
+        })
+        // One-way helpdesk: closing a widget-reported issue emails the
+        // external reporter once (idempotent via resolvedNotifiedAt).
+        fireAndForgetReporterResolution({
+          issueId: issue.id,
           toStatus: statusChange.to,
         })
       }

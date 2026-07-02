@@ -9,6 +9,12 @@ final class IssueDetailViewModel {
     var labels: [LabelEntity] = []
     var issueLabels: [IssueLabelEntity] = []
     var users: [UserEntity] = []
+    /// Live coding sessions for this issue (synced coding_sessions shape) —
+    /// drives the "Coding now" badge + Watch/Steer entry (masterplan §5c).
+    var runningSessions: [CodingSessionEntity] = []
+    /// The canonical issue when this one is marked a duplicate — resolves the
+    /// "Duplicate of {IDENTIFIER}" banner (masterplan §5e).
+    var duplicateOf: IssueEntity?
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
@@ -83,6 +89,20 @@ final class IssueDetailViewModel {
                         self.editor.applyRemote(markdown: remoteText, baseURL: self.baseURL)
                     }
                     self.refreshPermissions(for: issue)
+                    self.refreshDuplicateOf(issue: issue, pool: pool)
+                }
+            }
+
+            // Live "coding now" sessions for this issue (14th synced shape).
+            let sessionObs = ValueObservation.tracking { db in
+                try CodingSessionEntity
+                    .filter(Column("issue_id") == self.issueId)
+                    .filter(Column("status") == "running")
+                    .fetchAll(db)
+            }
+            Task {
+                for try await sessions in sessionObs.values(in: pool) {
+                    self.runningSessions = sessions
                 }
             }
 
@@ -292,6 +312,60 @@ final class IssueDetailViewModel {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    // MARK: - Duplicate-of (masterplan §5e)
+
+    /// Mark this issue as a duplicate of `canonical`: sets `duplicateOfId` AND
+    /// flips status to the terminal `duplicate` in ONE atomic update.
+    func markDuplicate(of canonical: IssueEntity) async {
+        guard let issue, canonical.id != issue.id else { return }
+        await update(UpdateIssueInput(
+            id: issue.id,
+            status: IssueStatus.duplicate.rawValue,
+            duplicateOfId: canonical.id
+        ))
+    }
+
+    /// Clear the duplicate marking: null the FK and restore a working status.
+    func unmarkDuplicate() async {
+        guard let issue else { return }
+        var input = UpdateIssueInput(id: issue.id, status: IssueStatus.backlog.rawValue)
+        input.explicitNulls.insert("duplicateOfId")
+        await update(input)
+    }
+
+    /// Candidate canonical issues for the duplicate picker: every other issue
+    /// in the same workspace (across projects), newest first. One-shot read —
+    /// the picker is transient.
+    func duplicateCandidates() async -> [IssueEntity] {
+        guard let issue, let pool = try? db.pool(forAccountId: accountId) else { return [] }
+        let issueId = issue.id
+        let projectId = issue.projectId
+        let result: [IssueEntity]? = try? await pool.read { db in
+            guard let project = try ProjectEntity.fetchOne(db, key: projectId) else { return [] }
+            let workspaceProjectIds = try ProjectEntity
+                .filter(Column("workspace_id") == project.workspaceId)
+                .fetchAll(db)
+                .map(\.id)
+            return try IssueEntity
+                .filter(workspaceProjectIds.contains(Column("project_id")))
+                .fetchAll(db)
+                .filter { $0.id != issueId && $0.archivedAt == nil }
+                .sorted { $0.updatedAt > $1.updatedAt }
+        }
+        return result ?? []
+    }
+
+    private func refreshDuplicateOf(issue: IssueEntity, pool: DatabasePool) {
+        guard let canonicalId = issue.duplicateOfId else {
+            duplicateOf = nil
+            return
+        }
+        guard duplicateOf?.id != canonicalId else { return }
+        duplicateOf = (try? pool.read { db in
+            try IssueEntity.fetchOne(db, key: canonicalId)
+        }) ?? nil
     }
 
     func deleteIssue() async -> Bool {

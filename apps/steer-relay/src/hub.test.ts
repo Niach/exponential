@@ -200,6 +200,39 @@ describe(`session rooms`, () => {
     expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
   })
 
+  test(`publisher release/claim force-clears an active viewer claim (take over)`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const steerer = connectViewer(hub, { sub: `s`, perm: `steer` })
+
+    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
+    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
+
+    // "Take over" on the desktop sends release-then-claim on the publisher
+    // socket — the local user wins immediately.
+    hub.onMessage(pub, JSON.stringify({ t: `release` }))
+    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: null })
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
+
+    hub.onMessage(pub, JSON.stringify({ t: `claim` }))
+    // The publisher never becomes steererId — local input doesn't flow
+    // through the relay.
+    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: null })
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
+
+    // The evicted viewer's keystrokes no longer flow.
+    hub.onMessage(steerer, JSON.stringify({ t: `input`, data: `x` }))
+    expect(pub.lastFrame(`input`)).toBeUndefined()
+
+    // Viewer semantics are unchanged: it can re-claim afterwards.
+    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
+    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
+
+    // A publisher claim while a fresh viewer claim is held also clears it.
+    hub.onMessage(pub, JSON.stringify({ t: `claim` }))
+    expect(steerer.lastFrame(`presence`)).toMatchObject({ steererId: null })
+  })
+
   test(`kill requires steer perm and reaches the publisher`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)

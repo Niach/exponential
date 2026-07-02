@@ -78,6 +78,9 @@ private final class ControlConnection {
     private var task: URLSessionWebSocketTask?
     private var stopped = false
     private var backoff: Double = 2
+    /// When the current dial started; a connection that lived >60s counts as
+    /// healthy and resets the failure backoff when it eventually drops.
+    private var dialedAt: Date?
     /// Steer disabled / router missing is a TERMINAL state, not a failure —
     /// recheck slowly instead of hot-polling `steer.config` every ≤30s from
     /// every running Mac app.
@@ -133,7 +136,7 @@ private final class ControlConnection {
             let t = URLSession.shared.webSocketTask(with: url)
             task = t
             t.resume()
-            backoff = 2
+            dialedAt = Date()
             sendOnline()
             receiveLoop()
         }
@@ -170,6 +173,11 @@ private final class ControlConnection {
     private func scheduleReconnect() {
         guard !stopped else { return }
         task = nil
+        // Only a connection that actually lived a while proves the relay is
+        // healthy — resetting the backoff at dial time would defeat it and
+        // hot-loop config+mint round-trips against an unreachable relay.
+        if let dialedAt, Date().timeIntervalSince(dialedAt) > 60 { backoff = 2 }
+        dialedAt = nil
         let delay = backoff
         backoff = min(backoff * 2, 30)
         Task { @MainActor [weak self] in

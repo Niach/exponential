@@ -19,6 +19,7 @@ interface IssueFilterBarProps {
   labels: Label[]
   onNewIssue: () => void
   canCreate?: boolean
+  title?: string
 }
 
 export function IssueFilterBar({
@@ -27,6 +28,7 @@ export function IssueFilterBar({
   labels,
   onNewIssue,
   canCreate = true,
+  title = `Issues`,
 }: IssueFilterBarProps) {
   const activeTab = deriveActiveTab(filters.statuses)
 
@@ -37,7 +39,7 @@ export function IssueFilterBar({
   return (
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between py-3">
-        <h1 className="hidden md:block text-base font-medium">Issues</h1>
+        <h1 className="hidden md:block text-base font-medium">{title}</h1>
         <div className="flex items-center gap-1 ml-auto">
           <IssueFilterPopover
             filters={filters}

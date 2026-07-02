@@ -81,6 +81,23 @@ pub extern fn adw_navigation_view_replace(self: Object, pages: [*]const Object, 
 pub extern fn adw_navigation_page_new(child: Object, title: [*:0]const u8) Object;
 pub extern fn adw_navigation_page_set_title(self: Object, title: [*:0]const u8) void;
 
+// AdwTabView / AdwTabBar / AdwTabPage — the multi-session terminal dock (§4d).
+// Detach works by TRANSFERRING a page between views (adw reparents the child
+// widget — the embedded ghostty surface is never destroyed/recreated).
+pub extern fn adw_tab_view_new() Object;
+pub extern fn adw_tab_view_append(self: Object, child: Object) Object; // -> AdwTabPage*
+pub extern fn adw_tab_view_get_selected_page(self: Object) Object;
+pub extern fn adw_tab_view_set_selected_page(self: Object, page: Object) void;
+pub extern fn adw_tab_view_get_n_pages(self: Object) c_int;
+pub extern fn adw_tab_view_transfer_page(self: Object, page: Object, other_view: Object, position: c_int) void;
+pub extern fn adw_tab_page_get_child(self: Object) Object;
+pub extern fn adw_tab_page_set_title(self: Object, title: [*:0]const u8) void;
+pub extern fn adw_tab_page_get_title(self: Object) [*:0]const u8;
+pub extern fn adw_tab_bar_new() Object;
+pub extern fn adw_tab_bar_set_view(self: Object, view: Object) void;
+pub extern fn adw_tab_bar_set_autohide(self: Object, autohide: c_int) void;
+pub extern fn g_signal_handler_disconnect(instance: Object, handler_id: c_ulong) void;
+
 pub extern fn adw_status_page_new() Object;
 pub extern fn adw_status_page_set_icon_name(self: Object, icon_name: [*:0]const u8) void;
 pub extern fn adw_status_page_set_title(self: Object, title: [*:0]const u8) void;
@@ -223,6 +240,22 @@ pub extern fn gtk_list_box_row_get_child(row: Object) Object;
 pub extern fn gtk_list_box_get_row_at_index(box: Object, index: c_int) Object;
 pub extern fn gtk_list_box_select_row(box: Object, row: Object) void;
 
+// --- GtkListView + GtkSignalListItemFactory + GListModel (virtualized issue
+//     list, §4e). Rows are recycled: only visible items get widgets, so large
+//     workspaces stop materializing thousands of rows. The model is a plain
+//     GtkStringList of positions; row data lives Zig-side in the AppState
+//     snapshot and is looked up by position at bind time. ---
+pub extern fn gtk_string_list_new(strings: ?[*:null]const ?[*:0]const u8) Object;
+pub extern fn gtk_string_list_append(self: Object, string: [*:0]const u8) void;
+pub extern fn gtk_no_selection_new(model: Object) Object; // takes ownership of model
+pub extern fn gtk_signal_list_item_factory_new() Object;
+pub extern fn gtk_list_view_new(model: Object, factory: Object) Object; // takes ownership of both
+pub extern fn gtk_list_view_set_model(self: Object, model: Object) void; // refs model
+pub extern fn gtk_list_view_set_single_click_activate(self: Object, single_click_activate: c_int) void;
+pub extern fn gtk_list_item_get_position(self: Object) c_uint;
+pub extern fn gtk_list_item_set_child(self: Object, child: Object) void;
+pub extern fn gtk_list_item_set_activatable(self: Object, activatable: c_int) void;
+
 // GSourceFunc timer / idle — drive UI refreshes on the main loop. g_idle_add is
 // thread-safe, so sync threads use it to schedule a refresh.
 pub extern fn g_timeout_add(interval_ms: c_uint, function: ?*const fn (gpointer) callconv(.c) c_int, data: gpointer) c_uint;
@@ -346,6 +379,26 @@ pub extern fn gtk_css_provider_new() Object;
 pub extern fn gtk_css_provider_load_from_string(self: Object, string: [*:0]const u8) void;
 pub extern fn gdk_display_get_default() Object;
 pub extern fn gtk_style_context_add_provider_for_display(display: Object, provider: Object, priority: c_uint) void;
+
+// --- GtkSourceView-5 (side-by-side syntax-highlighted PR diff, §4e).
+//     GtkSourceView subclasses GtkTextView, GtkSourceBuffer subclasses
+//     GtkTextBuffer — the gtk_text_* declarations above work on them. ---
+pub extern fn gtk_source_language_manager_get_default() Object;
+pub extern fn gtk_source_language_manager_guess_language(lm: Object, filename: ?[*:0]const u8, content_type: ?[*:0]const u8) Object;
+pub extern fn gtk_source_style_scheme_manager_get_default() Object;
+pub extern fn gtk_source_style_scheme_manager_get_scheme(manager: Object, scheme_id: [*:0]const u8) Object;
+pub extern fn gtk_source_buffer_new(table: Object) Object;
+pub extern fn gtk_source_buffer_set_language(buffer: Object, language: Object) void;
+pub extern fn gtk_source_buffer_set_highlight_syntax(buffer: Object, highlight: c_int) void;
+pub extern fn gtk_source_buffer_set_style_scheme(buffer: Object, scheme: Object) void;
+pub extern fn gtk_source_view_new_with_buffer(buffer: Object) Object;
+// Text-view knobs the diff view needs beyond the editor's declarations.
+pub extern fn gtk_text_view_set_monospace(text_view: Object, monospace: c_int) void;
+pub extern fn gtk_text_buffer_get_iter_at_line(buffer: Object, iter: ?*anyopaque, line_number: c_int) c_int;
+// GtkPolicyType (scrollbar policies) for per-column horizontal scrolling.
+pub const POLICY_AUTOMATIC: c_int = 1;
+pub const POLICY_NEVER: c_int = 2;
+pub extern fn gtk_scrolled_window_set_policy(scrolled_window: Object, hscrollbar_policy: c_int, vscrollbar_policy: c_int) void;
 
 // =========================================================================
 // Preview pane FFI (WS4): annotation overlay (Cairo draw + GdkPixbuf flatten),

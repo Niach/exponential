@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { TRPCClientError } from "@trpc/client"
+import { isPlanLimitError } from "@/lib/plan-limit-error"
 import {
   Dialog,
   DialogContent,
@@ -62,7 +62,7 @@ export function CreateWorkspaceDialog({
         navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug: newSlug } })
       }
     } catch (e) {
-      if (e instanceof TRPCClientError && e.data?.code === `FORBIDDEN`) {
+      if (isPlanLimitError(e)) {
         reset()
         onOpenChange(false)
         setUpgradeOpen(true)

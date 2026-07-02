@@ -32,6 +32,10 @@ pub const InputFn = *const fn (ctx: ?*anyopaque, bytes: []const u8) void;
 pub const KillFn = *const fn (ctx: ?*anyopaque) void;
 /// Remote resize — SOCKET thread. Update the PTY winsize.
 pub const ResizeFn = *const fn (ctx: ?*anyopaque, cols: u16, rows: u16) void;
+/// Presence changed — SOCKET thread. `steerer_id` null ⇒ nobody steers;
+/// `steerer_name` is resolved from the frame's viewers list when known.
+/// Drives the "Remote steering — <name>" banner (§3.4); marshal to main.
+pub const PresenceFn = *const fn (ctx: ?*anyopaque, steerer_id: ?[]const u8, steerer_name: ?[]const u8) void;
 
 pub const Options = struct {
     instance: []const u8,
@@ -43,6 +47,7 @@ pub const Options = struct {
     on_input: InputFn,
     on_kill: KillFn,
     on_remote_resize: ?ResizeFn = null,
+    on_presence: ?PresenceFn = null,
     ctx: ?*anyopaque = null,
 };
 
@@ -55,6 +60,7 @@ pub const Publisher = struct {
     on_input: InputFn,
     on_kill: KillFn,
     on_remote_resize: ?ResizeFn,
+    on_presence: ?PresenceFn,
     ctx: ?*anyopaque,
 
     ring: protocol.RingBuffer,
@@ -62,6 +68,10 @@ pub const Publisher = struct {
 
     conn_mutex: util.Mutex = .{},
     conn: ?*ws.Client = null, // guarded by conn_mutex; owned by the thread
+    /// Teardown handle that reaches the socket fd in EVERY phase (mid-dial,
+    /// handshake, live) WITHOUT needing conn_mutex — `stop` cancels through
+    /// it so it can never deadlock behind a thread holding conn_mutex.
+    connect_control: ws.ConnectControl = .{},
     connected: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     stop_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     bye_sent: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -102,6 +112,7 @@ pub const Publisher = struct {
             .on_input = opts.on_input,
             .on_kill = opts.on_kill,
             .on_remote_resize = opts.on_remote_resize,
+            .on_presence = opts.on_presence,
             .ctx = opts.ctx,
             .ring = ring,
             .cols = std.atomic.Value(u16).init(opts.cols),
@@ -123,13 +134,14 @@ pub const Publisher = struct {
         if (issue_id) |i| gpa.free(i);
     }
 
-    /// End the room (bye + close). Idempotent; GTK main thread.
+    /// End the room (bye + close). Idempotent; GTK main thread. The bye is
+    /// best-effort/non-blocking, and the shutdown goes through the connect
+    /// control (not conn_mutex), so stop stays prompt even against a wedged
+    /// peer and reaches a socket that is still mid-dial.
     pub fn stop(self: *Publisher, outcome: []const u8) void {
         if (self.stop_flag.swap(true, .acq_rel)) return;
         self.sendByeLocked(outcome);
-        self.conn_mutex.lock();
-        defer self.conn_mutex.unlock();
-        if (self.conn) |client| client.shutdownSocket();
+        self.connect_control.cancel();
     }
 
     /// Stop (if still running), join the socket thread, free. Main thread.
@@ -165,6 +177,15 @@ pub const Publisher = struct {
         };
     }
 
+    /// §3.4 "Take over": release the remote steerer's claim, then claim on the
+    /// local user's own behalf — their machine wins. GTK main thread. Local
+    /// typing is never gated on this; it only reclaims the remote steer token.
+    pub fn takeOver(self: *Publisher) void {
+        if (!self.connected.load(.acquire)) return;
+        self.sendTextLocked(protocol.release_frame);
+        self.sendTextLocked(protocol.claim_frame);
+    }
+
     /// The local terminal grid changed — remember it (for hello) and tell
     /// viewers to reflow. Main thread.
     pub fn sendResize(self: *Publisher, cols: u16, rows: u16) void {
@@ -184,7 +205,7 @@ pub const Publisher = struct {
         defer gpa.free(url);
         if (self.stop_flag.load(.acquire)) return;
 
-        const client = ws.Client.connect(gpa, url, 55) catch return;
+        const client = ws.Client.connect(gpa, url, 55, &self.connect_control) catch return;
         self.conn_mutex.lock();
         if (self.stop_flag.load(.acquire)) {
             self.conn_mutex.unlock();
@@ -219,6 +240,7 @@ pub const Publisher = struct {
                         .input => |data| self.on_input(self.ctx, data),
                         .resync => self.replay(client),
                         .resize => |sz| if (self.on_remote_resize) |cb| cb(self.ctx, sz.cols, sz.rows),
+                        .presence => |p| if (self.on_presence) |cb| cb(self.ctx, p.steerer_id, p.steerer_name),
                         .kill => {
                             self.on_kill(self.ctx);
                             // The main thread runs the end path (bye + stop);
@@ -266,11 +288,15 @@ pub const Publisher = struct {
         client.sendBinary(frame) catch {};
     }
 
+    /// Best-effort text send under conn_mutex. NON-blocking on purpose: these
+    /// frames (resize, claim/release, bye) come from the GTK main thread, and
+    /// no conn_mutex holder may ever block on the socket — that would wedge
+    /// `feed`/`stop` behind it. A full buffer drops the frame.
     fn sendTextLocked(self: *Publisher, frame: []const u8) void {
         self.conn_mutex.lock();
         defer self.conn_mutex.unlock();
         const client = self.conn orelse return;
-        client.sendText(frame) catch {};
+        client.sendTextNoWait(frame) catch {};
     }
 
     fn sendByeLocked(self: *Publisher, outcome: []const u8) void {

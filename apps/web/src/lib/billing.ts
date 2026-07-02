@@ -1,45 +1,81 @@
 import { TRPCError } from "@trpc/server"
-import { eq, sql } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   workspaceMembers,
   workspaces,
   projects,
   attachments,
+  codingSessions,
+  repositories,
   creem_subscriptions,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
+import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
 
 export type PlanTier = `free` | `pro` | `business` | `unlimited`
 
+// Push + email notification delivery are FREE on every tier (never plan-gated)
+// — the moat is seats/projects/repos/storage/coding capacity, never "nothing
+// gets lost". Do NOT add `push` or `email` booleans here.
 type PlanLimits = {
   members: number
   projects: number
   storageMb: number
+  // Connected GitHub repositories per workspace (the coding-flow value axis).
+  repositories: number
+  // How many `running` coding_sessions a workspace may have at once — the
+  // capacity axis for the desktop coding superpower.
+  concurrentCodingSessions: number
   // Number of non-public workspaces a user may OWN. Capping this closes the
   // hole where one free user spins up N workspaces × the per-workspace project
   // quota. `ownedWorkspaces` is required so the compiler flags every literal.
   ownedWorkspaces: number
-  push: boolean
 }
 
 const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
-  free: { members: 1, projects: 3, storageMb: 50, ownedWorkspaces: 1, push: false },
-  pro: { members: 5, projects: 10, storageMb: 1024, ownedWorkspaces: 3, push: true },
+  free: {
+    members: 1,
+    projects: 3,
+    storageMb: 50,
+    repositories: 1,
+    concurrentCodingSessions: 1,
+    ownedWorkspaces: 1,
+  },
+  pro: {
+    members: 5,
+    projects: 10,
+    storageMb: 1024,
+    repositories: 10,
+    concurrentCodingSessions: 3,
+    ownedWorkspaces: 3,
+  },
   business: {
     members: 25,
     projects: Infinity,
     storageMb: 10240,
+    repositories: Infinity,
+    concurrentCodingSessions: Infinity,
     ownedWorkspaces: 10,
-    push: true,
   },
   unlimited: {
     members: Infinity,
     projects: Infinity,
     storageMb: Infinity,
+    repositories: Infinity,
+    concurrentCodingSessions: Infinity,
     ownedWorkspaces: Infinity,
-    push: true,
   },
+}
+
+// Every plan-limit throw below uses PRECONDITION_FAILED + a message starting
+// with PLAN_LIMIT_MESSAGE_PREFIX so clients can detect it and render an
+// upgrade nudge (see lib/plan-limit-error.ts).
+function planLimitError(message: string): TRPCError {
+  return new TRPCError({
+    code: `PRECONDITION_FAILED`,
+    message: `${PLAN_LIMIT_MESSAGE_PREFIX} ${message}`,
+  })
 }
 
 export function getPlanLimits(plan: PlanTier): PlanLimits {
@@ -171,12 +207,11 @@ export async function assertCanCreateWorkspace(userId: string): Promise<void> {
 
   const owned = await countOwnedWorkspaces(userId)
   if (owned >= limits.ownedWorkspaces) {
-    throw new TRPCError({
-      code: `FORBIDDEN`,
-      message: `Your plan allows up to ${limits.ownedWorkspaces} workspace${
+    throw planLimitError(
+      `up to ${limits.ownedWorkspaces} workspace${
         limits.ownedWorkspaces === 1 ? `` : `s`
-      } you can own. Upgrade to create more.`,
-    })
+      } you can own. Upgrade to create more.`
+    )
   }
 }
 
@@ -184,27 +219,38 @@ export type WorkspaceUsage = {
   members: number
   projects: number
   storageMb: number
+  repositories: number
 }
 
 export async function getWorkspaceUsage(
   workspaceId: string
 ): Promise<WorkspaceUsage> {
-  const [[memberCount], [projectCount], [storageSum]] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(workspaceMembers)
-      .where(eq(workspaceMembers.workspaceId, workspaceId)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(projects)
-      .where(eq(projects.workspaceId, workspaceId)),
-    db
-      .select({
-        totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
-      })
-      .from(attachments)
-      .where(eq(attachments.workspaceId, workspaceId)),
-  ])
+  const [[memberCount], [projectCount], [storageSum], [repoCount]] =
+    await Promise.all([
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, workspaceId)),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(projects)
+        .where(eq(projects.workspaceId, workspaceId)),
+      db
+        .select({
+          totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
+        })
+        .from(attachments)
+        .where(eq(attachments.workspaceId, workspaceId)),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.workspaceId, workspaceId),
+            isNull(repositories.archivedAt)
+          )
+        ),
+    ])
 
   const totalBytes = Number(storageSum.totalBytes)
 
@@ -212,12 +258,13 @@ export async function getWorkspaceUsage(
     members: memberCount.count,
     projects: projectCount.count,
     storageMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
+    repositories: repoCount.count,
   }
 }
 
 export async function assertWithinPlanLimits(
   workspaceId: string,
-  resource: `members` | `projects`
+  resource: `members` | `projects` | `repositories`
 ): Promise<void> {
   if (!isCloudInstance()) return
 
@@ -230,10 +277,43 @@ export async function assertWithinPlanLimits(
   const current = usage[resource]
 
   if (current >= limit) {
-    throw new TRPCError({
-      code: `FORBIDDEN`,
-      message: `Your plan allows up to ${limit} ${resource}. Upgrade to add more.`,
-    })
+    const nouns: Record<typeof resource, [singular: string, plural: string]> = {
+      members: [`member`, `members`],
+      projects: [`project`, `projects`],
+      repositories: [`connected repository`, `connected repositories`],
+    }
+    const noun = nouns[resource][limit === 1 ? 0 : 1]
+    throw planLimitError(`up to ${limit} ${noun}. Upgrade to add more.`)
+  }
+}
+
+// Concurrent coding-session capacity: how many `running` sessions a workspace
+// may have at once. Checked at codingSessions.start (and fail-fast at remote
+// steer.startSession); self-hosted is always unlimited.
+export async function assertWithinCodingSessionLimit(
+  workspaceId: string
+): Promise<void> {
+  if (!isCloudInstance()) return
+
+  const { limits } = await getWorkspacePlan(workspaceId)
+  if (limits.concurrentCodingSessions === Infinity) return
+
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.workspaceId, workspaceId),
+        eq(codingSessions.status, `running`)
+      )
+    )
+
+  if ((row?.count ?? 0) >= limits.concurrentCodingSessions) {
+    throw planLimitError(
+      `up to ${limits.concurrentCodingSessions} concurrent coding session${
+        limits.concurrentCodingSessions === 1 ? `` : `s`
+      }. End a running session or upgrade to run more at once.`
+    )
   }
 }
 
@@ -253,15 +333,8 @@ export async function assertWithinStorageLimit(
   const limitBytes = limits.storageMb * 1024 * 1024
   const currentBytes = usage.storageMb * 1024 * 1024
   if (currentBytes + additionalBytes > limitBytes) {
-    throw new TRPCError({
-      code: `FORBIDDEN`,
-      message: `Your plan allows up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of storage. Upgrade to upload more.`,
-    })
+    throw planLimitError(
+      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of storage. Upgrade to upload more.`
+    )
   }
-}
-
-export async function canUsePush(workspaceId: string): Promise<boolean> {
-  if (!isCloudInstance()) return true
-  const { limits } = await getWorkspacePlan(workspaceId)
-  return limits.push
 }

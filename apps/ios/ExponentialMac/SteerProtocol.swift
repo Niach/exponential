@@ -17,8 +17,9 @@ enum SteerInbound {
     case resync
     /// Publisher socket: kill-switch → tear the session down.
     case kill
-    /// Presence update (drives a "remote steering — <name>" banner later).
-    case presence(steererId: String?)
+    /// Presence update — drives the "Remote steering — <name>" banner (§3.4).
+    /// `steererName` is resolved from the viewers list when a steerer is set.
+    case presence(steererId: String?, steererName: String?)
     /// Anything else (ignored).
     case unknown(type: String)
 
@@ -37,7 +38,13 @@ enum SteerInbound {
         case "kill":
             return .kill
         case "presence":
-            return .presence(steererId: obj["steererId"] as? String)
+            let steererId = obj["steererId"] as? String
+            var steererName: String? = nil
+            if let steererId, let viewers = obj["viewers"] as? [[String: Any]] {
+                steererName = viewers
+                    .first { ($0["userId"] as? String) == steererId }?["name"] as? String
+            }
+            return .presence(steererId: steererId, steererName: steererName)
         default:
             return .unknown(type: t)
         }
@@ -65,6 +72,12 @@ enum SteerOutbound {
     static func bye(outcome: String) -> String {
         json(["t": "bye", "outcome": outcome])
     }
+
+    /// "Take over" from a remote steerer: request the steer claim back.
+    static func claim() -> String { json(["t": "claim"]) }
+
+    /// Drop the steer claim (paired with `claim()` for the takeover nudge).
+    static func release() -> String { json(["t": "release"]) }
 
     /// A binary terminal-output frame: opcode 0x01 + verbatim PTY bytes.
     static func outputFrame(_ bytes: Data) -> Data {

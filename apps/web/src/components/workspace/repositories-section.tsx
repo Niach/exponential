@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Github, Lock, Plus, Star, Trash2, X } from "lucide-react"
+import { Github, Lock, Plus, Sparkles, Star, Trash2, X } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,6 +60,9 @@ export function WorkspaceRepositoriesSection({
   const [connectOpen, setConnectOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set when the last failure was a plan cap (PRECONDITION_FAILED from
+  // lib/billing.ts) — renders the inline upgrade nudge instead of a bare error.
+  const [limitError, setLimitError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -75,11 +79,17 @@ export function WorkspaceRepositoriesSection({
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
+    setLimitError(null)
     try {
       await fn()
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      if (isPlanLimitError(err)) {
+        setLimitError(message)
+      } else {
+        setError(message)
+      }
     } finally {
       setBusy(false)
     }
@@ -87,14 +97,23 @@ export function WorkspaceRepositoriesSection({
 
   const handleConnect = (picked: PickerRepo) =>
     run(async () => {
-      await trpc.repositories.add.mutate({
-        workspaceId,
-        fullName: picked.fullName,
-        defaultBranch: picked.defaultBranch,
-        private: picked.private,
-        installationId: picked.installationId,
-      })
-      setConnectOpen(false)
+      try {
+        await trpc.repositories.add.mutate(
+          {
+            workspaceId,
+            fullName: picked.fullName,
+            defaultBranch: picked.defaultBranch,
+            private: picked.private,
+            installationId: picked.installationId,
+          },
+          // Failures render inline below (plan-limit nudge or error box);
+          // the global mutation-error toast would be redundant noise.
+          { context: { skipErrorToast: true } }
+        )
+      } finally {
+        // Close the picker either way so the inline nudge/error is visible.
+        setConnectOpen(false)
+      }
     })
 
   const count = repos?.length ?? 0
@@ -126,6 +145,17 @@ export function WorkspaceRepositoriesSection({
           {error && (
             <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
+            </div>
+          )}
+
+          {limitError && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">{limitError}</span>
+              <Button size="sm" variant="outline" asChild>
+                {/* Deep link to the billing / plan-comparison section above. */}
+                <a href="#billing">Upgrade</a>
+              </Button>
             </div>
           )}
 

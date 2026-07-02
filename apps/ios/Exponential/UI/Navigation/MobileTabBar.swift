@@ -2,15 +2,17 @@ import ExpUI
 import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the top-level
-/// destinations (Projects, Inbox — with an unread dot) plus a detached circular
-/// compose button on the right. Overlaid via safeAreaInset so content scrolls
-/// underneath it; MainNavigator hides it on detail screens.
+/// destinations (Projects, My Issues, Inbox — with an unread dot) plus a
+/// detached circular compose button on the right. Overlaid via safeAreaInset so
+/// content scrolls underneath it; MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
     let homeActive: Bool
+    let myIssuesActive: Bool
     let inboxActive: Bool
     let unreadCount: Int
     let showsCompose: Bool
     let onHome: () -> Void
+    let onMyIssues: () -> Void
     let onInbox: () -> Void
     let onCompose: () -> Void
 
@@ -18,6 +20,7 @@ struct MobileTabBar: View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 tab(icon: "square.grid.2x2", label: "Projects", active: homeActive, action: onHome)
+                tab(icon: "person.crop.circle", label: "My Issues", active: myIssuesActive, action: onMyIssues)
                 tab(icon: "tray", label: "Inbox", active: inboxActive, badge: unreadCount > 0, action: onInbox)
             }
             .padding(5)

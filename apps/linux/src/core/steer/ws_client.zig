@@ -15,7 +15,10 @@
 //!
 //! Thread model: ONE reader thread calls `next()`; any thread may call the
 //! send fns (serialized by an internal mutex); `shutdownSocket()` unblocks a
-//! blocked `next()` from another thread (used for teardown).
+//! blocked `next()` from another thread (used for teardown). For teardown that
+//! must also reach a socket still MID-DIAL (before `connect` returns), owners
+//! pass a `ConnectControl` — its `cancel()` shuts down the in-progress fd and
+//! poisons future dials without touching any owner-side connection mutex.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -291,16 +294,24 @@ const c = struct {
         next: ?*addrinfo,
     };
     const timeval = extern struct { sec: c_long, usec: c_long };
+    const pollfd = extern struct { fd: c_int, events: c_short, revents: c_short };
 
     const AF_UNSPEC: c_int = 0;
     const SOCK_STREAM: c_int = 1;
+    const SOCK_NONBLOCK: c_int = 0o4000;
     const IPPROTO_TCP: c_int = 6;
     const TCP_NODELAY: c_int = 1;
     const SOL_SOCKET: c_int = 1;
+    const SO_ERROR: c_int = 4;
     const SO_RCVTIMEO: c_int = 20;
+    const SO_SNDTIMEO: c_int = 21;
     const MSG_NOSIGNAL: c_int = 0x4000;
     const MSG_DONTWAIT: c_int = 0x40;
     const SHUT_RDWR: c_int = 2;
+    const POLLOUT: c_short = 0x4;
+    const F_GETFL: c_int = 3;
+    const F_SETFL: c_int = 4;
+    const O_NONBLOCK: c_int = 0o4000;
 
     extern "c" fn socket(domain: c_int, sock_type: c_int, protocol: c_int) c_int;
     extern "c" fn connect(fd: c_int, addr: *const anyopaque, len: c_uint) c_int;
@@ -309,8 +320,11 @@ const c = struct {
     extern "c" fn close(fd: c_int) c_int;
     extern "c" fn shutdown(fd: c_int, how: c_int) c_int;
     extern "c" fn setsockopt(fd: c_int, level: c_int, optname: c_int, optval: *const anyopaque, optlen: c_uint) c_int;
+    extern "c" fn getsockopt(fd: c_int, level: c_int, optname: c_int, optval: *anyopaque, optlen: *c_uint) c_int;
     extern "c" fn getaddrinfo(node: ?[*:0]const u8, service: ?[*:0]const u8, hints: ?*const addrinfo, res: *?*addrinfo) c_int;
     extern "c" fn freeaddrinfo(res: *addrinfo) void;
+    extern "c" fn poll(fds: [*]pollfd, nfds: c_ulong, timeout: c_int) c_int;
+    extern "c" fn fcntl(fd: c_int, cmd: c_int, arg: c_int) c_int;
     extern "c" fn __errno_location() *c_int;
 };
 
@@ -322,10 +336,67 @@ fn errnoIs(codes: []const c_int) bool {
 
 const EAGAIN: c_int = 11;
 const EINTR: c_int = 4;
+const EINPROGRESS: c_int = 115;
+
+/// Bounds every BLOCKING send (SO_SNDTIMEO): a hung peer stalls a send for at
+/// most this long instead of forever.
+pub const send_timeout_s: u32 = 5;
+/// Total budget for the non-blocking TCP connect (SYN → established).
+const connect_timeout_ms: c_int = 5000;
+/// Poll slice during connect so a `ConnectControl.cancel` is honored promptly.
+const connect_poll_slice_ms: c_int = 250;
 
 pub const ConnectError = error{ TlsUnsupported, BadUrl, ResolveFailed, ConnectFailed, HandshakeFailed, OutOfMemory };
 pub const ReadError = error{ Disconnected, Timeout, BadFrame, FrameTooLong, OutOfMemory };
 pub const SendError = error{ Disconnected, WouldBlock, OutOfMemory };
+
+/// Cross-thread cancel/teardown handle for one client socket. It lives with
+/// the OWNER (publisher / control channel), not the `Client`, so teardown can
+/// reach the fd in EVERY phase — including mid-dial, before `connect` returns
+/// a `Client` — without needing any owner-side connection mutex (which a
+/// sender might hold). The internal mutex only guards fd bookkeeping
+/// (register/clear/shutdown), never a blocking syscall, so `cancel` is always
+/// prompt. Note: `getaddrinfo` remains technically unbounded (no portable
+/// cancel/timeout) — accepted; DNS on the LAN answers or fails fast.
+pub const ConnectControl = struct {
+    mutex: util.Mutex = .{},
+    fd: c_int = -1,
+    cancelled: bool = false,
+
+    /// Cancel the current AND all future dials: poisons `register` and shuts
+    /// down the live fd so blocked connect-poll/handshake/recv/send calls on
+    /// the socket thread return promptly. Idempotent; any thread.
+    pub fn cancel(self: *ConnectControl) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.cancelled = true;
+        if (self.fd >= 0) _ = c.shutdown(self.fd, c.SHUT_RDWR);
+    }
+
+    pub fn isCancelled(self: *ConnectControl) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.cancelled;
+    }
+
+    /// Adopt a freshly created socket so `cancel` can reach it. Returns false
+    /// when already cancelled (the caller closes the fd and aborts the dial).
+    fn register(self: *ConnectControl, fd: c_int) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.cancelled) return false;
+        self.fd = fd;
+        return true;
+    }
+
+    /// Forget the fd right before the owner closes it, so a late `cancel`
+    /// can never shut down a recycled descriptor.
+    fn clear(self: *ConnectControl) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.fd = -1;
+    }
+};
 
 pub const Message = union(enum) {
     text: []u8,
@@ -341,18 +412,25 @@ pub const Client = struct {
     write_mutex: util.Mutex = .{},
     /// Consecutive recv timeouts with no traffic; each fires a keepalive ping.
     idle_strikes: u8 = 0,
+    /// Owner's cancel handle; cleared before the fd is closed.
+    control: ?*ConnectControl = null,
 
     /// Dial `ws://…` and complete the upgrade handshake. `recv_timeout_s` sets
     /// the blocking-read slice used for keepalive pings (0 = block forever).
-    pub fn connect(gpa: std.mem.Allocator, url: []const u8, recv_timeout_s: u32) ConnectError!*Client {
+    /// `control` (optional) lets the owner cancel the dial/handshake from
+    /// another thread and shut the socket down without holding its own locks.
+    pub fn connect(gpa: std.mem.Allocator, url: []const u8, recv_timeout_s: u32, control: ?*ConnectControl) ConnectError!*Client {
         const parsed = parseUrl(url) catch |e| switch (e) {
             UrlError.TlsUnsupported => return ConnectError.TlsUnsupported,
             UrlError.BadUrl => return ConnectError.BadUrl,
         };
         if (parsed.tls) return ConnectError.TlsUnsupported;
 
-        const fd = try dial(gpa, parsed.host, parsed.port);
-        errdefer _ = c.close(fd);
+        const fd = try dial(gpa, parsed.host, parsed.port, control);
+        errdefer {
+            if (control) |ctl| ctl.clear();
+            _ = c.close(fd);
+        }
 
         // Keystrokes are latency-sensitive.
         const one: c_int = 1;
@@ -361,16 +439,21 @@ pub const Client = struct {
             const tv = c.timeval{ .sec = recv_timeout_s, .usec = 0 };
             _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_RCVTIMEO, &tv, @sizeOf(c.timeval));
         }
+        // Bound BLOCKING sends (handshake/hello/replay/bye): a hung peer whose
+        // buffer is full times the send out (EAGAIN) instead of wedging.
+        const send_tv = c.timeval{ .sec = send_timeout_s, .usec = 0 };
+        _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_SNDTIMEO, &send_tv, @sizeOf(c.timeval));
 
         const self = try gpa.create(Client);
         errdefer gpa.destroy(self);
-        self.* = .{ .gpa = gpa, .fd = fd, .reassembler = .{ .gpa = gpa } };
+        self.* = .{ .gpa = gpa, .fd = fd, .reassembler = .{ .gpa = gpa }, .control = control };
         try self.handshake(parsed);
         return self;
     }
 
     pub fn destroy(self: *Client) void {
         const gpa = self.gpa;
+        if (self.control) |ctl| ctl.clear();
         _ = c.close(self.fd);
         self.read_buf.deinit(gpa);
         self.reassembler.deinit();
@@ -383,7 +466,11 @@ pub const Client = struct {
         _ = c.shutdown(self.fd, c.SHUT_RDWR);
     }
 
-    fn dial(gpa: std.mem.Allocator, host: []const u8, port: u16) ConnectError!c_int {
+    /// Bounded, cancellable TCP dial: non-blocking connect + poll (~5s per
+    /// candidate address, in slices, honoring `control.cancel` between
+    /// slices) — never the kernel's ~2min SYN-retry default. `getaddrinfo`
+    /// itself stays blocking/uncancellable (accepted; see ConnectControl).
+    fn dial(gpa: std.mem.Allocator, host: []const u8, port: u16, control: ?*ConnectControl) ConnectError!c_int {
         const host_z = gpa.dupeZ(u8, host) catch return ConnectError.OutOfMemory;
         defer gpa.free(host_z);
         var port_buf: [8]u8 = undefined;
@@ -399,13 +486,50 @@ pub const Client = struct {
 
         var ai: ?*c.addrinfo = res;
         while (ai) |info| : (ai = info.next) {
+            if (control) |ctl| if (ctl.isCancelled()) return ConnectError.ConnectFailed;
             const addr = info.addr orelse continue;
-            const fd = c.socket(info.family, info.socktype, info.protocol);
+            const fd = c.socket(info.family, info.socktype | c.SOCK_NONBLOCK, info.protocol);
             if (fd < 0) continue;
-            if (c.connect(fd, addr, info.addrlen) == 0) return fd;
+            if (control) |ctl| {
+                if (!ctl.register(fd)) {
+                    _ = c.close(fd);
+                    return ConnectError.ConnectFailed;
+                }
+            }
+            if (connectBounded(fd, addr, info.addrlen, control)) {
+                // Back to blocking for the normal recv/send paths.
+                const fl = c.fcntl(fd, c.F_GETFL, 0);
+                if (fl >= 0) _ = c.fcntl(fd, c.F_SETFL, fl & ~c.O_NONBLOCK);
+                return fd;
+            }
+            if (control) |ctl| ctl.clear();
             _ = c.close(fd);
         }
         return ConnectError.ConnectFailed;
+    }
+
+    /// Non-blocking connect, polled for writability in short slices so a
+    /// cancel is honored within one slice. True only on a fully established
+    /// connection (SO_ERROR == 0).
+    fn connectBounded(fd: c_int, addr: *const anyopaque, addrlen: c_uint, control: ?*ConnectControl) bool {
+        if (c.connect(fd, addr, addrlen) == 0) return true;
+        if (!errnoIs(&.{ EINPROGRESS, EINTR })) return false;
+        var waited: c_int = 0;
+        while (waited < connect_timeout_ms) : (waited += connect_poll_slice_ms) {
+            if (control) |ctl| if (ctl.isCancelled()) return false;
+            var pfd = [1]c.pollfd{.{ .fd = fd, .events = c.POLLOUT, .revents = 0 }};
+            const n = c.poll(&pfd, 1, connect_poll_slice_ms);
+            if (n < 0) {
+                if (errnoIs(&.{EINTR})) continue;
+                return false;
+            }
+            if (n == 0) continue; // slice elapsed — re-check cancel
+            var so_err: c_int = 0;
+            var len: c_uint = @sizeOf(c_int);
+            if (c.getsockopt(fd, c.SOL_SOCKET, c.SO_ERROR, &so_err, &len) != 0) return false;
+            return so_err == 0;
+        }
+        return false; // timed out
     }
 
     fn handshake(self: *Client, url: WsUrl) ConnectError!void {
@@ -452,6 +576,13 @@ pub const Client = struct {
         try self.sendFrame(.text, text, false);
     }
 
+    /// Best-effort text send for frames issued OFF the socket thread (resize,
+    /// claim/release, bye): never blocks — a full socket buffer drops the
+    /// frame (`error.WouldBlock`) instead of stalling the calling thread.
+    pub fn sendTextNoWait(self: *Client, text: []const u8) SendError!void {
+        try self.sendFrame(.text, text, true);
+    }
+
     pub fn sendBinary(self: *Client, bytes: []const u8) SendError!void {
         try self.sendFrame(.binary, bytes, false);
     }
@@ -459,6 +590,7 @@ pub const Client = struct {
     /// Best-effort binary send for the hot output path: if the socket buffer is
     /// full (slow relay/viewer), the frame is DROPPED (`error.WouldBlock`)
     /// rather than stalling the PTY reader — a viewer recovers via `resync`.
+    /// A buffer that fills MID-frame kills the connection (see `sendAll`).
     pub fn sendBinaryNoWait(self: *Client, bytes: []const u8) SendError!void {
         try self.sendFrame(.binary, bytes, true);
     }
@@ -485,22 +617,32 @@ pub const Client = struct {
         try self.sendAll(frame, no_wait);
     }
 
-    /// Serialized whole-frame write. In `no_wait` mode the FIRST write may bail
-    /// with WouldBlock (frame dropped cleanly); once any byte of a frame is on
-    /// the wire the remainder is finished blocking to keep frame boundaries.
+    /// Serialized whole-frame write. In `no_wait` mode EVERY write is
+    /// MSG_DONTWAIT: WouldBlock before the first byte drops the frame cleanly
+    /// (`error.WouldBlock`); WouldBlock AFTER a partial write cannot be
+    /// resumed later without corrupting the frame stream, so the connection
+    /// is shut down and reported dead (`error.Disconnected` — callers already
+    /// treat that as disconnect, and the shutdown unblocks the reader thread
+    /// so teardown proceeds). Blocking sends are bounded by SO_SNDTIMEO (set
+    /// at connect); a timeout there is the same mid-frame stall ⇒ same kill.
     fn sendAll(self: *Client, bytes: []const u8, no_wait: bool) SendError!void {
         self.write_mutex.lock();
         defer self.write_mutex.unlock();
         var sent: usize = 0;
         while (sent < bytes.len) {
-            const flags: c_int = if (no_wait and sent == 0)
-                c.MSG_NOSIGNAL | c.MSG_DONTWAIT
-            else
-                c.MSG_NOSIGNAL;
+            const flags: c_int = if (no_wait) c.MSG_NOSIGNAL | c.MSG_DONTWAIT else c.MSG_NOSIGNAL;
             const n = c.send(self.fd, bytes.ptr + sent, bytes.len - sent, flags);
             if (n < 0) {
                 if (errnoIs(&.{EINTR})) continue;
-                if (no_wait and sent == 0 and errnoIs(&.{EAGAIN})) return SendError.WouldBlock;
+                if (errnoIs(&.{EAGAIN})) {
+                    if (no_wait and sent == 0) return SendError.WouldBlock;
+                    // Partial frame stuck (or a blocking send timed out): the
+                    // stream is unrecoverable mid-frame — kill the socket so
+                    // every blocked/future call sees a dead connection
+                    // instead of a wedged one.
+                    self.shutdownSocket();
+                    return SendError.Disconnected;
+                }
                 return SendError.Disconnected;
             }
             sent += @intCast(n);
@@ -739,4 +881,123 @@ test "urlWithTicket appends with the right separator" {
     const with_q = try urlWithTicket(gpa, "ws://relay.lan/ws?v=1", "t");
     defer gpa.free(with_q);
     try testing.expectEqualStrings("ws://relay.lan/ws?v=1&ticket=t", with_q);
+}
+
+// --- socket-level tests (headless: AF_UNIX socketpair, no network) ----------
+
+const test_c = struct {
+    extern "c" fn socketpair(domain: c_int, socket_type: c_int, protocol: c_int, sv: *[2]c_int) c_int;
+    const AF_UNIX: c_int = 1;
+    const SO_SNDBUF: c_int = 7;
+};
+
+/// A Client wrapped around one end of a socketpair with a tiny send buffer.
+/// The peer end never reads, so the buffer fills deterministically.
+const TestConn = struct {
+    client: Client,
+    peer: c_int,
+
+    fn init(gpa: std.mem.Allocator) !TestConn {
+        var fds: [2]c_int = undefined;
+        try testing.expect(test_c.socketpair(test_c.AF_UNIX, c.SOCK_STREAM, 0, &fds) == 0);
+        const sndbuf: c_int = 4096;
+        _ = c.setsockopt(fds[0], c.SOL_SOCKET, test_c.SO_SNDBUF, &sndbuf, @sizeOf(c_int));
+        return .{
+            .client = .{ .gpa = gpa, .fd = fds[0], .reassembler = .{ .gpa = gpa } },
+            .peer = fds[1],
+        };
+    }
+
+    fn deinit(self: *TestConn) void {
+        _ = c.close(self.client.fd);
+        _ = c.close(self.peer);
+        self.client.read_buf.deinit(self.client.gpa);
+        self.client.reassembler.deinit();
+    }
+};
+
+test "sendAll no_wait: full buffer at frame start drops cleanly, connection stays live" {
+    var conn = try TestConn.init(testing.allocator);
+    defer conn.deinit();
+
+    // Fill the send buffer to the brim with raw non-blocking writes.
+    var junk: [2048]u8 = @splat('x');
+    while (true) {
+        const n = c.send(conn.client.fd, &junk, junk.len, c.MSG_NOSIGNAL | c.MSG_DONTWAIT);
+        if (n < 0) break; // EAGAIN — full
+    }
+
+    // First byte of the frame can't go out ⇒ clean drop, NOT a dead socket.
+    try testing.expectError(SendError.WouldBlock, conn.client.sendBinaryNoWait("hello"));
+
+    // Drain the peer; the connection must still be usable afterwards.
+    var sink: [8192]u8 = undefined;
+    while (true) {
+        const n = c.recv(conn.peer, &sink, sink.len, c.MSG_DONTWAIT);
+        if (n <= 0) break;
+    }
+    try conn.client.sendBinaryNoWait("hi");
+}
+
+test "sendAll no_wait: WouldBlock mid-frame kills the connection instead of wedging" {
+    const gpa = testing.allocator;
+    var conn = try TestConn.init(gpa);
+    defer conn.deinit();
+
+    // A frame far larger than the send buffer: the first MSG_DONTWAIT send
+    // takes a partial chunk, the next hits EAGAIN with sent > 0 — the frame
+    // stream is unrecoverable, so the connection must be reported dead.
+    const big = try gpa.alloc(u8, 512 * 1024);
+    defer gpa.free(big);
+    @memset(big, 'y');
+    try testing.expectError(SendError.Disconnected, conn.client.sendBinaryNoWait(big));
+
+    // The socket was shut down: further sends fail fast (no EAGAIN limbo)…
+    try testing.expectError(SendError.Disconnected, conn.client.sendBinaryNoWait("more"));
+    // …and a reader blocked in recv on the client fd unblocks with EOF, so
+    // teardown (thread join) is reachable.
+    var tmp: [16]u8 = undefined;
+    try testing.expectEqual(@as(isize, 0), c.recv(conn.client.fd, &tmp, tmp.len, 0));
+}
+
+test "ConnectControl: cancel shuts down the registered fd and poisons later registers" {
+    var fds: [2]c_int = undefined;
+    try testing.expect(test_c.socketpair(test_c.AF_UNIX, c.SOCK_STREAM, 0, &fds) == 0);
+    defer _ = c.close(fds[0]);
+    defer _ = c.close(fds[1]);
+
+    var ctl = ConnectControl{};
+    try testing.expect(!ctl.isCancelled());
+    try testing.expect(ctl.register(fds[0]));
+    ctl.cancel();
+    try testing.expect(ctl.isCancelled());
+
+    // The registered fd got SHUT_RDWR: its recv sees EOF immediately (a
+    // blocked handshake/read would unblock the same way).
+    var tmp: [4]u8 = undefined;
+    try testing.expectEqual(@as(isize, 0), c.recv(fds[0], &tmp, tmp.len, 0));
+
+    // Cancelled ⇒ a later dial may not adopt a new socket.
+    try testing.expect(!ctl.register(fds[1]));
+    // clear/cancel with no fd registered are safe no-ops.
+    ctl.clear();
+    ctl.cancel();
+}
+
+test "Client.connect aborts promptly when the control is already cancelled" {
+    var ctl = ConnectControl{};
+    ctl.cancel();
+    try testing.expectError(
+        ConnectError.ConnectFailed,
+        Client.connect(testing.allocator, "ws://127.0.0.1:9/ws", 1, &ctl),
+    );
+}
+
+test "Client.connect: refused loopback connect fails fast through the bounded dial" {
+    // Port 9 (discard) is closed on the test VM; the refusal must come back
+    // through the non-blocking connect + poll path well under the 5s budget.
+    try testing.expectError(
+        ConnectError.ConnectFailed,
+        Client.connect(testing.allocator, "ws://127.0.0.1:9/ws", 1, null),
+    );
 }

@@ -57,6 +57,9 @@ public struct UpdateIssueInput: Encodable, Sendable {
     public var endTime: String?
     public var recurrenceInterval: Int?
     public var recurrenceUnit: String?
+    /// Canonical issue this one duplicates — set together with
+    /// `status = "duplicate"` in ONE update so the marking is atomic.
+    public var duplicateOfId: String?
     public var archivedAt: String?
 
     // Fields listed here are encoded as JSON null (not omitted).
@@ -75,6 +78,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         endTime: String? = nil,
         recurrenceInterval: Int? = nil,
         recurrenceUnit: String? = nil,
+        duplicateOfId: String? = nil,
         archivedAt: String? = nil,
         explicitNulls: Set<String> = []
     ) {
@@ -89,13 +93,15 @@ public struct UpdateIssueInput: Encodable, Sendable {
         self.endTime = endTime
         self.recurrenceInterval = recurrenceInterval
         self.recurrenceUnit = recurrenceUnit
+        self.duplicateOfId = duplicateOfId
         self.archivedAt = archivedAt
         self.explicitNulls = explicitNulls
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, priority, assigneeId, description
-        case dueDate, dueTime, endTime, recurrenceInterval, recurrenceUnit, archivedAt
+        case dueDate, dueTime, endTime, recurrenceInterval, recurrenceUnit
+        case duplicateOfId, archivedAt
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -111,6 +117,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try encodeNullable(endTime, forKey: .endTime, in: &c)
         try encodeNullable(recurrenceInterval, forKey: .recurrenceInterval, in: &c)
         try encodeNullable(recurrenceUnit, forKey: .recurrenceUnit, in: &c)
+        try encodeNullable(duplicateOfId, forKey: .duplicateOfId, in: &c)
         try encodeNullable(archivedAt, forKey: .archivedAt, in: &c)
     }
 

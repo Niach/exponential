@@ -238,12 +238,19 @@ final class MacCodingLauncher {
 
     // MARK: - Steer publisher attach/detach (masterplan §3.3)
 
+    /// The live publisher for a mounted session — MacShell reads this to render
+    /// the "Remote steering — <name>" banner over the terminal dock (§3.4).
+    func publisher(forSession sessionId: String) -> MacSteerPublisher? {
+        publishers.values.first { $0.sessionId == sessionId }
+    }
+
     private func attachSteer(sessionId: String, issueId: String, accountId: String, rawFile: URL) {
         let dock = terminalDock
         let publisher = MacSteerPublisher(
             sessionId: sessionId,
             issueId: issueId,
             accountId: accountId,
+            localUserId: auth.accounts.first(where: { $0.id == accountId })?.userId ?? auth.userId,
             steerApi: steerApi,
             inputSink: { [weak dock] text in
                 // Inject remote keystrokes only into THIS session's live terminal.

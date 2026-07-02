@@ -340,6 +340,24 @@ html {
   cursor: pointer;
 }
 
+/* Inline `#IDENTIFIER` issue-reference pills (a decoration — the underlying
+   text stays the plain token; see lib/issue-ref-extension.ts). */
+.tiptap-content .issue-ref-pill {
+  background: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 0.05rem 0.4rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--accent-foreground);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tiptap-content .issue-ref-pill:hover {
+  border-color: var(--ring);
+}
+
 .tiptap-content hr {
   border-color: var(--border);
   margin: 0.5rem 0;

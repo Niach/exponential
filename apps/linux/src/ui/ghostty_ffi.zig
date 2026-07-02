@@ -183,6 +183,7 @@ pub extern fn ghostty_surface_process_exited(Surface) bool;
 pub extern fn ghostty_surface_refresh(Surface) void;
 pub extern fn ghostty_surface_draw(Surface) void;
 pub extern fn ghostty_surface_display_realized(Surface) void;
+pub extern fn ghostty_surface_display_unrealized(Surface) void;
 pub extern fn ghostty_surface_set_content_scale(Surface, f64, f64) void;
 pub extern fn ghostty_surface_set_focus(Surface, bool) void;
 pub extern fn ghostty_surface_set_size(Surface, u32, u32) void;

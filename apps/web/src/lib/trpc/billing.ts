@@ -21,10 +21,11 @@ export const billingRouter = router({
             members: Infinity,
             projects: Infinity,
             storageMb: Infinity,
+            repositories: Infinity,
+            concurrentCodingSessions: Infinity,
             ownedWorkspaces: Infinity,
-            push: true,
           },
-          usage: { members: 0, projects: 0, storageMb: 0 },
+          usage: { members: 0, projects: 0, storageMb: 0, repositories: 0 },
         }
       }
 

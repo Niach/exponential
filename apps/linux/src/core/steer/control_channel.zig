@@ -18,7 +18,6 @@ const std = @import("std");
 const trpc = @import("../api/trpc.zig");
 const protocol = @import("protocol.zig");
 const ws = @import("ws_client.zig");
-const util = @import("util.zig");
 
 const timespec = extern struct { sec: c_long, nsec: c_long };
 extern "c" fn nanosleep(req: *const timespec, rem: ?*timespec) c_int;
@@ -46,8 +45,10 @@ pub const ControlChannel = struct {
     on_start_ctx: ?*anyopaque,
 
     stop_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    conn_mutex: util.Mutex = .{},
-    conn: ?*ws.Client = null, // guarded by conn_mutex; owned by the thread
+    /// Teardown handle that reaches the socket fd in EVERY phase — including
+    /// mid-dial, before `connect` returns — so destroy never waits out the
+    /// kernel's ~2min SYN retries when the LAN relay is unreachable.
+    connect_control: ws.ConnectControl = .{},
     thread: ?std.Thread = null,
 
     /// Dupe the creds and start the background thread. `gpa` must be
@@ -93,16 +94,14 @@ pub const ControlChannel = struct {
         return self;
     }
 
-    /// Stop + join the thread, then free. A live socket read unblocks via
-    /// shutdown; a sleeping backoff exits within ~250ms. (A tRPC call in
-    /// flight can hold the join for up to its 15s timeout — sign-out only.)
+    /// Stop + join the thread, then free. `cancel()` shuts the socket down in
+    /// every phase — a bounded mid-dial connect, the handshake, or a live
+    /// read — and a sleeping backoff exits within ~250ms. (A tRPC call in
+    /// flight can hold the join for up to its 15s timeout, and getaddrinfo is
+    /// likewise uncancellable — sign-out only.)
     pub fn destroy(self: *ControlChannel) void {
         self.stop_flag.store(true, .release);
-        {
-            self.conn_mutex.lock();
-            defer self.conn_mutex.unlock();
-            if (self.conn) |client| client.shutdownSocket();
-        }
+        self.connect_control.cancel();
         if (self.thread) |t| t.join();
         const gpa = self.gpa;
         self.freeFields();
@@ -184,23 +183,14 @@ pub const ControlChannel = struct {
     /// true when the socket connected (resets the reconnect backoff).
     fn serve(self: *ControlChannel, url: []const u8) bool {
         const gpa = self.gpa;
-        const client = ws.Client.connect(gpa, url, 55) catch |e| {
+        const client = ws.Client.connect(gpa, url, 55, &self.connect_control) catch |e| {
             if (e == ws.ConnectError.TlsUnsupported) {
                 std.log.warn("steer: wss:// relay URLs are not supported by the Linux client yet — point STEER_RELAY_URL at a plain ws:// (LAN) endpoint", .{});
             }
             return false;
         };
-        {
-            self.conn_mutex.lock();
-            defer self.conn_mutex.unlock();
-            self.conn = client;
-        }
-        defer {
-            self.conn_mutex.lock();
-            self.conn = null;
-            self.conn_mutex.unlock();
-            client.destroy();
-        }
+        // destroy() unregisters the fd from connect_control before closing.
+        defer client.destroy();
         if (self.stopped()) return true;
 
         const online = protocol.onlineFrame(gpa, self.device_id, self.device_label) catch return true;

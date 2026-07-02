@@ -47,12 +47,15 @@ import { Route as ApiShapesIssueEventsRouteImport } from './routes/api/shapes/is
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
+import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
+import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
 import { Route as AuthenticatedAccountIntegrationsRouteImport } from './routes/_authenticated/account/integrations'
 import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
+import { Route as WWorkspaceSlugMyIssuesIndexRouteImport } from './routes/w/$workspaceSlug/my-issues/index'
 import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$workspaceSlug/inbox/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
@@ -254,6 +257,11 @@ const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
   path: '/api/shapes/attachments',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
+  id: '/api/email/unsubscribe',
+  path: '/api/email/unsubscribe',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -276,6 +284,12 @@ const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
+const AuthenticatedAccountNotificationsRoute =
+  AuthenticatedAccountNotificationsRouteImport.update({
+    id: '/account/notifications',
+    path: '/account/notifications',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedAccountIntegrationsRoute =
   AuthenticatedAccountIntegrationsRouteImport.update({
     id: '/account/integrations',
@@ -286,6 +300,12 @@ const WWorkspaceSlugSettingsIndexRoute =
   WWorkspaceSlugSettingsIndexRouteImport.update({
     id: '/settings/',
     path: '/settings/',
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
+  } as any)
+const WWorkspaceSlugMyIssuesIndexRoute =
+  WWorkspaceSlugMyIssuesIndexRouteImport.update({
+    id: '/my-issues/',
+    path: '/my-issues/',
     getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
 const WWorkspaceSlugInboxIndexRoute =
@@ -343,10 +363,12 @@ export interface FileRoutesByFullPath {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
+  '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
@@ -371,6 +393,7 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
+  '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -392,10 +415,12 @@ export interface FileRoutesByTo {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
+  '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
@@ -420,6 +445,7 @@ export interface FileRoutesByTo {
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/inbox': typeof WWorkspaceSlugInboxIndexRoute
+  '/w/$workspaceSlug/my-issues': typeof WWorkspaceSlugMyIssuesIndexRoute
   '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -445,10 +471,12 @@ export interface FileRoutesById {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
   '/_authenticated/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
+  '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
@@ -473,6 +501,7 @@ export interface FileRoutesById {
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
+  '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier': typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -498,10 +527,12 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/invite/$token'
     | '/account/integrations'
+    | '/account/notifications'
     | '/admin/users'
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/email/unsubscribe'
     | '/api/shapes/attachments'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
@@ -526,6 +557,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/inbox/'
+    | '/w/$workspaceSlug/my-issues/'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
     | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
@@ -547,10 +579,12 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/invite/$token'
     | '/account/integrations'
+    | '/account/notifications'
     | '/admin/users'
     | '/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/email/unsubscribe'
     | '/api/shapes/attachments'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
@@ -575,6 +609,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/inbox'
+    | '/w/$workspaceSlug/my-issues'
     | '/w/$workspaceSlug/settings'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
@@ -599,10 +634,12 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/invite/$token'
     | '/_authenticated/account/integrations'
+    | '/_authenticated/account/notifications'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/workspaces'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
+    | '/api/email/unsubscribe'
     | '/api/shapes/attachments'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
@@ -627,6 +664,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/inbox/'
+    | '/w/$workspaceSlug/my-issues/'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
     | '/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
@@ -650,6 +688,7 @@ export interface RootRouteChildren {
   InviteTokenRoute: typeof InviteTokenRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
@@ -940,6 +979,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesAttachmentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/email/unsubscribe': {
+      id: '/api/email/unsubscribe'
+      path: '/api/email/unsubscribe'
+      fullPath: '/api/email/unsubscribe'
+      preLoaderRoute: typeof ApiEmailUnsubscribeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -968,6 +1014,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/_authenticated/account/notifications': {
+      id: '/_authenticated/account/notifications'
+      path: '/account/notifications'
+      fullPath: '/account/notifications'
+      preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/account/integrations': {
       id: '/_authenticated/account/integrations'
       path: '/account/integrations'
@@ -980,6 +1033,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/w/$workspaceSlug/settings/'
       preLoaderRoute: typeof WWorkspaceSlugSettingsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
+    }
+    '/w/$workspaceSlug/my-issues/': {
+      id: '/w/$workspaceSlug/my-issues/'
+      path: '/my-issues'
+      fullPath: '/w/$workspaceSlug/my-issues/'
+      preLoaderRoute: typeof WWorkspaceSlugMyIssuesIndexRouteImport
       parentRoute: typeof WWorkspaceSlugRouteRoute
     }
     '/w/$workspaceSlug/inbox/': {
@@ -1050,6 +1110,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedFeedbackRoute: typeof AuthenticatedFeedbackRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedAccountIntegrationsRoute: typeof AuthenticatedAccountIntegrationsRoute
+  AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
   AuthenticatedIntegrationsGithubInstalledRoute: typeof AuthenticatedIntegrationsGithubInstalledRoute
 }
 
@@ -1058,6 +1119,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedFeedbackRoute: AuthenticatedFeedbackRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedAccountIntegrationsRoute: AuthenticatedAccountIntegrationsRoute,
+  AuthenticatedAccountNotificationsRoute:
+    AuthenticatedAccountNotificationsRoute,
   AuthenticatedIntegrationsGithubInstalledRoute:
     AuthenticatedIntegrationsGithubInstalledRoute,
 }
@@ -1069,6 +1132,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 interface WWorkspaceSlugRouteRouteChildren {
   WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
   WWorkspaceSlugInboxIndexRoute: typeof WWorkspaceSlugInboxIndexRoute
+  WWorkspaceSlugMyIssuesIndexRoute: typeof WWorkspaceSlugMyIssuesIndexRoute
   WWorkspaceSlugSettingsIndexRoute: typeof WWorkspaceSlugSettingsIndexRoute
   WWorkspaceSlugProjectsProjectSlugIndexRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
   WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute: typeof WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRoute
@@ -1077,6 +1141,7 @@ interface WWorkspaceSlugRouteRouteChildren {
 const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
   WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
   WWorkspaceSlugInboxIndexRoute: WWorkspaceSlugInboxIndexRoute,
+  WWorkspaceSlugMyIssuesIndexRoute: WWorkspaceSlugMyIssuesIndexRoute,
   WWorkspaceSlugSettingsIndexRoute: WWorkspaceSlugSettingsIndexRoute,
   WWorkspaceSlugProjectsProjectSlugIndexRoute:
     WWorkspaceSlugProjectsProjectSlugIndexRoute,
@@ -1107,6 +1172,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteTokenRoute: InviteTokenRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,

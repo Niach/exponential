@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -32,19 +33,22 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the top-level
-// destinations (Projects, Inbox — with an unread dot) plus a detached circular
-// compose button on the right. Overlaid above the NavHost; AppNavHost shows it
-// only on the top-level routes. (Compose has no cheap backdrop blur, so the
-// pill uses a near-opaque dark fill instead of the iOS material.)
+// destinations (Projects, My Issues, Inbox — with an unread dot) plus a
+// detached circular compose button on the right. Overlaid above the NavHost;
+// AppNavHost shows it only on the top-level routes. (Compose has no cheap
+// backdrop blur, so the pill uses a near-opaque dark fill instead of the iOS
+// material.)
 private val PillFill = Color(0xF2151518)
 
 @Composable
 fun BottomNavBar(
     homeActive: Boolean,
+    myIssuesActive: Boolean,
     inboxActive: Boolean,
     unreadCount: Int,
     showCompose: Boolean,
     onHome: () -> Unit,
+    onMyIssues: () -> Unit,
     onInbox: () -> Unit,
     onCompose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -69,6 +73,12 @@ fun BottomNavBar(
                 contentDescription = "Projects",
                 active = homeActive,
                 onClick = onHome,
+            )
+            TabItem(
+                icon = Icons.Filled.Person,
+                contentDescription = "My Issues",
+                active = myIssuesActive,
+                onClick = onMyIssues,
             )
             TabItem(
                 icon = Icons.Filled.Inbox,

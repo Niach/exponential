@@ -10,12 +10,17 @@ interface ShapeRouteHandlerOptions {
   // produce a where clause. Use for tables that only make sense for an
   // authenticated user (notifications, push subscriptions, etc).
   requireAuth?: boolean
+  // Optional column allowlist forwarded as Electric's `columns` param. Use to
+  // keep sensitive columns out of a synced shape entirely (must include the
+  // primary key). Set server-side, so clients cannot widen it.
+  columns?: string[]
 }
 
 export function createShapeRouteHandler({
   getWhere,
   table,
   requireAuth = false,
+  columns,
 }: ShapeRouteHandlerOptions) {
   return async ({ request }: { request: Request }) => {
     // Auth accepts the session cookie (web), `Authorization: Bearer
@@ -30,6 +35,10 @@ export function createShapeRouteHandler({
 
     const originUrl = prepareElectricUrl(request.url)
     originUrl.searchParams.set(`table`, table)
+
+    if (columns) {
+      originUrl.searchParams.set(`columns`, columns.join(`,`))
+    }
 
     const where = await getWhere?.(session?.user?.id ?? null)
 

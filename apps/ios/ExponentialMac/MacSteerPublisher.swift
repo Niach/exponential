@@ -14,11 +14,19 @@ import Foundation
 /// a spawn-level tee (the launcher runs `claude` under `script`, and a file tail
 /// pushes bytes here). See MacCodingLauncher + SteerPtyTail.
 @MainActor
+@Observable
 final class MacSteerPublisher {
     let sessionId: String
     let issueId: String
 
+    /// A REMOTE user currently holds the steer claim (presence steererId set
+    /// and ≠ the local user) — drives the "Remote steering — <name>" banner
+    /// over the terminal dock (§3.4). Local input is never gated by this.
+    private(set) var remoteSteererName: String?
+
     private let accountId: String
+    /// The signed-in desktop user, to tell a remote steerer from ourselves.
+    private let localUserId: String?
     private let steerApi: SteerApi
     /// Writes a remote steerer's keystrokes into the session PTY. Called on main.
     private let inputSink: @MainActor (String) -> Void
@@ -47,6 +55,7 @@ final class MacSteerPublisher {
         sessionId: String,
         issueId: String,
         accountId: String,
+        localUserId: String?,
         steerApi: SteerApi,
         inputSink: @escaping @MainActor (String) -> Void,
         onKill: @escaping @MainActor () -> Void
@@ -54,6 +63,7 @@ final class MacSteerPublisher {
         self.sessionId = sessionId
         self.issueId = issueId
         self.accountId = accountId
+        self.localUserId = localUserId
         self.steerApi = steerApi
         self.inputSink = inputSink
         self.onKill = onKill
@@ -120,9 +130,26 @@ final class MacSteerPublisher {
         case .kill:
             onKill()
             stop(outcome: "killed")
-        case .startSession, .presence, .unknown:
+        case let .presence(steererId, steererName):
+            if let steererId, steererId != localUserId {
+                remoteSteererName = steererName ?? "Someone"
+            } else {
+                remoteSteererName = nil
+            }
+        case .startSession, .unknown:
             break
         }
+    }
+
+    /// "Take over" from a remote steerer (§3.4): nudge the relay to hand the
+    /// claim back — release-then-claim on the local user's behalf. Local input
+    /// is never gated, so this is a visual/claim affair only; the banner clears
+    /// optimistically and reappears if the next presence frame still reports a
+    /// remote steerer.
+    func takeOver() {
+        sendText(SteerOutbound.release())
+        sendText(SteerOutbound.claim())
+        remoteSteererName = nil
     }
 
     /// Feed teed PTY output: buffer it and forward a binary frame (drop on

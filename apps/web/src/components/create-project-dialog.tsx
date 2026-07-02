@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { TRPCClientError } from "@trpc/client"
+import { isPlanLimitError } from "@/lib/plan-limit-error"
 import {
   Dialog,
   DialogContent,
@@ -72,7 +72,7 @@ export function CreateProjectDialog({
       resetAll()
       onOpenChange(false)
     } catch (err) {
-      if (err instanceof TRPCClientError && err.data?.code === `FORBIDDEN`) {
+      if (isPlanLimitError(err)) {
         onOpenChange(false)
         setUpgradeOpen(true)
       }

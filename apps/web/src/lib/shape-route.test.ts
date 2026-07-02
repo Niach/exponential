@@ -60,6 +60,29 @@ describe(`shape route handler`, () => {
     expect(originUrl.searchParams.get(`where`)).toBe(`"is_public" = true`)
   })
 
+  it(`forwards a server-side columns allowlist to Electric`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(originUrl)
+    proxyElectricRequest.mockResolvedValue(new Response(`ok`))
+
+    const handler = createShapeRouteHandler({
+      table: `issue_subscribers`,
+      columns: [`id`, `issue_id`, `workspace_id`],
+    })
+
+    // A client-supplied columns param must not widen the allowlist.
+    await handler({
+      request: new Request(
+        `https://example.com/api/shapes/issue-subscribers?columns=id,email`
+      ),
+    })
+
+    expect(originUrl.searchParams.get(`columns`)).toBe(
+      `id,issue_id,workspace_id`
+    )
+  })
+
   it(`applies the scoped where clause before proxying`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
 

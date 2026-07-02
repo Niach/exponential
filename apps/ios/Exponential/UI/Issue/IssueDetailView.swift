@@ -15,6 +15,7 @@ struct IssueDetailView: View {
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
     @State private var showRecurrencePicker = false
+    @State private var showDuplicatePicker = false
     @State private var showDiff = false
     @FocusState private var titleFocused: Bool
 
@@ -48,6 +49,21 @@ struct IssueDetailView: View {
                                     )
                             }
                             Menu {
+                                if vm.permissions.isModerator {
+                                    if issue.duplicateOfId == nil {
+                                        Button {
+                                            showDuplicatePicker = true
+                                        } label: {
+                                            Label("Mark as duplicate…", systemImage: "doc.on.doc")
+                                        }
+                                    } else {
+                                        Button {
+                                            Task { await vm.unmarkDuplicate() }
+                                        } label: {
+                                            Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
+                                        }
+                                    }
+                                }
                                 Button("Delete issue", role: .destructive) {
                                     showDeleteConfirm = true
                                 }
@@ -56,6 +72,12 @@ struct IssueDetailView: View {
                                     .font(.title3)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
+                        }
+
+                        // Canonical-issue banner when marked as a duplicate:
+                        // tap-through to the canonical issue + Unmark (§5e).
+                        if let duplicateOfId = issue.duplicateOfId {
+                            duplicateBanner(vm: vm, duplicateOfId: duplicateOfId)
                         }
 
                         // Title (editable)
@@ -96,6 +118,15 @@ struct IssueDetailView: View {
                             accountId: accountId,
                             httpClient: deps.httpClient,
                             mentionMembers: vm.mentionMembers
+                        )
+
+                        // Coding session: "Coding now" badge + live steer
+                        // viewer / remote "Start on my desktop" (§5b/§5c).
+                        SteerSessionSection(
+                            issue: issue,
+                            runningSessions: vm.runningSessions,
+                            permissions: vm.permissions,
+                            users: vm.users
                         )
 
                         // Metadata
@@ -368,6 +399,15 @@ struct IssueDetailView: View {
                         }
                     )
                 }
+                .sheet(isPresented: $showDuplicatePicker) {
+                    DuplicatePickerSheet(
+                        loadCandidates: { await vm.duplicateCandidates() },
+                        onSelect: { canonical in
+                            Task { await vm.markDuplicate(of: canonical) }
+                        }
+                    )
+                    .presentationBackground(.ultraThinMaterial)
+                }
             } else {
                 ProgressView().tint(.white)
             }
@@ -416,6 +456,45 @@ struct IssueDetailView: View {
 
     private var instanceBaseURL: URL? {
         deps.auth.instanceBaseURL(forAccountId: accountId)
+    }
+
+    /// "Duplicate of {IDENTIFIER}" — the identifier pill pushes the canonical
+    /// issue's detail; Unmark clears the FK and restores a working status.
+    @ViewBuilder
+    private func duplicateBanner(vm: IssueDetailViewModel, duplicateOfId: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.on.doc")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Text("Duplicate of")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            NavigationLink(value: AppRoute.issue(accountId: accountId, id: duplicateOfId)) {
+                Text(vm.duplicateOf?.identifier ?? vm.duplicateOf?.title ?? "issue")
+                    .font(.caption.monospaced().weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .glassButton(isActive: true)
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            if vm.permissions.isModerator {
+                Button {
+                    Task { await vm.unmarkDuplicate() }
+                } label: {
+                    Text("Unmark")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                }
+                .glassButton()
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .glassSection()
     }
 
     @ViewBuilder

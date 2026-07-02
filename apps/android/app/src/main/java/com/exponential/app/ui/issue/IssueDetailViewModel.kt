@@ -9,9 +9,13 @@ import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PrFilesApi
 import com.exponential.app.data.api.PullFile
 import com.exponential.app.data.api.LabelsApi
+import com.exponential.app.data.api.SteerApi
+import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SubscriptionsApi
 import com.exponential.app.data.api.UpdateIssueInput
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
@@ -19,6 +23,7 @@ import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkspacePermissions
@@ -28,9 +33,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
@@ -60,6 +67,7 @@ class IssueDetailViewModel @Inject constructor(
     private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
     private val prFilesApi: PrFilesApi,
+    private val steerApi: SteerApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -142,6 +150,99 @@ class IssueDetailViewModel @Inject constructor(
         }
     }
 
+    // ── Steer: remote start + live session (masterplan §5b/§5c) ──────────────
+
+    // The running coding session for this issue (synced coding_sessions shape);
+    // multi-window desktops can run several — surface the most recent.
+    val runningSession: StateFlow<CodingSessionEntity?> = dbFlow
+        .scopedQuery(emptyList()) { it.codingSessionDao().observeByIssue(issueId) }
+        .map { rows ->
+            rows.filter { it.status == DomainContract.codingSessionStatusRunning }
+                .maxByOrNull { it.startedAt }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // steer.config is env-derived and static per instance: null = still loading.
+    private val _steerEnabled = MutableStateFlow<Boolean?>(null)
+    val steerEnabled: StateFlow<Boolean?> = _steerEnabled
+
+    // The caller's online desktops (relay presence). null = not loaded yet.
+    private val _steerDevices = MutableStateFlow<List<SteerDevice>?>(null)
+    val steerDevices: StateFlow<List<SteerDevice>?> = _steerDevices
+
+    private val _startState = MutableStateFlow<SteerStartState>(SteerStartState.Idle)
+    val startState: StateFlow<SteerStartState> = _startState
+
+    fun startOnDesktop(device: SteerDevice) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _startState.value = SteerStartState.Sending
+            try {
+                steerApi.startSession(accountId, issueId, device.deviceId)
+                _startState.value = SteerStartState.Sent(device.deviceLabel)
+                // The desktop inserts the coding_sessions row when the launcher
+                // spins up, which swaps the panel via Electric. Re-enable after
+                // a grace window in case it never picks up.
+                delay(30_000)
+                if (_startState.value is SteerStartState.Sent) {
+                    _startState.value = SteerStartState.Idle
+                }
+            } catch (t: Throwable) {
+                // Surfaces PRECONDITION_FAILED reasons (device offline, no
+                // linked repository, relay off) from the steer router.
+                _startState.value = SteerStartState.Failed(
+                    trpcErrorMessage(t, "The start command could not be delivered"),
+                )
+            }
+        }
+    }
+
+    // ── Duplicate-of (masterplan §5e) ─────────────────────────────────────────
+
+    /** The canonical issue this one duplicates (null when not marked / not visible). */
+    val duplicateOf: StateFlow<IssueEntity?> =
+        combine(dbFlow, issueFlow) { db, issue -> db to issue?.duplicateOfId }
+            .flatMapLatest { (db, dupId) ->
+                if (db == null || dupId == null) flowOf(null)
+                else db.issueDao().observeById(dupId)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Candidate canonical issues: same workspace, not this issue, not archived. */
+    val duplicateCandidates: StateFlow<List<IssueEntity>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        _project,
+    ) { issues, projects, project ->
+        if (project == null) {
+            emptyList()
+        } else {
+            val workspaceProjectIds = projects
+                .filter { it.workspaceId == project.workspaceId }
+                .map { it.id }
+                .toSet()
+            issues
+                .filter { it.projectId in workspaceProjectIds && it.id != issueId && it.archivedAt == null }
+                .sortedByDescending { it.updatedAt }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Atomically set duplicateOfId + status='duplicate'. */
+    fun markDuplicate(canonicalId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { issuesApi.setDuplicateOf(accountId, issueId, canonicalId) }
+        }
+    }
+
+    /** Clear the FK and restore a non-terminal status. */
+    fun unmarkDuplicate() {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { issuesApi.setDuplicateOf(accountId, issueId, null) }
+        }
+    }
+
     // Debounced description autosave: editing fires updateDescription() on every
     // keystroke, but we only hit the API after the user pauses (or on flush),
     // instead of one tRPC mutation per character.
@@ -163,6 +264,28 @@ class IssueDetailViewModel @Inject constructor(
                 .filterNotNull()
                 .debounce(800)
                 .collect { saveDescription(it) }
+        }
+        // Steer availability + device presence, re-fetched on account switch.
+        viewModelScope.launch {
+            auth.activeAccountId.collectLatest { accountId ->
+                _steerEnabled.value = null
+                _steerDevices.value = null
+                _startState.value = SteerStartState.Idle
+                if (accountId == null) {
+                    _steerEnabled.value = false
+                    _steerDevices.value = emptyList()
+                    return@collectLatest
+                }
+                val enabled = runCatching { steerApi.config(accountId).enabled }
+                    .getOrDefault(false)
+                _steerEnabled.value = enabled
+                _steerDevices.value = if (enabled) {
+                    runCatching { steerApi.myDevices(accountId).devices }
+                        .getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
+            }
         }
     }
 

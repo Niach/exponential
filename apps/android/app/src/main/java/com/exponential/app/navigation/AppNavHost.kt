@@ -38,9 +38,11 @@ import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.integrations.IntegrationsScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.CreateIssueScreen
+import com.exponential.app.ui.myissues.MyIssuesScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListScreen
+import com.exponential.app.ui.session.SteerTerminalScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
@@ -230,7 +232,7 @@ private fun AuthenticatedNav(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
-        currentRoute in setOf("home", "inbox", "project/{projectId}")
+        currentRoute in setOf("home", "my-issues", "inbox", "project/{projectId}")
     val fallbackProjectId by produceState<String?>(initialValue = null, activeAccountId) {
         value = resolveLastProjectId()
     }
@@ -259,6 +261,11 @@ private fun AuthenticatedNav(
             HomeScreen(
                 onOpenProject = { _, projectId -> navController.navigate("project/$projectId") },
                 onOpenSettings = { navController.navigate("settings") },
+            )
+        }
+        composable("my-issues") {
+            MyIssuesScreen(
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
         composable("inbox") {
@@ -359,7 +366,15 @@ private fun AuthenticatedNav(
         }
         composable("issue/{issueId}") { entry ->
             val issueId = entry.arguments?.getString("issueId").orEmpty()
-            IssueDetailScreen(issueId = issueId, onBack = { navController.popBackStack() })
+            IssueDetailScreen(
+                issueId = issueId,
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+            )
+        }
+        composable("steer/{codingSessionId}") {
+            SteerTerminalScreen(onBack = { navController.popBackStack() })
         }
         composable("invite/{token}") { entry ->
             val token = entry.arguments?.getString("token").orEmpty()
@@ -376,10 +391,19 @@ private fun AuthenticatedNav(
     if (barVisible) {
         BottomNavBar(
             homeActive = currentRoute == "home",
+            myIssuesActive = currentRoute == "my-issues",
             inboxActive = currentRoute == "inbox",
             unreadCount = unreadCount,
             showCompose = composeProjectId != null,
             onHome = { navController.popBackStack("home", inclusive = false) },
+            onMyIssues = {
+                if (currentRoute != "my-issues") {
+                    navController.navigate("my-issues") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                }
+            },
             onInbox = {
                 if (currentRoute != "inbox") {
                     navController.navigate("inbox") {

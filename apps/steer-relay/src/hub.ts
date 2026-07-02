@@ -273,7 +273,12 @@ export class Hub {
 
       case `claim`: {
         const room = this.roomFor(conn)
-        if (!room || !room.viewers.has(conn)) return
+        if (!room) return
+        if (room.publisher === conn) {
+          this.publisherTakeover(room)
+          return
+        }
+        if (!room.viewers.has(conn)) return
         if (conn.claims.perm !== `steer`) return
         if (room.steerer && room.steerer !== conn) return // first claim wins
         room.steerer = conn
@@ -284,6 +289,10 @@ export class Hub {
       case `release`: {
         const room = this.roomFor(conn)
         if (!room) return
+        if (room.publisher === conn) {
+          this.publisherTakeover(room)
+          return
+        }
         if (room.steerer === conn) {
           room.steerer = null
           this.broadcastPresence(room)
@@ -391,6 +400,17 @@ export class Hub {
 
   private roomFor(conn: Conn): Room | undefined {
     return conn.sessionId ? this.rooms.get(conn.sessionId) : undefined
+  }
+
+  /**
+   * The local desktop user always wins (masterplan §3.4): "Take over" sends
+   * release-then-claim on the publisher socket, which force-clears any remote
+   * steer claim immediately. The publisher never becomes the steerer itself —
+   * local input doesn't flow through the relay.
+   */
+  private publisherTakeover(room: Room) {
+    room.steerer = null
+    this.broadcastPresence(room)
   }
 
   private broadcastPresence(room: Room) {

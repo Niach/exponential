@@ -408,10 +408,13 @@ function SteerViewer({
     const dataSub = term.onData((data) => {
       const ws = wsRef.current
       if (!steeringRef.current || ws?.readyState !== WebSocket.OPEN) return
-      for (let i = 0; i < data.length; i += INPUT_CHUNK_CHARS) {
-        ws.send(
-          JSON.stringify({ t: `input`, data: data.slice(i, i + INPUT_CHUNK_CHARS) })
-        )
+      for (let i = 0; i < data.length; ) {
+        let end = Math.min(i + INPUT_CHUNK_CHARS, data.length)
+        // Never split a surrogate pair across input frames.
+        const last = end < data.length ? data.charCodeAt(end - 1) : 0
+        if (last >= 0xd800 && last <= 0xdbff) end += 1
+        ws.send(JSON.stringify({ t: `input`, data: data.slice(i, end) }))
+        i = end
       }
     })
 
@@ -431,14 +434,22 @@ function SteerViewer({
         }
         case `bye`: {
           const f = frame as Extract<ServerFrame, { t: `bye` }>
-          sawEnd = true
-          endedDetail = f.outcome && f.outcome !== `ended` ? f.outcome : null
+          if (f.outcome === `publisher_lost`) {
+            // The desktop's relay socket dropped but the session may still be
+            // running — the synced row is the truth. Stay retryable.
+            endedDetail = `The desktop's connection to the relay dropped — retry once it reconnects.`
+          } else {
+            sawEnd = true
+            endedDetail = f.outcome && f.outcome !== `ended` ? f.outcome : null
+          }
           return
         }
         case `error`: {
           const f = frame as Extract<ServerFrame, { t: `error` }>
           if (f.code === `no_such_session`) {
-            sawEnd = true
+            // Not live on the relay (yet) — the desktop may still be dialing,
+            // or the room went stale. Stay retryable; the running row governs
+            // whether this panel exists at all.
             endedDetail = `The terminal isn't live on the relay yet — the desktop may still be connecting.`
           } else {
             endedDetail = f.message ?? f.code
@@ -568,38 +579,40 @@ function SteerViewer({
             <Loader2 className="size-3 animate-spin" /> Connecting…
           </span>
         )}
-        {live && perm === `steer` && (
-          <>
-            {steering ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sendFrame({ t: `release` })}
-              >
-                <KeyboardOff />
-                Release steering
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sendFrame({ t: `claim` })}
-                disabled={otherSteerer !== null}
-              >
-                <Keyboard />
-                Take steering
-              </Button>
-            )}
+        {live &&
+          perm === `steer` &&
+          (steering ? (
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setConfirmKill(true)}
+              onClick={() => sendFrame({ t: `release` })}
             >
-              <OctagonX />
-              Kill session
+              <KeyboardOff />
+              Release steering
             </Button>
-          </>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendFrame({ t: `claim` })}
+              disabled={otherSteerer !== null}
+            >
+              <Keyboard />
+              Take steering
+            </Button>
+          ))}
+        {/* steer.killSession also authorizes the session owner — a member who
+            remote-started their own session can kill it without steer perm. */}
+        {live && (perm === `steer` || session.userId === currentUserId) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setConfirmKill(true)}
+          >
+            <OctagonX />
+            Kill session
+          </Button>
         )}
         {watching && (
           <Button

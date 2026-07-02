@@ -38,6 +38,8 @@ import {
   Heading3,
 } from "lucide-react"
 import { MarkdownImage } from "@/lib/markdown-image"
+import { IssueRefExtension } from "@/lib/issue-ref-extension"
+import { useIssueRefs } from "@/components/issue-ref-provider"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 
@@ -441,6 +443,13 @@ export const MarkdownEditor = forwardRef<
     const imageUploadRef = useRef(imageUpload)
     imageUploadRef.current = imageUpload
 
+    // Optional workspace context (null outside a workspace layout) that
+    // resolves `#IDENTIFIER` tokens to issues for the pill decorations. Held
+    // in a ref so the extension (created once) always reads fresh data.
+    const issueRefs = useIssueRefs()
+    const issueRefsRef = useRef(issueRefs)
+    issueRefsRef.current = issueRefs
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -459,6 +468,11 @@ export const MarkdownEditor = forwardRef<
         TaskList,
         TaskItem.configure({ nested: true }),
         MarkdownImage,
+        IssueRefExtension.configure({
+          getResolved: (identifier) =>
+            issueRefsRef.current?.resolve(identifier) ?? null,
+          onOpen: (identifier) => issueRefsRef.current?.open(identifier),
+        }),
         Placeholder.configure({
           placeholder: placeholder ?? `Add description...`,
         }),
@@ -538,6 +552,14 @@ export const MarkdownEditor = forwardRef<
     useEffect(() => {
       editor?.setEditable(editable)
     }, [editable, editor])
+
+    // Re-run the issue-ref decorations when resolution data changes (issues
+    // sync in live) — a no-op transaction recomputes plugin decorations
+    // without touching the document (onUpdate only fires on doc changes).
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return
+      editor.view.dispatch(editor.state.tr)
+    }, [editor, issueRefs])
 
     return (
       <div className="tiptap-wrapper">

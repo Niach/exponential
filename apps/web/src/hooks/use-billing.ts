@@ -9,12 +9,14 @@ export type BillingPlan = {
     members: number
     projects: number
     storageMb: number
-    push: boolean
+    repositories: number
+    concurrentCodingSessions: number
   }
   usage: {
     members: number
     projects: number
     storageMb: number
+    repositories: number
   }
 }
 
@@ -24,9 +26,10 @@ const UNLIMITED_PLAN: BillingPlan = {
     members: Infinity,
     projects: Infinity,
     storageMb: Infinity,
-    push: true,
+    repositories: Infinity,
+    concurrentCodingSessions: Infinity,
   },
-  usage: { members: 0, projects: 0, storageMb: 0 },
+  usage: { members: 0, projects: 0, storageMb: 0, repositories: 0 },
 }
 
 let isCloudCached: boolean | undefined
@@ -67,9 +70,20 @@ export function useBillingPlan(
       }
 
       const data = await trpc.billing.workspacePlan.query({ workspaceId })
+      // tRPC has no transformer (plain JSON), so `Infinity` limits serialize
+      // to `null` on the wire — normalize back so `=== Infinity` checks and
+      // `usage < limit` comparisons behave for unlimited caps.
+      const n = (v: number | null | undefined): number =>
+        v == null ? Infinity : v
       const result: BillingPlan = {
         plan: data.plan as PlanTier,
-        limits: data.limits,
+        limits: {
+          members: n(data.limits.members),
+          projects: n(data.limits.projects),
+          storageMb: n(data.limits.storageMb),
+          repositories: n(data.limits.repositories),
+          concurrentCodingSessions: n(data.limits.concurrentCodingSessions),
+        },
         usage: data.usage,
       }
       if (!cancelled) setPlan(result)

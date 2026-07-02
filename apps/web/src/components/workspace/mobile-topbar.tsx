@@ -1,6 +1,8 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import {
+  Bell,
+  CircleUser,
   Inbox,
   LogIn,
   LogOut,
@@ -96,6 +98,22 @@ export function WorkspaceMobileTopbar({
         </div>
       )}
       <div className="ml-auto flex items-center gap-1 md:hidden">
+        {isAuthed && (
+          <Button
+            asChild
+            size="icon"
+            variant="ghost"
+            className="size-9 text-muted-foreground"
+          >
+            <Link
+              to="/w/$workspaceSlug/my-issues"
+              params={{ workspaceSlug }}
+              aria-label="My Issues"
+            >
+              <CircleUser className="size-5" />
+            </Link>
+          </Button>
+        )}
         {isAuthed && <MobileInboxButton workspaceSlug={workspaceSlug} />}
         {workspaceId && (
           <Button
@@ -155,6 +173,12 @@ export function WorkspaceMobileTopbar({
               >
                 <Plug className="mr-2 h-4 w-4" />
                 Integrations
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => navigate({ to: `/account/notifications` })}
+              >
+                <Bell className="mr-2 h-4 w-4" />
+                Notifications
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() =>

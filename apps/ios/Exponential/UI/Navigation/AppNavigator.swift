@@ -5,6 +5,7 @@ import GRDB
 
 enum AppRoute: Hashable {
     case home
+    case myIssues
     case inbox
     case project(accountId: String, id: String)
     case issue(accountId: String, id: String)
@@ -158,10 +159,12 @@ struct MainNavigator: View {
             if showsTabBar {
                 MobileTabBar(
                     homeActive: path.isEmpty,
+                    myIssuesActive: isOnMyIssues,
                     inboxActive: isOnInbox,
                     unreadCount: unreadCount,
                     showsCompose: resolvedComposeTarget != nil,
                     onHome: { path = [] },
+                    onMyIssues: { if !isOnMyIssues { path = [.myIssues] } },
                     onInbox: { if !isOnInbox { path = [.inbox] } },
                     onCompose: { composeTarget = resolvedComposeTarget }
                 )
@@ -181,12 +184,18 @@ struct MainNavigator: View {
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         if case .inbox = top { return true }
+        if case .myIssues = top { return true }
         if case .project = top { return true }
         return false
     }
 
     private var isOnInbox: Bool {
         if case .inbox = path.last { return true }
+        return false
+    }
+
+    private var isOnMyIssues: Bool {
+        if case .myIssues = path.last { return true }
         return false
     }
 
@@ -235,6 +244,9 @@ struct MainNavigator: View {
                 },
                 projectLoader: projectLoader
             )
+        case .myIssues:
+            MyIssuesView()
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .inbox:
             InboxView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
