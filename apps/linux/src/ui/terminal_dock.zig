@@ -159,6 +159,27 @@ pub const TerminalDock = struct {
         self.expand();
     }
 
+    /// Close the tab whose child is `widget` (docked or detached) — the child
+    /// is destroyed, which kills the run's ghostty surface + child process
+    /// (the play menu's Stop, §4c). Returns false when the widget isn't a
+    /// known tab (e.g. already closed).
+    pub fn closeTabFor(self: *TerminalDock, widget: gtk.Object) bool {
+        const entry = self.registry.byWidget(widget) orelse return false;
+        const view = switch (entry.location) {
+            .dock => self.tab_view,
+            .window => blk: {
+                for (self.detached.items) |dw| {
+                    if (dw.window == entry.window) break :blk dw.view;
+                }
+                return false;
+            },
+        };
+        const page = gtk.adw_tab_view_get_page(view, widget);
+        if (page == null) return false;
+        gtk.adw_tab_view_close_page(view, page);
+        return true;
+    }
+
     pub fn expand(self: *TerminalDock) void {
         gtk.gtk_widget_set_visible(self.dock_box, 1);
         // Split so the bottom pane is ~260px tall (clamped to a real, nonzero

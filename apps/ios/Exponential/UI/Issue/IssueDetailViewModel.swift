@@ -61,6 +61,24 @@ final class IssueDetailViewModel {
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
         self.baseURL = instanceUrl.flatMap { URL(string: $0) }
         editor.onEdit = { [weak self] in self?.scheduleAutosave() }
+        // Inline `#IDENTIFIER` refs render as tappable pills when they resolve
+        // against the local issues store (render-only; see IssueRefs).
+        editor.issueRefResolver = { [weak self] identifier in
+            self?.resolveIssueRef(identifier)
+        }
+    }
+
+    /// identifier (e.g. `VER-12`) → local issue id, from the synced GRDB store.
+    /// Synchronous indexed-ish lookup; nil when unknown (token stays plain).
+    func resolveIssueRef(_ identifier: String) -> String? {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT id FROM issues WHERE upper(identifier) = ? AND archived_at IS NULL",
+                arguments: [identifier]
+            )
+        }) ?? nil
     }
 
     func startObserving() {

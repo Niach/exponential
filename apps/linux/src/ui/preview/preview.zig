@@ -221,7 +221,7 @@ pub const PreviewController = struct {
         switch (self.platform orelse return) {
             .android => self.captureAndroidFrame(oc),
             .web => self.pane.setMessage("Annotating the web preview: draw freely (frame snapshot is the JS widget's job; the native overlay flattens your strokes over a blank canvas as a fallback)."),
-            .ios => {},
+            .ios, .command => {},
         }
     }
 
@@ -301,6 +301,13 @@ pub const PreviewController = struct {
             },
             .web => self.startWeb(repo_slug, owned),
             .android => self.startAndroid(repo_slug, owned),
+            .command => {
+                // Command targets run in a terminal-dock tab (run_launcher,
+                // §4c) — the preview pane never executes them. Defensive: the
+                // play menu routes them before reaching the controller.
+                self.fail("command run configs launch from the play menu into a terminal tab");
+                return;
+            },
         }
     }
 
@@ -620,6 +627,9 @@ fn dupeTarget(a: std.mem.Allocator, t: cfg.RunTarget) !cfg.RunTarget {
         .enabled = t.enabled,
         .root_dir = try dupeOpt(a, t.root_dir),
         .setup = try dupeOpt(a, t.setup),
+        .env = try dupeEnv(a, t.env),
+        .argv = try dupeArgv(a, t.argv),
+        .cwd = try dupeOpt(a, t.cwd),
         .run = try dupeOpt(a, t.run),
         .url = try dupeOpt(a, t.url),
         .port = t.port,
@@ -640,6 +650,20 @@ fn dupeTarget(a: std.mem.Allocator, t: cfg.RunTarget) !cfg.RunTarget {
 
 fn dupeOpt(a: std.mem.Allocator, s: ?[]const u8) !?[]const u8 {
     return if (s) |v| try a.dupe(u8, v) else null;
+}
+
+fn dupeArgv(a: std.mem.Allocator, argv: ?[]const []const u8) !?[]const []const u8 {
+    const src = argv orelse return null;
+    const out = try a.alloc([]const u8, src.len);
+    for (src, 0..) |arg, i| out[i] = try a.dupe(u8, arg);
+    return out;
+}
+
+fn dupeEnv(a: std.mem.Allocator, env: []const [2][]const u8) ![]const [2][]const u8 {
+    if (env.len == 0) return &.{};
+    const out = try a.alloc([2][]const u8, env.len);
+    for (env, 0..) |kv, i| out[i] = .{ try a.dupe(u8, kv[0]), try a.dupe(u8, kv[1]) };
+    return out;
 }
 
 // ---------------------------------------------------------------------------

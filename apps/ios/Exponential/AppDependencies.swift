@@ -30,6 +30,9 @@ final class AppDependencies: @unchecked Sendable {
     let notificationsApi: NotificationsApi
     let subscriptionsApi: SubscriptionsApi
     let onboardingApi: OnboardingApi
+    // Server-only repositories registry (not a synced shape) — read + link
+    // management in workspace settings (masterplan §7a).
+    let repositoriesApi: RepositoriesApi
     // Remote start + live steer viewer (relay-backed; graceful-off when the
     // instance has no relay configured).
     let steerApi: SteerApi
@@ -96,6 +99,7 @@ final class AppDependencies: @unchecked Sendable {
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)
+        self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)
 
         // Push notifications

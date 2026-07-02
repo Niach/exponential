@@ -33,6 +33,8 @@ enum MacPreviewDoctor {
         case .web: webChecks()
         case .android: androidChecks()
         case .ios: iosChecks()
+        // Generic command targets carry their own argv — nothing to pre-check.
+        case .command: []
         }
     }
 

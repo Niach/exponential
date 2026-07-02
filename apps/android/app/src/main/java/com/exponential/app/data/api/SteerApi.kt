@@ -63,6 +63,11 @@ private data class StartSessionInput(
     @SerialName("deviceId") val deviceId: String,
 )
 
+@Serializable
+private data class KillSessionInput(
+    @SerialName("codingSessionId") val codingSessionId: String,
+)
+
 @Singleton
 class SteerApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -103,6 +108,22 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
             path = "steer.startSession",
             input = StartSessionInput(issueId = issueId, deviceId = deviceId),
             inputSerializer = StartSessionInput.serializer(),
+        )
+    }
+
+    /**
+     * `steer.killSession` — force-end a running session: flips the synced
+     * coding_sessions row to `ended` (the desktop aborts via Electric even if
+     * the relay is unreachable) + best-effort relay kill so the live terminal
+     * tears down immediately. Authorized for the session owner or a workspace
+     * owner (steer perm).
+     */
+    suspend fun killSession(accountId: String, codingSessionId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "steer.killSession",
+            input = KillSessionInput(codingSessionId = codingSessionId),
+            inputSerializer = KillSessionInput.serializer(),
         )
     }
 }

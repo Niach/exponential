@@ -45,6 +45,24 @@ final class MacIssueDetailModel {
         self.deps = deps
         self.accountId = accountId
         self.issueId = issueId
+        // Inline `#IDENTIFIER` refs render as tappable pills when they resolve
+        // against the local issues store (render-only; see IssueRefs).
+        editor.issueRefResolver = { [weak self] identifier in
+            self?.resolveIssueRef(identifier)
+        }
+    }
+
+    /// identifier (e.g. `VER-12`) → local issue id, from the synced GRDB store.
+    /// Synchronous lookup; nil when unknown (the token stays plain text).
+    func resolveIssueRef(_ identifier: String) -> String? {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT id FROM issues WHERE upper(identifier) = ? AND archived_at IS NULL",
+                arguments: [identifier]
+            )
+        }) ?? nil
     }
 
     // MARK: - Derived
@@ -384,6 +402,9 @@ struct MacIssueDetailView: View {
     let accountId: String
     let issueId: String
     var onDelete: () -> Void = {}
+    /// Navigate to another issue (issue-ref pill taps). Wired by MacShell to
+    /// push onto its NavigationStack path.
+    var onOpenIssue: (String) -> Void = { _ in }
 
     @State private var model: MacIssueDetailModel?
     @State private var showDeleteConfirm = false
@@ -817,7 +838,8 @@ struct MacIssueDetailView: View {
                 baseURL: model.baseURL,
                 accountId: model.accountId,
                 httpClient: model.httpClient,
-                mentionMembers: model.mentionMembers
+                mentionMembers: model.mentionMembers,
+                onIssueRefTap: { issueId in onOpenIssue(issueId) }
             )
             // Grow with content (no fixed/max height) — the page ScrollView owns
             // scrolling, so the editor never gets its own nested scroll bar.
@@ -958,13 +980,38 @@ struct MacIssueDetailView: View {
                     Button("Cancel") { editingCommentId = nil }.controlSize(.small)
                 }
             } else {
-                Text(body).font(.callout).textSelection(.enabled)
+                // Resolved `#IDENTIFIER` refs render as tappable links (display
+                // only — edit mode always reseeds from the raw stored body).
+                Text(issueRefAttributed(body, model: model))
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .environment(\.openURL, OpenURLAction { url in
+                        if url.scheme == "exp-issue", let issueId = url.host, !issueId.isEmpty {
+                            onOpenIssue(issueId)
+                            return .handled
+                        }
+                        return .systemAction
+                    })
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Decorate resolved `#IDENTIFIER` tokens in a plain comment body as
+    /// `exp-issue://<id>` links (render-only; unknown refs stay plain text).
+    private func issueRefAttributed(_ body: String, model: MacIssueDetailModel) -> AttributedString {
+        var attributed = AttributedString(body)
+        for match in IssueRefs.matches(in: body).reversed() {
+            guard let issueId = model.resolveIssueRef(match.identifier),
+                  let url = URL(string: "exp-issue://\(issueId)"),
+                  let range = Range(match.range, in: attributed) else { continue }
+            attributed[range].link = url
+            attributed[range].foregroundColor = Color(nsColor: MarkdownStyle.linkColor)
+        }
+        return attributed
     }
 
     // MARK: - Activity timeline (comments + issue_events, merged by created_at)

@@ -72,6 +72,20 @@ sealed interface SteerPhase {
     data class Closed(val detail: String? = null) : SteerPhase
 }
 
+/** Kill-session flow: confirm dialog → tRPC steer.killSession (web parity). */
+sealed interface KillState {
+    data object Idle : KillState
+
+    /** The confirm dialog is open. */
+    data object Confirming : KillState
+
+    /** steer.killSession is in flight. */
+    data object Killing : KillState
+
+    /** The kill failed — the dialog stays open showing [message]. */
+    data class Failed(val message: String) : KillState
+}
+
 @HiltViewModel
 class SteerTerminalViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -306,6 +320,47 @@ class SteerTerminalViewModel @Inject constructor(
         _phase.value = SteerPhase.Idle
         _viewers.value = emptyList()
         _steererId.value = null
+    }
+
+    // ── Kill switch (web parity: steer perm OR session owner) ────────────────
+
+    private val _killState = MutableStateFlow<KillState>(KillState.Idle)
+    val killState: StateFlow<KillState> = _killState
+
+    /** Open the confirm dialog. */
+    fun requestKill() {
+        if (_killState.value != KillState.Killing) _killState.value = KillState.Confirming
+    }
+
+    /** Dismiss the confirm dialog (no-op while the kill is in flight). */
+    fun dismissKill() {
+        if (_killState.value != KillState.Killing) _killState.value = KillState.Idle
+    }
+
+    /**
+     * `steer.killSession`: flips the synced row to ended (the desktop aborts
+     * via Electric) + best-effort relay kill. On success the relay `bye` tears
+     * this viewer down in parallel — nothing else to update locally.
+     */
+    fun confirmKill() {
+        if (_killState.value == KillState.Killing) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value
+            if (accountId == null) {
+                _killState.value = KillState.Failed("No active account")
+                return@launch
+            }
+            _killState.value = KillState.Killing
+            try {
+                steerApi.killSession(accountId, codingSessionId)
+                _killState.value = KillState.Idle
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _killState.value = KillState.Failed(
+                    trpcErrorMessage(t, "The kill could not be delivered"),
+                )
+            }
+        }
     }
 
     override fun onCleared() {

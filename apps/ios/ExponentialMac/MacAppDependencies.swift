@@ -44,6 +44,10 @@ final class MacAppDependencies: @unchecked Sendable {
     // so a live session's completion handler outlives issue navigation.
     let codingSettings: MacCodingSettings
     let codingLauncher: MacCodingLauncher
+    // Host-side launcher for generic `command` run configs (§4c) — spawned
+    // from the top-bar play menu into the terminal dock; exit codes + per-repo
+    // last-selected memory live here.
+    let runConfigLauncher: MacRunConfigLauncher
     // Outbound steer control socket (device presence + remote "Start on my
     // desktop"). Graceful-off when the relay isn't configured.
     let steerControl: MacSteerControlChannel
@@ -127,6 +131,7 @@ final class MacAppDependencies: @unchecked Sendable {
             )
         }
         self.codingLauncher = codingLauncher
+        self.runConfigLauncher = MainActor.assumeIsolated { MacRunConfigLauncher(toasts: toastCenter) }
         // The control socket routes a remote `start_session` to the same launcher
         // the local play button uses.
         let steerControl = MainActor.assumeIsolated {

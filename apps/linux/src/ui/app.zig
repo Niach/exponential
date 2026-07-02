@@ -29,6 +29,8 @@ const credentials = @import("../core/credentials.zig");
 const steer_control = @import("../core/steer/control_channel.zig");
 const terminal_dock = @import("terminal_dock.zig");
 const coding_launcher = @import("coding_launcher.zig");
+const run_launcher = @import("run_launcher.zig");
+const run_script = @import("run_script.zig");
 const preview_panel = @import("preview/preview_panel.zig");
 const preview = @import("preview/preview.zig");
 const preview_config = @import("preview/preview_config.zig");
@@ -73,6 +75,9 @@ const AppState = struct {
     preview_split: gtk.Object = null, // horizontal GtkPaned: content | preview (toggle)
     preview_targets: std.ArrayListUnmanaged(PreviewTargetEntry) = .empty, // gpa-owned parsed targets for the active project
     preview_repo_slug: ?[]u8 = null, // repositories-registry fullName ("owner/name") whose targets are loaded
+    preview_loaded_project: ?[]u8 = null, // project id the current repo-resolve completed for (play menu freshness)
+    run_launcher: ?*run_launcher.RunLauncher = null, // §4c host-side command runs → dock tabs
+    play_menu_btn: gtk.Object = null, // header play GtkMenuButton (popdown after an item click)
     list_page: gtk.Object = null, // root AdwNavigationPage (the issue list)
     selected_project_id: ?[]u8 = null, // null = all issues
     selected_project_name: ?[]u8 = null, // for the create-issue default + title
@@ -727,6 +732,13 @@ fn onSignOut(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     // the main window content (holding the docked tabs) is swapped out.
     if (state.term_dock) |d| d.destroy();
     state.term_dock = null;
+    // Then the run launcher: after the dock (detached windows are gone, their
+    // exits already recorded) but before the content swap destroys the
+    // remaining docked run tabs — destroy() disarms those terminals' exit
+    // hooks so no late callback can land in a freed entry.
+    if (state.run_launcher) |rl| rl.destroy();
+    state.run_launcher = null;
+    state.play_menu_btn = null; // dies with the window content
     if (state.active_workspace_id) |p| state.gpa.free(p);
     state.active_workspace_id = null;
     freeWorkspaceIds(state);
@@ -922,14 +934,17 @@ fn buildTrackerUI(state: *AppState) void {
     const list_toolbar = gtk.adw_toolbar_view_new();
     const list_header = gtk.adw_header_bar_new();
     gtk.adw_header_bar_set_show_start_title_buttons(list_header, 0); // only the inner edge
-    // IDE-style "Run preview" play button (top, left edge) — reveals the
-    // dedicated Preview pane to build + run the project's targets and annotate.
-    const preview_btn = gtk.gtk_button_new_with_label("");
-    gtk.gtk_button_set_icon_name(preview_btn, "media-playback-start-symbolic");
-    gtk.gtk_widget_set_tooltip_text(preview_btn, "Preview — build & run this project");
-    gtk.gtk_widget_add_css_class(preview_btn, "flat");
-    _ = gtk.g_signal_connect_data(preview_btn, "clicked", @ptrCast(&onPreviewToggle), state, null, 0);
-    gtk.adw_header_bar_pack_start(list_header, preview_btn);
+    // IDE-style play menu (top, left edge; §4c): groups Start coding, the
+    // project's run configs (command + preview targets) and Stop. Built
+    // lazily on every open so it reflects the current issue, parsed targets,
+    // running state and run history.
+    const play_btn = gtk.gtk_menu_button_new();
+    gtk.gtk_menu_button_set_icon_name(play_btn, "media-playback-start-symbolic");
+    gtk.gtk_widget_set_tooltip_text(play_btn, "Run — start coding or launch a run config");
+    gtk.gtk_widget_add_css_class(play_btn, "flat");
+    gtk.gtk_menu_button_set_create_popup_func(play_btn, @ptrCast(&buildPlayMenu), state, null);
+    gtk.adw_header_bar_pack_start(list_header, play_btn);
+    state.play_menu_btn = play_btn;
     // Web: header "New issue" is the default shadcn Button (primary, h-9).
     const new_issue = widgets.button("New issue", .primary, .default);
     _ = gtk.g_signal_connect_data(new_issue, "clicked", @ptrCast(&onNewIssueClicked), state, null, 0);
@@ -975,6 +990,8 @@ fn buildTrackerUI(state: *AppState) void {
         }
         break :blk nav;
     };
+    // §4c host-side command runs land in the dock as `.run` tabs.
+    state.run_launcher = run_launcher.RunLauncher.create(state.gpa, runMount, state);
 
     // Dedicated, resizable Preview pane on the trailing edge — SEPARATE from the
     // bottom terminal dock (which hosts the embedded terminal). A horizontal
@@ -2523,6 +2540,13 @@ fn codingMount(mount_ctx: ?*anyopaque, term: gtk.Object, title: [*:0]const u8, k
     if (state.term_dock) |dock| dock.addTab(std.mem.span(key), .coding, term, title);
 }
 
+/// Main-thread mount hook for §4c run-config tabs (keyed by the run-target id;
+/// a second concurrent run of the same target gets a generated key).
+fn runMount(mount_ctx: ?*anyopaque, widget: gtk.Object, title: [*:0]const u8, key: [*:0]const u8) void {
+    const state: *AppState = @ptrCast(@alignCast(mount_ctx orelse return));
+    if (state.term_dock) |dock| dock.addTab(std.mem.span(key), .run, widget, title);
+}
+
 /// Main-thread error hook: surface the failure / "link a repository" CTA.
 fn codingError(err_ctx: ?*anyopaque, message: [*:0]const u8) void {
     const state: *AppState = @ptrCast(@alignCast(err_ctx orelse return));
@@ -3993,14 +4017,15 @@ fn onIntegrationsClicked(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
 fn freePreviewTargets(state: *AppState) void {
     for (state.preview_targets.items) |*e| e.arena.deinit();
     state.preview_targets.clearAndFree(state.gpa);
+    if (state.preview_loaded_project) |p| state.gpa.free(p);
+    state.preview_loaded_project = null;
 }
 
 /// Toggle the dedicated Preview pane. On first reveal for a project, load its
 /// run targets from the cloned repo file (canonical command source) into the
 /// picker. Trust-gated: a target's Run is blocked until the user approves the
 /// repo's command set (see onPreviewRun).
-fn onPreviewToggle(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
-    const state: *AppState = @ptrCast(@alignCast(data));
+fn togglePreviewPane(state: *AppState) void {
     const split = state.preview_split;
     const pane = state.preview_pane orelse return;
     if (split == null) return;
@@ -4012,6 +4037,17 @@ fn onPreviewToggle(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     loadPreviewTargets(state);
     gtk.gtk_widget_set_visible(pane.root, 1);
     // Split ~40% to the preview (portrait phone proportion) once allocated.
+    const total = gtk.gtk_widget_get_width(split);
+    if (total > 600) gtk.gtk_paned_set_position(split, total - 420);
+}
+
+/// Reveal the Preview pane without toggling (a preview-shaped run config was
+/// launched from the play menu). No-op when already visible.
+fn revealPreviewPane(state: *AppState) void {
+    const split = state.preview_split orelse return;
+    const pane = state.preview_pane orelse return;
+    if (gtk.gtk_widget_get_visible(pane.root) != 0) return;
+    gtk.gtk_widget_set_visible(pane.root, 1);
     const total = gtk.gtk_widget_get_width(split);
     if (total > 600) gtk.gtk_paned_set_position(split, total - 420);
 }
@@ -4183,8 +4219,16 @@ fn onPreviewRepoDone(data: gtk.gpointer) callconv(.c) c_int {
     if (job.full_name) |full| {
         fillPreviewTargets(state, full);
     } else {
+        // No linked repo: drop any stale slug from a previously loaded project
+        // so the play menu / trust ops never key off the wrong repo.
+        if (state.preview_repo_slug) |p| state.gpa.free(p);
+        state.preview_repo_slug = null;
         pane.setMessage("This project has no linked repository — link one in workspace settings (a lone non-primary link also needs Primary set).");
     }
+    // Mark the resolve as completed for this project (even with no repo) so
+    // the play menu knows the current target list is fresh.
+    if (state.preview_loaded_project) |p| state.gpa.free(p);
+    state.preview_loaded_project = state.gpa.dupe(u8, job.project_id) catch null;
     return 0; // G_SOURCE_REMOVE
 }
 
@@ -4194,6 +4238,17 @@ fn dupePreviewTarget(a: std.mem.Allocator, t: preview_config.RunTarget) !preview
     out.name = try a.dupe(u8, t.name);
     out.root_dir = try dupeOptStr(a, t.root_dir);
     out.setup = try dupeOptStr(a, t.setup);
+    out.cwd = try dupeOptStr(a, t.cwd);
+    if (t.argv) |argv| {
+        const owned = try a.alloc([]const u8, argv.len);
+        for (argv, 0..) |arg, i| owned[i] = try a.dupe(u8, arg);
+        out.argv = owned;
+    }
+    if (t.env.len > 0) {
+        const owned_env = try a.alloc([2][]const u8, t.env.len);
+        for (t.env, 0..) |kv, i| owned_env[i] = .{ try a.dupe(u8, kv[0]), try a.dupe(u8, kv[1]) };
+        out.env = owned_env;
+    }
     out.run = try dupeOptStr(a, t.run);
     out.url = try dupeOptStr(a, t.url);
     out.ready_path = try dupeOptStr(a, t.ready_path);
@@ -4217,20 +4272,51 @@ fn dupeOptStr(a: std.mem.Allocator, s: ?[]const u8) !?[]const u8 {
 /// Header Run: trust-gate the repo's command set, then start the selected target.
 fn onPreviewRun(ctx: ?*anyopaque, target_index: usize) void {
     const state: *AppState = @ptrCast(@alignCast(ctx orelse return));
-    const ctrl = state.preview_ctrl orelse return;
+    startRunTarget(state, target_index);
+}
+
+/// Start run target `target_index` (play menu or pane Run): remember it as the
+/// repo's last-selected config, run the trust gate (commands come from the
+/// working-tree repo file; iOS needs no gate — no commands run), then launch.
+fn startRunTarget(state: *AppState, target_index: usize) void {
     if (target_index >= state.preview_targets.items.len) return;
     const repo = state.preview_repo_slug orelse return;
     const target = state.preview_targets.items[target_index].target;
 
-    // Trust gate: commands come from the working-tree repo file; require a
-    // one-time approval per command-set hash. iOS needs no gate (no commands run).
+    // §4c: per-repo last-selected memory (sibling last-run.json beside the
+    // trust store) — the play menu's Stop acts on this target.
+    preview_config.setLastSelectedTarget(state.gpa, repo, target.id);
+
     if (target.platform != .ios) {
         if (!ensurePreviewTrust(state, repo)) {
             confirmPreviewTrust(state, repo, target_index);
             return;
         }
     }
-    ctrl.start(repo, target);
+    launchTrustedTarget(state, target_index);
+}
+
+/// Post-trust dispatch: `command` targets spawn host-side into a terminal-dock
+/// tab (§4c); preview-shaped targets (web/android/ios) render in the Preview
+/// pane, which is revealed if hidden.
+fn launchTrustedTarget(state: *AppState, target_index: usize) void {
+    if (target_index >= state.preview_targets.items.len) return;
+    const repo = state.preview_repo_slug orelse return;
+    const target = state.preview_targets.items[target_index].target;
+
+    if (target.platform == .command) {
+        const rl = state.run_launcher orelse return;
+        const clone = preview_config.repoCloneDir(state.gpa, repo) catch {
+            showMessageDialog(state, "Run", "Out of memory.");
+            return;
+        };
+        defer state.gpa.free(clone);
+        if (rl.launch(target, clone)) |msg| showMessageDialog(state, "Run", msg);
+        return;
+    }
+
+    revealPreviewPane(state);
+    if (state.preview_ctrl) |ctrl| ctrl.start(repo, target);
 }
 
 /// Whether the repo's current command set is already approved.
@@ -4303,12 +4389,8 @@ fn onTrustAccept(btn: gtk.Object, data: gtk.gpointer) callconv(.c) void {
     const idx = tc.target_index;
     const dialog = gtk.g_object_get_data(btn, "exp-dialog");
     if (dialog != null) _ = gtk.adw_dialog_close(dialog);
-    // Now trusted → start.
-    if (idx < state.preview_targets.items.len) {
-        if (state.preview_ctrl) |ctrl| {
-            if (state.preview_repo_slug) |repo| ctrl.start(repo, state.preview_targets.items[idx].target);
-        }
-    }
+    // Now trusted → start (command → terminal tab, preview → pane).
+    launchTrustedTarget(state, idx);
 }
 
 fn onPreviewStop(ctx: ?*anyopaque) void {
@@ -4321,6 +4403,238 @@ fn onPreviewTargetChanged(ctx: ?*anyopaque, target_index: usize) void {
     // Switching targets stops the current preview (single active preview rule).
     if (state.preview_ctrl) |c| c.stop();
     _ = target_index;
+}
+
+// --- Play menu (top bar, §4c): Start coding · run configs · Stop -------------
+
+const PlayItemCtx = struct { state: *AppState, index: usize };
+
+fn freePlayItemCtx(p: gtk.gpointer) callconv(.c) void {
+    const c: *PlayItemCtx = @ptrCast(@alignCast(p));
+    c.state.gpa.destroy(c);
+}
+
+/// Whether the current target list belongs to the currently selected project
+/// (the repo resolve completed for it) — else the menu shows a loading row and
+/// kicks the async load.
+fn playTargetsLoaded(state: *AppState) bool {
+    const loaded = state.preview_loaded_project orelse return false;
+    const cur = state.selected_project_id orelse return false;
+    return std.mem.eql(u8, loaded, cur);
+}
+
+/// Anything the Stop entry could act on right now?
+fn playStopAvailable(state: *AppState) bool {
+    if (state.run_launcher) |rl| {
+        for (rl.active.items) |active_run| {
+            if (!active_run.exited) return true;
+        }
+    }
+    if (state.preview_ctrl) |c| {
+        if (c.platform != null) return true; // a preview run is live
+    }
+    return false;
+}
+
+fn playMenuPopdown(state: *AppState) void {
+    if (state.play_menu_btn != null) gtk.gtk_menu_button_popdown(state.play_menu_btn);
+}
+
+fn appendPlayNote(col: gtk.Object, text: [*:0]const u8) void {
+    const lbl = gtk.gtk_label_new(text);
+    gtk.gtk_widget_add_css_class(lbl, "dim-label");
+    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+    gtk.gtk_label_set_wrap(lbl, 1);
+    gtk.gtk_box_append(col, lbl);
+}
+
+/// Lazily build the play popover so it always reflects the open issue, the
+/// parsed targets, running state and run history (mirrors buildFilterPopup).
+fn buildPlayMenu(button: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    const pop = gtk.gtk_popover_new();
+    const col = gtk.gtk_box_new(gtk.ORIENTATION_VERTICAL, 4);
+    gtk.gtk_widget_set_margin_top(col, 8);
+    gtk.gtk_widget_set_margin_bottom(col, 8);
+    gtk.gtk_widget_set_margin_start(col, 8);
+    gtk.gtk_widget_set_margin_end(col, 8);
+    gtk.gtk_widget_set_size_request(col, 260, -1);
+
+    // --- Start coding (the §4a launcher, per the open issue) ---
+    const coding = gtk.gtk_button_new_with_label("Start coding");
+    gtk.gtk_widget_add_css_class(coding, "flat");
+    gtk.gtk_widget_set_halign(coding, gtk.ALIGN_FILL);
+    if (state.detail_issue_id == null) {
+        gtk.gtk_widget_set_sensitive(coding, 0);
+        gtk.gtk_widget_set_tooltip_text(coding, "Open an issue first — coding sessions start from an issue");
+    } else {
+        gtk.gtk_widget_set_tooltip_text(coding, "Clone the repo and start a coding session for the open issue");
+    }
+    _ = gtk.g_signal_connect_data(coding, "clicked", @ptrCast(&onPlayStartCoding), state, null, 0);
+    gtk.gtk_box_append(col, coding);
+
+    // --- Run configs (parsed command + preview targets) ---
+    gtk.gtk_box_append(col, widgets.sectionTitle("Run configs"));
+    if (state.selected_project_id == null) {
+        appendPlayNote(col, "Select a project to load its run configs.");
+    } else if (!playTargetsLoaded(state)) {
+        loadPreviewTargets(state); // async; reopen once resolved
+        appendPlayNote(col, "Loading run configs — reopen in a moment…");
+    } else if (state.preview_repo_slug == null) {
+        appendPlayNote(col, "No linked repository — link one in workspace settings.");
+    } else if (state.preview_targets.items.len == 0) {
+        appendPlayNote(col, "No run targets in .exponential/config.json.");
+    } else {
+        const last_id = preview_config.lastSelectedTarget(state.gpa, state.preview_repo_slug.?);
+        defer if (last_id) |l| state.gpa.free(l);
+        for (state.preview_targets.items, 0..) |entry, i| {
+            if (!entry.target.enabled) continue;
+            gtk.gtk_box_append(col, buildPlayTargetRow(state, entry.target, i, last_id));
+        }
+    }
+
+    // --- Stop (the selected/last-used target) ---
+    gtk.gtk_box_append(col, gtk.gtk_separator_new(gtk.ORIENTATION_HORIZONTAL));
+    const stop = gtk.gtk_button_new_with_label("Stop");
+    gtk.gtk_widget_add_css_class(stop, "flat");
+    gtk.gtk_widget_set_halign(stop, gtk.ALIGN_FILL);
+    gtk.gtk_widget_set_tooltip_text(stop, "Stop the last-used run config");
+    if (!playStopAvailable(state)) gtk.gtk_widget_set_sensitive(stop, 0);
+    _ = gtk.g_signal_connect_data(stop, "clicked", @ptrCast(&onPlayStop), state, null, 0);
+    gtk.gtk_box_append(col, stop);
+
+    // Preview pane escape hatch (the play button used to be its toggle).
+    const pane_toggle = gtk.gtk_button_new_with_label("Toggle preview pane");
+    gtk.gtk_widget_add_css_class(pane_toggle, "flat");
+    gtk.gtk_widget_set_halign(pane_toggle, gtk.ALIGN_FILL);
+    _ = gtk.g_signal_connect_data(pane_toggle, "clicked", @ptrCast(&onPlayTogglePane), state, null, 0);
+    gtk.gtk_box_append(col, pane_toggle);
+
+    gtk.gtk_popover_set_child(pop, col);
+    gtk.gtk_menu_button_set_popover(button, pop);
+}
+
+/// One run-config row: "name · platform" + a spinner while running + a dim
+/// "exit 0 · 2m ago" trailer from the §4c run-history ring ("· last" marks the
+/// repo's remembered selection).
+fn buildPlayTargetRow(state: *AppState, target: preview_config.RunTarget, index: usize, last_id: ?[]const u8) gtk.Object {
+    const row = gtk.gtk_button_new();
+    gtk.gtk_widget_add_css_class(row, "flat");
+    gtk.gtk_widget_set_halign(row, gtk.ALIGN_FILL);
+
+    const hbox = gtk.gtk_box_new(gtk.ORIENTATION_HORIZONTAL, 8);
+    var name_buf: [128]u8 = undefined;
+    const name = target.name[0..@min(target.name.len, 96)];
+    const title = std.fmt.bufPrintZ(&name_buf, "{s} · {s}", .{ name, target.platform.label() }) catch "Run config";
+    const lbl = gtk.gtk_label_new(title.ptr);
+    gtk.gtk_widget_set_halign(lbl, gtk.ALIGN_START);
+    gtk.gtk_widget_set_hexpand(lbl, 1);
+    gtk.gtk_label_set_ellipsize(lbl, gtk.ELLIPSIZE_END);
+    gtk.gtk_box_append(hbox, lbl);
+
+    const running = if (state.run_launcher) |rl| rl.isRunning(target.id) else false;
+    if (running) {
+        const spinner = gtk.gtk_spinner_new();
+        gtk.gtk_spinner_set_spinning(spinner, 1);
+        gtk.gtk_box_append(hbox, spinner);
+    }
+
+    // Trailer: last exit + age (command runs only — previews aren't ringed),
+    // plus the last-selected marker.
+    var info_buf: [96]u8 = undefined;
+    var info: ?[:0]const u8 = null;
+    if (state.run_launcher) |rl| {
+        if (rl.lastRun(target.id)) |rec| {
+            var age_buf: [32]u8 = undefined;
+            const age = run_script.ageLabel(&age_buf, run_script.nowMs(), rec.ended_at_ms);
+            info = if (rec.exit_code == run_launcher.exit_stopped)
+                (std.fmt.bufPrintZ(&info_buf, "stopped · {s}", .{age}) catch null)
+            else
+                (std.fmt.bufPrintZ(&info_buf, "exit {d} · {s}", .{ rec.exit_code, age }) catch null);
+        }
+    }
+    const is_last = if (last_id) |l| std.mem.eql(u8, l, target.id) else false;
+    if (info != null or is_last) {
+        var trailer_buf: [128]u8 = undefined;
+        const trailer = if (info) |inf|
+            (if (is_last) std.fmt.bufPrintZ(&trailer_buf, "{s} · last", .{inf}) else std.fmt.bufPrintZ(&trailer_buf, "{s}", .{inf}))
+        else
+            std.fmt.bufPrintZ(&trailer_buf, "last", .{});
+        if (trailer) |z| {
+            const dim = gtk.gtk_label_new(z.ptr);
+            gtk.gtk_widget_add_css_class(dim, "dim-label");
+            gtk.gtk_box_append(hbox, dim);
+        } else |_| {}
+    }
+    gtk.gtk_button_set_child(row, hbox);
+
+    if (state.gpa.create(PlayItemCtx)) |ctx| {
+        ctx.* = .{ .state = state, .index = index };
+        gtk.g_object_set_data_full(row, "exp-play", @ptrCast(ctx), @ptrCast(&freePlayItemCtx));
+        _ = gtk.g_signal_connect_data(row, "clicked", @ptrCast(&onPlayRunTarget), ctx, null, 0);
+    } else |_| {
+        gtk.gtk_widget_set_sensitive(row, 0);
+    }
+    return row;
+}
+
+fn onPlayStartCoding(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    playMenuPopdown(state);
+    const issue_id = state.detail_issue_id orelse return;
+    const inst = state.instance orelse return;
+    const db = if (state.db) |*d| d else return;
+    coding_launcher.start(.{
+        .gpa = state.gpa,
+        .instance = inst,
+        .token = state.token,
+        .user_id = state.user_id,
+        .db = db,
+        .issue_id = issue_id,
+        .mount = codingMount,
+        .mount_ctx = state,
+        .on_error = codingError,
+        .error_ctx = state,
+    });
+}
+
+fn onPlayRunTarget(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const ctx: *PlayItemCtx = @ptrCast(@alignCast(data orelse return));
+    const state = ctx.state;
+    const index = ctx.index; // read before popdown (it may dispose the row + ctx)
+    playMenuPopdown(state);
+    startRunTarget(state, index);
+}
+
+fn onPlayStop(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    playMenuPopdown(state);
+    stopLastRunTarget(state);
+}
+
+fn onPlayTogglePane(_: gtk.Object, data: gtk.gpointer) callconv(.c) void {
+    const state: *AppState = @ptrCast(@alignCast(data));
+    playMenuPopdown(state);
+    togglePreviewPane(state);
+}
+
+/// Stop the repo's last-used run config: a live command run gets its dock tab
+/// closed (destroying the ghostty surface kills the child, §4c); otherwise the
+/// preview run (if any) is stopped.
+fn stopLastRunTarget(state: *AppState) void {
+    if (state.preview_repo_slug) |repo| {
+        if (preview_config.lastSelectedTarget(state.gpa, repo)) |last_id| {
+            defer state.gpa.free(last_id);
+            if (state.run_launcher) |rl| {
+                if (rl.activeWidget(last_id)) |widget| {
+                    if (state.term_dock) |dock| {
+                        if (dock.closeTabFor(widget)) return;
+                    }
+                }
+            }
+        }
+    }
+    if (state.preview_ctrl) |c| c.stop();
 }
 
 /// Annotate toggled ON: capture the current preview frame + wire the report

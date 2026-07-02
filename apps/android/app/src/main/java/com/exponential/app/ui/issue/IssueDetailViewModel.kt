@@ -27,6 +27,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -226,6 +227,32 @@ class IssueDetailViewModel @Inject constructor(
                 .sortedByDescending { it.updatedAt }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ── Issue-reference pills (masterplan §5e) ────────────────────────────────
+
+    /**
+     * Uppercased identifier → target for inline `#IDENTIFIER` pills in the
+     * description + comments. Resolution is scoped to this issue's workspace
+     * (same-prefix identifiers from another synced workspace never leak in),
+     * mirroring the web IssueRefProvider.
+     */
+    val issueRefTargets: StateFlow<Map<String, IssueRefTarget>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        _project,
+    ) { issues, projects, project ->
+        if (project == null) {
+            emptyMap()
+        } else {
+            val workspaceProjectIds = projects
+                .filter { it.workspaceId == project.workspaceId }
+                .map { it.id }
+                .toSet()
+            issues
+                .filter { it.projectId in workspaceProjectIds }
+                .associate { it.identifier.uppercase() to IssueRefTarget(it.id, it.identifier) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** Atomically set duplicateOfId + status='duplicate'. */
     fun markDuplicate(canonicalId: String) {

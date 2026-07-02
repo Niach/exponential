@@ -44,6 +44,18 @@ struct WorkspaceSettingsView: View {
                         onDelete: { project in deleteProjectTarget = project }
                     )
 
+                    // Repositories registry (server-only, read over tRPC —
+                    // masterplan §7a). Owners manage links; adding NEW repos
+                    // happens on the web (GitHub-App install flow).
+                    WorkspaceRepositoriesSection(
+                        accountId: accountId,
+                        workspace: workspace,
+                        projects: projects.filter { $0.archivedAt == nil },
+                        isOwner: isOwner,
+                        repositoriesApi: deps.repositoriesApi,
+                        instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                    )
+
                     // Members section (includes invite controls)
                     WorkspaceMembersSection(
                         accountId: accountId,
@@ -119,6 +131,13 @@ struct WorkspaceSettingsView: View {
         } message: {
             Text("This will permanently delete \(deleteProjectTarget?.name ?? "this project") and all its issues. This cannot be undone.")
         }
+    }
+
+    /// Repository management is owner-only (the server enforces workspace-owner
+    /// on the `repositories` router mutations); everyone else reads the registry.
+    private var isOwner: Bool {
+        guard let me = deps.auth.userId else { return false }
+        return members.contains { $0.userId == me && $0.role == DomainContract.workspaceRoleOwner }
     }
 
     private func deleteWorkspace() async {

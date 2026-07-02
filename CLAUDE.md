@@ -37,6 +37,7 @@ exponential/
 ├── Caddyfile
 ├── Dockerfile              # Builds the web app image; build context = repo root
 ├── Dockerfile.push-relay   # Builds the push relay image; build context = repo root
+├── Dockerfile.steer-relay  # Builds the steer relay image; build context = repo root
 └── package.json    # bun workspaces, dispatcher scripts
 ```
 
@@ -79,8 +80,8 @@ bun run storage:init               # one-time Garage bootstrap (after backend:up
 bun run lint                       # ESLint fix across workspaces
 bun run format                     # Prettier format
 
-bun run android:build              # ./gradlew :app:assembleDebug in apps/android
-bun run android:install            # ./gradlew :app:installDebug
+bun run android:build              # ./gradlew :app:assembleProductionDebug in apps/android (:staging variant exists)
+bun run android:install            # ./gradlew :app:installProductionDebug (:staging variant exists)
 
 bun run --filter @exp/domain-contract generate  # Regenerate iOS + Android enum constants
 ```
@@ -94,6 +95,7 @@ Three production targets run on Coolify (`coolify.home.straehhuber.com`, Hetzner
 - **Web cloud (`app.exponential.at`)** — Coolify app `exponential-web` (uuid `hzoe7vty1rzjypyymsaqw2w6`), a *dockerimage* app pulling `ghcr.io/niach/exponential-web:latest`. The image is built by `.github/workflows/build-issues-web.yml` on every push to `master` and on `v*.*.*` / `v*.*.*-dev` tags. **Coolify is home-LAN-only, so there is no auto-redeploy webhook** — after a green Actions run, redeploy manually from a LAN-connected machine: `coolify deploy uuid hzoe7vty1rzjypyymsaqw2w6` (or click "Deploy" in the Coolify UI). Backed by `exponential-postgres` (uuid `hqc1ofbam3x5kyxjexwj1oio`) and `exponential-electric` (uuid `s12y6uvto3utdsan5mrkhjjp`); attachments live in Hetzner Object Storage bucket `exponential` at `nbg1.your-objectstorage.com`.
 - **Marketing (`exponential.at`)** — Coolify app `exponential-marketing` (uuid `bh4vnu32zwiu0bw6nf8d7yt8`). Public-source app cloning `https://github.com/Niach/exponential.git`, base directory `/`, build `cd apps/marketing && bun run build`, start `npx -y serve apps/marketing/dist -l 80`. **No auto-redeploy** — Coolify is home-LAN-only so the webhook doesn't reach it. Manual: `coolify deploy uuid bh4vnu32zwiu0bw6nf8d7yt8` from a LAN-connected machine.
 - **Push relay (`push.exponential.at`)** — Coolify app `exponential-push-relay` (uuid `escnmp723si2642q1vcrmnqt`). Public-source app cloning `https://github.com/Niach/exponential.git` and building `Dockerfile.push-relay` (context `.`). Holds the `FIREBASE_SERVICE_ACCOUNT_JSON` env var. Same manual-deploy rule: `coolify deploy uuid escnmp723si2642q1vcrmnqt`.
+- **Steer relay (`steer.exponential.at`) — (to create)** — planned Coolify app for `apps/steer-relay`, mirroring the push-relay setup: public-source app cloning the repo and building `Dockerfile.steer-relay` (context `.`). Needs `STEER_RELAY_SECRET` (must match the web app's env); once live, set `STEER_RELAY_URL=https://steer.exponential.at` on the web apps. Until created, remote start/steer stays off in cloud (unset `STEER_RELAY_URL` disables it gracefully).
 - **Staging cloud (`next.exponential.at`)** — Coolify app `exponential-next-web` (uuid `i2h9ozcemp70yigkf8jylaq2`), same *dockerimage* from `ghcr.io/niach/exponential-web:latest`. Backed by `exponential-next-postgres` (uuid `mu6of6u8vul17sycib40zax8`) and `exponential-next-electric` (uuid `x80j1jdcf6zmviyh18d9b8iq`); attachments in Hetzner Object Storage bucket `exponentialnext`. Has Creem test-mode billing enabled. Deploy: `coolify deploy uuid i2h9ozcemp70yigkf8jylaq2`.
 - **Self-host (on-prem)**: tag `vX.Y.Z` triggers `.gitea/workflows/build-release.yml` — builds the root `Dockerfile` (context `.`), pushes to the Gitea registry, then redeploys the Portainer stack.
 - **Android**: tag `android-vX.Y.Z` triggers `.gitea/workflows/build-android.yml` — builds debug + release (unsigned) APKs and uploads them as artifacts. Signing for distribution still needs a keystore + signing config in `app/build.gradle.kts`.
@@ -138,9 +140,10 @@ apps/web/src/
 │   ├── issue-list.tsx, issue-detail-view.tsx, issue-timeline.tsx, issue-search-sheet.tsx
 │   ├── issue-filter-bar.tsx, issue-filter-popover.tsx, active-filter-pills.tsx
 │   ├── create-issue-dialog.tsx, create-project-dialog.tsx, create-workspace-dialog.tsx
-│   ├── diff-view.tsx
+│   ├── diff-view.tsx, steer-terminal.tsx (xterm.js live-steer viewer over the steer relay)
 │   └── github-repo-picker.tsx, recurrence-editor.tsx, subscribe-toggle.tsx, …
 ├── db/                           # schema.ts (re-exports @exp/db-schema + auth-schema), connection.ts, out/ (migrations + custom/0001_triggers.sql)
+├── hooks/                        # use-session, use-workspace-data, use-my-issues-data, use-project-board-data, use-workspace-permissions, …
 ├── lib/
 │   ├── auth/                     # Better Auth: index.ts (server), client.ts (fetchSessionOnce), config.ts, membership.ts, policies.ts, shape-where.ts, app-user.ts
 │   ├── collections.ts            # Electric collection definitions (all use snakeCamelMapper)
@@ -148,17 +151,19 @@ apps/web/src/
 │   ├── filters.ts                # IssueFilters, tab presets, matchesFilters()
 │   ├── trpc.ts / trpc-client.ts  # tRPC server setup / client hooks
 │   ├── trpc/                     # Routers: issues, projects, workspaces, labels, issue-labels, comments, notifications, subscriptions, workspace-members, workspace-invites, users, push-tokens, integrations, billing, admin, onboarding, repositories, coding-sessions, widgets, steer
+│   ├── steer.ts                  # Pure core of the steer router: ticket claims, perm mapping, relay HTTP calls
+│   ├── email.ts / email-unsubscribe.ts  # Single outbound-mail sender (Resend or SMTP; no-op when neither) + signed unsubscribe tokens
 │   ├── integrations/             # mentions, notifications, fcm, activity, github-app, github-pr, pr-sync, subscriptions
 │   └── storage/                  # S3 attachments: issue-attachments, issue-image-upload, image-dimensions, cleanup
 ├── routes/
-│   ├── _authenticated/           # account/integrations, onboarding, feedback, admin/*, integrations/github/installed
-│   ├── w/$workspaceSlug/         # route.tsx (layout), index, inbox/, settings/, projects/$projectSlug/ (index + issues/$issueIdentifier full-page detail)
+│   ├── _authenticated/           # account/integrations, account/notifications (email prefs), onboarding, feedback, admin/*, integrations/github/installed
+│   ├── w/$workspaceSlug/         # route.tsx (layout), index, my-issues/, inbox/, settings/, projects/$projectSlug/ (index + issues/$issueIdentifier full-page detail)
 │   ├── auth/login.tsx, auth/register.tsx, invite/$token.tsx
 │   ├── api/shapes/               # 14 Electric shape proxies (see Patterns)
 │   ├── api/trpc/$.ts             # appRouter
 │   ├── api/auth/$.ts, api/auth-config.ts, api/mcp.ts, api/webhooks/github.ts
 │   ├── api/attachments/$attachmentId.ts, api/issues/$issueId/images.ts
-│   └── api/mobile-oauth-start.ts / -return.ts, api/integrations/github/setup.ts
+│   └── api/mobile-oauth-start.ts / -return.ts, api/integrations/github/setup.ts, api/email/unsubscribe.ts, api/health.ts
 ├── router.tsx, start.tsx (defaultSsr: false), server.ts / server-bun.ts
 └── styles.css                    # Tailwind v4 + shadcn dark theme (zinc OKLCH)
 ```

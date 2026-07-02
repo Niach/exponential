@@ -1,6 +1,5 @@
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issueSubscribers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import type { SubscriberSource } from "@/lib/domain"
 

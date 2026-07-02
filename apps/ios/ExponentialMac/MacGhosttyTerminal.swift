@@ -323,10 +323,13 @@ final class MacTerminalRunner {
         let codePath = runsDir.appendingPathComponent("\(runId).code").path
         try? prompt.write(toFile: promptPath, atomically: true, encoding: .utf8)
 
+        // An empty prompt means "run the command verbatim" (run configs) — no
+        // trailing prompt argument is appended to the argv.
+        let effectivePromptPath = prompt.isEmpty ? nil : promptPath
         let script = interactive
-            ? Self.buildInteractiveScript(program: program, argv: argv, env: env, promptPath: promptPath)
+            ? Self.buildInteractiveScript(program: program, argv: argv, env: env, promptPath: effectivePromptPath)
             : Self.buildScript(program: program, argv: argv, env: env,
-                               promptPath: promptPath, outPath: outPath, codePath: codePath)
+                               promptPath: effectivePromptPath, outPath: outPath, codePath: codePath)
         try? script.write(toFile: scriptPath, atomically: true, encoding: .utf8)
         let command = "/usr/bin/env bash \(Self.shquote(scriptPath))"
 
@@ -382,13 +385,14 @@ final class MacTerminalRunner {
 
     private static func buildScript(
         program: String, argv: [String], env: [String: String],
-        promptPath: String, outPath: String, codePath: String
+        promptPath: String?, outPath: String, codePath: String
     ) -> String {
         var s = "#!/usr/bin/env bash\nset -o pipefail\n"
         for (k, v) in env { s += "export \(k)=\(shquote(v))\n" }
         s += shquote(program)
         for a in argv { s += " " + shquote(a) }
-        s += " \"$(cat \(shquote(promptPath)))\" 2>&1 | tee \(shquote(outPath))\n"
+        if let promptPath { s += " \"$(cat \(shquote(promptPath)))\"" }
+        s += " 2>&1 | tee \(shquote(outPath))\n"
         s += "echo \"${PIPESTATUS[0]}\" > \(shquote(codePath))\n"
         return s
     }
@@ -397,13 +401,14 @@ final class MacTerminalRunner {
     /// PIPESTATUS capture — the user watches and steers the CLI directly, and the
     /// plan/code is delivered out-of-band via MCP.
     private static func buildInteractiveScript(
-        program: String, argv: [String], env: [String: String], promptPath: String
+        program: String, argv: [String], env: [String: String], promptPath: String?
     ) -> String {
         var s = "#!/usr/bin/env bash\n"
         for (k, v) in env { s += "export \(k)=\(shquote(v))\n" }
         s += shquote(program)
         for a in argv { s += " " + shquote(a) }
-        s += " \"$(cat \(shquote(promptPath)))\"\n"
+        if let promptPath { s += " \"$(cat \(shquote(promptPath)))\"" }
+        s += "\n"
         return s
     }
 

@@ -37,11 +37,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +60,8 @@ import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.markdown.IssueRefHandler
+import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
@@ -109,6 +113,17 @@ fun IssueDetailScreen(
         }
     }
 
+    // Inline `#IDENTIFIER` pills (masterplan §5e): resolve against this
+    // workspace's synced issues; a tap navigates to the referenced issue. The
+    // CompositionLocal reaches every MarkdownView below (description read view
+    // + comment thread).
+    val issueRefTargets by viewModel.issueRefTargets.collectAsStateWithLifecycle()
+    val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
+    val issueRefHandler = remember(issueRefTargets) {
+        IssueRefHandler(issueRefTargets) { target -> currentOnOpenIssue(target.issueId) }
+    }
+
+    CompositionLocalProvider(LocalIssueRefs provides issueRefHandler) {
     ProvideMarkdownToolbar {
     Scaffold(
         topBar = {
@@ -372,6 +387,7 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(8.dp))
             CommentThread(issueId = issue.id)
         }
+    }
     }
     }
 

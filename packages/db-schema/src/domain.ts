@@ -59,10 +59,11 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 export const codingSessionStatusValues = [`running`, `ended`] as const
 
 // Device/build platform for a project preview run target. Selects the embedding
-// backend in the desktop apps (web webview / android emulator / ios simulator).
+// backend in the desktop apps (web webview / android emulator / ios simulator /
+// generic host-side `command` spawned into a terminal-dock tab).
 // Mirrors packages/domain-contract/contract.json (kept in sync by the
 // domain-contract drift test in apps/web).
-export const platformValues = [`web`, `android`, `ios`] as const
+export const platformValues = [`web`, `android`, `ios`, `command`] as const
 
 // Why a user is subscribed to an issue (issue_subscribers.source, varchar).
 // `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.
@@ -272,8 +273,20 @@ export type IosTarget = RunTargetBase &
     bundleId: string
   }
 
+// command → generic host-side process: the desktop spawns `argv` directly into
+// a terminal-dock tab (no embedding backend, no build/install pipeline).
+export type CommandTarget = RunTargetBase &
+  PlatformCommon & {
+    platform: `command`
+    // Program + arguments, spawned as-is (no shell). At least one element.
+    argv: string[]
+    // Working directory, relative to the repo root (e.g. `apps/web`). Rejected
+    // by consumers if it contains `..` — same rule as `rootDir`.
+    cwd?: string
+  }
+
 // A single named run target, discriminated on `platform`.
-export type RunTarget = WebTarget | AndroidTarget | IosTarget
+export type RunTarget = WebTarget | AndroidTarget | IosTarget | CommandTarget
 
 // The committed `.exponential/config.json` shape — the canonical command source.
 export interface ProjectPreviewConfig {
@@ -335,10 +348,20 @@ export const iosTargetSchema = z.object({
   ...platformCommonShape,
 })
 
+export const commandTargetSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  platform: z.literal(`command`),
+  argv: z.array(z.string()).min(1),
+  cwd: z.string().optional(),
+  ...platformCommonShape,
+})
+
 export const runTargetSchema = z.discriminatedUnion(`platform`, [
   webTargetSchema,
   androidTargetSchema,
   iosTargetSchema,
+  commandTargetSchema,
 ])
 
 export const projectPreviewConfigSchema = z.object({

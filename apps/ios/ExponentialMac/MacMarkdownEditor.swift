@@ -254,6 +254,7 @@ final class MacEditorToolbarController {
 final class MacEditorTextView: NSTextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onPasteImage: ((Data, Int?, Int?) -> Void)?
+    var onIssueRefTap: ((String) -> Void)?
 
     override var intrinsicContentSize: NSSize {
         guard let lm = layoutManager, let tc = textContainer else { return super.intrinsicContentSize }
@@ -293,6 +294,12 @@ final class MacEditorTextView: NSTextView {
             let p = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
             let idx = lm.characterIndex(for: p, in: tc, fractionOfDistanceBetweenInsertionPoints: nil)
             if idx < storage.length {
+                // Issue-ref pill: navigate to the referenced issue (render-only
+                // decoration applied by IssueEditorModel.load).
+                if let issueId = storage.attributes(at: idx, effectiveRange: nil)[.markdownIssueRef] as? String {
+                    onIssueRefTap?(issueId)
+                    return
+                }
                 let ch = (storage.string as NSString).substring(with: NSRange(location: idx, length: 1))
                 if ch == "\u{2610}" || ch == "\u{2611}" {
                     let replacement = ch == "\u{2610}" ? "\u{2611}" : "\u{2610}"
@@ -317,6 +324,7 @@ struct MacBlockTextEditor: NSViewRepresentable {
     let revision: Int
     let isFocused: Bool
     let controller: MacEditorToolbarController
+    var onIssueRefTap: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -348,6 +356,7 @@ struct MacBlockTextEditor: NSViewRepresentable {
         coord.appliedRevision = revision
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] data, w, h in coord?.handlePaste(data: data, width: w, height: h) }
+        tv.onIssueRefTap = onIssueRefTap
 
         coord.beginProgrammaticChange()
         tv.textStorage?.setAttributedString(content)
@@ -362,6 +371,7 @@ struct MacBlockTextEditor: NSViewRepresentable {
         coord.controller = controller
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] data, w, h in coord?.handlePaste(data: data, width: w, height: h) }
+        tv.onIssueRefTap = onIssueRefTap
 
         if revision != coord.appliedRevision {
             coord.appliedRevision = revision
@@ -636,6 +646,9 @@ struct MacMarkdownEditor: View {
     var accountId = ""
     var httpClient: HTTPClient?
     var mentionMembers: [MentionMember] = []
+    /// Click on a rendered `#IDENTIFIER` issue-ref pill (value = resolved issue
+    /// id). Pills only render when the host set `model.issueRefResolver`.
+    var onIssueRefTap: ((String) -> Void)?
 
     @State private var controller = MacEditorToolbarController()
     @State private var showLinkPrompt = false
@@ -657,7 +670,8 @@ struct MacMarkdownEditor: View {
                                 model: model, blockId: id, content: content,
                                 revision: model.revision(for: id),
                                 isFocused: model.focusedBlockId == id,
-                                controller: controller
+                                controller: controller,
+                                onIssueRefTap: onIssueRefTap
                             )
                             if isSolePlaceholder(id) {
                                 Text(placeholder).foregroundStyle(.tertiary).padding(.top, 4).allowsHitTesting(false)

@@ -82,14 +82,18 @@ final class MacPreviewController {
     }
 
     /// Display targets for the picker: the repo-file targets when present, else
-    /// the synced mirror's metadata (grouped by platform in the UI).
+    /// the synced mirror's metadata (grouped by platform in the UI). `command`
+    /// targets are excluded — they have no embed surface and run from the play
+    /// menu instead (masterplan §4c).
     var pickerTargets: [PickerTarget] {
         if !targets.isEmpty {
-            return targets.map { PickerTarget(id: $0.id, name: $0.name, platform: $0.platform, runnable: true) }
+            return targets
+                .filter { $0.platform != .command }
+                .map { PickerTarget(id: $0.id, name: $0.name, platform: $0.platform, runnable: true) }
         }
         return (mirror?.targets ?? []).compactMap { target in
-            PreviewPlatform(wire: target.platform).map {
-                PickerTarget(id: target.id, name: target.name, platform: $0, runnable: false)
+            PreviewPlatform(wire: target.platform).flatMap {
+                $0 == .command ? nil : PickerTarget(id: target.id, name: target.name, platform: $0, runnable: false)
             }
         }
     }
@@ -171,10 +175,13 @@ final class MacPreviewController {
             phase = .error("Approve the preview commands to run.")
             return
         }
+        guard let backend = Self.makeBackend(for: target.platform) else {
+            phase = .error("Command targets run from the play menu, not the preview pane.")
+            return
+        }
         // Single active preview: replace anything running.
         stop()
 
-        let backend = Self.makeBackend(for: target.platform)
         self.backend = backend
         annotating = false
         isMounted = true
@@ -240,11 +247,14 @@ final class MacPreviewController {
         return mirror?.feedbackProjectId ?? projectId
     }
 
-    private static func makeBackend(for platform: PreviewPlatform) -> PreviewBackend {
+    /// nil for `command` targets — they have no embed surface; the play menu's
+    /// `MacRunConfigLauncher` spawns them into a terminal-dock tab instead.
+    private static func makeBackend(for platform: PreviewPlatform) -> PreviewBackend? {
         switch platform {
         case .web: WebPreviewBackend()
         case .android: AndroidPreviewBackend()
         case .ios: IOSSimPreviewBackend()
+        case .command: nil
         }
     }
 }

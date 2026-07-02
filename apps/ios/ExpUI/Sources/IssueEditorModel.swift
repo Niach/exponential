@@ -61,6 +61,13 @@ public final class IssueEditorModel {
     /// pre-filtered to non-agent members).
     public var mentionMembers: [MentionMember] = []
 
+    /// Render-only resolver for inline `#IDENTIFIER` issue refs: identifier
+    /// (e.g. `VER-12`) → issue id, from the host's local store. When set,
+    /// `load()` decorates resolved tokens as tappable pills (unknown
+    /// identifiers stay plain text). Purely display — the derived markdown is
+    /// byte-identical either way.
+    public var issueRefResolver: ((String) -> String?)?
+
     /// Active @-mention candidates for the focused block's caret query, recomputed
     /// on edit/selection. Empty when no mention token is being typed.
     public private(set) var mentionCandidates: [MentionMember] = []
@@ -120,6 +127,7 @@ public final class IssueEditorModel {
 
     public func load(markdown: String, baseURL: URL?) {
         blocks = MarkdownConversion.markdownToBlocks(markdown, baseURL: baseURL)
+        decorateIssueRefs()
         bumpAllRevisions()
         // Baseline against the DERIVED markdown, not the raw input: the
         // markdown↔blocks round-trip is not byte-identical, so using the raw
@@ -153,6 +161,20 @@ public final class IssueEditorModel {
     public func reloadPendingRemote(baseURL: URL?) {
         guard let pending = pendingRemoteMarkdown else { return }
         load(markdown: pending, baseURL: baseURL)
+    }
+
+    /// Decorate resolved `#IDENTIFIER` tokens in every text block (render-only;
+    /// see `issueRefResolver`). Called from `load()` so remote applies and
+    /// user-driven reloads re-decorate too.
+    private func decorateIssueRefs() {
+        guard let issueRefResolver else { return }
+        for (idx, block) in blocks.enumerated() {
+            guard case let .text(id, content) = block else { continue }
+            let decorated = IssueRefs.decorate(content, resolver: issueRefResolver)
+            if decorated !== content {
+                blocks[idx] = .text(id: id, attributedContent: decorated)
+            }
+        }
     }
 
     public func markSaved(_ markdown: String) {

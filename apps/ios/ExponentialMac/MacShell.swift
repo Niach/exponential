@@ -39,6 +39,9 @@ struct MacShell: View {
     // The workspace the sidebar is currently scoped to (web shows ONE workspace's
     // projects at a time, switched via the dropdown — not every workspace flat).
     @State private var selectedWorkspace: WorkspaceRef?
+    // Play-menu trust gate: the run target awaiting a "Trust & Run" approval
+    // (mirrors MacPreviewPane's prompt — same MacPreviewTrust store + hash).
+    @State private var trustPromptTarget: RunTarget?
 
     private var activeAccount: ServerAccount? {
         deps.auth.accounts.first { $0.id == deps.auth.activeAccountId }
@@ -150,7 +153,10 @@ struct MacShell: View {
                         MacIssueDetailView(
                             accountId: ref.accountId,
                             issueId: ref.issueId,
-                            onDelete: { issuePath.removeAll { $0 == ref } }
+                            onDelete: { issuePath.removeAll { $0 == ref } },
+                            onOpenIssue: { issueId in
+                                issuePath.append(IssueRef(accountId: ref.accountId, issueId: issueId))
+                            }
                         )
                     }
                 }
@@ -160,6 +166,12 @@ struct MacShell: View {
                 }
             }
             .toolbar {
+                // Top-bar play menu (masterplan §4c): Start coding + the
+                // project's run configs (incl. generic `command` targets) +
+                // Stop, with per-repo last-selected memory.
+                ToolbarItem(placement: .primaryAction) {
+                    playMenu
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showPreview.toggle()
@@ -169,6 +181,25 @@ struct MacShell: View {
                     .help(showPreview ? "Hide preview" : "Show preview")
                     .disabled(selectedProject == nil)
                 }
+            }
+            .confirmationDialog(
+                "Trust run commands for \(deps.previewController.repo ?? "this repo")?",
+                isPresented: Binding(
+                    get: { trustPromptTarget != nil },
+                    set: { if !$0 { trustPromptTarget = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Trust & Run") {
+                    if let target = trustPromptTarget, let repo = deps.previewController.repo {
+                        MacPreviewTrust.approve(repo: repo, targets: [target])
+                        executeRunConfig(target)
+                    }
+                    trustPromptTarget = nil
+                }
+                Button("Cancel", role: .cancel) { trustPromptTarget = nil }
+            } message: {
+                Text(trustPromptMessage)
             }
         }
         .onAppear {
@@ -236,6 +267,141 @@ struct MacShell: View {
                     .preferredColorScheme(.dark)
             }
         }
+    }
+
+    // MARK: - Play menu (§4c — Start coding + run configs + Stop)
+
+    /// The repo-file run targets for the selected project (canonical commands;
+    /// includes `command` targets, which the preview picker excludes). The
+    /// preview controller already reloads these on every project (re)bind.
+    private var playMenuTargets: [RunTarget] {
+        deps.previewController.targets
+    }
+
+    private var anyRunActive: Bool {
+        deps.runConfigLauncher.isRunning
+            || deps.previewController.phase.isActive
+            || deps.previewController.phase == .running
+    }
+
+    private var playMenu: some View {
+        let controller = deps.previewController
+        let runLauncher = deps.runConfigLauncher
+        let repo = controller.repo
+        let lastSelected = repo.flatMap { runLauncher.lastSelected(forRepo: $0) }
+        let openIssue = issuePath.last
+
+        return Menu {
+            // Start coding — the §4a launcher, scoped to the open issue.
+            if let ref = openIssue {
+                let running = deps.codingLauncher.isRunning(issueId: ref.issueId)
+                Button {
+                    deps.codingLauncher.start(accountId: ref.accountId, issueId: ref.issueId)
+                } label: {
+                    Label(
+                        running ? "Coding session running…" : "Start coding on this issue",
+                        systemImage: "chevron.left.forwardslash.chevron.right"
+                    )
+                }
+                .disabled(running)
+            } else {
+                Button {} label: {
+                    Label("Start coding — open an issue first", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                .disabled(true)
+            }
+
+            Section("Run configs") {
+                if playMenuTargets.isEmpty {
+                    Button {} label: {
+                        Text(repo == nil
+                            ? "Link a GitHub repo to run configs"
+                            : "No run targets — add .exponential/config.json")
+                    }
+                    .disabled(true)
+                } else {
+                    ForEach(playMenuTargets) { target in
+                        Button {
+                            launchRunConfig(target)
+                        } label: {
+                            if target.id == lastSelected {
+                                Label(runConfigTitle(target, repo: repo), systemImage: "checkmark")
+                            } else {
+                                Label(runConfigTitle(target, repo: repo), systemImage: target.platform.sfSymbol)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            Button {
+                stopActiveRuns()
+            } label: {
+                Label("Stop", systemImage: "stop.fill")
+            }
+            .disabled(!anyRunActive)
+        } label: {
+            Label("Run", systemImage: anyRunActive ? "play.fill" : "play")
+        }
+        .help("Start coding or launch a run config")
+        .disabled(selectedProject == nil && openIssue == nil)
+    }
+
+    /// "name — exit 0 · 2m ago" (host-side history only; masterplan §4c).
+    private func runConfigTitle(_ target: RunTarget, repo: String?) -> String {
+        if deps.runConfigLauncher.activeTargetId == target.id {
+            return "\(target.name) — running…"
+        }
+        guard let repo, let record = deps.runConfigLauncher.lastRun(repo: repo, targetId: target.id) else {
+            return target.name
+        }
+        let ago = RelativeDateTimeFormatter().localizedString(for: record.endedAt, relativeTo: Date())
+        return "\(target.name) — exit \(record.exitCode) · \(ago)"
+    }
+
+    /// Selecting a config launches it (re-prompting trust when its command set
+    /// changed — the repo file is agent-editable, so the prompt is the
+    /// security boundary, exactly like the preview path).
+    private func launchRunConfig(_ target: RunTarget) {
+        guard let repo = deps.previewController.repo else { return }
+        deps.runConfigLauncher.select(repo: repo, targetId: target.id)
+        if MacPreviewTrust.isTrusted(repo: repo, targets: [target]) {
+            executeRunConfig(target)
+        } else {
+            trustPromptTarget = target
+        }
+    }
+
+    private func executeRunConfig(_ target: RunTarget) {
+        guard let repo = deps.previewController.repo else { return }
+        if target.platform == .command {
+            // Generic host-side process → terminal-dock tab (MacTerminalRunner).
+            deps.runConfigLauncher.run(target: target, repo: repo)
+        } else {
+            // Preview-shaped target → the existing preview pane path.
+            deps.previewController.select(targetId: target.id)
+            showPreview = true
+            deps.previewController.run()
+        }
+    }
+
+    private func stopActiveRuns() {
+        if deps.runConfigLauncher.isRunning {
+            deps.runConfigLauncher.stop()
+        }
+        let phase = deps.previewController.phase
+        if phase.isActive || phase == .running {
+            deps.previewController.stop()
+        }
+    }
+
+    private var trustPromptMessage: String {
+        guard let target = trustPromptTarget else {
+            return "These commands run locally on your Mac."
+        }
+        let commands = target.commandSet.joined(separator: "\n")
+        return "These commands from .exponential/config.json will run locally on your Mac:\n\n\(commands)"
     }
 
     // MARK: - Preview pane

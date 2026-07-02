@@ -117,7 +117,12 @@ struct IssueDetailView: View {
                             baseURL: instanceBaseURL,
                             accountId: accountId,
                             httpClient: deps.httpClient,
-                            mentionMembers: vm.mentionMembers
+                            mentionMembers: vm.mentionMembers,
+                            onIssueRefTap: { issueId in
+                                // Route through the deep-link bus — MainNavigator
+                                // observes it and pushes the issue route.
+                                deps.deepLinkBus.navigateToIssue(issueId)
+                            }
                         )
 
                         // Coding session: "Coding now" badge + live steer

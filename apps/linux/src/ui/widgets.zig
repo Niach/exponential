@@ -318,6 +318,17 @@ pub fn applyCss() void {
         \\  padding: 4px 10px;
         \\  font-size: 13px;
         \\}
+        // §4c "Process exited with code N" strip above a finished run tab.
+        \\.exp-run-strip {
+        \\  background-color: alpha(#22c55e, 0.10);
+        \\  border-bottom: 1px solid alpha(#22c55e, 0.35);
+        \\  padding: 4px 10px;
+        \\  font-size: 13px;
+        \\}
+        \\.exp-run-strip-err {
+        \\  background-color: alpha(#ef4444, 0.12);
+        \\  border-bottom: 1px solid alpha(#ef4444, 0.35);
+        \\}
     // --- PR diff (web diff-view.tsx parity): bordered rounded card, muted
     //     text-xs mono header, 11px (text-[0.6875rem]) code columns. Line
     //     tints live on GtkTextTags in diffColumn (paragraph-background). ---

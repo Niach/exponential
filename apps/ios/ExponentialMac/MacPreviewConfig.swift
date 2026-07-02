@@ -4,20 +4,24 @@ import Foundation
 
 // MARK: - Platform
 
-/// The three preview backends a run target can select. Mirrors the generated
-/// `DomainContract.platformValues` (web/android/ios) as a typed enum for the
-/// preview layer; unknown values from a newer repo file are dropped (the target
-/// is simply not previewable here).
+/// The run-target platforms. Mirrors the generated
+/// `DomainContract.platformValues` (web/android/ios/command) as a typed enum;
+/// unknown values from a newer repo file are dropped (the target is simply not
+/// runnable here). `web`/`android`/`ios` are preview backends; `command` is a
+/// generic host-side process launched from the play menu into a terminal-dock
+/// tab (masterplan §4c) — it has no embed surface.
 enum PreviewPlatform: String, Codable, CaseIterable, Sendable {
     case web
     case android
     case ios
+    case command
 
     var displayName: String {
         switch self {
         case .web: "Web"
         case .android: "Android"
         case .ios: "iOS"
+        case .command: "Command"
         }
     }
 
@@ -26,6 +30,7 @@ enum PreviewPlatform: String, Codable, CaseIterable, Sendable {
         case .web: "globe"
         case .android: "candybarphone"
         case .ios: "iphone"
+        case .command: "terminal"
         }
     }
 
@@ -34,6 +39,7 @@ enum PreviewPlatform: String, Codable, CaseIterable, Sendable {
         case DomainContract.platformWeb: self = .web
         case DomainContract.platformAndroid: self = .android
         case DomainContract.platformIos: self = .ios
+        case DomainContract.platformCommand: self = .command
         default: return nil
         }
     }
@@ -74,6 +80,12 @@ struct RunTarget: Identifiable, Sendable, Equatable {
     let simulator: String?
     let bundleId: String?
 
+    // command (generic host-side process — masterplan §4c)
+    /// Program + arguments, spawned directly (no shell). Min 1 element.
+    let argv: [String]?
+    /// Repo-relative working directory ('..' rejected at parse time).
+    let cwd: String?
+
     /// The ordered, canonical set of shell commands this target would execute —
     /// the input to the trust hash. Only commands (never URLs / ids) so a benign
     /// metadata edit doesn't force a re-prompt, while any change to what RUNS does.
@@ -88,6 +100,13 @@ struct RunTarget: Identifiable, Sendable, Equatable {
             // not free-form shell — include those identifiers so a scheme swap
             // re-prompts.
             return [scheme, workspace, bundleId].compactMap { $0 }
+        case .command:
+            // Fold argv AND cwd into the hash so the trust gate re-prompts when
+            // either changes (the repo file is agent-editable — the prompt is
+            // the security boundary; masterplan §4c.2).
+            var set = argv ?? []
+            if let cwd, !cwd.isEmpty { set.append("cwd:\(cwd)") }
+            return set
         }
     }
 }
@@ -146,6 +165,12 @@ enum MacPreviewConfig {
         // Reject a traversal rootDir defensively (the server sanitizes too).
         let rootDir = raw["rootDir"] as? String
         if let rootDir, rootDir.contains("..") { return nil }
+        // command targets: argv is required (min 1, no shell); cwd is
+        // repo-relative with '..' rejected (contract: commandTargetSchema).
+        let argv = raw["argv"] as? [String]
+        let cwd = raw["cwd"] as? String
+        if let cwd, cwd.contains("..") { return nil }
+        if platform == .command, (argv ?? []).isEmpty { return nil }
         var env = (raw["env"] as? [String: String]) ?? [:]
         // Strip dangerous env overrides (server does this too; belt-and-braces).
         for key in ["PATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH"] {
@@ -170,7 +195,9 @@ enum MacPreviewConfig {
             scheme: raw["scheme"] as? String,
             workspace: raw["workspace"] as? String,
             simulator: raw["simulator"] as? String,
-            bundleId: raw["bundleId"] as? String
+            bundleId: raw["bundleId"] as? String,
+            argv: argv,
+            cwd: cwd
         )
     }
 

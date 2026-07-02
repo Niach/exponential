@@ -28,11 +28,13 @@ pub const Platform = enum {
     web,
     android,
     ios,
+    command,
 
     pub fn fromString(s: []const u8) ?Platform {
         if (std.mem.eql(u8, s, contract.platform_web)) return .web;
         if (std.mem.eql(u8, s, contract.platform_android)) return .android;
         if (std.mem.eql(u8, s, contract.platform_ios)) return .ios;
+        if (std.mem.eql(u8, s, contract.platform_command)) return .command;
         return null;
     }
 
@@ -41,6 +43,7 @@ pub const Platform = enum {
             .web => "Web",
             .android => "Android",
             .ios => "iOS",
+            .command => "Command",
         };
     }
 };
@@ -59,6 +62,9 @@ pub const RunTarget = struct {
     enabled: bool = true,
     root_dir: ?[]const u8 = null,
     setup: ?[]const u8 = null,
+    /// Extra child env (key, value). PATH / LD_PRELOAD / LD_LIBRARY_PATH /
+    /// DYLD_* are stripped at parse time (never spawned, never hashed).
+    env: []const [2][]const u8 = &.{},
 
     // web
     run: ?[]const u8 = null,
@@ -80,6 +86,13 @@ pub const RunTarget = struct {
     workspace: ?[]const u8 = null,
     simulator: ?[]const u8 = null,
     bundle_id: ?[]const u8 = null,
+
+    // command (masterplan §4c: generic host-side process, spawned as-is — no
+    // shell interpretation of the elements themselves)
+    argv: ?[]const []const u8 = null,
+    /// Working directory relative to the repo root. `..` and absolute paths
+    /// are rejected at parse time (the target is dropped).
+    cwd: ?[]const u8 = null,
 };
 
 pub const Config = struct {
@@ -143,7 +156,7 @@ pub fn parse(arena: std.mem.Allocator, raw: []const u8) Error!Config {
 
     var out = std.ArrayList(RunTarget).empty;
     for (arr.items) |item| {
-        const t = parseTarget(item) orelse continue;
+        const t = parseTarget(arena, item) orelse continue;
         out.append(arena, t) catch return Error.OutOfMemory;
     }
 
@@ -154,7 +167,7 @@ pub fn parse(arena: std.mem.Allocator, raw: []const u8) Error!Config {
     return .{ .version = version, .targets = out.toOwnedSlice(arena) catch return Error.OutOfMemory };
 }
 
-fn parseTarget(item: std.json.Value) ?RunTarget {
+fn parseTarget(arena: std.mem.Allocator, item: std.json.Value) ?RunTarget {
     const o = switch (item) {
         .object => |x| x,
         else => return null,
@@ -167,6 +180,7 @@ fn parseTarget(item: std.json.Value) ?RunTarget {
     t.enabled = if (o.get("enabled")) |v| (v != .bool or v.bool) else true;
     t.root_dir = str(o, "rootDir");
     t.setup = str(o, "setup");
+    t.env = parseEnv(arena, o);
     switch (platform) {
         .web => {
             t.run = str(o, "run");
@@ -189,8 +203,71 @@ fn parseTarget(item: std.json.Value) ?RunTarget {
             t.simulator = str(o, "simulator");
             t.bundle_id = str(o, "bundleId");
         },
+        .command => {
+            // argv is required (min 1, strings only) — an invalid one drops
+            // the target rather than failing the whole parse.
+            t.argv = parseArgv(arena, o) orelse return null;
+            if (str(o, "cwd")) |c| {
+                if (!isSafeRelDir(c)) return null;
+                t.cwd = c;
+            }
+        },
     }
     return t;
+}
+
+/// `argv` must be a non-empty array of strings (mirrors the zod
+/// `z.array(z.string()).min(1)`); anything else invalidates the target.
+fn parseArgv(arena: std.mem.Allocator, o: std.json.ObjectMap) ?[]const []const u8 {
+    const v = o.get("argv") orelse return null;
+    const arr = switch (v) {
+        .array => |a| a,
+        else => return null,
+    };
+    if (arr.items.len == 0) return null;
+    var out = std.ArrayList([]const u8).empty;
+    for (arr.items) |it| switch (it) {
+        .string => |s| out.append(arena, s) catch return null,
+        else => return null,
+    };
+    return out.toOwnedSlice(arena) catch null;
+}
+
+/// Common `env` map → (key, value) pairs, dropping loader-hijack keys
+/// (PATH / LD_PRELOAD / LD_LIBRARY_PATH / DYLD_*) so a repo-carried config
+/// can't swap the binaries the host resolves. Order follows the document.
+fn parseEnv(arena: std.mem.Allocator, o: std.json.ObjectMap) []const [2][]const u8 {
+    const v = o.get("env") orelse return &.{};
+    const m = switch (v) {
+        .object => |x| x,
+        else => return &.{},
+    };
+    var out = std.ArrayList([2][]const u8).empty;
+    var it = m.iterator();
+    while (it.next()) |e| {
+        if (e.value_ptr.* != .string) continue;
+        if (isBlockedEnvKey(e.key_ptr.*)) continue;
+        out.append(arena, .{ e.key_ptr.*, e.value_ptr.string }) catch continue;
+    }
+    return out.toOwnedSlice(arena) catch &.{};
+}
+
+fn isBlockedEnvKey(key: []const u8) bool {
+    return std.mem.eql(u8, key, "PATH") or
+        std.mem.eql(u8, key, "LD_PRELOAD") or
+        std.mem.eql(u8, key, "LD_LIBRARY_PATH") or
+        std.mem.startsWith(u8, key, "DYLD_");
+}
+
+/// Repo-relative directory: non-empty, not absolute, no `..` segment.
+pub fn isSafeRelDir(p: []const u8) bool {
+    if (p.len == 0) return false;
+    if (std.fs.path.isAbsolute(p)) return false;
+    var it = std.mem.tokenizeScalar(u8, p, '/');
+    while (it.next()) |seg| {
+        if (std.mem.eql(u8, seg, "..")) return false;
+    }
+    return true;
 }
 
 fn str(o: std.json.ObjectMap, key: []const u8) ?[]const u8 {
@@ -243,6 +320,20 @@ pub fn commandSetHash(gpa: std.mem.Allocator, cfg: Config) ![]u8 {
         hashOpt(&hasher, "activity", t.activity);
         hashOpt(&hasher, "scheme", t.scheme);
         hashOpt(&hasher, "workspace", t.workspace);
+        // command surface (§4c): argv + cwd + env all influence what a Run
+        // executes, so any edit re-prompts the trust gate.
+        if (t.argv) |argv| {
+            var ibuf: [24]u8 = undefined;
+            for (argv, 0..) |arg, i| {
+                const key = std.fmt.bufPrint(&ibuf, "argv{d}", .{i}) catch "argv";
+                hashField(&hasher, key, arg);
+            }
+        }
+        hashOpt(&hasher, "cwd", t.cwd);
+        for (t.env) |kv| {
+            hashField(&hasher, "envKey", kv[0]);
+            hashField(&hasher, "envVal", kv[1]);
+        }
     }
     var digest: [32]u8 = undefined;
     hasher.final(&digest);
@@ -260,39 +351,38 @@ fn hashOpt(h: *std.crypto.hash.sha2.Sha256, key: []const u8, val: ?[]const u8) v
 }
 
 fn trustStorePath(gpa: std.mem.Allocator) ![]u8 {
+    return storeFilePath(gpa, "preview-trust.json");
+}
+
+fn storeFilePath(gpa: std.mem.Allocator, name: []const u8) ![]u8 {
     const dir = try storage.configDir(gpa);
     defer gpa.free(dir);
-    return std.fs.path.join(gpa, &.{ dir, "preview-trust.json" });
+    return std.fs.path.join(gpa, &.{ dir, name });
 }
 
-/// Whether `repo_slug`'s current command-set `hash` is already approved.
-pub fn isTrusted(gpa: std.mem.Allocator, repo_slug: []const u8, hash: []const u8) bool {
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const path = trustStorePath(a) catch return false;
-    const raw = storage.readFileAlloc(a, path) orelse return false;
-    const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, raw, .{}) catch return false;
+/// Read one string value out of a flat `{ "<key>": "<string>" }` store file.
+/// The returned slice borrows `a` (an arena).
+fn readStoreValue(a: std.mem.Allocator, path: []const u8, key: []const u8) ?[]const u8 {
+    const raw = storage.readFileAlloc(a, path) orelse return null;
+    const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, raw, .{}) catch return null;
     const obj = switch (parsed) {
         .object => |o| o,
-        else => return false,
+        else => return null,
     };
-    const stored = str(obj, repo_slug) orelse return false;
-    return std.mem.eql(u8, stored, hash);
+    return str(obj, key);
 }
 
-/// Record `repo_slug`→`hash` as approved (called after the user accepts the
-/// trust prompt). Merges into the existing store; best-effort (a write failure
-/// just means we re-prompt next time).
-pub fn trust(gpa: std.mem.Allocator, repo_slug: []const u8, hash: []const u8) void {
+/// Merge `key`→`value` into a flat string-map store file, preserving the other
+/// entries. Best-effort (a write failure just loses the memo).
+fn writeStoreValue(gpa: std.mem.Allocator, name: []const u8, key: []const u8, value: []const u8) void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const a = arena.allocator();
-    const path = trustStorePath(a) catch return;
+    const path = storeFilePath(a, name) catch return;
 
-    // Load the existing map as a JSON object, preserving other repos' approvals,
-    // then overwrite this repo's entry and re-serialize. Building on the parsed
-    // ObjectMap keeps all string values arena-borrowed (valid until we write).
+    // Load the existing map as a JSON object, then overwrite this key and
+    // re-serialize. Building on the parsed ObjectMap keeps all string values
+    // arena-borrowed (valid until we write).
     var obj: std.json.ObjectMap = .empty;
     if (storage.readFileAlloc(a, path)) |raw| {
         if (std.json.parseFromSliceLeaky(std.json.Value, a, raw, .{})) |parsed| {
@@ -304,10 +394,48 @@ pub fn trust(gpa: std.mem.Allocator, repo_slug: []const u8, hash: []const u8) vo
             }
         } else |_| {}
     }
-    obj.put(a, repo_slug, std.json.Value{ .string = hash }) catch return;
+    obj.put(a, key, std.json.Value{ .string = value }) catch return;
 
     const out = std.json.Stringify.valueAlloc(a, std.json.Value{ .object = obj }, .{}) catch return;
     storage.writeSecret(path, out) catch {};
+}
+
+/// Whether `repo_slug`'s current command-set `hash` is already approved.
+pub fn isTrusted(gpa: std.mem.Allocator, repo_slug: []const u8, hash: []const u8) bool {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = trustStorePath(a) catch return false;
+    const stored = readStoreValue(a, path, repo_slug) orelse return false;
+    return std.mem.eql(u8, stored, hash);
+}
+
+/// Record `repo_slug`→`hash` as approved (called after the user accepts the
+/// trust prompt). Merges into the existing store; best-effort (a write failure
+/// just means we re-prompt next time).
+pub fn trust(gpa: std.mem.Allocator, repo_slug: []const u8, hash: []const u8) void {
+    writeStoreValue(gpa, "preview-trust.json", repo_slug, hash);
+}
+
+// --- last-selected run target (play menu memory, §4c) ---
+//
+// A sibling `last-run.json` beside the trust store: flat map
+// { "<repo_slug>": "<target id>" } — which run config the play menu used last
+// for each repo. Pure UI memory, no security relevance.
+
+/// The last-selected run-target id for `repo_slug` (caller owns the copy).
+pub fn lastSelectedTarget(gpa: std.mem.Allocator, repo_slug: []const u8) ?[]u8 {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = storeFilePath(a, "last-run.json") catch return null;
+    const stored = readStoreValue(a, path, repo_slug) orelse return null;
+    return gpa.dupe(u8, stored) catch null;
+}
+
+/// Persist `repo_slug`→`target_id` as the play menu's last selection.
+pub fn setLastSelectedTarget(gpa: std.mem.Allocator, repo_slug: []const u8, target_id: []const u8) void {
+    writeStoreValue(gpa, "last-run.json", repo_slug, target_id);
 }
 
 // =========================================================================
@@ -361,6 +489,14 @@ pub fn doctor(arena: std.mem.Allocator, platform: Platform) []DoctorCheck {
                 .label = "iOS preview",
                 .ok = false,
                 .detail = "needs a Mac — local iOS emulation isn't possible on Linux",
+            }) catch {};
+        },
+        .command => {
+            // Command targets run `sh <launcher script>` in a terminal tab.
+            out.append(arena, .{
+                .label = "POSIX sh on PATH",
+                .ok = which(arena, "sh"),
+                .detail = "command targets run in a terminal-dock tab",
             }) catch {};
         },
     }
@@ -449,4 +585,84 @@ test "commandSetHash changes when a command changes but not on name churn" {
     const h_changed = try commandSetHash(a, changed);
     try std.testing.expectEqualStrings(h_base, h_renamed); // name doesn't affect trust
     try std.testing.expect(!std.mem.eql(u8, h_base, h_changed)); // command does
+}
+
+test "parse command target: argv/cwd/env land, invalid ones are dropped" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const raw =
+        \\{ "targets": [
+        \\  { "id": "test", "name": "Unit tests", "platform": "command",
+        \\    "argv": ["zig", "build", "test"], "cwd": "apps/linux",
+        \\    "env": { "FOO": "bar", "PATH": "/evil", "LD_PRELOAD": "/evil.so", "DYLD_INSERT_LIBRARIES": "x", "OK2": "v" } },
+        \\  { "id": "no-argv", "platform": "command" },
+        \\  { "id": "empty-argv", "platform": "command", "argv": [] },
+        \\  { "id": "bad-argv", "platform": "command", "argv": ["ok", 3] },
+        \\  { "id": "escape", "platform": "command", "argv": ["ls"], "cwd": "../outside" },
+        \\  { "id": "abs", "platform": "command", "argv": ["ls"], "cwd": "/etc" },
+        \\  { "id": "plain", "platform": "command", "argv": ["make"] }
+        \\]}
+    ;
+    const cfg = try parse(a, raw);
+    try std.testing.expectEqual(@as(usize, 2), cfg.targets.len);
+
+    const t = cfg.targets[0];
+    try std.testing.expectEqual(Platform.command, t.platform);
+    try std.testing.expectEqual(@as(usize, 3), t.argv.?.len);
+    try std.testing.expectEqualStrings("zig", t.argv.?[0]);
+    try std.testing.expectEqualStrings("test", t.argv.?[2]);
+    try std.testing.expectEqualStrings("apps/linux", t.cwd.?);
+    // env keeps FOO/OK2 but strips the loader-hijack keys.
+    try std.testing.expectEqual(@as(usize, 2), t.env.len);
+    try std.testing.expectEqualStrings("FOO", t.env[0][0]);
+    try std.testing.expectEqualStrings("bar", t.env[0][1]);
+    try std.testing.expectEqualStrings("OK2", t.env[1][0]);
+
+    const plain = cfg.targets[1];
+    try std.testing.expectEqualStrings("plain", plain.id);
+    try std.testing.expect(plain.cwd == null);
+    try std.testing.expectEqual(@as(usize, 0), plain.env.len);
+}
+
+test "commandSetHash covers argv, cwd and env of command targets" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const base = try parse(a,
+        \\{ "targets": [ { "id": "t", "name": "T", "platform": "command", "argv": ["zig", "build"], "cwd": "apps/linux", "env": { "FOO": "1" } } ] }
+    );
+    const renamed = try parse(a,
+        \\{ "targets": [ { "id": "t", "name": "T renamed", "platform": "command", "argv": ["zig", "build"], "cwd": "apps/linux", "env": { "FOO": "1" } } ] }
+    );
+    const argv_changed = try parse(a,
+        \\{ "targets": [ { "id": "t", "name": "T", "platform": "command", "argv": ["zig", "build", "-Devil"], "cwd": "apps/linux", "env": { "FOO": "1" } } ] }
+    );
+    const cwd_changed = try parse(a,
+        \\{ "targets": [ { "id": "t", "name": "T", "platform": "command", "argv": ["zig", "build"], "cwd": "apps", "env": { "FOO": "1" } } ] }
+    );
+    const env_changed = try parse(a,
+        \\{ "targets": [ { "id": "t", "name": "T", "platform": "command", "argv": ["zig", "build"], "cwd": "apps/linux", "env": { "FOO": "2" } } ] }
+    );
+    // ["a b"] must not collide with ["a", "b"] (element boundaries are hashed).
+    const argv_joined = try parse(a,
+        \\{ "targets": [ { "id": "t", "name": "T", "platform": "command", "argv": ["zig build"], "cwd": "apps/linux", "env": { "FOO": "1" } } ] }
+    );
+
+    const h_base = try commandSetHash(a, base);
+    try std.testing.expectEqualStrings(h_base, try commandSetHash(a, renamed));
+    try std.testing.expect(!std.mem.eql(u8, h_base, try commandSetHash(a, argv_changed)));
+    try std.testing.expect(!std.mem.eql(u8, h_base, try commandSetHash(a, cwd_changed)));
+    try std.testing.expect(!std.mem.eql(u8, h_base, try commandSetHash(a, env_changed)));
+    try std.testing.expect(!std.mem.eql(u8, h_base, try commandSetHash(a, argv_joined)));
+}
+
+test "isSafeRelDir rejects escapes and absolutes" {
+    try std.testing.expect(isSafeRelDir("apps/linux"));
+    try std.testing.expect(isSafeRelDir("a/b/c"));
+    try std.testing.expect(!isSafeRelDir(""));
+    try std.testing.expect(!isSafeRelDir("/etc"));
+    try std.testing.expect(!isSafeRelDir(".."));
+    try std.testing.expect(!isSafeRelDir("a/../b"));
+    try std.testing.expect(!isSafeRelDir("a/.."));
 }

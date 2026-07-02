@@ -28,4 +28,5 @@ test {
     _ = @import("ui/oauth.zig");
     _ = @import("ui/format.zig"); // GTK-free presentation helpers
     _ = @import("ui/tab_registry.zig"); // GTK-free terminal-dock tab bookkeeping (§4d)
+    _ = @import("ui/run_script.zig"); // GTK-free run-config script + history (§4c)
 }

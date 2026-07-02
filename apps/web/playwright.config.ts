@@ -39,7 +39,9 @@ export default defineConfig({
       `BETTER_AUTH_TRUSTED_ORIGINS=https://localhost:3000 ` +
       `bun dev --host 0.0.0.0 --port 5173`,
     port: 5173,
-    reuseExistingServer: false,
+    // CI must own a fresh server; locally reuse a `bun dev` already on 5173
+    // (Caddy proxies 3000 -> 5173, so a second instance can't take its place).
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
 })

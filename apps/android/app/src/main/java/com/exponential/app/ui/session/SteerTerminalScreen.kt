@@ -26,10 +26,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Dangerous
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
@@ -90,6 +93,7 @@ fun SteerTerminalScreen(
     val steererId by viewModel.steererId.collectAsStateWithLifecycle()
     val perm by viewModel.perm.collectAsStateWithLifecycle()
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    val killState by viewModel.killState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.connectIfIdle() }
 
@@ -210,25 +214,40 @@ fun SteerTerminalScreen(
                     )
                 }
                 SteerPhase.Live -> {
-                    if (perm == "steer") {
+                    // steer.killSession also authorizes the session owner — a
+                    // member who remote-started their own session can kill it
+                    // without steer perm (mirrors the web viewer).
+                    val canKill = perm == "steer" ||
+                        (session?.userId != null && session?.userId == currentUserId)
+                    if (perm == "steer" || canKill) {
                         StatusRow {
-                            if (steering) {
+                            if (perm == "steer") {
+                                if (steering) {
+                                    PillButton(
+                                        icon = Icons.Filled.KeyboardHide,
+                                        label = "Release control",
+                                        active = true,
+                                        onClick = { viewModel.release() },
+                                    )
+                                } else {
+                                    PillButton(
+                                        icon = Icons.Filled.Keyboard,
+                                        label = if (otherSteerer != null) {
+                                            "${otherSteerer.name} is steering"
+                                        } else {
+                                            "Take control"
+                                        },
+                                        enabled = otherSteerer == null,
+                                        onClick = { viewModel.claim() },
+                                    )
+                                }
+                            }
+                            if (canKill) {
                                 PillButton(
-                                    icon = Icons.Filled.KeyboardHide,
-                                    label = "Release control",
-                                    active = true,
-                                    onClick = { viewModel.release() },
-                                )
-                            } else {
-                                PillButton(
-                                    icon = Icons.Filled.Keyboard,
-                                    label = if (otherSteerer != null) {
-                                        "${otherSteerer.name} is steering"
-                                    } else {
-                                        "Take control"
-                                    },
-                                    enabled = otherSteerer == null,
-                                    onClick = { viewModel.claim() },
+                                    icon = Icons.Filled.Dangerous,
+                                    label = "Kill session",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    onClick = { viewModel.requestKill() },
                                 )
                             }
                         }
@@ -241,6 +260,48 @@ fun SteerTerminalScreen(
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+
+    // Kill confirm dialog (web parity: force-end the session via
+    // steer.killSession; the synced row flips to ended and the relay `bye`
+    // tears this viewer down). A failure keeps the dialog open with the error.
+    if (killState != KillState.Idle) {
+        val killing = killState == KillState.Killing
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissKill() },
+            title = { Text("Kill this coding session?") },
+            text = {
+                Column {
+                    val device = session?.deviceLabel
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { " on $it" } ?: ""
+                    Text(
+                        "This force-terminates the terminal$device and ends the " +
+                            "session. Uncommitted work in the worktree is kept, " +
+                            "but Claude stops immediately.",
+                    )
+                    val failed = killState as? KillState.Failed
+                    if (failed != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            failed.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.confirmKill() }, enabled = !killing) {
+                    Text("Kill session", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissKill() }, enabled = !killing) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 
@@ -263,7 +324,13 @@ private fun PillButton(
     onClick: () -> Unit,
     active: Boolean = false,
     enabled: Boolean = true,
+    tint: Color? = null,
 ) {
+    val color = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
+        tint != null -> tint
+        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Primary)
+    }
     Row(
         modifier = Modifier
             .glassButton(active = active)
@@ -276,16 +343,12 @@ private fun PillButton(
             icon,
             contentDescription = null,
             modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
-            ),
+            tint = color,
         )
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
-            ),
+            color = color,
         )
     }
 }

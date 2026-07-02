@@ -45,8 +45,53 @@ public struct InstallationToken: Decodable, Sendable {
     }
 }
 
+/// A project ↔ repo link (`project_repositories` join row).
+public struct RepoProjectLink: Decodable, Sendable, Equatable {
+    public let projectId: String
+    public let isPrimary: Bool
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        projectId = try c.decode(String.self, forKey: .projectId)
+        isPrimary = (try? c.decode(Bool.self, forKey: .isPrimary)) ?? false
+    }
+
+    enum CodingKeys: String, CodingKey { case projectId, isPrimary }
+}
+
+/// One connected repo in the workspace registry (`repositories.list` row).
+/// Decoded defensively — the server spreads the full DB row; we read only the
+/// fields the settings surface needs. `private` is a Swift keyword, mapped to
+/// `isPrivate`.
+public struct WorkspaceRepo: Decodable, Sendable, Identifiable, Equatable {
+    public let id: String
+    public let fullName: String
+    public let defaultBranch: String
+    public let isPrivate: Bool
+    public let projectLinks: [RepoProjectLink]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        fullName = try c.decode(String.self, forKey: .fullName)
+        defaultBranch = (try? c.decode(String.self, forKey: .defaultBranch)) ?? "main"
+        isPrivate = (try? c.decode(Bool.self, forKey: .isPrivate)) ?? false
+        projectLinks = (try? c.decode([RepoProjectLink].self, forKey: .projectLinks)) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, fullName, defaultBranch, projectLinks
+        case isPrivate = "private"
+    }
+}
+
 private struct IssueIdInput: Encodable { let issueId: String }
 private struct RepositoryIdInput: Encodable { let repositoryId: String }
+private struct RepoWorkspaceIdInput: Encodable { let workspaceId: String }
+private struct ProjectRepositoryInput: Encodable {
+    let projectId: String
+    let repositoryId: String
+}
 
 public final class RepositoriesApi: Sendable {
     private let trpc: TrpcClient
@@ -73,6 +118,53 @@ public final class RepositoriesApi: Sendable {
             accountId: accountId,
             path: "repositories.installationToken",
             input: RepositoryIdInput(repositoryId: repositoryId)
+        )
+    }
+
+    // MARK: - Workspace registry (settings surface, masterplan §7a)
+
+    /// Member-readable: the workspace's repos with their project links.
+    public func list(accountId: String, workspaceId: String) async throws -> [WorkspaceRepo] {
+        try await trpc.query(
+            accountId: accountId,
+            path: "repositories.list",
+            input: RepoWorkspaceIdInput(workspaceId: workspaceId)
+        )
+    }
+
+    /// Owner-only (server-enforced): remove a repo; project links cascade.
+    public func remove(accountId: String, repositoryId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.remove",
+            input: RepositoryIdInput(repositoryId: repositoryId)
+        )
+    }
+
+    /// Owner-only: link a repo to a project.
+    public func linkProject(accountId: String, projectId: String, repositoryId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.linkProject",
+            input: ProjectRepositoryInput(projectId: projectId, repositoryId: repositoryId)
+        )
+    }
+
+    /// Owner-only: unlink a repo from a project.
+    public func unlinkProject(accountId: String, projectId: String, repositoryId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.unlinkProject",
+            input: ProjectRepositoryInput(projectId: projectId, repositoryId: repositoryId)
+        )
+    }
+
+    /// Owner-only: make a linked repo the project's primary clone target.
+    public func setPrimary(accountId: String, projectId: String, repositoryId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.setPrimary",
+            input: ProjectRepositoryInput(projectId: projectId, repositoryId: repositoryId)
         )
     }
 }

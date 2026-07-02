@@ -124,6 +124,8 @@ struct CommentThreadView: View {
             accountId: accountId,
             httpClient: deps.httpClient,
             mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+            resolveIssueRef: { identifier in resolveIssueRef(identifier) },
+            onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
             onEdit: {
                 // Fresh model per edit, seeded from the comment's markdown — the
                 // same rich block editor as the composer (images, mentions, lists).
@@ -178,6 +180,19 @@ struct CommentThreadView: View {
             )
             return uploaded.url
         }
+    }
+
+    /// identifier (e.g. `VER-12`) → local issue id for inline `#IDENTIFIER`
+    /// pills in comment bodies (render-only; unresolved refs stay plain text).
+    private func resolveIssueRef(_ identifier: String) -> String? {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT id FROM issues WHERE upper(identifier) = ? AND archived_at IS NULL",
+                arguments: [identifier]
+            )
+        }) ?? nil
     }
 
     private func resetComposer() {
@@ -266,6 +281,8 @@ private struct RegularCommentRow: View {
     let accountId: String
     let httpClient: HTTPClient?
     let mentionMembers: [MentionMember]
+    let resolveIssueRef: (String) -> String?
+    let onOpenIssue: (String) -> Void
     let onEdit: () -> Void
     let onCancelEdit: () -> Void
     let onSaveEdit: () async -> Void
@@ -340,9 +357,19 @@ private struct RegularCommentRow: View {
                             .disabled(saving)
                     }
                 } else {
-                    Markdown(getCommentBodyText(comment.body))
+                    // Display-only transform: resolved `#IDENTIFIER` refs become
+                    // tappable links routed back to the app (never persisted —
+                    // the edit path reseeds from the raw stored markdown).
+                    Markdown(IssueRefs.linkifyForDisplay(getCommentBodyText(comment.body), resolver: resolveIssueRef))
                         .markdownTheme(.gitHub)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .environment(\.openURL, OpenURLAction { url in
+                            if url.scheme == "exp-issue", let issueId = url.host, !issueId.isEmpty {
+                                onOpenIssue(issueId)
+                                return .handled
+                            }
+                            return .systemAction
+                        })
                 }
             }
         }

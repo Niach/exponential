@@ -90,6 +90,8 @@ pub extern fn adw_tab_view_get_selected_page(self: Object) Object;
 pub extern fn adw_tab_view_set_selected_page(self: Object, page: Object) void;
 pub extern fn adw_tab_view_get_n_pages(self: Object) c_int;
 pub extern fn adw_tab_view_transfer_page(self: Object, page: Object, other_view: Object, position: c_int) void;
+pub extern fn adw_tab_view_get_page(self: Object, child: Object) Object; // -> AdwTabPage*
+pub extern fn adw_tab_view_close_page(self: Object, page: Object) void;
 pub extern fn adw_tab_page_get_child(self: Object) Object;
 pub extern fn adw_tab_page_set_title(self: Object, title: [*:0]const u8) void;
 pub extern fn adw_tab_page_get_title(self: Object) [*:0]const u8;
@@ -292,6 +294,12 @@ pub extern fn gtk_menu_button_new() Object;
 pub extern fn gtk_menu_button_set_child(self: Object, child: Object) void;
 pub extern fn gtk_menu_button_set_popover(self: Object, popover: Object) void;
 pub extern fn gtk_menu_button_set_always_show_arrow(self: Object, setting: c_int) void;
+pub extern fn gtk_menu_button_set_icon_name(self: Object, icon_name: [*:0]const u8) void;
+pub extern fn gtk_menu_button_popdown(self: Object) void;
+
+// GtkSpinner — the play menu's "running" indicator per run config (§4c).
+pub extern fn gtk_spinner_new() Object;
+pub extern fn gtk_spinner_set_spinning(self: Object, spinning: c_int) void;
 // Lazily build the popover each time the button opens (used for the filter
 // popover so it reflects current labels + filter state).
 pub const MenuButtonCreatePopupFunc = ?*const fn (menu_button: Object, user_data: gpointer) callconv(.c) void;

@@ -39,16 +39,19 @@ import com.exponential.app.ui.markdown.model.RichText
  * and comment bodies. Parses GFM into blocks once (memoized on the source) and
  * renders the same per-block visuals the editor uses, minus editing affordances.
  * Replaces the `compose-rich-editor` `RichText` read path so all three clients
- * render the same contract.
+ * render the same contract. When a [LocalIssueRefs] handler is provided,
+ * inline `#IDENTIFIER` tokens that resolve to a visible issue render as
+ * tappable pills (render-only — the stored markdown keeps the plain token).
  */
 @Composable
 fun MarkdownView(markdown: String, modifier: Modifier = Modifier) {
     if (markdown.isBlank()) return
     val blocks = remember(markdown) { MarkdownParser.parse(markdown) }
+    val issueRefs = LocalIssueRefs.current
     Column(modifier = modifier.fillMaxWidth()) {
         blocks.forEach { block ->
             when (block) {
-                is ContentBlock.TextBlock -> TextBlockView(block.content)
+                is ContentBlock.TextBlock -> TextBlockView(block.content, issueRefs)
                 is ContentBlock.ImageBlock -> ImageBlockView(block.url, block.alt)
             }
         }
@@ -68,7 +71,7 @@ private fun ImageBlockView(url: String, alt: String) {
 }
 
 @Composable
-private fun TextBlockView(rich: RichText) {
+private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {
     if (rich.isEmpty) return
     val lines = rich.lines
     val attrs = (lines.indices).map { rich.paragraphs.getOrElse(it) { ParagraphAttrs.PLAIN } }
@@ -85,7 +88,7 @@ private fun TextBlockView(rich: RichText) {
                 CodeBlockView((i..j).map { lines[it] })
                 i = j + 1
             } else {
-                LineView(lines[i], a, lineMarks[i])
+                LineView(lines[i], a, lineMarks[i], issueRefs)
                 i++
             }
         }
@@ -107,16 +110,21 @@ private fun CodeBlockView(codeLines: List<String>) {
 }
 
 @Composable
-private fun LineView(text: String, a: ParagraphAttrs, marks: List<InlineMark>) {
+private fun LineView(
+    text: String,
+    a: ParagraphAttrs,
+    marks: List<InlineMark>,
+    issueRefs: IssueRefHandler?,
+) {
     when (a.kind) {
         BlockKind.Heading -> Text(
-            text = annotate(text, marks),
+            text = annotate(text, marks, issueRefs),
             style = MdStyle.heading(a.headingLevel),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
 
         BlockKind.Blockquote -> Text(
-            text = annotate(text, marks),
+            text = annotate(text, marks, issueRefs),
             style = MdStyle.body.copy(color = MdStyle.Blockquote),
             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         )
@@ -127,14 +135,14 @@ private fun LineView(text: String, a: ParagraphAttrs, marks: List<InlineMark>) {
             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         )
 
-        BlockKind.ListItem -> ListItemView(text, a, marks)
+        BlockKind.ListItem -> ListItemView(text, a, marks, issueRefs)
 
         BlockKind.Paragraph, BlockKind.CodeBlock -> {
             if (text.isEmpty()) {
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
                 Text(
-                    text = annotate(text, marks),
+                    text = annotate(text, marks, issueRefs),
                     style = MdStyle.body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -144,7 +152,12 @@ private fun LineView(text: String, a: ParagraphAttrs, marks: List<InlineMark>) {
 }
 
 @Composable
-private fun ListItemView(text: String, a: ParagraphAttrs, marks: List<InlineMark>) {
+private fun ListItemView(
+    text: String,
+    a: ParagraphAttrs,
+    marks: List<InlineMark>,
+    issueRefs: IssueRefHandler?,
+) {
     val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
     Row(
         modifier = Modifier
@@ -169,15 +182,24 @@ private fun ListItemView(text: String, a: ParagraphAttrs, marks: List<InlineMark
                 modifier = Modifier.width(22.dp),
             )
         }
-        Text(text = annotate(text, marks), style = MdStyle.body, modifier = Modifier.fillMaxWidth())
+        Text(
+            text = annotate(text, marks, issueRefs),
+            style = MdStyle.body,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
 // --- Annotated-string builder with natively-tappable links (read-only). ---
 
-private fun annotate(text: String, marks: List<InlineMark>): AnnotatedString {
+private fun annotate(
+    text: String,
+    marks: List<InlineMark>,
+    issueRefs: IssueRefHandler?,
+): AnnotatedString {
     if (text.isEmpty()) return AnnotatedString("")
-    if (marks.isEmpty()) return AnnotatedString(text)
+    val refPills = if (issueRefs != null) resolvedRefPills(text, marks, issueRefs) else emptyList()
+    if (marks.isEmpty() && refPills.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
         append(text)
         for (m in marks) {
@@ -205,8 +227,46 @@ private fun annotate(text: String, marks: List<InlineMark>): AnnotatedString {
                 }
             }
         }
+        // Resolved `#IDENTIFIER` tokens become tappable pills (masterplan §5e),
+        // mirroring how the web renderer decorates them and how `@email`
+        // mentions pill: display-only, navigation on tap.
+        for ((match, target) in refPills) {
+            addLink(
+                LinkAnnotation.Clickable(
+                    tag = target.identifier,
+                    styles = TextLinkStyles(
+                        style = SpanStyle(
+                            color = MdStyle.Link,
+                            background = MdStyle.IssueRefBg,
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                    ),
+                    linkInteractionListener = { issueRefs?.onOpen?.invoke(target) },
+                ),
+                match.start, match.end,
+            )
+        }
     }
 }
+
+/**
+ * `#IDENTIFIER` tokens in this line that resolve to a visible issue. Tokens
+ * inside inline code or links stay plain (mirrors the web decoration pass);
+ * unresolved identifiers stay plain text.
+ */
+private fun resolvedRefPills(
+    text: String,
+    marks: List<InlineMark>,
+    issueRefs: IssueRefHandler,
+): List<Pair<IssueRefs.Match, IssueRefTarget>> =
+    IssueRefs.findAll(text).mapNotNull { match ->
+        val covered = marks.any { m ->
+            (m.kind == InlineKind.InlineCode || m.kind == InlineKind.Link) &&
+                m.start < match.end && match.start < m.end
+        }
+        if (covered) return@mapNotNull null
+        issueRefs.resolve(match.identifier)?.let { match to it }
+    }
 
 /** Offset each block's marks into per-line-local coordinates. */
 internal fun lineLocalMarks(rich: RichText): List<List<InlineMark>> {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Smartphone, Monitor, Apple } from "lucide-react"
+import { Smartphone, Monitor, Apple, SquareTerminal } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,7 @@ const PLATFORM_META: Record<
   web: { label: `Web`, icon: Monitor },
   android: { label: `Android`, icon: Smartphone },
   ios: { label: `iOS`, icon: Apple },
+  command: { label: `Command`, icon: SquareTerminal },
 }
 
 function PlatformBadge({ platform }: { platform: Platform }) {

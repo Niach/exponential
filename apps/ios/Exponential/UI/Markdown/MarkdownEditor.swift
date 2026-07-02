@@ -19,6 +19,9 @@ struct MarkdownEditor: View {
     var accountId: String = ""
     var httpClient: HTTPClient?
     var mentionMembers: [MentionMember] = []
+    /// Tap on a rendered `#IDENTIFIER` issue-ref pill (value = resolved issue
+    /// id). Pills only render when the host set `model.issueRefResolver`.
+    var onIssueRefTap: ((String) -> Void)?
 
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
@@ -46,7 +49,8 @@ struct MarkdownEditor: View {
                                 isFocused: model.focusedBlockId == id,
                                 placeholder: isSolePlaceholderBlock(id) ? placeholder : nil,
                                 toolbar: toolbar,
-                                onPasteImage: { image in insert(uiImage: image) }
+                                onPasteImage: { image in insert(uiImage: image) },
+                                onIssueRefTap: onIssueRefTap
                             )
                             .id(id)
 
@@ -200,6 +204,7 @@ struct MarkdownEditor: View {
 private final class EditorTextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onPasteImage: ((UIImage) -> Void)?
+    var onIssueRefTap: ((String) -> Void)?
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -215,6 +220,12 @@ private final class EditorTextView: UITextView {
         let point = gesture.location(in: self)
         let charIndex = layoutManager.characterIndex(for: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
         guard charIndex < textStorage.length else { return }
+        // Issue-ref pill: navigate to the referenced issue (render-only
+        // decoration applied by IssueEditorModel.load).
+        if let issueId = textStorage.attributes(at: charIndex, effectiveRange: nil)[.markdownIssueRef] as? String {
+            onIssueRefTap?(issueId)
+            return
+        }
         let char = (textStorage.string as NSString).substring(with: NSRange(location: charIndex, length: 1))
         if char == "\u{2610}" || char == "\u{2611}" {
             let replacement = char == "\u{2610}" ? "\u{2611}" : "\u{2610}"
@@ -264,6 +275,7 @@ private struct BlockTextEditor: UIViewRepresentable {
     let placeholder: String?
     let toolbar: MarkdownToolbar
     var onPasteImage: (UIImage) -> Void
+    var onIssueRefTap: ((String) -> Void)?
 
     func makeUIView(context: Context) -> EditorTextView {
         let tv = EditorTextView()
@@ -291,6 +303,7 @@ private struct BlockTextEditor: UIViewRepresentable {
 
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
+        tv.onIssueRefTap = onIssueRefTap
 
         coord.beginProgrammaticChange()
         tv.attributedText = content
@@ -327,6 +340,7 @@ private struct BlockTextEditor: UIViewRepresentable {
         coord.onPasteImage = onPasteImage
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
+        tv.onIssueRefTap = onIssueRefTap
 
         // Apply EXTERNAL content changes only (structural edits / remote apply),
         // identified by a bumped revision. The user's own keystrokes never bump
