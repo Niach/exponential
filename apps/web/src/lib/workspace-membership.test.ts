@@ -48,4 +48,15 @@ describe(`workspace membership helpers`, () => {
       `"id" = '00000000-0000-0000-0000-000000000000'`
     )
   })
+
+  it(`sorts ids so the same set always yields the same where clause`, () => {
+    // The where clause is part of Electric's shape identity — heap-order
+    // flips between requests must not rotate the shape handle.
+    expect(buildWhereClause(`id`, [`user-2`, `user-1`])).toBe(
+      `"id" IN ('user-1','user-2')`
+    )
+    expect(buildWhereClause(`id`, [`user-1`, `user-2`])).toBe(
+      buildWhereClause(`id`, [`user-2`, `user-1`])
+    )
+  })
 })

@@ -14,8 +14,9 @@ export const Route = createFileRoute(`/_authenticated/feedback`)({
     source: typeof search.source === `string` ? search.source : undefined,
   }),
   beforeLoad: ({ search }) => {
-    // The public workspace + project are seeded with these slugs by
-    // bootstrap-cloud.ts. Land users there with the create dialog prefilled.
+    // The public workspace + its single Exponential project are seeded with
+    // these slugs by bootstrap-cloud.ts. Land users there with the create
+    // dialog prefilled.
     const description =
       [search.description, search.source && `Sent from ${search.source}`]
         .filter(Boolean)
@@ -23,7 +24,7 @@ export const Route = createFileRoute(`/_authenticated/feedback`)({
 
     throw redirect({
       to: `/w/$workspaceSlug/projects/$projectSlug`,
-      params: { workspaceSlug: `feedback`, projectSlug: `feedback` },
+      params: { workspaceSlug: `feedback`, projectSlug: `exponential` },
       search: {
         new: 1 as const,
         title: search.title,

@@ -40,6 +40,69 @@ describe(`shape route handler`, () => {
     expect(response.status).toBe(401)
   })
 
+  it(`returns 401 when a bearer token is presented but resolves to no session`, async () => {
+    resolveSession.mockResolvedValue(null)
+
+    const handler = createShapeRouteHandler({
+      table: `issues`,
+      getWhere: async () => `"project_id" = 'p-1'`,
+    })
+
+    // A dead token must NOT degrade to the anonymous where clause (that
+    // rotates the shape identity with HTTP 200) — it must 401.
+    const response = await handler({
+      request: new Request(`https://example.com/api/shapes/issues`, {
+        headers: { authorization: `Bearer dead-token` },
+      }),
+    })
+
+    expect(response.status).toBe(401)
+    expect(proxyElectricRequest).not.toHaveBeenCalled()
+  })
+
+  it(`returns 401 when an x-api-key is presented but resolves to no session`, async () => {
+    resolveSession.mockResolvedValue(null)
+
+    const handler = createShapeRouteHandler({
+      table: `issues`,
+      getWhere: async () => `"project_id" = 'p-1'`,
+    })
+
+    const response = await handler({
+      request: new Request(`https://example.com/api/shapes/issues`, {
+        headers: { "x-api-key": `expu_revoked` },
+      }),
+    })
+
+    expect(response.status).toBe(401)
+    expect(proxyElectricRequest).not.toHaveBeenCalled()
+  })
+
+  it(`keeps the anonymous fallback for cookie-only requests with a dead session`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(originUrl)
+    proxyElectricRequest.mockResolvedValue(new Response(`ok`))
+
+    const getWhere = vi.fn().mockResolvedValue(`"is_public" = true`)
+    const handler = createShapeRouteHandler({
+      table: `workspaces`,
+      getWhere,
+    })
+
+    // The web collection layer has no 401 recovery, so an expired session
+    // cookie falls back to the anonymous where clause instead of erroring;
+    // the router auth guard re-authenticates on next navigation.
+    const response = await handler({
+      request: new Request(`https://example.com/api/shapes/workspaces`, {
+        headers: { cookie: `better-auth.session_token=expired` },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(getWhere).toHaveBeenCalledWith(null)
+  })
+
   it(`forwards anonymous requests to getWhere with a null userId`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue(null)

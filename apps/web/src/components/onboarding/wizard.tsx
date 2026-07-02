@@ -4,7 +4,7 @@ import { Check } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import { StepProject } from "@/components/onboarding/step-project"
-import { StepFirstIssue } from "@/components/onboarding/step-first-issue"
+import { StepGithub } from "@/components/onboarding/step-github"
 import { cn } from "@/lib/utils"
 
 export type StepProps = {
@@ -17,11 +17,11 @@ export type StepProps = {
   onSkip: () => void
 }
 
-// Onboarding milestone = "first issue created" (a low bar). Name a project,
-// then create your first issue — then finish into the workspace.
+// Onboarding = name a project, then connect GitHub so "Start coding" works
+// from day one — then finish into the workspace. Both steps are skippable.
 const STEPS = [
   { id: `project`, title: `Project`, component: StepProject },
-  { id: `issue`, title: `First issue`, component: StepFirstIssue },
+  { id: `github`, title: `GitHub`, component: StepGithub },
 ] as const
 
 export function OnboardingWizard({

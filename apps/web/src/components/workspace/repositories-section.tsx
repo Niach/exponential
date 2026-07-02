@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Github, Lock, Plus, Sparkles, Star, Trash2, X } from "lucide-react"
+import {
+  ExternalLink,
+  Github,
+  Lock,
+  Plus,
+  Sparkles,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { Badge } from "@/components/ui/badge"
@@ -40,6 +49,9 @@ import type { Project } from "@/db/schema"
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type RepoRowData = RepoList[number]
+type GithubStatus = Awaited<
+  ReturnType<typeof trpc.integrations.github.status.query>
+>
 
 export function WorkspaceRepositoriesSection({
   workspaceId,
@@ -64,6 +76,10 @@ export function WorkspaceRepositoriesSection({
   // lib/billing.ts) — renders the inline upgrade nudge instead of a bare error.
   const [limitError, setLimitError] = useState<string | null>(null)
 
+  // GitHub App install state (per-user — github_installations rows belong to
+  // the signed-in user, not the workspace). Drives the banner above Connect.
+  const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null)
+
   const refresh = useCallback(async () => {
     try {
       setRepos(await trpc.repositories.list.query({ workspaceId }))
@@ -75,6 +91,42 @@ export function WorkspaceRepositoriesSection({
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const refreshGithubStatus = useCallback(async () => {
+    try {
+      setGithubStatus(await trpc.integrations.github.status.query())
+    } catch {
+      // Banner is a best-effort hint; the connect dialog self-detects anyway.
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshGithubStatus()
+  }, [refreshGithubStatus])
+
+  // Re-detect the install after the user returns from the GitHub install
+  // popup — same window-focus convention as GithubRepoPicker.
+  useEffect(() => {
+    const onFocus = () => void refreshGithubStatus()
+    window.addEventListener(`focus`, onFocus)
+    return () => window.removeEventListener(`focus`, onFocus)
+  }, [refreshGithubStatus])
+
+  const openInstall = () => {
+    if (!githubStatus?.installUrl) return
+    // status returns the plain install URL (account/integrations navigates to
+    // it full-page). Appending state=dialog reproduces
+    // githubAppInstallUrl(`dialog`): the setup redirect then lands on the
+    // self-closing /integrations/github/installed page, and the focus
+    // listener above re-detects the install — the picker's popup convention.
+    const url = githubStatus.installUrl
+    const sep = url.includes(`?`) ? `&` : `?`
+    window.open(
+      `${url}${sep}state=dialog`,
+      `gh-install`,
+      `popup,width=980,height=820`
+    )
+  }
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true)
@@ -135,6 +187,50 @@ export function WorkspaceRepositoriesSection({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {githubStatus?.configured && !githubStatus.installed && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              <Github className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1">
+                The Exponential GitHub App isn&apos;t installed for your
+                account yet. Install it to connect repositories here.
+              </span>
+              {githubStatus.installUrl && (
+                <Button size="sm" variant="outline" onClick={openInstall}>
+                  Install GitHub App
+                </Button>
+              )}
+            </div>
+          )}
+
+          {githubStatus?.configured && githubStatus.installed && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <Github className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                GitHub App installed
+                {githubStatus.accounts.length > 0
+                  ? ` as ${githubStatus.accounts.join(`, `)}`
+                  : ``}
+              </span>
+              {githubStatus.installUrl && (
+                <Button
+                  asChild
+                  variant="link"
+                  size="sm"
+                  className="h-auto px-0 text-xs text-muted-foreground"
+                >
+                  <a
+                    href={githubStatus.installUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Manage on GitHub
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </Button>
+              )}
+            </div>
+          )}
+
           <div>
             <Button size="sm" onClick={() => setConnectOpen(true)}>
               <Github className="mr-1.5 h-3.5 w-3.5" />

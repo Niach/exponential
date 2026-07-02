@@ -96,8 +96,7 @@ function getImageFiles(fileList: FileList | null | undefined) {
   )
 }
 
-// ── Shared toolbar pieces (used by both the selection bubble and the static
-//    toolbar above the editor) ──
+// ── Pieces of the static toolbar above the editor ──
 
 function ToolbarButton({
   active,
@@ -124,7 +123,7 @@ function ToolbarButton({
 }
 
 /** Inline link editor — replaces the old `window.prompt`. Rendered inside the
- *  toolbar so focus stays within it (the bubble's blur-to-hide check passes). */
+ *  toolbar so focus stays within it. */
 function LinkControl({ editor }: { editor: Editor }) {
   const [editing, setEditing] = useState(false)
   const [url, setUrl] = useState(``)
@@ -205,7 +204,7 @@ function LinkControl({ editor }: { editor: Editor }) {
   )
 }
 
-/** The common formatting controls, shared by both toolbars. */
+/** The common formatting controls of the toolbar. */
 function ToolbarActions({ editor }: { editor: Editor }) {
   return (
     <>
@@ -230,7 +229,7 @@ function ToolbarActions({ editor }: { editor: Editor }) {
       >
         <Heading3 className="size-3.5" />
       </ToolbarButton>
-      <div className="bubble-separator" />
+      <div className="toolbar-separator" />
       <ToolbarButton
         active={editor.isActive(`bold`)}
         onClick={() => editor.chain().focus().toggleBold().run()}
@@ -259,7 +258,7 @@ function ToolbarActions({ editor }: { editor: Editor }) {
       >
         <Code className="size-3.5" />
       </ToolbarButton>
-      <div className="bubble-separator" />
+      <div className="toolbar-separator" />
       <LinkControl editor={editor} />
       <ToolbarButton
         active={editor.isActive(`blockquote`)}
@@ -268,7 +267,7 @@ function ToolbarActions({ editor }: { editor: Editor }) {
       >
         <Quote className="size-3.5" />
       </ToolbarButton>
-      <div className="bubble-separator" />
+      <div className="toolbar-separator" />
       <ToolbarButton
         active={editor.isActive(`bulletList`)}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -290,7 +289,7 @@ function ToolbarActions({ editor }: { editor: Editor }) {
       >
         <ListChecks className="size-3.5" />
       </ToolbarButton>
-      <div className="bubble-separator" />
+      <div className="toolbar-separator" />
       <ToolbarButton
         onClick={() =>
           editor.chain().focus().unsetAllMarks().clearNodes().run()
@@ -314,7 +313,7 @@ function ImageControl({
   if (!imageUpload?.enabled) return null
   return (
     <>
-      <div className="bubble-separator" />
+      <div className="toolbar-separator" />
       <input
         ref={inputRef}
         type="file"
@@ -338,7 +337,7 @@ function ImageControl({
 }
 
 /** Always-visible toolbar above the editor (discoverability; houses the image
- *  button). The selection bubble still appears for quick inline formatting. */
+ *  button). */
 function StaticToolbar({
   editor,
   imageUpload,
@@ -351,73 +350,6 @@ function StaticToolbar({
     <div className="static-toolbar">
       <ToolbarActions editor={editor} />
       <ImageControl imageUpload={imageUpload} />
-    </div>
-  )
-}
-
-function BubbleToolbar({ editor }: { editor: Editor | null }) {
-  const toolbarRef = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(false)
-  const [position, setPosition] = useState({ top: 0, left: 0 })
-
-  const updatePosition = useCallback(() => {
-    if (!editor) return
-
-    const { from, to, empty } = editor.state.selection
-    if (empty) {
-      setVisible(false)
-      return
-    }
-
-    const editorEl = editor.view.dom.closest(`.tiptap-wrapper`)
-    if (!editorEl) return
-
-    const start = editor.view.coordsAtPos(from)
-    const end = editor.view.coordsAtPos(to)
-    const wrapperRect = editorEl.getBoundingClientRect()
-
-    const selectionCenterX = (start.left + end.right) / 2
-    const toolbarWidth = toolbarRef.current?.offsetWidth ?? 320
-
-    setPosition({
-      top: start.top - wrapperRect.top - 44,
-      left: Math.max(
-        4,
-        Math.min(
-          selectionCenterX - wrapperRect.left - toolbarWidth / 2,
-          wrapperRect.width - toolbarWidth - 4
-        )
-      ),
-    })
-    setVisible(true)
-  }, [editor])
-
-  useEffect(() => {
-    if (!editor) return
-
-    editor.on(`selectionUpdate`, updatePosition)
-    editor.on(`blur`, () => {
-      setTimeout(() => {
-        if (!toolbarRef.current?.contains(document.activeElement)) {
-          setVisible(false)
-        }
-      }, 150)
-    })
-
-    return () => {
-      editor.off(`selectionUpdate`, updatePosition)
-    }
-  }, [editor, updatePosition])
-
-  if (!editor || !visible) return null
-
-  return (
-    <div
-      ref={toolbarRef}
-      className="bubble-toolbar"
-      style={{ top: position.top, left: position.left }}
-    >
-      <ToolbarActions editor={editor} />
     </div>
   )
 }
@@ -566,7 +498,6 @@ export const MarkdownEditor = forwardRef<
         {editable ? (
           <StaticToolbar editor={editor} imageUpload={imageUpload} />
         ) : null}
-        {editable ? <BubbleToolbar editor={editor} /> : null}
         <EditorContent editor={editor} />
       </div>
     )

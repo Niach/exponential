@@ -35,7 +35,9 @@ export function DueDateDropdown({
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
-          className="h-5 w-full p-0 justify-end gap-1"
+          className={
+            dueDate ? `h-5 gap-1 px-1 py-0 has-[>svg]:px-1` : `h-5 w-5 p-0`
+          }
           disabled={disabled}
         >
           <CalendarDays

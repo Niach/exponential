@@ -1,6 +1,7 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, notExists, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  issues,
   projectRepositories,
   projects,
   repositories,
@@ -21,9 +22,15 @@ import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
 
 const PUBLIC_WORKSPACE_SLUG = `feedback`
 const PUBLIC_WORKSPACE_NAME = `Exponential Feedback`
-const PUBLIC_PROJECT_SLUG = `feedback`
-const PUBLIC_PROJECT_NAME = `Feedback`
-const PUBLIC_PROJECT_PREFIX = `FB`
+// The public workspace holds exactly ONE project: the dogfood "Exponential"
+// project. Feedback (widget + /feedback route) and dogfood coding share it —
+// a separate `feedback` project only split the same triage board in two.
+const PUBLIC_PROJECT_SLUG = `exponential`
+const PUBLIC_PROJECT_NAME = `Exponential`
+const PUBLIC_PROJECT_PREFIX = `EXP`
+// Pre-collapse deployments seeded this second project next to the dogfood one;
+// collapseLegacyFeedbackProject folds it away.
+const LEGACY_FEEDBACK_PROJECT_SLUG = `feedback`
 
 function parseAdminEmails(): string[] {
   const raw = process.env.INITIAL_ADMIN_EMAILS
@@ -55,13 +62,6 @@ async function ensurePublicWorkspace() {
       })
       .returning({ id: workspaces.id })
 
-    await db.insert(projects).values({
-      workspaceId: workspace.id,
-      name: PUBLIC_PROJECT_NAME,
-      slug: PUBLIC_PROJECT_SLUG,
-      prefix: PUBLIC_PROJECT_PREFIX,
-    })
-
     invalidatePublicWorkspaceCache()
     workspaceId = workspace.id
   }
@@ -75,6 +75,38 @@ async function ensurePublicWorkspace() {
     .where(eq(workspaces.id, workspaceId))
 
   return workspaceId
+}
+
+// The public workspace's single canonical `exponential` project. Runs on
+// every boot and is deliberately INDEPENDENT of DOGFOOD_REPO: the /feedback
+// route redirects to this slug unconditionally, the widget config targets it,
+// and collapseLegacyFeedbackProject folds the legacy project into it — all of
+// which must work on already-bootstrapped pre-collapse DBs where the project
+// was never seeded (it used to be created only alongside a fresh workspace or
+// behind DOGFOOD_REPO). Idempotent; returns the project id.
+async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
+  const [existing] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, publicWorkspaceId),
+        eq(projects.slug, PUBLIC_PROJECT_SLUG)
+      )
+    )
+    .limit(1)
+  if (existing) return existing.id
+
+  const [project] = await db
+    .insert(projects)
+    .values({
+      workspaceId: publicWorkspaceId,
+      name: PUBLIC_PROJECT_NAME,
+      slug: PUBLIC_PROJECT_SLUG,
+      prefix: PUBLIC_PROJECT_PREFIX,
+    })
+    .returning({ id: projects.id })
+  return project.id
 }
 
 const FEEDBACK_WIDGET_NAME = `Exponential App`
@@ -124,10 +156,6 @@ async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
     })
   })
 }
-
-const DOGFOOD_PROJECT_SLUG = `exponential`
-const DOGFOOD_PROJECT_NAME = `Exponential`
-const DOGFOOD_PROJECT_PREFIX = `EXP`
 
 // Display mirror seeded for the dogfood project. The canonical build/run shell
 // commands live in the repo's committed `.exponential/config.json` (read only
@@ -203,70 +231,87 @@ async function ensureDogfoodRepoLink(
   })
 }
 
-// Dogfood: configure the Exponential monorepo as its own project inside the
-// public feedback workspace, linked to the repo named by DOGFOOD_REPO, so the
-// team previews + tests Exponential inside Exponential and files straight into
-// this project. Cloud-only + gated behind DOGFOOD_REPO (self-hosters never
-// inherit a repo binding). Idempotent: it creates the project + seeds the
-// preview mirror once, links the repo registry row, and never clobbers a
-// hand-edited previewConfig later.
-async function ensureDogfoodProject(publicWorkspaceId: string) {
+// Dogfood: bind the public workspace's single Exponential project to the repo
+// named by DOGFOOD_REPO, so the team previews + tests Exponential inside
+// Exponential and files straight into this project. Cloud-only + gated behind
+// DOGFOOD_REPO (self-hosters never inherit a repo binding). Purely about the
+// repo binding — the project itself always exists by now (ensurePublicProject
+// runs first, unconditionally). Idempotent: it seeds the preview mirror once,
+// links the repo registry row, and never clobbers a hand-edited previewConfig
+// later.
+async function ensureDogfoodProject(
+  publicWorkspaceId: string,
+  publicProjectId: string
+) {
   const repo = process.env.DOGFOOD_REPO?.trim()
   if (!repo) return
 
   const [existing] = await db
-    .select({ id: projects.id, previewConfig: projects.previewConfig })
+    .select({ previewConfig: projects.previewConfig })
     .from(projects)
-    .where(
-      and(
-        eq(projects.workspaceId, publicWorkspaceId),
-        eq(projects.slug, DOGFOOD_PROJECT_SLUG)
-      )
-    )
+    .where(eq(projects.id, publicProjectId))
     .limit(1)
+  if (!existing) return
 
-  if (existing) {
-    // Never overwrite a hand-edited mirror — only seed it if it's still missing.
-    if (!existing.previewConfig) {
-      await db
-        .update(projects)
-        .set({
-          previewConfig: {
-            targets: DOGFOOD_TARGETS,
-            feedbackProjectId: existing.id,
-          },
-        })
-        .where(eq(projects.id, existing.id))
-    }
-    await ensureDogfoodRepoLink(publicWorkspaceId, existing.id, repo)
-    return
-  }
-
-  const projectId = await db.transaction(async (tx) => {
-    const [project] = await tx
-      .insert(projects)
-      .values({
-        workspaceId: publicWorkspaceId,
-        name: DOGFOOD_PROJECT_NAME,
-        slug: DOGFOOD_PROJECT_SLUG,
-        prefix: DOGFOOD_PROJECT_PREFIX,
-      })
-      .returning({ id: projects.id })
-
-    await tx
+  // Never overwrite a hand-edited mirror — only seed it if it's still missing.
+  if (!existing.previewConfig) {
+    await db
       .update(projects)
       .set({
         previewConfig: {
           targets: DOGFOOD_TARGETS,
-          feedbackProjectId: project.id,
+          feedbackProjectId: publicProjectId,
         },
       })
-      .where(eq(projects.id, project.id))
+      .where(eq(projects.id, publicProjectId))
+  }
+  await ensureDogfoodRepoLink(publicWorkspaceId, publicProjectId, repo)
+}
 
-    return project.id
-  })
+// Pre-collapse cloud deployments carried TWO projects in the public workspace:
+// the seeded `feedback` project (the widget's target) and the DOGFOOD_REPO-
+// gated `exponential` project. Fold the legacy one away on already-bootstrapped
+// DBs. Order matters: repoint widget configs FIRST (widget_configs.project_id
+// cascades on project delete, and the live widget may still be filing into the
+// legacy project), then drop the legacy project only while it holds zero
+// issues (issues cascade — never delete user data; the NOT EXISTS guard keeps
+// the emptiness check and the delete in one atomic statement). A non-empty
+// legacy project just stays until it's triaged empty — next boot retries.
+async function collapseLegacyFeedbackProject(publicWorkspaceId: string) {
+  const rows = await db
+    .select({ id: projects.id, slug: projects.slug })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, publicWorkspaceId),
+        inArray(projects.slug, [
+          LEGACY_FEEDBACK_PROJECT_SLUG,
+          PUBLIC_PROJECT_SLUG,
+        ])
+      )
+    )
+  const legacy = rows.find((r) => r.slug === LEGACY_FEEDBACK_PROJECT_SLUG)
+  const canonical = rows.find((r) => r.slug === PUBLIC_PROJECT_SLUG)
+  if (!legacy || !canonical) return
 
-  await ensureDogfoodRepoLink(publicWorkspaceId, projectId, repo)
+  await db
+    .update(widgetConfigs)
+    .set({ projectId: canonical.id })
+    .where(eq(widgetConfigs.projectId, legacy.id))
+
+  await db
+    .delete(projects)
+    .where(
+      and(
+        eq(projects.id, legacy.id),
+        notExists(
+          db
+            .select({ id: issues.id })
+            .from(issues)
+            .where(eq(issues.projectId, legacy.id))
+        )
+      )
+    )
 }
 
 async function addAdminsAsPublicWorkspaceOwners(publicWorkspaceId: string) {
@@ -340,8 +385,14 @@ export function bootstrapCloud(): Promise<void> {
       if (isCloudInstance()) {
         const publicWorkspaceId = await ensurePublicWorkspace()
         await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
+        // Canonical project first (created regardless of DOGFOOD_REPO), then
+        // the optional dogfood repo binding, then fold the legacy feedback
+        // project into the canonical one, then seed the widget config — which
+        // needs the Exponential project to exist as its target.
+        const publicProjectId = await ensurePublicProject(publicWorkspaceId)
+        await ensureDogfoodProject(publicWorkspaceId, publicProjectId)
+        await collapseLegacyFeedbackProject(publicWorkspaceId)
         await ensureFeedbackWidgetConfig(publicWorkspaceId)
-        await ensureDogfoodProject(publicWorkspaceId)
       }
     } catch (err) {
       console.error(`[bootstrap-cloud] failed:`, err)

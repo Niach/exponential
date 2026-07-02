@@ -469,33 +469,7 @@ html {
   height: 0;
 }
 
-/* ── Bubble menu toolbar ── */
-.bubble-toolbar {
-  position: absolute;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  background: var(--popover);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 3px;
-  box-shadow: 0 4px 16px oklch(0 0 0 / 40%);
-  animation: bubble-in 120ms ease-out;
-}
-
-@keyframes bubble-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.bubble-toolbar button,
+/* ── Editor toolbar ── */
 .static-toolbar button {
   display: flex;
   align-items: center;
@@ -513,19 +487,17 @@ html {
   flex-shrink: 0;
 }
 
-.bubble-toolbar button:hover,
 .static-toolbar button:hover {
   color: var(--foreground);
   background: var(--accent);
 }
 
-.bubble-toolbar button.is-active,
 .static-toolbar button.is-active {
   color: var(--accent-foreground);
   background: var(--accent);
 }
 
-.bubble-separator {
+.toolbar-separator {
   width: 1px;
   height: 16px;
   background: var(--border);
@@ -544,7 +516,16 @@ html {
   border-bottom: 1px solid var(--border);
 }
 
-/* Inline link editor (shared by both toolbars) */
+/* Inside the issue dialogs the editor lives in a scroll region — keep the
+   toolbar pinned while long descriptions scroll underneath it. */
+.editor-scroll-region .static-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--background);
+}
+
+/* Inline link editor (inside the toolbar) */
 .toolbar-link-edit {
   display: inline-flex;
   align-items: center;

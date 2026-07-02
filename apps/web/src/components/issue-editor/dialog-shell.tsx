@@ -1,10 +1,5 @@
 import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react"
-import {
-  ArrowUp,
-  ChevronRight,
-  LoaderCircle,
-  X,
-} from "lucide-react"
+import { ArrowUp, ChevronRight, LoaderCircle, X } from "lucide-react"
 import type { User } from "@/db/schema"
 import type { IssuePriority, IssueStatus } from "@/lib/domain"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -16,11 +11,7 @@ import {
 import { IssueEditorChips } from "@/components/issue-editor/chips"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-} from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 
 export { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
@@ -240,7 +231,9 @@ export function IssueEditorDialogShell({
 
         {titleInput}
 
-        <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">{editor}</div>
+        <div className="editor-scroll-region flex-1 min-h-0 min-w-0 overflow-y-auto">
+          {editor}
+        </div>
 
         <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-t border-border shrink-0">
           {chipNodes}
@@ -306,7 +299,9 @@ export function IssueEditorDialogShell({
       </div>
 
       {titleInput}
-      <div className="min-w-0">{editor}</div>
+      <div className="editor-scroll-region flex-1 min-h-0 min-w-0 overflow-y-auto">
+        {editor}
+      </div>
 
       <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
         {chipNodes}
@@ -320,7 +315,7 @@ export function IssueEditorDialogShell({
     <Dialog open={open} onOpenChange={guardedOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-[40rem] p-0 gap-0"
+        className="sm:max-w-[40rem] p-0 gap-0 flex max-h-[85vh] flex-col"
         data-testid={dialogTestId}
         aria-describedby={undefined}
         onEscapeKeyDown={(event) => {

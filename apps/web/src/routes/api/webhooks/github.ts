@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues } from "@/db/schema"
+import { githubInstallations, issues } from "@/db/schema"
 import {
   applyPrMergeState,
   applyPrOpenedState,
@@ -52,9 +52,12 @@ async function resolveIssueForPr(args: {
 
 // GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
 // (self-hosted uses the outbound cron for merges instead). Acts on
-// `pull_request` `opened` (link an out-of-band PR to its issue) and
-// `closed`+`merged` (flip prState). Issues resolve by exact prUrl OR by the
-// `exp/<IDENTIFIER>` head-branch parse; everything else is acked and ignored.
+// `installation` `created`/`unsuspend`/`deleted`/`suspend` (keep
+// github_installations in sync for the UI "installed" state), `pull_request`
+// `opened` (link an out-of-band PR to its issue) and `closed`+`merged` (flip
+// prState). Issues
+// resolve by exact prUrl OR by the `exp/<IDENTIFIER>` head-branch parse;
+// everything else is acked and ignored.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -69,6 +72,54 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     }
 
     const event = request.headers.get(`x-github-event`)
+
+    // App lifecycle: mirror installs into github_installations. The setup
+    // redirect is best-effort (it can land without a browser session, or not
+    // at all) — this webhook is the reliable writer for the UI "installed"
+    // state. User attribution stays null here (webhooks carry no app user);
+    // the setup redirect fills it in when it can.
+    if (event === `installation`) {
+      const payload = JSON.parse(rawBody) as {
+        action?: string
+        installation?: {
+          id?: number
+          account?: { login?: string; type?: string }
+        }
+      }
+      const installation = payload.installation
+      if (!installation?.id) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (payload.action === `created` || payload.action === `unsuspend`) {
+        await db
+          .insert(githubInstallations)
+          .values({
+            installationId: installation.id,
+            accountLogin: installation.account?.login ?? null,
+            accountType: installation.account?.type ?? null,
+          })
+          .onConflictDoUpdate({
+            target: githubInstallations.installationId,
+            set: {
+              accountLogin: installation.account?.login ?? null,
+              accountType: installation.account?.type ?? null,
+              updatedAt: new Date(),
+            },
+          })
+      } else if (
+        payload.action === `deleted` ||
+        payload.action === `suspend`
+      ) {
+        // A suspended installation can't mint tokens, so treat it like a
+        // removal: drop the row and stop reporting "installed". `unsuspend`
+        // re-inserts it above.
+        await db
+          .delete(githubInstallations)
+          .where(eq(githubInstallations.installationId, installation.id))
+      }
+      return jsonResponse(200, { ok: true })
+    }
+
     if (event !== `pull_request`) {
       return jsonResponse(200, { ok: true })
     }

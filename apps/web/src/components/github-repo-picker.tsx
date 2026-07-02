@@ -26,11 +26,12 @@ type ReposResult = {
   hasMore: boolean
 }
 
-// Repo-first connect surface shared by the create-project dialog and project
-// settings. Self-contained: loads the user's installable repos, offers an
-// inline GitHub App connect when none are installed, and re-detects after the
-// user returns from the GitHub install tab (window focus). Calls `onSelect`
-// with the chosen repo, or `onSkip` for the plain-tracking fallback.
+// Repo-first connect surface shared by workspace settings → Repositories and
+// the onboarding GitHub step. Self-contained: loads the user's installable
+// repos, offers an inline GitHub App connect when none are installed, and
+// re-detects after the user returns from the GitHub install tab (window
+// focus). Calls `onSelect` with the chosen repo, or `onSkip` for the
+// plain-tracking fallback.
 export function GithubRepoPicker({
   onSelect,
   onSkip,

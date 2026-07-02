@@ -1,6 +1,18 @@
 import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
 
+// True when the request carries explicit token credentials — an
+// `Authorization` header (session bearer, `expu_` api key, or MCP OAuth
+// token) or an `x-api-key` header. Session COOKIES are deliberately not
+// counted: the web collection layer has no 401 recovery, so an expired
+// cookie keeps the anonymous fallback and the router auth guard
+// re-authenticates on next navigation.
+function hasTokenCredentials(request: Request): boolean {
+  return Boolean(
+    request.headers.get(`authorization`) || request.headers.get(`x-api-key`)
+  )
+}
+
 interface ShapeRouteHandlerOptions {
   // userId is null when the request is anonymous. The shape proxy is expected
   // to return a where clause scoped to public-workspace data in that case.
@@ -29,7 +41,13 @@ export function createShapeRouteHandler({
     // chokepoint. May be null for anonymous requests reading public data.
     const session = await resolveSession(request)
 
-    if (!session && requireAuth) {
+    // A request that PRESENTED token credentials but failed to resolve a
+    // session (revoked api key, expired mobile session token, dead MCP token)
+    // must NOT fall back to the anonymous where clause: that silently swaps
+    // the shape identity with HTTP 200 and 409-loops native sync engines
+    // (EXP-1 #13). Explicit 401 so the client re-authenticates. Requests with
+    // no token credentials at all keep the anonymous/public-only fallback.
+    if (!session && (requireAuth || hasTokenCredentials(request))) {
       return new Response(`Unauthorized`, { status: 401 })
     }
 

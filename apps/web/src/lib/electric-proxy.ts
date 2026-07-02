@@ -75,7 +75,16 @@ export async function proxyElectricRequest(
   headers.delete(`content-encoding`)
   headers.delete(`content-length`)
   headers.delete(`transfer-encoding`)
-  headers.set(`vary`, `cookie`)
+  // Electric snapshot responses ship `cache-control: public, max-age=604800`
+  // with no auth-aware vary. Shape data is per-user (the where clause is
+  // derived from the caller's credentials), so any HTTP cache that stores it
+  // can serve one user's snapshot to another — macOS URLCache did exactly
+  // that, replaying an anonymous snapshot to an authed client (EXP-1 #13).
+  // Force never-cache on every proxied shape response; keep vary as a second
+  // line of defense for caches that ignore no-store. It must list every
+  // credential the shape route accepts: cookie, authorization, AND x-api-key.
+  headers.set(`cache-control`, `private, no-store`)
+  headers.set(`vary`, `authorization, cookie, x-api-key`)
 
   return new Response(body, {
     status: response.status,
