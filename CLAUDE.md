@@ -105,6 +105,7 @@ Three production targets run on Coolify (`coolify.home.straehhuber.com`, Hetzner
 - **Android signing**: generate a keystore, add `signingConfigs` to `app/build.gradle.kts`, store the keystore + passwords as CI secrets; only then can store/distribution builds ship.
 - **macOS notarization**: the `Exponential-macOS` build ships hardened-runtime entitlements; release needs a Developer ID cert, real codesign, and `xcrun notarytool submit`.
 - **iOS distribution**: no CI pipeline yet — archive via Xcode (`Exponential` scheme) and upload to TestFlight manually.
+- **GitHub App webhook events**: the App must have the `Installation` event subscribed (App settings → Permissions & events) — the server syncs `github_installations` from installation created/unsuspend/suspend/deleted webhooks (HMAC-gated by `GITHUB_WEBHOOK_SECRET`).
 - **Cloud launch env**: sign-up is **Google-only** — set `AUTH_PASSWORD_ENABLED=false`, `GOOGLE_LOGIN_ENABLED=true` + `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, and leave `AUTH_SIGNUP_ENABLED` unset/false (Google sign-in auto-creates accounts; `/auth/register` redirects to the Google-only login). `RESEND_API_KEY`/`EMAIL_FROM` stay configured for transactional mail, but the password reset/verification flows are inert without password auth. Staging (`next.exponential.at`) already runs this posture.
 - `/api/health` gates the web Docker HEALTHCHECK (DB-backed; Electric reported but non-gating). The push relay's is `/healthz`.
 
@@ -134,7 +135,7 @@ apps/web/src/
 ├── components/
 │   ├── ui/                       # shadcn components — always use these over raw HTML
 │   ├── workspace/                # Sidebar, mobile topbar, settings sections (general/members/labels/projects/billing), plan-comparison
-│   ├── onboarding/               # First-run wizard (workspace → project → labels → first issue → plan)
+│   ├── onboarding/               # First-run wizard (project → GitHub repo connect; workspace auto-created)
 │   ├── inbox/                    # Notifications inbox view
 │   ├── issue-editor/, issue-properties/, issue-row-menu/, comment-rows/
 │   ├── issue-list.tsx, issue-detail-view.tsx, issue-timeline.tsx, issue-search-sheet.tsx
@@ -203,6 +204,8 @@ apps/web/src/
 
 Each synced table gets a shape proxy in `apps/web/src/routes/api/shapes/`, built with the shared `createShapeRouteHandler` (`lib/shape-route.ts`). The proxy authenticates the request, then forwards to Electric. A proxy may pin a server-side `columns` allowlist that clients cannot widen — `issue-subscribers` uses this to EXCLUDE the reporter `email` column from sync (widget-reporter PII stays server-only; the resolution-email path reads the DB directly). Client collections in `apps/web/src/lib/collections.ts` point to these proxy URLs. There is one proxy per synced table — workspaces, projects, issues, labels, issue-labels, users, workspace-members, workspace-invites, comments, attachments, notifications, issue-events, issue-subscribers, and coding-sessions (14 total, matching the 14 synced shapes).
 
+Proxies are hardened three ways: (1) proxied responses always carry `cache-control: private, no-store` + `vary: authorization, x-api-key, cookie` — Electric's upstream `public, max-age=604800` must never reach auth-gated clients (it poisoned macOS URLCache with cross-auth snapshots); (2) a request presenting token credentials (`Authorization`/`x-api-key`) that fail to resolve gets an explicit 401 instead of degrading to the anonymous where clause (cookie-only requests still fall back anonymously — the web collection layer has no 401 recovery and the router guard re-auths on navigation); (3) `buildWhereClause` sorts id lists so the same id set always yields byte-identical SQL — the where clause is part of Electric's shape identity, and heap-order flips were rotating shape handles into native-client 409 loops.
+
 ### Electric Collections
 
 All collections in `apps/web/src/lib/collections.ts` use `columnMapper: snakeCamelMapper()` from `@electric-sql/client` to map Postgres `snake_case` columns to JS `camelCase`. Without this, `useLiveQuery` `where` filters silently fail. Use `undefined` (not `false`) to skip a query; use `and()`/`or()` from `@tanstack/react-db` instead of JS `&&`/`||`.
@@ -229,9 +232,9 @@ Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID s
 - `IssueFilterPopover` offers multi-category drill-down filtering (status, priority, labels)
 - `ActiveFilterPills` shows removable pills for active filters below the filter bar
 
-### Edit Issue Dialog
+### Issue Detail / Edit
 
-- Opens on row click, receives live `issue` prop from Electric (stays fresh without refetching)
+- Issue rows navigate to the full-page detail route (`projects/$projectSlug/issues/$issueIdentifier`); the editor receives a live `issue` from Electric (stays fresh without refetching)
 - Title and description use local state, save on blur if changed
 - Status, priority, labels, and due date mutate immediately via tRPC
 - Labels use `trpc.issueLabels.add` / `trpc.issueLabels.remove` for toggle behavior
@@ -282,7 +285,7 @@ OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
 OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
 GOOGLE_CLIENT_ID              # Google OAuth client ID (required for Google login)
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
-GITHUB_APP_ID                 # GitHub App numeric ID (users install the App from /account/integrations; server mints per-repo installation tokens)
+GITHUB_APP_ID                 # GitHub App numeric ID (install from /account/integrations or workspace settings → Repositories; server mints per-repo installation tokens; github_installations rows come from the setup redirect, installation webhooks, and an empty-table listAppInstallations() self-heal)
 GITHUB_APP_SLUG               # GitHub App URL slug (builds the install link)
 GITHUB_APP_PRIVATE_KEY        # GitHub App PEM private key, base64-encoded (base64 -w0 app.private-key.pem)
 GITHUB_WEBHOOK_SECRET         # GitHub App webhook HMAC secret (cloud PR-merge detection; App webhook → ${BETTER_AUTH_URL}/api/webhooks/github)
@@ -317,7 +320,7 @@ The old Rust `agent-core` runtime, the companion daemon, the synthetic desktop-a
 
 A marker.io-style widget third parties paste into their sites via a GA-style async `<script>` snippet. Source lives in `packages/widget` (Preact in a shadow root + `@zumer/snapdom` for client-side screenshots); the build emits two classic IIFE scripts into `apps/web/public/widget/v1/` — `loader.js` (snippet target: command queue, floating button, config prefetch) and `widget.js` (lazy-loaded panel + capture), plus `demo.html` for manual testing. The widget API is `window.ExponentialWidget`: `init({key})`, `identify({email,name,userId})`, `setCustomData({...})`, `open()`, `close()`. Screenshots are captured client-side (snapDOM, viewport-cropped, WebP→PNG→JPEG ladder, never blocks submission on failure); marker.io's server-side rendering approach was researched and deliberately not used (capture sits behind a `CaptureEngine` interface in `packages/widget/src/capture/` if that ever changes). Screenshots can be **annotated** in a full-screen editor (rectangle / free line / arrow, fixed red, undo/clear): shapes live in image-pixel space (`packages/widget/src/annotate/`), stay editable across editor reopens, and are flattened into the uploaded image on submit (`flattenAnnotations` re-runs the encode ladder) — the server only ever sees one plain image.
 
-Server side: two server-only tables (`widget_configs` with the public `expw_` key + domain allowlist, `widget_submissions` with reporter email/page/env metadata — NOT Electric-synced, read via the `widgets` tRPC router), two CORS-handling public routes (`/api/widget/config`, `/api/widget/submit` — plain file routes; CORS/origin/rate-limit/honeypot helpers in `apps/web/src/lib/widget/`). Each config owns a synthetic `isAgent` user (role=agent member) as the issue creator — **never delete that user: `issues.creator_id` cascades**. Submissions create the issue + screenshot attachment + submission row in ONE transaction; the description gets a human-readable metadata block. Rate limiting is in-process token buckets (`WIDGET_RATE_LIMIT_*` env). Managed in workspace settings → "Feedback widget" (owner-only, copy-paste snippet). Dogfood: cloud bootstrap creates the `Exponential App` config on the public feedback workspace; the sidebar FeedbackButton opens the embedded widget (`FeedbackWidgetProvider` in the workspace layout) and falls back to the legacy `/feedback` redirect; self-hosted instances point at the cloud via `FEEDBACK_WIDGET_SCRIPT_URL` + `FEEDBACK_WIDGET_KEY` (the script origin is auto-added to the CSP).
+Server side: two server-only tables (`widget_configs` with the public `expw_` key + domain allowlist, `widget_submissions` with reporter email/page/env metadata — NOT Electric-synced, read via the `widgets` tRPC router), two CORS-handling public routes (`/api/widget/config`, `/api/widget/submit` — plain file routes; CORS/origin/rate-limit/honeypot helpers in `apps/web/src/lib/widget/`). Each config owns a synthetic `isAgent` user (role=agent member) as the issue creator — **never delete that user: `issues.creator_id` cascades**. Submissions create the issue + screenshot attachment + submission row in ONE transaction; the description gets a human-readable metadata block. Rate limiting is in-process token buckets (`WIDGET_RATE_LIMIT_*` env). Managed in workspace settings → "Feedback widget" (owner-only, copy-paste snippet). Dogfood: cloud bootstrap creates the `Exponential App` config on the public feedback workspace, which holds a SINGLE project — Exponential (slug `exponential`, prefix `EXP`); bootstrap heals pre-collapse DBs by creating that project if missing, repointing widget configs to it, and deleting the legacy `feedback` project only when it has zero issues. The sidebar FeedbackButton opens the embedded widget (`FeedbackWidgetProvider` in the workspace layout) and falls back to the legacy `/feedback` redirect (now → projects/exponential); self-hosted instances point at the cloud via `FEEDBACK_WIDGET_SCRIPT_URL` + `FEEDBACK_WIDGET_KEY` (the script origin is auto-added to the CSP).
 
 Dev-mode gotcha: the nitro-alpha dev bridge renders any app 404-status response as a connect `Cannot GET/POST` HTML page and strips custom response headers — both dev-only; production (`server-bun.ts`/srvx) passes responses through untouched.
 
