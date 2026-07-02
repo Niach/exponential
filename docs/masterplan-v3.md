@@ -185,10 +185,10 @@ No other pillar is load-bearing. Supporting crates (`keyring`, `tokio-tungstenit
 gpui          = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 gpui_macros   = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui-component = "0.5.2"
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" } # git pin — registry 0.5.x would split gpui package ids (§3.1)
 ```
 
-The exact toolchain channel is pinned in `apps/desktop/rust-toolchain.toml` (`channel = "stable"`), but **validate the channel against the pinned gpui rev's own examples before locking it** — if that Zed rev needs a specific nightly feature, match it. See §03 for the workspace/toolchain layout.
+The exact toolchain channel is pinned in `apps/desktop/rust-toolchain.toml` (`channel = "1.96.0"`, validated by Spike B against the pinned rev's own examples — see §3.7). See §03 for the workspace/toolchain layout.
 
 ---
 
@@ -594,7 +594,7 @@ it entirely and the Rust toolchain owns it end to end.
 apps/desktop/
 ├── Cargo.toml              # [workspace] members=["crates/*"], resolver="2"
 ├── Cargo.lock              # COMMITTED — this is an app, not a library
-├── rust-toolchain.toml     # channel="stable" (pinned; see §3.6)
+├── rust-toolchain.toml     # channel = "1.96.0" (validated by Spike B; see §3.7)
 ├── .cargo/config.toml      # per-target link flags + dev opt-level overrides
 ├── assets/                 # Inter TTF, Lucide icons, Info.plist / .desktop templates
 └── crates/
@@ -704,15 +704,21 @@ members  = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-# Pinned to the SAME rev gpui-component 0.5.2 pins (verified in its Cargo.toml).
+# Pinned to the SAME rev gpui-component pins (verified in its Cargo.toml).
+# Crate versions at this rev (confirmed by Spike B): gpui 0.2.2, gpui_platform 0.1.0, gpui_macros 0.1.0.
 gpui          = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 gpui_macros   = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui-component = { version = "0.5.2" }
+# gpui-component is pinned by GIT REV, never by crates.io version. WARNING: crates.io
+# hosts an unrelated/older registry `gpui 0.2.2` and a `gpui-component 0.5.1` that
+# depends on it — resolving either would pull a SECOND gpui package id alongside the
+# git-pinned gpui above and split every gpui type in the tree (0.5.2 exists only in
+# git; it is not published). Never use the registry versions.
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
 
-alacritty_terminal = "0.26"          # UPSTREAM, Apache-2.0 — never Zed's GPL fork
-portable-pty       = "0.9"
-vte                = { version = "0.15", features = ["ansi"] }
+alacritty_terminal = "0.26"          # UPSTREAM, Apache-2.0 — never Zed's GPL fork (resolves 0.26.0)
+portable-pty       = "0.9"           # resolves 0.9.0
+vte                = { version = "0.15", features = ["std", "ansi"] }  # resolves 0.15.0; "std" is required for StdSyncHandler (§6.4)
 rusqlite           = { version = "0.32", features = ["bundled", "serde_json"] }  # feature set matches §5.1
 ureq               = { version = "2", features = ["tls"] }
 rustls             = "0.23"
@@ -725,10 +731,11 @@ tokio              = { version = "1", features = ["rt-multi-thread", "macros", "
 tokio-tungstenite  = { version = "0.24", features = ["rustls-tls-native-roots"] }
 ```
 
-> **Open question:** the crate version of `gpui` at that rev is nominally 0.2.x
-> and `gpui_platform` reports `wgpu` support (Blade removed Feb 2026). Fable must
-> confirm the crate version numbers and the exact `gpui_platform` feature names
-> against the pinned rev's own `Cargo.toml` before locking — see §3.7.
+> **Resolved (Spike B, 2026-07-02):** at the pinned rev the crate versions are
+> `gpui 0.2.2`, `gpui_platform 0.1.0`, `gpui_macros 0.1.0`, and the
+> `gpui_platform` features `font-kit`/`x11`/`wayland`/`runtime_shaders` all exist
+> as named. The whole tree (gpui-component rev `a9a7341c…` + this zed rev) builds
+> and runs on the validated stable toolchain — see §3.7.
 
 ### 3.2 Pillar 1 — gpui (Apache-2.0, from Zed)
 
@@ -921,18 +928,25 @@ the specific collections they read.
 ### 3.6 App shell & bootstrap
 
 `app/src/main.rs` composes the pillars. The entrypoint at the pinned rev is
-`gpui::Application::new().with_assets(…).run(|cx| …)` (verified against the rev's
-`app.rs`: `Application::new` → `with_assets` → `run`, plus `on_open_urls` — the
-macOS OAuth-callback hook for the §5.7 `exp://` deep link). There is **no**
-`gpui_platform::application()` symbol; the open question resolves to
-`Application::new()`. The shape is:
+**`gpui_platform::application()`** — the cross-platform backend-selecting
+constructor used by every buildable gpui-component example (verified by Spike B
+against the rev: `gpui::Application::new()` does **not** exist there; the only
+`Application` constructors are `Application::with_platform(…)` and
+`new_inaccessible`, and `gpui_platform::application()` wraps `with_platform`
+with the compile-time platform pick). `on_open_urls` — the macOS OAuth-callback
+hook for the §5.7 `exp://` deep link — has the real signature
+`FnMut(Vec<String>)` with **no `cx` argument**, so the handler must marshal the
+URLs into the App via a channel (flume/mpsc) drained by a foreground task, or
+stash pending URLs for `run()` to pick up (Zed's own pattern). The shape is:
 
 ```rust
 fn main() {
-    let app = gpui::Application::new()
+    let app = gpui_platform::application()           // the real entrypoint — NOT gpui::Application::new()
         .with_assets(assets::Assets);                // embedded Inter + Lucide (§3.4)
-    // on_open_urls is the macOS OAuth callback surface (exp:// → §5.7); register it here.
-    app.on_open_urls(|urls, cx| auth::handle_oauth_callback(urls, cx));
+    // on_open_urls is the macOS OAuth callback surface (exp:// → §5.7).
+    // Real signature: FnMut(Vec<String>) — NO cx. Marshal into the App via a channel.
+    let (url_tx, url_rx) = flume::unbounded::<Vec<String>>();
+    app.on_open_urls(move |urls| { let _ = url_tx.send(urls); });
     app.run(|cx| {
             gpui_component::init(cx);                // MUST be first — installs component globals
             // ORDER IS LOAD-BEARING. Theme::change → apply_config reassigns BOTH theme.colors
@@ -949,17 +963,29 @@ fn main() {
             let store = sync::Store::open(cx);       // rusqlite/WAL, spawns the 14 shape threads
             cx.set_global(store);
 
+            // Foreground drain for the OAuth-callback URLs (on_open_urls has no cx).
+            cx.spawn(async move |cx| {
+                while let Ok(urls) = url_rx.recv_async().await {
+                    auth::handle_oauth_callback(urls, cx);
+                }
+            }).detach();
+
             open_main_window(cx);
         });
 }
 
 fn open_main_window(cx: &mut App) {
     let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
-    cx.open_window(WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() },
-        |window, cx| {
-            let workspace = cx.new(|cx| ui::Workspace::new(window, cx)); // the DockArea
-            cx.new(|cx| gpui_component::Root::new(workspace.into(), window, cx)) // Root wraps it
-        }).unwrap();
+    // The gpui-component-sanctioned pattern opens windows inside a foreground spawn
+    // (hello_world main.rs:28, story lib.rs:111). A direct cx.open_window call may
+    // work (Zed does it), but follow the examples.
+    cx.spawn(async move |cx| {
+        cx.open_window(WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() },
+            |window, cx| {
+                let workspace = cx.new(|cx| ui::Workspace::new(window, cx)); // the DockArea
+                cx.new(|cx| gpui_component::Root::new(workspace, window, cx)) // Root wraps it (takes impl Into<AnyView> — no .into() needed)
+            })
+    }).detach();
 }
 ```
 
@@ -981,14 +1007,17 @@ in each (§07 concurrent sessions). Window close drops that window's entities; t
 
 ### 3.7 Build, toolchain & packaging
 
-**Toolchain.** `rust-toolchain.toml` pins `channel = "stable"` (latest stable at
-cut time). Pinning is required because the gpui git rev tracks a specific
-compiler surface. Fable validates the exact stable version against the pinned
-gpui rev's CI before committing the file.
+**Toolchain.** `rust-toolchain.toml` pins `channel = "1.96.0"` — **resolved by
+Spike B (2026-07-02)**, which built and ran the whole pinned tree under rustc
+1.96.0 stable on aarch64-apple-darwin. The floor is 1.95.0 (Zed's own
+`rust-toolchain.toml` pin at the rev); gpui-component declares no MSRV but its
+edition 2024 requires ≥1.85. Pinning is required because the gpui git rev tracks
+a specific compiler surface.
 
 **`.cargo/config.toml`** carries per-target link flags and the **dev opt-level
-override** — `taffy` and `gpui_macros` must be compiled at `opt-level = 3` even in
-dev profile or layout is painfully slow (gpui-component's own workspace does
+overrides** — the heavy layout/render/text crates must be compiled at
+`opt-level = 3` even in dev profile or layout is painfully slow. Adopt
+gpui-component's own full `[profile.dev.package]` list (its workspace does
 exactly this):
 
 ```toml
@@ -996,16 +1025,26 @@ exactly this):
 [target.aarch64-apple-darwin]
 rustflags = ["-C", "link-arg=-mmacosx-version-min=13.0"]
 
-# apps/desktop/Cargo.toml
-[profile.dev.package.taffy]
-opt-level = 3
-[profile.dev.package.gpui_macros]
-opt-level = 3
-[profile.dev.package.gpui]
-opt-level = 3
-[profile.dev.package.gpui_platform]
-opt-level = 3
+# apps/desktop/Cargo.toml — gpui-component's full dev opt-level list
+[profile.dev.package]
+gpui          = { opt-level = 3 }
+gpui_platform = { opt-level = 3 }
+gpui_macros   = { opt-level = 3 }
+taffy         = { opt-level = 3 }
+resvg         = { opt-level = 3 }
+rustybuzz     = { opt-level = 3 }
+ttf-parser    = { opt-level = 3 }
+smol          = { opt-level = 3 }
+tree-sitter   = { opt-level = 3 }
+ropey         = { opt-level = 3 }
+sum_tree      = { opt-level = 3 }
 ```
+
+**Build-time reality check (Spike B):** a genuinely cold build of the full
+pinned tree (496 crates, gpui 0.2.2 + gpui-component) took **≈1m43s** on the M4
+Pro dev machine — local dev iteration is not a bottleneck. CI will be slower
+(budget ~10–20 min on GitHub macOS runners), but nothing like the old
+tens-of-minutes fear.
 
 **Host build deps.**
 
@@ -1066,11 +1105,14 @@ sources. §06 carries the same note.
   `uniform_list` / gpui-component `List`/`virtual_list` for the issue list and
   terminal grid rows so IDs are managed for you.
 - **The pinned rev's own examples are the source of truth for the bootstrap API.**
-  The entrypoint is `gpui::Application::new().with_assets(…).run(…)` (confirmed at
-  the pinned rev; `on_open_urls` is the macOS OAuth-callback hook), but the exact
-  `WindowOptions`/`Bounds` constructors and the `gpui_platform` feature names can
-  still differ from any blog/example you remember — confirm the window/options
-  surface against the rev's `examples/` before writing the final `main.rs`.
+  The entrypoint is `gpui_platform::application().with_assets(…).run(…)`
+  (confirmed at the pinned rev by Spike B — `gpui::Application::new()` does not
+  exist there; `on_open_urls` is the macOS OAuth-callback hook and takes
+  `FnMut(Vec<String>)`, no `cx`), but the exact `WindowOptions`/`Bounds`
+  constructors can still differ from any blog/example you remember — confirm the
+  window/options surface against the rev's `examples/` before writing the final
+  `main.rs`. For headless/CI smoke tests, `gpui_platform::headless()` exists at
+  the pinned rev.
 
 ### 3.10 Phase-1 gate
 
@@ -1750,10 +1792,12 @@ Two hard boundaries frame everything below:
 ```toml
 # apps/desktop/crates/terminal/Cargo.toml
 [dependencies]
-alacritty_terminal = "0.26"       # UPSTREAM, Apache-2.0 — Term/Grid/Config ONLY
-vte                = "0.15"        # DIRECT dep — the ansi parser + Color/NamedColor/Rgb types (see 6.1.2);
-                                  # version-match whatever alacritty_terminal 0.26 resolves (cargo tree -p vte)
-portable-pty       = "0.9"        # MIT — owns the PTY master (openpty/spawn/reader/writer)
+alacritty_terminal = "0.26"       # UPSTREAM, Apache-2.0 — Term/Grid/Config ONLY (resolves 0.26.0)
+vte                = { version = "0.15", features = ["std", "ansi"] }
+                                  # DIRECT dep — the ansi parser + Color/NamedColor/Rgb types (see 6.1.2);
+                                  # resolves 0.15.0, the exact version alacritty_terminal 0.26.0 pins;
+                                  # "std" is required for StdSyncHandler (§6.4)
+portable-pty       = "0.9"        # MIT — owns the PTY master (openpty/spawn/reader/writer) (resolves 0.9.0)
 gpui               = { workspace = true }
 gpui-component     = { workspace = true }
 domain             = { path = "../domain" }
@@ -1765,7 +1809,7 @@ log                = "0.4"
 
 **6.1.1 Why upstream `alacritty_terminal` 0.26.0, not Zed's fork.** Zed pins a fork at `git=https://github.com/zed-industries/alacritty rev=4c129667…`. That fork exists only to patch the `tty`/`event_loop`/ConPTY/signal-mask internals of alacritty's own PTY driver — code paths **we never call**. We consume alacritty for its emulator only: `Term<L>`, `Grid`, `Config`, `RenderableContent`/`RenderableCursor`, `TermMode`, `Cell`/`Color`/`NamedColor`, and the VT parser (`vte::ansi::Processor`). We deliberately **do not** use `alacritty_terminal::tty` or `alacritty_terminal::event_loop::EventLoop`, because that machinery consumes the raw bytes internally — precisely where our steer tee has to sit. Skipping it lets us take upstream 0.26.0 straight from crates.io (clean Apache-2.0, no git pin, no fork liability).
 
-**6.1.2 vte is a DIRECT dependency, version-matched to alacritty.** `vte` is the crate that owns the ANSI parser (`Processor`, `Handler`, `Attr`) **and** the color types (`Color`, `NamedColor`, `Rgb`). This is exactly how Zed's reference `terminal` crate wires it — vte is a direct dep (`vte.workspace = true`) and the parser + colors are imported straight from it: `use vte::ansi::{Processor, Handler, Attr, Color, NamedColor, Rgb, StdSyncHandler};`. We do the same: declare `vte` directly (do **not** rely on any `alacritty_terminal::vte` re-export — that's a myth; alacritty_terminal 0.26 provides `Term`/`Grid`/`Config`/events, not the parser API surface we drive). The real discipline is **version-matching the single vte crate**: pin our `vte` to the exact version `alacritty_terminal 0.26` resolves (record it from `cargo tree -p vte` in the §6.1.3 spike). One vte in the tree means `Term<L>: vte::ansi::Handler` and `processor.advance(&mut term, …)` unify; two copies would give a `Handler` trait of a *different type* and fail to compile. Keep the `Term`/`event`/`Grid`/`RenderableContent` imports from `alacritty_terminal` — those are correct.
+**6.1.2 vte is a DIRECT dependency, version-matched to alacritty.** `vte` is the crate that owns the ANSI parser (`Processor`, `Handler`, `Attr`) **and** the color types (`Color`, `NamedColor`, `Rgb`). This is exactly how Zed's reference `terminal` crate wires it — vte is a direct dep (`vte.workspace = true`) and the parser + colors are imported straight from it: `use vte::ansi::{Processor, Handler, Attr, Color, NamedColor, Rgb, StdSyncHandler};`. We do the same: declare `vte` directly. (Correction from Spike A, 2026-07-02: `alacritty_terminal 0.26.0` **does** re-export vte — `pub use vte;` at lib.rs:20, with features `["std", "ansi"]` enabled — so `alacritty_terminal::vte::ansi::Processor` is equally available. Both paths resolve to the single `vte 0.15.0` in the tree; the direct dep is a deliberate choice for explicit imports and version visibility, **not a necessity**.) The real discipline is **version-matching the single vte crate**: pin our `vte` to `{ version = "0.15", features = ["std", "ansi"] }` — 0.15.0 is exactly what `alacritty_terminal 0.26.0` itself pins (verified by the spike: `cargo tree -d` shows one `vte 0.15.0` in the whole tree). One vte in the tree means `Term<L>: vte::ansi::Handler` and `processor.advance(&mut term, …)` unify; two copies would give a `Handler` trait of a *different type* and fail to compile. Keep the `Term`/`event`/`Grid`/`RenderableContent` imports from `alacritty_terminal` — those are correct.
 
 **6.1.3 SPIKE FIRST (Phase 4, before any other terminal work).** A throwaway `examples/term_spike.rs` in the `terminal` crate must confirm, against the *actually resolved* 0.26 API, that:
 1. `Term::new(config, &dimensions, listener)` exists and takes an `EventListener`.
@@ -1775,6 +1819,8 @@ log                = "0.4"
 5. Which `vte` version is pinned (record it in a comment).
 
 If any of these differ from this spec (upstream 0.26 has churned the `Config`/`Dimensions` shape before), Fable resolves the delta *in the spike* and updates this section's snippets before building the real modules. Do not build `element.rs` against an assumed API.
+
+**Spike run (Spike A, 2026-07-02): all five confirmed** against the resolved tree — `alacritty_terminal 0.26.0` + `vte 0.15.0` + `portable-pty 0.9.0` compile and run together; `Term::new`/`Handler`/`renderable_content` are as specced; the `Processor::<StdSyncHandler>` turbofish is **required** (§6.4); the recorded `vte` pin is **0.15.0**. The spike also empirically validated §6.4's no-LF→CRLF-fixup rule (the PTY's `ONLCR` emitted `\r\n` in the raw sink). The deltas it surfaced (own `Dimensions` impl in §6.10, `TextAreaSizeRequest` in §6.6, `Osc52` config in §6.15) are folded into this section's snippets.
 
 ### 6.2 Module layout
 
@@ -1864,6 +1910,9 @@ pub fn spawn_read_loop(
     wake: flume::Sender<Wake>,        // drained on the gpui thread
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new().name("pty-read".into()).spawn(move || {
+        // Turbofish REQUIRED: the `T: Timeout = StdSyncHandler` default type param does not
+        // participate in fn-call inference — bare `Processor::new()` fails E0283. StdSyncHandler
+        // is imported from vte::ansi (needs vte's "std" feature, §6.1).
         let mut processor = Processor::<StdSyncHandler>::new(); // owns the vte parse state across chunks
         let mut buf = [0u8; 8192];
         loop {
@@ -1893,7 +1942,7 @@ Rules baked into this loop:
 - **Exactly one blocking reader.** Never `try_clone_reader()` a second time to get a "steer copy." Two concurrent blocking reads on the same master race and split the stream — half the bytes go to the emulator, half to steer, and both corrupt. The fan-out is done in **software**, inside this one thread, after the single `read()`.
 - **Order: sink before emulator.** The steer publisher gets the chunk as-is; then we take the `FairMutex` and advance the parser. The lock is held *only* around `processor.advance` — never across the `read()` (would deadlock the paint thread) and never across the sink send.
 - **No `\n`→`\r\n` fixup.** Zed's `convert_lf_to_crlf` (terminal.rs:2939) exists solely for its *headless piped-subprocess* path, where output comes from a raw pipe with no line discipline. **We always spawn through a PTY**, whose `ONLCR` line discipline already turns `\n` into `\r\n`. Applying the fixup on PTY output would double the carriage returns. So: skip it. (If a future run-config ever runs a program with stdout redirected to a pipe rather than the PTY, that is a separate code path, not this one.)
-- **`Processor` is stateful across chunks.** A single escape sequence can straddle a `read()` boundary; the one long-lived `Processor` carries the partial-parse state, so we must not recreate it per chunk.
+- **`Processor` is stateful across chunks.** A single escape sequence can straddle a `read()` boundary; the one long-lived `Processor` carries the partial-parse state, so we must not recreate it per chunk. Construct it with the `Processor::<StdSyncHandler>::new()` turbofish — the default type param doesn't infer at call sites (E0283), and `StdSyncHandler` comes from `vte::ansi` behind the `"std"` feature.
 - **`Wake` channel, not direct notify.** The read thread is a plain `std::thread` and cannot touch gpui entities (they are `!Send`). It sends `Wake::Output`/`Wake::Eof` on a `flume` channel; a single foreground `cx.spawn` task drains it and calls `entity.update(cx, |_, cx| cx.notify())` (see §03 threading). Coalesce bursts: if several `Wake::Output` are queued, one `notify()` suffices.
 
 ### 6.5 Input, paste, and remote steer input — one writer, no special cases
@@ -1920,12 +1969,18 @@ impl EventListener for EventProxy {
 }
 ```
 
+(Upstream `EventListener::send_event` has a default no-op body, so the minimal
+legal listener is `impl EventListener for X {}` — handy for tests. Production
+always forwards via this `EventProxy`, because dropping the reply-required
+events below hangs TUIs.)
+
 The foreground drain handles each variant (mirroring Zed terminal.rs:1531-1607, reimplemented):
 
 | `AlacTermEvent` | Action |
 |---|---|
 | `PtyWrite(text)` | **write `text` to the shared writer.** This is how device-attribute (DA1/DA2), DSR/cursor-position, and other query replies get back to the child. |
 | `ColorRequest(index, formatter)` | look up `term.colors()[index]`, format via the closure, **write the reply to the writer.** |
+| `TextAreaSizeRequest(formatter)` | same reply-required family as `ColorRequest` (`Arc<dyn Fn(WindowSize) -> String>`): format the current text-area `WindowSize` via the closure and **write the reply to the writer** — drop it and a querying TUI can hang, exactly like the DA/DSR case below. |
 | `ClipboardLoad(_)` / `ClipboardStore(_)` | **gated/disabled by default** — OSC-52. See §6.11 security. Do not blindly write clipboard contents to the child or the system clipboard. |
 | `Title(s)` / `ResetTitle` | update the tab title (§6.9). |
 | `Bell` | optional subtle visual bell; no audio in v1. |
@@ -1993,7 +2048,7 @@ The Phase-4 gate includes a CJK+emoji sample specifically to verify no smear/ove
 
 On every layout where the integer `(cols, rows)` changes (debounced — ignore pixel-level jitter while dragging, exactly Zed's `requires_resize` guard at terminal.rs:1943, comparing `num_lines()`/`num_cols()` not pixels):
 1. `pty.resize(cols, rows)` — this is the **SIGWINCH** to the child (portable-pty's `MasterPty::resize` issues `TIOCSWINSZ`), so `claude`/`vim` reflow;
-2. `emulator.resize(cols, rows)` — `term.resize(TermDimensions{cols, rows, ..})` reshapes the grid and reflows scrollback;
+2. `emulator.resize(cols, rows)` — `Term::resize` is generic (`fn resize<S: Dimensions>(&mut self, size: S)`, taking any impl of `alacritty_terminal::grid::Dimensions`); there is **no ready-made production size type** — the only stock impl, `TermSize`, lives in `alacritty_terminal::term::test` (a test-helpers module) — so `emulator.rs` defines its **own ~12-line `Dimensions` struct** (e.g. `GridSize { columns, screen_lines, total_lines }`) and passes it to reshape the grid and reflow scrollback;
 3. emit a **relay `resize` frame** (§08) so remote phone viewers reshape their mirror.
 
 All three must fire together and only on an integer-cell change. Debounce is essential: dragging a window edge fires dozens of pixel-granular layouts per second; resizing the PTY that often floods the child with SIGWINCH and stutters TUIs.
@@ -2082,7 +2137,7 @@ Rendering uses **gpui-component**'s `Tab`/`TabBar` inside the `dock` system's bo
 
 ### 6.15 Security
 
-- **OSC-52 clipboard is disabled/gated by default.** `AlacTermEvent::ClipboardStore` (child asks to *set* the system clipboard) and `ClipboardLoad` (child asks to *read* it) forward app-controlled data across the local clipboard boundary; leave both off in v1 (or behind an explicit per-terminal opt-in), independent of the local select-to-copy path which is fully client-side.
+- **OSC-52 clipboard is disabled/gated by default — at BOTH levels.** Upstream 0.26's `Config` has an `osc52: Osc52` field (`Disabled` / `OnlyCopy` [default] / `OnlyPaste` / `CopyPaste`): set **`Osc52::Disabled`** on the emulator `Config` so OSC-52 is suppressed at the emulator itself, **in addition to** ignoring `AlacTermEvent::ClipboardStore` (child asks to *set* the system clipboard) and `ClipboardLoad` (child asks to *read* it) in the event drain. Both forward app-controlled data across the local clipboard boundary; leave both off in v1 (or behind an explicit per-terminal opt-in), independent of the local select-to-copy path which is fully client-side.
 - **Remote steer input is gated upstream.** Injection into the writer is only reachable through the `steer` crate, which enforces the server-minted steer ticket + permission (`packages/steer-ticket`, `lib/steer.ts`) before calling `writer_write`. The terminal layer performs no auth and must never be wired to accept raw network bytes directly.
 - **Token-embedded remotes never touch the terminal.** The `coding` crate (§07) builds the token-embedded git remote and writes `.mcp.json`; those secrets are not passed through the terminal's env dump or logged. The terminal only spawns `claude` with the augmented PATH and the safe env above.
 
@@ -3220,7 +3275,11 @@ Three unknowns can invalidate large chunks of the plan if they turn out wrong. F
 
 **Spike A — drive upstream `alacritty_terminal 0.26` standalone via the parser advance loop (de-risks §06 / Phase 4).** The entire terminal design rests on the assumption that we can own the PTY master, feed bytes through `vte`/alacritty's parser into a `Term<T>` grid, and read the resulting cells out for painting — *without* Zed's GPL integration code. The spike: a ~150-line binary that opens a PTY via `portable-pty`, spawns `bash`, and in a loop reads master bytes and drives them through alacritty's `Processor`/`Term` (upstream 0.26's advance API), then dumps the grid to stdout on each frame. Confirm that (1) upstream 0.26's public API exposes `Term`, `Grid`, the parser, and a `Config` we can construct without the fork's patches, and (2) the byte→grid path works standalone so the read-loop software tee (feed emulator *and* steer publisher from one read) is viable. **If upstream 0.26 has diverged from the fork in a way that blocks standalone driving, that's a Phase-4 architecture decision to surface immediately** — but the tee model itself (we own the master, fan out in software) does not depend on any Zed code, so this should confirm green.
 
+**Result (2026-07-02): GREEN.** The spike ran against the real upstream crates (`alacritty_terminal 0.26.0` / `vte 0.15.0` / `portable-pty 0.9.0`): PTY ownership, byte→grid, the single-reader software tee, resize/SIGWINCH, and the DA/DSR reply path all confirmed end-to-end. The API corrections it surfaced (the vte re-export rationale, the own-`Dimensions` impl, the required `Processor` turbofish, `TextAreaSizeRequest`, `Osc52::Disabled`) are folded into §6.
+
 **Spike B — confirm the exact pinned gpui rev's bootstrap API vs the researched examples (de-risks §03 / Phase 1).** The architecture snippets throughout §03/§04 are written against the gpui API as it appears in the downloaded refs, but gpui-component pins gpui to an exact git rev (`1d217ee39d381ac101b7cf49d3d22451ac1093fe`) and gpui's API surface (the `gpui::Application::new().with_assets(…).run(…)` bootstrap + `on_open_urls`, `cx.open_window`, `Entity`/`cx.new`, the async-closure `cx.spawn`, the `Styled` builder, `gpui_component::init`) has been churning. The spike: pin the workspace to that exact rev, get the *stock* gpui-component example (e.g. the `story`/gallery example under `/Users/niach/.claude/jobs/f54ce572/tmp/gpui-component/examples/`) compiling and opening a window locally, and diff the real bootstrap call sequence against what §03 assumes. Lock `rust-toolchain.toml`'s `channel` to whatever that example builds under (**Open question resolved here:** don't pin the toolchain until this example builds — the pinned gpui rev dictates the MSRV). This spike is the literal first work of Phase 1.
+
+**Result (2026-07-02): GREEN with caveats.** The pinned tree builds and runs (the gallery renders under real GPU; cold build ≈1m43s / 496 crates on the M4 Pro). Corrections folded into §3: the entrypoint is `gpui_platform::application()` (a bare `Application::new()` does not exist at the rev), `on_open_urls` takes `FnMut(Vec<String>)` with no `cx`, gpui-component must be pinned by git rev `a9a7341c35b62f27ff512371c62419342264710c` (0.5.2 is unpublished; registry versions split gpui package ids), windows open inside a foreground `cx.spawn` per the stock examples, and `rust-toolchain.toml` locks `channel = "1.96.0"` (floor 1.95.0 = Zed's own pin).
 
 **Spike C — a real GitHub-App Start-coding end-to-end (de-risks §07 / Phase 5, and closes EXP-4).** The `GITHUB_APP_*` credentials were absent locally, so the launcher (JIT installation-token mint → token-embedded remote → push → MCP `open_pr`) has *never* been run against a real GitHub App — the old native apps stubbed or mocked this path, and EXP-4 reports the desktop falsely said "github not connected." The spike, run at the start of Phase 5: with real `GITHUB_APP_ID`/`GITHUB_APP_SLUG`/`GITHUB_APP_PRIVATE_KEY`/`GITHUB_WEBHOOK_SECRET` configured on a dev web server, manually exercise the server side of the flow (repo resolve via `repositories` tRPC → mint a session-gated installation token → clone with the token remote → push a branch → call the MCP `open_pr` tool) using `curl`/a scratch script *before* wiring the gpui launcher UI. This proves the server contract end-to-end and isolates any GitHub-App misconfiguration from the desktop code. Without this spike, a credential problem would masquerade as a launcher bug for days.
 
@@ -3357,10 +3416,10 @@ The through-line: the desktop app is the highest-variance thing in the whole rep
 gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
 gpui_macros = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", tag = "v0.5.2" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
 ```
 
-`Cargo.lock` is **committed** (this is an app, not a lib) so the rev is frozen in CI and on every dev machine. Bumping gpui-component is therefore a **coordinated three-line change** (component tag + the three gpui revs it now pins) plus a fixup pass — never a casual `cargo update`. Budget this as recurring maintenance: expect to eat one API-churn migration every time you bump, most painfully on the **dock**, **highlighter**, and **input** surfaces (the three widgets whose APIs have moved most between `0.4.x`→`0.5.x`). These are also our three most load-bearing widgets: `dock` is the whole shell ([03], [04]), `input` is the markdown editor's substrate ([04]), `highlighter` is the diff/code renderer ([07]).
+`Cargo.lock` is **committed** (this is an app, not a lib) so the rev is frozen in CI and on every dev machine. Bumping gpui-component is therefore a **coordinated three-line change** (component rev + the three gpui revs it now pins) plus a fixup pass — never a casual `cargo update`. Budget this as recurring maintenance: expect to eat one API-churn migration every time you bump, most painfully on the **dock**, **highlighter**, and **input** surfaces (the three widgets whose APIs have moved most between `0.4.x`→`0.5.x`). These are also our three most load-bearing widgets: `dock` is the whole shell ([03], [04]), `input` is the markdown editor's substrate ([04]), `highlighter` is the diff/code renderer ([07]).
 
 **Open question — pin selection.** The **exact** gpui-component release tag, its matching gpui rev, and the `rust-toolchain.toml` channel are not yet chosen. Decide in **Phase 0/1** by taking the newest gpui-component tag whose `examples/` build clean against a stable toolchain, then locking all three together. Do **not** track `main` on either repo. Once EXP ships, bumps are opt-in and gated behind a green Phase-2..6 regression pass. Record the chosen triple in `docs/masterplan-v3.md` and `apps/desktop/rust-toolchain.toml`.
 
