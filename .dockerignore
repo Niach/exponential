@@ -25,3 +25,6 @@ CLAUDE.md
 .tool-versions
 .prettierrc
 pnpm-lock.yaml
+
+# Rust desktop build artifacts (13GB+ — never part of any image)
+apps/desktop/target
