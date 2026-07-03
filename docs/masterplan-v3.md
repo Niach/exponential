@@ -151,7 +151,7 @@ These are decisions, not options. Where a choice is genuinely still open it is c
 3. **alacritty_terminal 0.26.0 UPSTREAM** — Apache-2.0, the **upstream** crate, **NOT** Zed's GPL fork. Used for `Term`/`Grid`/parser state only. Paired with **portable-pty 0.9** (MIT — we own the PTY master) and **vte 0.15** (with the `ansi` feature) for the escape-sequence parser.
 4. **A from-scratch Rust ElectricSQL sync client** — no off-the-shelf Electric crate exists; we write it. Transport is **`ureq`** (blocking HTTP) over **`rustls`**; persistence is **`rusqlite`** in **WAL** mode. Details are owned by §05; the protocol conformance target is the `packages/electric-protocol` fixtures.
 
-No other pillar is load-bearing. Supporting crates (`keyring`, `tokio-tungstenite` + `rustls` for the steer publisher, `git2` or shelling `git` for the launcher, `serde`/`serde_json`, `flume`/`crossbeam-channel`, `open`/`opener`) are named in their owning sections.
+No other pillar is load-bearing. Supporting crates (`tokio-tungstenite` + `rustls` for the steer publisher, `git2` or shelling `git` for the launcher, `serde`/`serde_json`, `flume`/`crossbeam-channel`, `open`/`opener`) are named in their owning sections.
 
 ---
 
@@ -196,7 +196,7 @@ The exact toolchain channel is pinned in `apps/desktop/rust-toolchain.toml` (`ch
 
 ---
 
-**LD-9 — Hidden, auto-minted personal `expu_` key (EXP-2a).** The personal Better Auth API key used for local coding (the `.mcp.json` credential, `expu_` prefix) is **never a manual field** in any settings screen. It is **auto-minted** on the first "Start coding" session via the users/apikeys tRPC path, stored in the OS keychain via the **`keyring`** crate (with a `0600` file fallback on headless Linux — mirrors the iOS/mac credential-store decision), and surfaced in settings only as a **Regenerate** action (which mints a new key and invalidates the old). No copy-paste, no "enter your API key" input. This directly kills EXP-2a. The minting/storage mechanics are owned by **§07** (launcher + key) and the key store by the `api` crate (§03).
+**LD-9 — Hidden, auto-minted personal `expu_` key (EXP-2a).** The personal Better Auth API key used for local coding (the `.mcp.json` credential, `expu_` prefix) is **never a manual field** in any settings screen. It is **auto-minted** on the first "Start coding" session via the users/apikeys tRPC path, stored in the **file-based token store** (`0600` file / `0700` dir — **locked decision 2026-07-03: always file-based, never the OS keyring**; unsigned dev binaries re-prompt the macOS Keychain on every rebuild, and Secret Service is absent on headless Linux), and surfaced in settings only as a **Regenerate** action (which mints a new key and invalidates the old). No copy-paste, no "enter your API key" input. This directly kills EXP-2a. The minting/storage mechanics are owned by **§07** (launcher + key) and the key store by the `api` crate (§03).
 
 ---
 
@@ -650,7 +650,7 @@ projects the store into reactive `Entity`-backed collections. Depends only on
 **`api`** — the tRPC-over-HTTP mutation client, the `awaitTxId` sync gate (mirrors
 the web `generateTxId` handshake), the Better Auth session lifecycle, the
 auto-minted hidden `expu_` personal key (EXP-2a), and `login.rs` /
-`token_store.rs` (keyring with a `0600` file fallback) / the `opener` chain for
+`token_store.rs` (file-based `0600` store — never the OS keyring; locked 2026-07-03) / the `opener` chain for
 OAuth. Consumed by `ui` for mutations and by `coding`/`steer` for tokens. gpui
 usage is minimal (it surfaces async results the UI awaits).
 
@@ -725,7 +725,6 @@ rustls             = "0.23"
 serde              = { version = "1", features = ["derive"] }
 serde_json         = "1"
 flume              = "0.11"
-keyring            = "3"
 open               = "5"
 tokio              = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
 tokio-tungstenite  = { version = "0.24", features = ["rustls-tls-native-roots"] }
@@ -1082,7 +1081,7 @@ release checklist.
 
 Every crate we *depend on* is Apache/MIT: `gpui` (Apache-2.0), `gpui-component`
 (Apache-2.0), `alacritty_terminal` **upstream** (Apache-2.0), `portable-pty`,
-`vte`, `rusqlite`, `ureq`, `rustls`, `keyring`, `tokio-tungstenite`. **Zed's own
+`vte`, `rusqlite`, `ureq`, `rustls`, `tokio-tungstenite`. **Zed's own
 `crates/terminal` and `crates/terminal_view` are GPL-3.0-or-later** — we may
 *study* them to learn the alacritty↔gpui integration but must **never copy their
 code** into our (non-GPL) app. Reimplement clean.
@@ -1688,14 +1687,14 @@ This is why `MustRefetch` is a message variant that `apply_batch` handles as `DE
 
 **(d) Sorted where inherited for free.** Because the client never sends `where` (§5.2), it can never flip an id-list order and rotate a handle into a 409 loop. There is nothing to implement here beyond the discipline of *not* adding client-side `where`/`columns` params. Ever.
 
-### 5.7 Auth (`api` crate) — session bearer everywhere, keyring, OAuth via system browser
+### 5.7 Auth (`api` crate) — session bearer everywhere, file-based token store, OAuth via system browser
 
 Auth lives in the `api` crate (`crates/api/src/login.rs`, `token_store.rs`, `opener.rs`) because it's shared by both sync and the tRPC mutation client. The sync `client.rs` reads the token through a `token_provider: Arc<dyn Fn() -> Option<String> + Send + Sync>` closure evaluated **at call time** (not captured once) so a re-login updates every in-flight loop's next request.
 
 **Two distinct credentials — do not confuse them:**
 
 - **Better Auth session token** — the `Authorization: Bearer <token>` on **every** shape request and **every** tRPC request. This is the mobile auth path (`resolveSession` accepts it). This is the *only* credential sync/tRPC ever uses.
-- **`expu_` personal API key** — auto-minted, hidden (EXP-2a), used **only** inside the coding launcher's `.mcp.json` so `claude` can call the web `/api/mcp`. It is NEVER a sync or tRPC auth credential. It is minted/stored by the `coding`/`api` glue (§7 of this doc), not here. Keep the two in separate keyring entries.
+- **`expu_` personal API key** — auto-minted, hidden (EXP-2a), used **only** inside the coding launcher's `.mcp.json` so `claude` can call the web `/api/mcp`. It is NEVER a sync or tRPC auth credential. It is minted/stored by the `coding`/`api` glue (§7 of this doc), not here. Keep the two in separate token-store entries.
 
 **Login flow** (login view owned by the `ui` crate; the mechanics here):
 
@@ -1709,7 +1708,7 @@ Auth lives in the `api` crate (`crates/api/src/login.rs`, `token_store.rs`, `ope
 - **PRIMARY: custom scheme `exp://`.** Register `exp` as a URL scheme — macOS via `CFBundleURLTypes` in the bundled `Info.plist`; Linux via an installed `.desktop` file with `MimeType=x-scheme-handler/exp;` (both templates live in `apps/desktop/assets/`, §3). The OS hands the app the callback URL; **the token is in the URL *fragment*** (`#token=…`), which the app parses locally. gpui exposes app-reactivation/open-url on macOS via the `App`; on Linux a single-instance guard (e.g. a lock socket) forwards the URL from a second launch to the running instance.
 - **FALLBACK: 127.0.0.1 loopback.** For environments where custom-scheme registration didn't take, spin an ephemeral `127.0.0.1:<port>` listener and pass `redirect=http://127.0.0.1:<port>/cb` to the return route. **This needs a NEW server-side `redirect=` param on `/api/mobile-oauth-return`** that 302-redirects the token as a **`?token=` query** (not a fragment — fragments are never sent to servers, so the loopback listener would never see a `#token`). Constraints on that server change: the `redirect` target must be `127.0.0.1`/`localhost`-bound only, the token single-use and short-lived. (This is the one small server addition sync/auth requires; call it out in §2/§7 of this doc as a coordinated change.)
 
-**Token storage: `keyring` crate** (macOS Keychain, Linux Secret Service / libsecret) with a **`0600`-permission file fallback** for headless Linux boxes with no Secret Service running (`{data_dir}/accounts/{id}/token` — same posture as the macOS debug file-store). Store per-account. On 401 (§5.6b) delete the session-token entry for that account.
+**Token storage: the file-based store** — `{data_dir}/accounts/{id}/token`, `0600` file / `0700` dir, perms set before content is written (same posture as the old macOS debug file-store). **Locked decision (2026-07-03): always file-based, never the OS keyring** — the keyring crate's macOS backend re-prompts on every rebuild of an unsigned dev binary, and Secret Service is absent on headless Linux. Store per-account. On 401 (§5.6b) delete the session-token entry for that account.
 
 **Browser-open robustness (EXP-5).** OAuth and "open in browser" go through `crates/api/src/opener.rs` built on the **`opener` crate**, but with an explicit Linux fallback chain because a misconfigured `xdg-open` (EXP-5: opened a *text editor* on fresh Ubuntu, hard-blocking login) must never block auth. Try in order: `$BROWSER` → `xdg-open` → `gio open` → `x-www-browser` → `sensible-browser` → `firefox` → `google-chrome`/`chromium`. If **all** fail, surface the URL in a **copyable dialog** ("Open this in your browser to sign in") — a broken opener degrades to copy-paste, never to a dead end.
 
@@ -2264,17 +2263,17 @@ Server procedures (already exist, verified in `apps/web/src/lib/trpc/users.ts`):
 
 Desktop behavior:
 
-**Auto-mint on first coding session.** The first time the launcher needs the key (step 4 of §7.1) and the keyring has none, the `api` crate calls `mintPersonalApiKey({ name: "Device: <hostname>" })`, stashes the raw key in the OS keyring (§7.2 storage), and returns it. Subsequent sessions read it from the keyring. The user never sees, types, or pastes a key.
+**Auto-mint on first coding session.** The first time the launcher needs the key (step 4 of §7.1) and the token store has none, the `api` crate calls `mintPersonalApiKey({ name: "Device: <hostname>" })`, stashes the raw key in the file-based token store (§7.2 storage), and returns it. Subsequent sessions read it from the store. The user never sees, types, or pastes a key.
 
 **Settings shows a STATUS row, not a value.** The settings pane (§7.7) renders exactly:
 > **Personal API key** — active · `<start>`… — *authenticates the coding agent as you*   [ Regenerate ]
 
-`<start>` is the non-secret key prefix from `listPersonalApiKeys`. **Regenerate is the ONLY control** and it is *mint-new-then-revoke-old*: mint a fresh key (`name: "Device: <hostname>"`), write it to the keyring, then revoke the previous row by id. Order matters — never revoke before the new key is safely stored, or a crash mid-operation leaves the device with no working key. There is no "reveal", no "copy", no manual entry — the raw value only ever flows keyring → `.mcp.json`.
+`<start>` is the non-secret key prefix from `listPersonalApiKeys`. **Regenerate is the ONLY control** and it is *mint-new-then-revoke-old*: mint a fresh key (`name: "Device: <hostname>"`), write it to the token store, then revoke the previous row by id. Order matters — never revoke before the new key is safely stored, or a crash mid-operation leaves the device with no working key. There is no "reveal", no "copy", no manual entry — the raw value only ever flows token-store → `.mcp.json`.
 
-**Storage: the `keyring` crate + a 0600-file fallback.** Use the `keyring` crate (macOS Keychain, Linux Secret Service). On headless Linux where no Secret Service is running (common on the exact fresh-Ubuntu boxes EXP-5 flags), fall back to a `0600` file under the app's config dir (`~/.config/exponential/` or XDG equivalent), created with restrictive perms *before* the write. The token-store abstraction (`api/src/token_store.rs`) is shared with the Better Auth session token store; the personal key is a second named entry (`service = "exponential", account = "personal-key"`). See §03 for the crate wiring and §09 note that iOS uses its own Keychain access-group store (unrelated).
+**Storage: the file-based token store** (`0600` file / `0700` dir under the app data dir, perms set *before* the write). **Locked 2026-07-03: never the OS keyring** — no Keychain prompts, works on the exact fresh-Ubuntu boxes EXP-5 flags with no Secret Service. The token-store abstraction (`api/src/token_store.rs`) is shared with the Better Auth session token store; the personal key is a second named entry (`{data_dir}/accounts/{id}/personal-key`, alongside `token`). See §03 for the crate wiring and §09 note that iOS uses its own Keychain access-group store (unrelated).
 
 **Never block the launcher critical path.** Key work must not stall Start-coding perceptibly:
-- Bound the mint/read await to ~2s. If the keyring read is slow (Secret Service prompt, etc.) fall back to the file store rather than hanging.
+- Bound the mint/read await to ~2s so a slow network mint never stalls the launcher; local file reads never block.
 - Run the steer config prefetch (`steer.config`, §08) **concurrently** with the git prep of §7.1 step 3 using a `join`, so the two independent I/O chains overlap. The key read and git clone/worktree also overlap where possible; only step 4 (`.mcp.json`) actually needs the key, so the mint can race the clone.
 
 ---
@@ -2472,7 +2471,7 @@ The **preview feature is dead** (EXP-2c — "DITCH the preview feature"). Do not
 All must pass on a real machine before Phase 5 is done:
 
 1. **Full Start coding on a REAL repo:** press Start coding on an issue whose project has a linked repo → a worktree + `exp/<IDENTIFIER>` branch are created, `.mcp.json` + `PROMPT.md` are written, a `coding_sessions` row goes `running`, and `claude --dangerously-skip-permissions` spawns in a Claude tab and reads PROMPT.md; Claude commits, pushes, and **opens a PR via the `exponential_pr_open` MCP tool**.
-2. **Hidden key:** the `expu_` key **auto-mints on the first coding session** (named `Device: <hostname>`, stored in the keyring), never appears as a manual field, and **Regenerate works** (mint-new-then-revoke-old, `.mcp.json` on the next launch carries the new key).
+2. **Hidden key:** the `expu_` key **auto-mints on the first coding session** (named `Device: <hostname>`, stored in the file-based token store), never appears as a manual field, and **Regenerate works** (mint-new-then-revoke-old, `.mcp.json` on the next launch carries the new key).
 3. **Run configs:** create → list → launch a run config → a bottom terminal **tab opens, runs, and shows an exit code**; changing the config set **re-fires the Trust & Run prompt** before the next launch.
 4. **Diff:** the side-by-side, syntax-highlighted, read-only diff renders from a **real PR's** `issues.prFiles`, virtualized, row-aligned, with per-line anchors present.
 5. **Doctor:** with `claude` absent from PATH and no absolute override, the doctor **blocks Start coding** with the "claude not found" error; setting a valid path unblocks it.
@@ -3168,7 +3167,7 @@ EXP-1#13 is the single most important non-cosmetic carry-over. §05 owns it for 
 
 | Sub-item | Disposition | Where addressed |
 |---|---|---|
-| (a) The personal API key for local coding should be **hidden + auto-generated**, never entered manually | ACTIONABLE (desktop) | **§07 (DC-2)** — the `expu_` Better Auth apikey is **auto-minted on first coding session** and stored in the OS keyring (0600-file fallback); UI shows only a **Regenerate**, never a paste field |
+| (a) The personal API key for local coding should be **hidden + auto-generated**, never entered manually | ACTIONABLE (desktop) | **§07 (DC-2)** — the `expu_` Better Auth apikey is **auto-minted on first coding session** and stored in the file-based token store (0600); UI shows only a **Regenerate**, never a paste field |
 | (b) Desktop onboarding should **verify tooling is installed** (`claude` CLI binary, `git`) with auto-checks + clear errors | ACTIONABLE (desktop) | **§07 (DC-3)** — the **tooling doctor** probes `claude` and `git` on PATH, reports version/missing, and **blocks Start coding** with an actionable error when `claude` is absent |
 | (c) **DITCH** the "preview" feature | ACTIONABLE (desktop) | **§01 / §07** — preview is **deleted, not ported**. The new desktop has no preview surface at all; do not build one |
 | (d) Run configs should **not** live in the repo — store them in the **DATABASE**, essentially a terminal command to launch | ACTIONABLE (desktop + server) | **§07 (DC-4)** — new **`run_configs`** table (server-only, §02) + **`runConfigs`** tRPC router; a run config is a stored terminal command; **§02** covers the table + the generated-code/router path |
@@ -3255,13 +3254,13 @@ The trunk is strictly linear (0→1→2→3→4→5→6→8) because each phase 
 
 **Phase 1 second — because you need a window on screen and a theme applied before any screen has somewhere to live.** This is the smallest possible gpui-component app that proves the four pillars boot together: gpui pinned to gpui-component's exact rev (LD-7 — the whole workspace inherits `1d217ee39d381ac101b7cf49d3d22451ac1093fe`), `gpui_component::init`, the Exponential Dark theme built programmatically from the generated `Srgb8` tokens (forced dark, compact density, never syncing system appearance), and the `Root → Workspace → DockArea` shell with a non-collapsible `Sidebar` (EXP-1#8) plus empty center `TabPanel`s and an empty bottom terminal dock. Multi-window is wired here (two `cx.open_window` calls sharing the global `Store`) because retrofitting multi-window after state has metastasized is far more expensive than proving it empty. See §03 (architecture/shell) and §04 (theming).
 
-**Phase 2 third — because sync is the load-bearing foundation every screen reads from, so it must exist before any screen.** There is nothing to render until the 14 Electric shapes are flowing into gpui `Entity`-backed collections. This phase is deliberately UI-light: the `sync` crate (`protocol.rs`/`client.rs`/`store.rs`/`manager.rs`) is written gpui-free and fixture-tested against `packages/electric-protocol` *before* the `collections.rs` gpui glue, and the `api` crate lands auth (login, keyring token store, opener chain, the tRPC-over-HTTP client, the auto-minted `expu_` key). Every EXP-1#13 sync gotcha is baked in here at day one — the 409/must-refetch atomic re-adopt, the no-URL-cache discipline, the 401→reauth routing, the sorted-where-clause shape identity — because these are the exact bugs that made the old native apps show empty boards, and the new engine has no excuse to reintroduce them. See §05.
+**Phase 2 third — because sync is the load-bearing foundation every screen reads from, so it must exist before any screen.** There is nothing to render until the 14 Electric shapes are flowing into gpui `Entity`-backed collections. This phase is deliberately UI-light: the `sync` crate (`protocol.rs`/`client.rs`/`store.rs`/`manager.rs`) is written gpui-free and fixture-tested against `packages/electric-protocol` *before* the `collections.rs` gpui glue, and the `api` crate lands auth (login, the file-based token store, opener chain, the tRPC-over-HTTP client, the auto-minted `expu_` key). Every EXP-1#13 sync gotcha is baked in here at day one — the 409/must-refetch atomic re-adopt, the no-URL-cache discipline, the 401→reauth routing, the sorted-where-clause shape identity — because these are the exact bugs that made the old native apps show empty boards, and the new engine has no excuse to reintroduce them. See §05.
 
 **Phase 3 fourth — because now the collections exist to read and the tRPC client exists to mutate.** Every web screen gets mirrored via gpui-component (sidebar, board, detail, dialogs, inbox, my-issues, settings, account), reading the §2 collections and writing through tRPC with the `awaitTxId` gate. `filters.ts` and `domain.ts` are ported verbatim (the domain enums/icons/colors already live in `crates/domain`). The from-scratch GFM markdown editor is built here and carries its **own sub-gate** (byte-parity fixtures must round-trip before the phase can close) — it is the single highest-risk parity surface and is not allowed to be "mostly working." The @email/#IDENT caret-anchored autocomplete, issue-ref pills, and clipboard image paste (EXP-1#7) ride with it. All EXP-1 chrome fixes land here. See §04 (parity/chrome) and its markdown-editor subsection.
 
 **Phase 4 fifth — because the terminal is independent of the screens but must exist before any IDE feature can launch into it.** The terminal is reimplemented cleanly over **upstream** `alacritty_terminal 0.26` + `portable-pty 0.9` + `vte 0.15` (Apache-2.0 — *not* Zed's GPL fork; Zed's `crates/terminal` and `crates/terminal_view` are GPL-3.0-or-later and are study-only, reimplement-clean — the licensing boundary is absolute). We own the PTY master, so the single read-loop can software-tee its bytes to both the emulator and (later) the steer publisher. This phase also lands the gpui grid `Element` (layout/paint/cursor/selection/resize/SIGWINCH), the reimplemented `to_esc_str` key table, and the JetBrains-style multi-tab `TerminalManager` in the bottom dock (EXP-2e). It has no dependency on the screens — it could be built in parallel with Phase 3 in principle — but is sequenced after 3 so there is always one coherent, demoable trunk. See §06.
 
-**Phase 5 sixth — because the IDE features spawn `claude` and run-commands *into* the terminal built in Phase 4.** The `coding` crate wires the full Start-coding launcher (repo resolve → JIT GitHub-App token → worktree + `exp/<ID>` branch + token-embedded remote → `.mcp.json` + `PROMPT.md` → `codingSessions.start` → spawn `claude --dangerously-skip-permissions`). The hidden auto-minted `expu_` key (EXP-2a) lands here in the keyring. The new `run_configs` table + `runConfigs` tRPC router + Trust-and-Run gate + play/stop tabs (EXP-2d/e) land here. The side-by-side syntax-highlighted read-only PR diff and the settings + tooling-doctor onboarding (EXP-2b, EXP-4) round it out. All of this requires a working multi-tab terminal to spawn into, hence its position after Phase 4. See §07.
+**Phase 5 sixth — because the IDE features spawn `claude` and run-commands *into* the terminal built in Phase 4.** The `coding` crate wires the full Start-coding launcher (repo resolve → JIT GitHub-App token → worktree + `exp/<ID>` branch + token-embedded remote → `.mcp.json` + `PROMPT.md` → `codingSessions.start` → spawn `claude --dangerously-skip-permissions`). The hidden auto-minted `expu_` key (EXP-2a) lands here in the file-based token store. The new `run_configs` table + `runConfigs` tRPC router + Trust-and-Run gate + play/stop tabs (EXP-2d/e) land here. The side-by-side syntax-highlighted read-only PR diff and the settings + tooling-doctor onboarding (EXP-2b, EXP-4) round it out. All of this requires a working multi-tab terminal to spawn into, hence its position after Phase 4. See §07.
 
 **Phase 6 seventh — because the steer publisher tees the very terminal PTY built in Phase 4 and driven by Phase 5.** The `steer` crate becomes the relay **publisher** over the frozen wire protocol: the per-app control channel (device presence + inbound `start_session` routed into the Phase-5 launcher), and the per-session publisher that tees `0x01` output frames out, injects remote input back into the PTY, forwards resize, handles claim/kill, replays the ring buffer, and auto-reconnects. It must follow the terminal (the thing it tees) and the launcher (the thing that opens sessions to tee). The wire protocol and ticket format are **frozen** — the desktop is a new *publisher* against an unchanged `apps/steer-relay`; the desktop never signs tickets, it consumes server-minted ones. See §08.
 
@@ -3307,7 +3306,7 @@ Each gate below is the acceptance checklist for that phase. Every bullet must be
 - Rapid resize causes **no zero-size panics** (Taffy layout stays valid at 0×0).
 
 #### Phase 2 — Rust ElectricSQL sync engine (14 shapes + auth + EXP-1#13)
-**Do:** Run Spike A alongside if not already done. Implement the `sync` crate (`protocol.rs`/`client.rs`/`store.rs` on rusqlite/WAL/`manager.rs`, all gpui-free) + `collections.rs` gpui glue; implement `api`-crate auth (`login.rs`, keyring `token_store.rs` with 0600 fallback, `opener.rs` chain, the tRPC client, the auto-minted `expu_` key). One dedicated `std::thread` per shape (14 per account), each a blocking `ureq` ~90s long-poll over rustls. Bake in every EXP-1#13 gotcha: 401→reauth (never silent anon degrade), 409 must-refetch → atomic refetch from `offset=-1` re-adopting the new shape handle with **no stale body served**, no URL-cache reuse (`cache-control: private, no-store` honored), sorted id lists in the where clause so shape identity is byte-stable.
+**Do:** Run Spike A alongside if not already done. Implement the `sync` crate (`protocol.rs`/`client.rs`/`store.rs` on rusqlite/WAL/`manager.rs`, all gpui-free) + `collections.rs` gpui glue; implement `api`-crate auth (`login.rs`, the file-based `token_store.rs` (0600), `opener.rs` chain, the tRPC client, the auto-minted `expu_` key). One dedicated `std::thread` per shape (14 per account), each a blocking `ureq` ~90s long-poll over rustls. Bake in every EXP-1#13 gotcha: 401→reauth (never silent anon degrade), 409 must-refetch → atomic refetch from `offset=-1` re-adopting the new shape handle with **no stale body served**, no URL-cache reuse (`cache-control: private, no-store` honored), sorted id lists in the where clause so shape identity is byte-stable.
 
 **GREEN gate:**
 - `protocol.rs` passes **ALL** `packages/electric-protocol` fixtures.
@@ -3341,7 +3340,7 @@ Each gate below is the acceptance checklist for that phase. Every bullet must be
 - The read-loop tee simultaneously feeds the emulator **AND** a stub relay consumer (proves §08's tee point before §08 exists).
 
 #### Phase 5 — IDE features (Start-coding launcher + hidden key + run configs + diff + doctor)
-**Do:** Run Spike C first. Wire the `coding` crate: the full Start-coding sequence (repo resolve via `repositories` tRPC → JIT GitHub-App installation token → worktree + `exp/<ID>` branch + token-embedded remote **never logged** → `.mcp.json` pointing at web `/api/mcp` + seeded `PROMPT.md` → `codingSessions.start` → spawn `claude --dangerously-skip-permissions` into a Phase-4 tab). The hidden auto-minted `expu_` key in the keyring (EXP-2a — never manual). The DB `run_configs` table + `runConfigs` tRPC router (create/list/update/delete/launch) + Trust-and-Run gate + play/stop tabs (EXP-2d/e). The side-by-side syntax-highlighted read-only PR diff (gpui-component `highlighter`). The settings + tooling-doctor onboarding (EXP-2b, EXP-4 — checks the `claude` binary + `git`).
+**Do:** Run Spike C first. Wire the `coding` crate: the full Start-coding sequence (repo resolve via `repositories` tRPC → JIT GitHub-App installation token → worktree + `exp/<ID>` branch + token-embedded remote **never logged** → `.mcp.json` pointing at web `/api/mcp` + seeded `PROMPT.md` → `codingSessions.start` → spawn `claude --dangerously-skip-permissions` into a Phase-4 tab). The hidden auto-minted `expu_` key in the file-based token store (EXP-2a — never manual). The DB `run_configs` table + `runConfigs` tRPC router (create/list/update/delete/launch) + Trust-and-Run gate + play/stop tabs (EXP-2d/e). The side-by-side syntax-highlighted read-only PR diff (gpui-component `highlighter`). The settings + tooling-doctor onboarding (EXP-2b, EXP-4 — checks the `claude` binary + `git`).
 
 **GREEN gate:**
 - A **full Start coding on a REAL repo** where `claude` commits + pushes + opens a PR via the MCP `open_pr` tool.
