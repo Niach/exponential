@@ -12,6 +12,10 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 coding = { path = "../coding" }
 steer = { path = "../steer" }
+# §08 steer wiring: foreground-marshal channels between the steer tokio runtime
+# and the gpui foreground (control-channel start_session inbox + per-session
+# publisher UI events).
+flume = { workspace = true }
 gpui.workspace = true
 # §7.8 diff view: `tree-sitter-languages` bundles the Tree-sitter grammars the
 # `highlighter` resolves by name (diff + common languages). Additive — other

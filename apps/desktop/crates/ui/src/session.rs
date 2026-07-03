@@ -47,7 +47,12 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
         token: auth.auth.token_provider_fn(&account.id),
     };
     match store.connect(config, cx) {
-        Ok(_) => true,
+        Ok(_) => {
+            // §08 device presence: dial the steer control socket for this
+            // account (no-op when steer is disabled/unconfigured, EXP-4).
+            crate::steer_wiring::start_control_channel(account, cx);
+            true
+        }
         Err(err) => {
             eprintln!(
                 "[exp-desktop] session: opening sync store for {} failed: {err}",
@@ -68,6 +73,8 @@ pub fn sign_out_active(cx: &mut App) {
     let Some(account_id) = store.session(cx).account_id().map(String::from) else {
         return;
     };
+    // §08: stop this account's steer control socket before tearing sync down.
+    crate::steer_wiring::stop_control_channel(&account_id, cx);
     let auth = AuthContext::global(cx).clone();
 
     // Best-effort server-side revocation — local sign-out proceeds even when

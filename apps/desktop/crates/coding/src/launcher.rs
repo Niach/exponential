@@ -51,6 +51,27 @@ pub enum LaunchOrigin {
     Relay { device_id: String, claimant: String },
 }
 
+/// The machine's hostname — §7.1's `device_label` (also the server-side
+/// `coding_sessions.device_label`). Env vars first (cheap), then the
+/// ubiquitous `hostname` binary; never fails (falls back to a placeholder).
+pub fn default_device_label() -> String {
+    for var in ["HOSTNAME", "COMPUTERNAME", "HOST"] {
+        if let Ok(value) = std::env::var(var) {
+            let trimmed = value.trim().to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
+        }
+    }
+    if let Ok(output) = std::process::Command::new("hostname").output() {
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !name.is_empty() {
+            return name;
+        }
+    }
+    "unknown-host".to_string()
+}
+
 /// §7.1's public entry-point input.
 #[derive(Clone, Debug)]
 pub struct LaunchRequest {
@@ -354,6 +375,14 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     }))
 }
 
+/// Foreground follow-up to the child-exit edge (§7.5): the ui layer passes
+/// one of these into [`spawn_prepared_with`] to flip its play↔stop state /
+/// clear its local-session registry when the Claude child dies. Runs on the
+/// gpui foreground AFTER the idempotent `codingSessions.end` fire-and-forget
+/// thread is spawned. The `coding` crate itself never needs it —
+/// [`spawn_prepared`] passes `None`.
+pub type ExitNotify = Box<dyn FnOnce(&mut App) + 'static>;
+
 /// Steps 7–8 of §7.1 (foreground; needs `&mut App`):
 ///
 /// 7. open a Claude tab keyed by the `coding_sessions` id via the §06
@@ -369,11 +398,24 @@ pub fn spawn_prepared(
     cx: &mut App,
     trpc: Arc<TrpcClient>,
 ) -> Result<LaunchOutcome, CodingError> {
+    spawn_prepared_with(prepared, manager, cx, trpc, None)
+}
+
+/// [`spawn_prepared`] with the optional foreground [`ExitNotify`] — the seam
+/// the §7.5 play/stop UI consumes (the hook itself stays owned here so both
+/// entry points share ONE exit path).
+pub fn spawn_prepared_with(
+    prepared: PreparedLaunch,
+    manager: &gpui::Entity<TerminalManager>,
+    cx: &mut App,
+    trpc: Arc<TrpcClient>,
+    exit_notify: Option<ExitNotify>,
+) -> Result<LaunchOutcome, CodingError> {
     let PreparedLaunch { session_id, worktree, branch, spawn, tab_title, .. } = prepared;
 
     let end_session_id = session_id.clone();
     let exit_trpc = Arc::clone(&trpc);
-    let on_exit: terminal::ExitHook = Box::new(move |_tab, _exit, _cx| {
+    let on_exit: terminal::ExitHook = Box::new(move |_tab, _exit, cx| {
         // Blocking HTTP off the foreground; best-effort — the server also
         // reconciles (idempotent end), and a dead network here must never
         // take the exit-strip rendering down with it.
@@ -382,6 +424,9 @@ pub fn spawn_prepared(
         std::thread::spawn(move || {
             let _ = coding_sessions::end(&trpc, &end_session_id);
         });
+        if let Some(notify) = exit_notify {
+            notify(cx);
+        }
     });
 
     let tab_id = manager
@@ -741,6 +786,115 @@ mod tests {
         assert!(prompt.contains("**EXP-42: Fix login flicker**"));
         assert!(prompt.contains("Steps in the issue."));
         assert!(prompt.contains("`exponential_pr_open`"));
+    }
+
+    // ---- EXP-2a: the hidden key auto-mints on the FIRST coding session ----
+
+    const MINT_OK: &str = r#"{"result":{"data":{"key":"expu_minted_runtime","id":"key-9","name":"Device: box","start":"expu_mi","prefix":"expu_","createdAt":"2026-07-03T10:00:00.000Z"}}}"#;
+
+    /// §7.2 runtime path: an EMPTY token store at launch time silently mints
+    /// via `users.mintPersonalApiKey` (request 3 — the key race lands between
+    /// `installationToken` and `codingSessions.start`), stores the raw key +
+    /// row id, and `.mcp.json` carries the fresh key. No manual key UI exists
+    /// anywhere; this is the only way the key ever comes to be.
+    #[test]
+    fn first_session_auto_mints_the_hidden_personal_key() {
+        let dir = temp_dir("auto-mint");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, MINT_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = deps(&base, &dir.0, worktrees);
+        // The launcher finds NO stored key — the runtime auto-mint must fire.
+        deps.token_store.delete("acct", SecretKind::PersonalApiKey);
+        assert_eq!(deps.token_store.get("acct", SecretKind::PersonalApiKey), None);
+
+        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+            Prepared::Ready(prepared) => assert_eq!(prepared.session_id, "sess-1"),
+            other => panic!("expected Ready, got {other:?}"),
+        }
+
+        // Minted key + row id stashed for later sessions / Regenerate (§7.2).
+        assert_eq!(
+            deps.token_store
+                .get("acct", SecretKind::PersonalApiKey)
+                .as_deref(),
+            Some("expu_minted_runtime")
+        );
+        assert_eq!(
+            deps.token_store
+                .get("acct", SecretKind::PersonalApiKeyId)
+                .as_deref(),
+            Some("key-9")
+        );
+        // .mcp.json is the ONLY on-disk consumer of the raw key (§7.1 step 4).
+        let mcp = fs::read_to_string(worktree.join(".mcp.json")).unwrap();
+        assert!(mcp.contains("Bearer expu_minted_runtime"), "mcp: {mcp}");
+    }
+
+    // ---- §7.6: N issues = N worktrees/branches/sessions (client never
+    //      self-throttles; per-launch state never bleeds across issues) ----
+
+    #[test]
+    fn two_issues_prepare_into_isolated_worktrees_and_sessions() {
+        let dir = temp_dir("concurrent-prep");
+        let wt_a = dir.0.join("wt-a");
+        let wt_b = dir.0.join("wt-b");
+        fs::create_dir_all(&wt_a).unwrap();
+        fs::create_dir_all(&wt_b).unwrap();
+
+        let launch = |identifier: &str, issue_id: &str, session: &str, worktree: &PathBuf| {
+            let base = canned_server(vec![
+                (200, FOR_ISSUE_OK.to_string()),
+                (200, TOKEN_OK.to_string()),
+                (
+                    200,
+                    format!(
+                        r#"{{"result":{{"data":{{"session":{{"id":"{session}","issueId":"{issue_id}","status":"running"}}}}}}}}"#
+                    ),
+                ),
+            ]);
+            let worktrees = Arc::new(FakeWorktrees {
+                worktree: worktree.clone(),
+                seen: Default::default(),
+            });
+            let deps = deps(&base, &dir.0, worktrees);
+            let mut req = request(identifier);
+            req.issue_id = issue_id.to_string();
+            match prepare_launch(&req, &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            }
+        };
+
+        let a = launch("EXP-1", "issue-a", "sess-a", &wt_a);
+        let b = launch("EXP-2", "issue-b", "sess-b", &wt_b);
+
+        // Distinct branches, worktrees, session ids, tab titles — the §7.6
+        // "no collision" invariant at the prepare layer (the manager-side
+        // PTY/tab isolation is tests/concurrent.rs).
+        assert_eq!(a.branch, "exp/EXP-1");
+        assert_eq!(b.branch, "exp/EXP-2");
+        assert_ne!(a.worktree, b.worktree);
+        assert_ne!(a.session_id, b.session_id);
+        assert_eq!(a.tab_title, "claude · EXP-1");
+        assert_eq!(b.tab_title, "claude · EXP-2");
+        // Both spawn specs are cwd-bound to their OWN worktree.
+        assert_eq!(a.spawn.cwd.as_deref(), Some(wt_a.as_path()));
+        assert_eq!(b.spawn.cwd.as_deref(), Some(wt_b.as_path()));
+    }
+
+    #[test]
+    fn default_device_label_is_never_empty() {
+        assert!(!default_device_label().trim().is_empty());
     }
 
     #[test]

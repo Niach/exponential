@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::error::ApiError;
+use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
 /// One `run_configs` row as the wire carries it. `env` is a `BTreeMap` so
@@ -66,6 +67,102 @@ pub fn list(trpc: &TrpcClient, project_id: &str) -> Result<Vec<RunConfig>, ApiEr
     let response: ListResponse =
         trpc.query_with_input("runConfigs.list", &ListInput { project_id })?;
     Ok(response.configs)
+}
+
+// ---------------------------------------------------------------------------
+// §7.3.2 owner-only CRUD (the desktop "Edit configurations…" dialog + web
+// editor share the same router; the server re-validates everything — argv
+// caps, cwd relativity, env sanitization — and owns the (projectId, name)
+// CONFLICT)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateInput<'a> {
+    project_id: &'a str,
+    name: &'a str,
+    argv: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env: Option<&'a BTreeMap<String, String>>,
+}
+
+#[derive(Deserialize)]
+struct ConfigResponse {
+    config: RunConfig,
+}
+
+/// `runConfigs.create` — mutation, owner-only. `cwd: None` = repo root; the
+/// server appends to the end of the sort order.
+pub fn create(
+    trpc: &TrpcClient,
+    project_id: &str,
+    name: &str,
+    argv: &[String],
+    cwd: Option<&str>,
+    env: Option<&BTreeMap<String, String>>,
+) -> Result<RunConfig, ApiError> {
+    let response: ConfigResponse = trpc.mutation(
+        "runConfigs.create",
+        &CreateInput {
+            project_id,
+            name,
+            argv,
+            cwd,
+            env,
+        },
+    )?;
+    Ok(response.config)
+}
+
+/// `runConfigs.update` input. Omitted fields stay unchanged; `cwd` is the
+/// server's `.nullable().optional()` tri-state ([`Patch`]): `Null` clears to
+/// repo root. `sort_order` is how reorder is done (§7.3.2).
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunConfigUpdate {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argv: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub cwd: Patch<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<f64>,
+}
+
+impl RunConfigUpdate {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            ..Self::default()
+        }
+    }
+}
+
+/// `runConfigs.update` — mutation, owner-only.
+pub fn update(trpc: &TrpcClient, input: &RunConfigUpdate) -> Result<RunConfig, ApiError> {
+    let response: ConfigResponse = trpc.mutation("runConfigs.update", input)?;
+    Ok(response.config)
+}
+
+/// `runConfigs.delete` — mutation, owner-only.
+pub fn delete(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Ok_ {
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok_ = trpc.mutation("runConfigs.delete", &Input { id })?;
+    Ok(())
 }
 
 /// §7.3.5 `commandSetHash`: a stable hash over the *full fetched set* —
@@ -294,6 +391,70 @@ mod tests {
         a.sort_order = 42.0;
         a.updated_at = Some("2026-07-04T00:00:00.000Z".to_string());
         assert_eq!(command_set_hash(&[a]), baseline);
+    }
+
+    #[test]
+    fn create_posts_and_decodes_the_config() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"config":{"id":"rc-1","projectId":"proj-1","name":"dev",
+                "argv":["bun","dev"],"cwd":null,"env":{},"sortOrder":1}}}}"#,
+        );
+        let argv = vec!["bun".to_string(), "dev".to_string()];
+        let config = create(&client(&base), "proj-1", "dev", &argv, None, None).unwrap();
+        assert_eq!(config.id, "rc-1");
+        assert_eq!(config.argv, vec!["bun", "dev"]);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/runConfigs.create HTTP/1.1"));
+        // Omitted optionals stay off the wire (zod .optional()).
+        assert!(request.contains(r#""projectId":"proj-1""#));
+        assert!(!request.contains(r#""cwd""#));
+        assert!(!request.contains(r#""env""#));
+    }
+
+    #[test]
+    fn update_serializes_the_cwd_tristate() {
+        // Omit = unchanged, Null = clear to repo root (§7.3.2's
+        // .nullable().optional() cwd).
+        let mut input = RunConfigUpdate::new("rc-1");
+        input.name = Some("renamed".to_string());
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(!json.contains("cwd"), "Omit must stay off the wire: {json}");
+        assert!(!json.contains("argv"));
+
+        input.cwd = Patch::Null;
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(json.contains(r#""cwd":null"#), "{json}");
+
+        input.cwd = Patch::Set("apps/web".to_string());
+        input.sort_order = Some(2.5);
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(json.contains(r#""cwd":"apps/web""#), "{json}");
+        assert!(json.contains(r#""sortOrder":2.5"#), "{json}");
+    }
+
+    #[test]
+    fn update_posts_and_decodes() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"config":{"id":"rc-1","projectId":"proj-1","name":"renamed",
+                "argv":["cargo","test"],"cwd":null,"env":{},"sortOrder":1}}}}"#,
+        );
+        let mut input = RunConfigUpdate::new("rc-1");
+        input.name = Some("renamed".to_string());
+        let config = update(&client(&base), &input).unwrap();
+        assert_eq!(config.name, "renamed");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/runConfigs.update HTTP/1.1"));
+    }
+
+    #[test]
+    fn delete_posts_the_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        delete(&client(&base), "rc-1").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/runConfigs.delete HTTP/1.1"));
+        assert!(request.contains(r#"{"id":"rc-1"}"#));
     }
 
     #[test]

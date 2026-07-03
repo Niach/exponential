@@ -7,3 +7,17 @@ license.workspace = true
 [dependencies]
 terminal = { path = "../terminal" }
 api = { path = "../api" }
+# The ONLY tokio in the desktop workspace (§3.5/§8): tokio-tungstenite needs a
+# reactor, and it runs on its own runtime, isolated from gpui's executors and
+# from the blocking ureq sync/tRPC stack.
+tokio = { workspace = true }
+# rustls-tls-native-roots: `connect_async` handles BOTH `ws://` (LAN
+# self-host, plain TCP) and `wss://` (cloud TLS) by URL scheme — never force
+# TLS (§8.7).
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+flume = { workspace = true }
+uuid = { workspace = true }
+log = "0.4"

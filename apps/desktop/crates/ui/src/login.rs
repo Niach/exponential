@@ -5,6 +5,8 @@
 //! Layout, top to bottom, mirroring the web card with the native
 //! instance-picker addition (§4.2):
 //!
+//! - the **logo + "Exponential" wordmark** centered above the card
+//!   (web `AuthFormShell`: `ExponentialLogo size=32` + text-xl semibold),
 //! - a centered `Card`: title "Sign in" + description,
 //! - the **native instance picker the web does not need** — the
 //!   **Exponential Cloud choice comes FIRST** (EXP-5: the Linux login was
@@ -13,8 +15,11 @@
 //! - `OAuthProviderButtons`: the configured OIDC providers then Google
 //!   (web order), each `outline` full-width, gated on `GET /api/auth-config`
 //!   of the chosen instance; an "or" divider when a password form follows,
-//! - the email/password form (labels + inputs + full-width submit),
-//!   shown only when the instance has password auth enabled.
+//! - the email/password form (labels + inputs — the password `Input` carries
+//!   the web `PasswordInput` show/hide **eye toggle** — + full-width submit)
+//!   and the web footer **"Don't have an account? Register"** link (opens
+//!   the instance's `/auth/register` in the browser), both shown only when
+//!   the instance has password auth enabled.
 //!
 //! OAuth opens the system browser through the `api::opener` chain (§5.7 —
 //! never a raw `xdg-open`); when the ENTIRE chain fails the URL surfaces in
@@ -26,17 +31,19 @@
 //! (never an empty board).
 
 use gpui::{
-    div, App, AppContext as _, ClipboardItem, Entity, FontWeight, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window,
+    div, App, AppContext as _, ClipboardItem, Entity, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
+use crate::icons::ExpIcon;
 use crate::session::{connect_account, AuthContext};
 
 /// The cloud instance (§4.2: "Exponential Cloud (`app.exponential.at`)").
@@ -252,6 +259,24 @@ impl LoginView {
             }
         }
         cx.notify();
+    }
+
+    /// Web footer "Register" link — the desktop opens the instance's
+    /// `/auth/register` in the system browser (registration is a web flow).
+    fn open_register(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(instance) = self.effective_instance(cx) else {
+            self.error = Some("Enter your server URL first.".into());
+            cx.notify();
+            return;
+        };
+        let url = format!("{}/auth/register", instance.trim_end_matches('/'));
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(err) = api::opener::open_in_browser(&url) {
+                    log::warn!("[ui] register: browser open failed: {err}");
+                }
+            })
+            .detach();
     }
 
     // -- Password (§5.7 step 3) -------------------------------------------------
@@ -561,7 +586,12 @@ impl Render for LoginView {
         if password_enabled {
             form = form
                 .child(labeled(cx, "Email", Input::new(&self.email).small()))
-                .child(labeled(cx, "Password", Input::new(&self.password).small()))
+                .child(labeled(
+                    cx,
+                    "Password",
+                    // Web `PasswordInput`: show/hide eye toggle.
+                    Input::new(&self.password).small().mask_toggle(),
+                ))
                 .child(
                     Button::new("login-submit")
                         .primary()
@@ -570,8 +600,45 @@ impl Render for LoginView {
                         .disabled(signing_in)
                         .w_full()
                         .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                )
+                .child(
+                    // Web login footer: "Don't have an account? Register".
+                    h_flex()
+                        .gap_1()
+                        .justify_center()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Don't have an account?")
+                        .child(
+                            div()
+                                .id("login-register")
+                                .text_color(cx.theme().primary)
+                                .cursor_pointer()
+                                .hover(|style| style.text_decoration_1())
+                                .child("Register")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_register(cx);
+                                })),
+                        ),
                 );
         }
+
+        // Web `AuthFormShell`: logo + wordmark centered above the card.
+        let brand = h_flex()
+            .gap_2()
+            .items_center()
+            .justify_center()
+            .child(
+                Icon::from(ExpIcon::Logo)
+                    .with_size(gpui::px(32.))
+                    .text_color(cx.theme().foreground),
+            )
+            .child(
+                div()
+                    .text_xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Exponential"),
+            );
 
         div()
             .size_full()
@@ -581,11 +648,17 @@ impl Render for LoginView {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(
-                form.p_6()
-                    .rounded(cx.theme().radius_lg)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().popover),
+                v_flex()
+                    .gap_6()
+                    .items_center()
+                    .child(brand)
+                    .child(
+                        form.p_6()
+                            .rounded(cx.theme().radius_lg)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .bg(cx.theme().popover),
+                    ),
             )
     }
 }

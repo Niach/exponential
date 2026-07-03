@@ -48,6 +48,7 @@ use sync::Store;
 
 use domain::rows::{Issue, Project};
 
+use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
 use crate::navigation::{navigate, Screen};
 use crate::pr_section::PrSection;
@@ -72,6 +73,9 @@ pub trait DescriptionEditor {
     fn element(&self, window: &mut Window, cx: &mut App) -> gpui::AnyElement;
 }
 
+/// Save hook of one description editor (markdown source at save time).
+pub type OnSaveDescription = Rc<dyn Fn(String, &mut Window, &mut App)>;
+
 /// Everything the factory gets to build one editor instance.
 pub struct DescriptionEditorParams {
     /// Image uploads target this issue (`/api/issues/{id}/images`).
@@ -80,7 +84,7 @@ pub struct DescriptionEditorParams {
     pub placeholder: SharedString,
     /// Save hook — called by the editor on blur / explicit save with the
     /// current source. The detail view wires this to `issues.update`.
-    pub on_save: Rc<dyn Fn(String, &mut Window, &mut App)>,
+    pub on_save: OnSaveDescription,
 }
 
 /// Builds a [`DescriptionEditor`] for one issue.
@@ -119,6 +123,9 @@ pub struct IssueDetailView {
     last_saved_description: Rc<RefCell<String>>,
     /// Subscribe-toggle in-flight flag (web `busy`).
     subscribe_busy: bool,
+    /// §7.1/§4.2 header affordance: the Start-coding button (play↔stop),
+    /// driven by live `repositories.forIssue` + doctor state (EXP-4).
+    start_coding: Entity<StartCodingControl>,
     properties: Entity<PropertiesPanel>,
     timeline: Entity<IssueTimeline>,
     pr_section: Entity<PrSection>,
@@ -129,6 +136,7 @@ impl IssueDetailView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let title_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Issue title"));
+        let start_coding = cx.new(StartCodingControl::new);
         let properties = cx.new(|cx| PropertiesPanel::new(window, cx));
         let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
         let pr_section = cx.new(|cx| PrSection::new(window, cx));
@@ -170,6 +178,7 @@ impl IssueDetailView {
             editor_issue: None,
             last_saved_description: Rc::new(RefCell::new(String::new())),
             subscribe_busy: false,
+            start_coding,
             properties,
             timeline,
             pr_section,
@@ -196,6 +205,9 @@ impl IssueDetailView {
         *self.last_saved_description.borrow_mut() = String::new();
         self.subscribe_busy = false;
 
+        self.start_coding.update(cx, |control, cx| {
+            control.set_issue(Some(issue_id.clone()), cx)
+        });
         self.properties.update(cx, |panel, cx| {
             panel.set_issue(Some(issue_id.clone()), window, cx)
         });
@@ -442,9 +454,20 @@ impl IssueDetailView {
                     .child(SharedString::from(title)),
             );
 
-        // Right cluster: coding-now pill, subscribe toggle, actions menu.
-        if let Some(pill) = coding_now_pill(&issue.id, cx) {
-            row = row.child(pill);
+        // Right cluster: Start-coding affordance (§7.1 — play, or
+        // "Coding…"+stop while OUR session runs), coding-now pill, subscribe
+        // toggle, actions menu. The pill is skipped while a LOCAL session
+        // runs — the control already shows the live indicator, and the synced
+        // pill would double it as soon as the Electric echo lands.
+        row = row.child(self.start_coding.clone());
+        let local_running = LocalSessions::global(cx)
+            .read(cx)
+            .get(&issue.id)
+            .is_some();
+        if !local_running {
+            if let Some(pill) = coding_now_pill(&issue.id, cx) {
+                row = row.child(pill);
+            }
         }
         row = row.child(self.render_subscribe_toggle(issue, cx));
         row = row.child(self.render_actions_menu(issue, cx));

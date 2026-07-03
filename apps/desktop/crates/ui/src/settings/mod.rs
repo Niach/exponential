@@ -4,9 +4,10 @@
 //! Web parity targets: `routes/w/$workspaceSlug/settings/index.tsx` and its
 //! `components/workspace/*-section.tsx` cards, plus
 //! `routes/_authenticated/account/{integrations,notifications}.tsx`. The
-//! desktop shell is a compact left section-nav + one scrollable pane (§4.2:
-//! "a settings shell with a left nav and section panes"); each pane mirrors
-//! its web card field-for-field.
+//! workspace-settings screen mirrors the web route's structure: **one
+//! scrolling column of stacked section cards** (`mx-auto max-w-2xl space-y-6
+//! p-6` — no master-detail nav), in the web's card order with the web's
+//! `isOwner &&` gating; each pane mirrors its web card field-for-field.
 //!
 //! Navigation INTO these screens is EXP-1 #11: the sidebar footer account
 //! dropdown dispatches `OpenSettings` / `OpenAccount` (see `sidebar.rs` +
@@ -19,6 +20,7 @@
 //! (§7.9); Google Calendar does not exist anywhere (EXP-1 #9).
 
 mod account;
+mod coding;
 mod labels;
 mod members;
 mod notifications_prefs;
@@ -43,57 +45,26 @@ use labels::LabelsPane;
 use members::MembersPane;
 use projects::ProjectsPane;
 use repositories::RepositoriesPane;
+use self::coding::CodingPane;
 use workspace_general::GeneralPane;
 
 // ---------------------------------------------------------------------------
 // Workspace settings shell
 // ---------------------------------------------------------------------------
 
-/// Section order mirrors the web settings page card order (billing/widget
-/// skipped — web-only, §4.9). Owner-gated sections are hidden for plain
-/// members exactly like the web's `isOwner &&` guards.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Section {
-    General,
-    Projects,
-    Repositories,
-    Members,
-    Labels,
-}
-
-impl Section {
-    fn label(self) -> &'static str {
-        match self {
-            Self::General => "General",
-            Self::Projects => "Projects",
-            Self::Repositories => "Repositories",
-            Self::Members => "Members",
-            Self::Labels => "Labels",
-        }
-    }
-
-    fn owner_only(self) -> bool {
-        matches!(self, Self::General | Self::Projects | Self::Repositories)
-    }
-
-    const ALL: [Section; 5] = [
-        Section::General,
-        Section::Projects,
-        Section::Repositories,
-        Section::Members,
-        Section::Labels,
-    ];
-}
-
-/// The workspace-settings screen (`Screen::Settings`).
+/// The workspace-settings screen (`Screen::Settings`) — the web route's
+/// single-scroll stacked-cards page (billing/widget/danger-zone cards
+/// skipped: web-only, §4.9).
 pub struct SettingsView {
     nav: Entity<Navigation>,
-    section: Section,
     general: Entity<GeneralPane>,
     members: Entity<MembersPane>,
     labels: Entity<LabelsPane>,
     projects: Entity<ProjectsPane>,
     repositories: Entity<RepositoriesPane>,
+    /// §7.7 desktop-only card block (launcher settings + doctor + key status)
+    /// — local per-install state, so NOT owner-gated and last in the column.
+    coding: Entity<CodingPane>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -105,6 +76,7 @@ impl SettingsView {
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let projects = cx.new(|cx| ProjectsPane::new(nav.clone(), cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));
+        let coding = cx.new(|cx| CodingPane::new(window, cx));
 
         // The section nav + header depend on role (owner gating) and the
         // solo heuristic — re-render when membership/workspace data moves.
@@ -118,38 +90,22 @@ impl SettingsView {
 
         Self {
             nav,
-            section: Section::General,
             general,
             members,
             labels,
             projects,
             repositories,
+            coding,
             _subscriptions: subscriptions,
         }
-    }
-
-    fn visible_sections(&self, cx: &App) -> Vec<Section> {
-        let owner = active_workspace_id(&self.nav, cx)
-            .map(|ws| is_owner(cx, &ws))
-            .unwrap_or(false);
-        Section::ALL
-            .into_iter()
-            .filter(|section| owner || !section.owner_only())
-            .collect()
     }
 }
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let sections = self.visible_sections(cx);
-        // Role changes can hide the active section — fall back (web simply
-        // doesn't render owner cards; the shell needs a concrete pane).
-        let active = if sections.contains(&self.section) {
-            self.section
-        } else {
-            *sections.first().unwrap_or(&Section::Members)
-        };
-
+        let owner = active_workspace_id(&self.nav, cx)
+            .map(|ws| is_owner(cx, &ws))
+            .unwrap_or(false);
         let solo = {
             let workspace_id = active_workspace_id(&self.nav, cx);
             workspace_id
@@ -172,85 +128,60 @@ impl Render for SettingsView {
             )
         };
 
-        let pane: gpui::AnyElement = match active {
-            Section::General => self.general.clone().into_any_element(),
-            Section::Members => self.members.clone().into_any_element(),
-            Section::Labels => self.labels.clone().into_any_element(),
-            Section::Projects => self.projects.clone().into_any_element(),
-            Section::Repositories => self.repositories.clone().into_any_element(),
-        };
-
-        let mut nav_column = v_flex().w(px(160.)).flex_shrink_0().p_2().gap_0p5();
-        for section in sections {
-            let selected = section == active;
-            nav_column = nav_column.child(
+        // Web `routes/w/$workspaceSlug/settings/index.tsx`: ONE scrolling
+        // centered column (`mx-auto max-w-2xl space-y-6 p-6`) of stacked
+        // section cards — subtitle, Separator, then the cards in web order
+        // with the web's `isOwner &&` gating: General · Projects ·
+        // Repositories (owner-only) · Members (always), Separator, Labels
+        // (always). Billing/widget/danger-zone are web-only (§4.9).
+        let mut sections = v_flex()
+            .w_full()
+            .max_w(px(672.))
+            .p_4()
+            .gap_4()
+            .child(
                 div()
-                    .id(SharedString::from(format!(
-                        "settings-nav-{}",
-                        section.label()
-                    )))
-                    .px_2()
-                    .py_1()
-                    .rounded(cx.theme().radius)
-                    .text_sm()
-                    .cursor_pointer()
-                    .when(selected, |item| {
-                        item.bg(cx.theme().colors.list_active)
-                            .font_weight(FontWeight::MEDIUM)
-                    })
-                    .when(!selected, |item| {
-                        item.text_color(cx.theme().muted_foreground)
-                            .hover(|style| style.bg(cx.theme().colors.list_hover))
-                    })
-                    .child(section.label())
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.section = section;
-                        cx.notify();
-                    })),
-            );
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(subtitle),
+            )
+            .child(separator(cx));
+        if owner {
+            sections = sections
+                .child(self.general.clone())
+                .child(self.projects.clone())
+                .child(self.repositories.clone());
         }
+        sections = sections
+            .child(self.members.clone())
+            .child(separator(cx))
+            .child(self.labels.clone())
+            // Desktop-only §7.7 block: launcher settings + tooling doctor +
+            // the §7.2 personal-key status row. Local per-install state — no
+            // owner gate, no web-parity counterpart.
+            .child(separator(cx))
+            .child(self.coding.clone());
 
         v_flex()
             .size_full()
             .child(screen_header(title, cx))
             .child(
-                h_flex()
+                div()
+                    .id("settings-scroll")
                     .flex_1()
+                    .w_full()
                     .min_h_0()
-                    .items_start()
-                    .child(
-                        nav_column
-                            .h_full()
-                            .border_r_1()
-                            .border_color(cx.theme().border),
-                    )
-                    .child(
-                        div()
-                            .id("settings-scroll")
-                            .flex_1()
-                            .h_full()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .child(
-                                v_flex()
-                                    .p_4()
-                                    .gap_2()
-                                    .max_w(px(672.))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(subtitle),
-                                    )
-                                    .child(pane),
-                            ),
-                    ),
+                    .overflow_y_scroll()
+                    .child(h_flex().w_full().justify_center().child(sections)),
             )
     }
 }
 
-// Fluent `when` (gpui FluentBuilder).
-use gpui::prelude::FluentBuilder as _;
+/// Web `Separator`: a 1px full-width border line.
+fn separator(cx: &App) -> gpui::Div {
+    div().h_px().w_full().flex_shrink_0().bg(cx.theme().border)
+}
+
 
 // ---------------------------------------------------------------------------
 // Shared query helpers (settings-scoped; the general chrome helper moves to

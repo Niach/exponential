@@ -25,13 +25,13 @@ use gpui::{
 };
 use gpui_component::{
     dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
-    ActiveTheme as _, Root,
+    v_flex, ActiveTheme as _, Root,
 };
 use sync::{SessionPhase, Store};
 
 use crate::{
-    debug_board::DebugBoardPanel, login::LoginView, navigation, screens::ScreensPanel,
-    sidebar::SidebarPanel, terminal_dock::TerminalDockPanel,
+    debug_board::DebugBoardPanel, login::LoginView, navigation, run_bar::RunBar,
+    screens::ScreensPanel, sidebar::SidebarPanel, terminal_dock::TerminalDockPanel,
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -56,6 +56,12 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub struct Workspace {
     dock_area: Entity<DockArea>,
+    /// The JetBrains-style top-right run bar (§7.5, EXP-2d/e): a strip above
+    /// the dock carrying the active project's run-config dropdown + play/stop.
+    /// It follows this window's navigation and self-hides (renders nothing)
+    /// off a project scope; it resolves this window's bottom terminal dock
+    /// through `dock_area` for the play→`TabKind::Run` launch (§7.4).
+    run_bar: Entity<RunBar>,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
@@ -68,6 +74,12 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// The window's `DockArea` — the §7 coding flow resolves this window's
+    /// bottom terminal dock through it (`coding_flow::window_terminal_manager`).
+    pub(crate) fn dock_area(&self) -> &Entity<DockArea> {
+        &self.dock_area
+    }
+
     pub fn new(ordinal: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let dock_area =
             cx.new(|cx| DockArea::new(DOCK_AREA_ID, Some(LAYOUT_VERSION), window, cx));
@@ -137,8 +149,15 @@ impl Workspace {
         })
         .detach();
 
+        // The §7.5 run bar owns a weak handle to this window's dock so its
+        // play button can resolve the bottom terminal dock and launch a
+        // `TabKind::Run` tab; built after the fixed chrome so the terminal
+        // dock already exists.
+        let run_bar = cx.new(|cx| RunBar::new(dock_area.downgrade(), window, cx));
+
         Self {
             dock_area,
+            run_bar,
             login,
             ordinal,
             last_saved: None,
@@ -285,7 +304,14 @@ impl Render for Workspace {
         // routing (login screen, never an empty board).
         let session = Store::global(cx).session(cx);
         let content: gpui::AnyElement = match session {
-            SessionPhase::Synced { .. } => self.dock_area.clone().into_any_element(),
+            // §7.5: the run bar rides a compact top strip above the dock (it
+            // renders nothing off a project scope, so non-project screens keep
+            // the full height); the dock fills the rest.
+            SessionPhase::Synced { .. } => v_flex()
+                .size_full()
+                .child(self.run_bar.clone())
+                .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
+                .into_any_element(),
             _ => self.login.clone().into_any_element(),
         };
 

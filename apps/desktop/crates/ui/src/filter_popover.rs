@@ -52,6 +52,10 @@ pub enum FilterView {
 pub type OnFiltersChange = Rc<dyn Fn(IssueFilters, &mut Window, &mut App)>;
 /// Drill-down navigation (web `setView`).
 pub type OnViewChange = Rc<dyn Fn(FilterView, &mut Window, &mut App)>;
+/// Toggle one option value in/out of the active filter set.
+type OnToggleValue<V> = Rc<dyn Fn(V, &mut Window, &mut App)>;
+/// Toggle a fixed row (label rows capture their own id).
+type OnToggleRow = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// Web `bg-indigo-500/20` — the count-badge pill background (a literal
 /// Tailwind color on web too, not a theme token).
@@ -289,7 +293,7 @@ fn option_filter_view<V: Copy + PartialEq + 'static>(
     title: &'static str,
     options: &'static [IssueOption<V>],
     selected: Vec<V>,
-    on_toggle: Rc<dyn Fn(V, &mut Window, &mut App)>,
+    on_toggle: OnToggleValue<V>,
     on_view_change: OnViewChange,
     cx: &App,
 ) -> impl IntoElement {
@@ -382,7 +386,7 @@ fn labels_view(
             .and_then(parse_hex_color)
             .unwrap_or(cx.theme().muted_foreground);
         let row_id = SharedString::from(format!("filter-label-{}", label.id));
-        let on_toggle: Rc<dyn Fn(&mut Window, &mut App)> = Rc::new({
+        let on_toggle: OnToggleRow = Rc::new({
             let filters = filters.clone();
             let on_change = on_filters_change.clone();
             let label_id = label.id.clone();

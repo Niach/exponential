@@ -22,10 +22,7 @@ use gpui::{
     RenderOnce, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonCustomVariant, ButtonVariants as _},
-    h_flex,
-    input::InputState,
-    v_flex, ActiveTheme as _, IconName, Sizable as _,
+    h_flex, input::InputState, v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 
 use domain::rows::Label;
@@ -35,6 +32,7 @@ use domain::{
 
 use crate::actions::NewIssue;
 use crate::active_filter_pills::ActiveFilterPills;
+use crate::create_issue_dialog::indigo_button;
 use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnViewChange};
 
 /// Compact tab height (web `h-7` = 28px, EXP-2f density).
@@ -46,29 +44,6 @@ const TABS: [(TabPreset, &str); 3] = [
     (TabPreset::Active, "Active"),
     (TabPreset::Backlog, "Backlog"),
 ];
-
-/// Web `bg-indigo-600` (the New Issue button — a literal Tailwind color on
-/// web, not a theme token).
-fn indigo_600() -> gpui::Hsla {
-    gpui::Rgba {
-        r: 79. / 255.,
-        g: 70. / 255.,
-        b: 229. / 255.,
-        a: 1.,
-    }
-    .into()
-}
-
-/// Web `hover:bg-indigo-700`.
-fn indigo_700() -> gpui::Hsla {
-    gpui::Rgba {
-        r: 67. / 255.,
-        g: 56. / 255.,
-        b: 202. / 255.,
-        a: 1.,
-    }
-    .into()
-}
 
 #[derive(IntoElement)]
 pub struct IssueFilterBar {
@@ -182,21 +157,16 @@ impl RenderOnce for IssueFilterBar {
                     .when(self.can_create, |row| {
                         row.child(
                             // Web: xs bg-indigo-600 hover:bg-indigo-700
-                            // text-white ml-1, Plus + "New Issue". Dispatches
-                            // the typed action (§3.6) — the create-issue
-                            // dialog's handler picks it up.
-                            Button::new("filter-bar-new-issue")
-                                .custom(
-                                    ButtonCustomVariant::new(cx)
-                                        .color(indigo_600())
-                                        .hover(indigo_700())
-                                        .active(indigo_700())
-                                        .foreground(gpui::white()),
-                                )
-                                .xsmall()
+                            // text-white ml-1, Plus + "New Issue" — SOLID
+                            // indigo (the shared hand-rolled button; the
+                            // pinned ButtonCustomVariant cannot render a
+                            // solid fill). Dispatches the typed action
+                            // (§3.6) — the create-issue dialog's handler
+                            // picks it up.
+                            indigo_button("filter-bar-new-issue", false, cx)
                                 .ml_1()
-                                .icon(IconName::Plus)
-                                .label("New Issue")
+                                .child(Icon::new(IconName::Plus).xsmall())
+                                .child("New Issue")
                                 .on_click(|_, window, cx| {
                                     window.dispatch_action(Box::new(NewIssue), cx)
                                 }),

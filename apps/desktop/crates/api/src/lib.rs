@@ -43,6 +43,11 @@
 //! tri-state omit/null/set field for zod `.nullable().optional()` updates.
 //! Mutation outputs decode the server `txId` for the §4.1 `awaitTxId` gate.
 //!
+//! Phase-6 surface (§8): [`steer`] — the ticket-CONSUMER mirrors
+//! (`steer.config`, `steer.mintTicket` control/publisher/viewer,
+//! `steer.myDevices`). The desktop never signs tickets and dials the
+//! server-returned `url` as-is.
+//!
 //! **Two distinct credentials — never confuse them (§5.7):** the Better Auth
 //! *session token* is the `Authorization: Bearer` on every shape + tRPC
 //! request; the `expu_` *personal API key* exists only for the coding
@@ -62,8 +67,10 @@ pub mod patch;
 pub mod projects;
 pub mod repositories;
 pub mod run_configs;
+pub mod steer;
 pub mod token_store;
 pub mod trpc;
+pub mod trust_store;
 pub mod users;
 pub mod workspaces;
 
@@ -75,6 +82,7 @@ pub use login::{AuthClient, AuthConfig, AuthUser, OidcProvider, SignInSuccess};
 pub use patch::Patch;
 pub use token_store::{SecretKind, TokenStore};
 pub use trpc::TrpcClient;
+pub use trust_store::{device_id, TrustStore, TrustStoreError};
 
 use std::path::PathBuf;
 

@@ -35,16 +35,21 @@ pub mod git_worktree;
 pub mod launcher;
 pub mod mcp_json;
 pub mod prompt;
+pub mod run_launch;
 pub mod settings;
 
 pub use doctor::{run_doctor, DoctorReport, Tool, ToolCheck};
 pub use git_worktree::{branch_name, clone_path, worktree_path, GitError, TokenUrl};
 pub use launcher::{
-    end_session_best_effort, prepare_launch, spawn_prepared, CodingDeps, CodingError,
-    DisabledReason, GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome,
-    LaunchRequest,
-    Prepared, PreparedLaunch, WorktreeProvider,
+    default_device_label, end_session_best_effort, prepare_launch, spawn_prepared,
+    spawn_prepared_with, CodingDeps, CodingError, DisabledReason, ExitNotify, GitWorktrees,
+    IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest, Prepared, PreparedLaunch,
+    WorktreeProvider,
 };
 pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};
 pub use prompt::{render_prompt, write_prompt, PROMPT_FILE, SEED_LINE};
+pub use run_launch::{
+    format_argv_line, format_env_lines, parse_argv_line, parse_env_lines, play_state, run_root,
+    run_spawn_spec, PlayState, STOP_GRACE,
+};
 pub use settings::Settings;

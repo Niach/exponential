@@ -69,6 +69,13 @@ fn main() {
             data_dir,
         });
 
+        // Remote-steer subsystem (§08): the single steer tokio runtime, the
+        // own-row Electric kill-switch, and the remote-`start_session` inbox.
+        // MUST run before the session bootstrap connects an account (which
+        // dials the per-account control socket). A no-op-friendly install:
+        // when the relay is unconfigured the whole subsystem stays silent.
+        ui::steer_wiring::install(cx);
+
         // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
         // (headless verification, dev-only) or a warm-start resume of the
         // persisted account — else the workspace boots to the login surface.

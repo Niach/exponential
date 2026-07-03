@@ -32,7 +32,7 @@ use gpui::{
     Window,
 };
 use gpui_component::{
-    button::{Button, ButtonCustomVariant, ButtonVariants as _},
+    button::{Button, ButtonVariants as _},
     calendar::{Calendar, CalendarEvent, CalendarState, Date},
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -49,6 +49,7 @@ use domain::rows::{Label, User};
 use domain::{IssuePriority, IssueStatus};
 
 use crate::actions::NewIssue;
+use crate::attachments_row;
 use crate::icons::{option_icon, ExpIcon};
 use crate::markdown::{self, MarkdownEditor};
 use crate::navigation::{nav_for_window, navigate, resolved_screen, Screen};
@@ -96,12 +97,13 @@ pub fn open(window: &mut Window, cx: &mut App, project_id: String) {
 
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).submitting;
-        // Web: sm:max-w-[40rem] p-0 max-h-[85vh]; fixed height keeps the
-        // header/footer pinned and the editor region scrolling (EXP-3).
-        let height = (window.viewport_size().height * 0.85).min(px(520.));
+        // Web: sm:max-w-[40rem] p-0 max-h-[85vh] — the dialog HUGS its
+        // content (no fixed empty band); only past the cap does the editor
+        // region scroll, with header/chips/footer pinned (EXP-3 shape).
+        let max_height = window.viewport_size().height * 0.85;
         dialog
             .w(px(640.))
-            .h(height)
+            .max_h(max_height)
             .p_0()
             .close_button(false)
             .overlay_closable(!busy)
@@ -228,6 +230,10 @@ impl CreateIssueDialogView {
                 cx.notify();
             }
         }));
+        // The footer attachment rail mirrors the live description (web
+        // `imageOccurrences` over the current markdown) — re-render on every
+        // editor change (pastes, deletions, chip removals).
+        subscriptions.push(cx.observe(&description, |_, _, cx| cx.notify()));
 
         Self {
             project_id,
@@ -882,6 +888,70 @@ impl CreateIssueDialogView {
             )
     }
 
+    /// Web `IssueEditorAttachmentRail` (the dialog footer's left slot): one
+    /// chip per image occurrence in the live description + the trailing
+    /// "N images" count (always shown — "0 images" included); each chip
+    /// carries the web's remove ✕, dropping that occurrence from the
+    /// markdown (`removeMarkdownImageByOccurrence`).
+    fn attachment_rail(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let markdown = self.description.read(cx).markdown(cx);
+        let occurrences = attachments_row::extract_image_occurrences(&markdown);
+        let count = occurrences.len();
+        let editor = self.description.clone();
+        let removable = !self.submitting;
+
+        h_flex()
+            .min_w_0()
+            .flex_1()
+            .gap_2()
+            .items_center()
+            .child(
+                h_flex()
+                    .min_w_0()
+                    .flex_1()
+                    .gap_1p5()
+                    .overflow_hidden()
+                    .children(occurrences.iter().enumerate().map(|(ix, occurrence)| {
+                        let remove: Option<attachments_row::ChipRemove> =
+                            removable.then(|| {
+                                let editor = editor.clone();
+                                let markdown = markdown.clone();
+                                let on_click = Box::new(
+                                    move |_: &gpui::ClickEvent,
+                                          window: &mut Window,
+                                          cx: &mut App| {
+                                        let next = attachments_row::remove_image_occurrence(
+                                            &markdown, ix,
+                                        );
+                                        editor.update(cx, |editor, cx| {
+                                            editor.set_markdown(&next, window, cx);
+                                        });
+                                    },
+                                )
+                                    as Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+                                (
+                                    SharedString::from(format!("create-attachment-remove-{ix}")),
+                                    on_click,
+                                )
+                            });
+                        attachments_row::image_chip(
+                            attachments_row::occurrence_label(occurrence, ix),
+                            remove,
+                            cx,
+                        )
+                    })),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(attachments_row::image_count_label(
+                        count,
+                    ))),
+            )
+    }
+
     fn footer(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let title_empty = self.title.read(cx).value().trim().is_empty();
         let recurring = self.recurrence.is_some();
@@ -931,14 +1001,16 @@ impl CreateIssueDialogView {
                     ),
             )
             .child(
-                // Web submit: bg-indigo-600 hover:bg-indigo-700 text-white h-7.
-                Button::new("create-issue-submit")
-                    .custom(indigo_submit(cx))
-                    .small()
-                    .label(submit_label)
-                    .disabled(submit_disabled)
-                    .loading(self.submitting)
-                    .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                // Web submit: bg-indigo-600 hover:bg-indigo-700 text-white
+                // h-7 text-xs — SOLID indigo (label swaps while creating, no
+                // spinner, web parity).
+                indigo_button("create-issue-submit", submit_disabled, cx)
+                    .child(SharedString::from(submit_label))
+                    .when(!submit_disabled, |button| {
+                        button.on_click(cx.listener(|this, _, window, cx| {
+                            this.submit(window, cx)
+                        }))
+                    }),
             );
 
         let left: gpui::AnyElement = match (&self.error, &self.recurrence) {
@@ -948,9 +1020,8 @@ impl CreateIssueDialogView {
                 .child(error.clone())
                 .into_any_element(),
             (None, Some(recurrence)) => self.recurrence_editor(recurrence, cx).into_any_element(),
-            // Attachment-rail slot (web `IssueEditorAttachmentRail`) — rides
-            // with the §4.5 markdown editor's image path.
-            (None, None) => div().into_any_element(),
+            // Web `IssueEditorAttachmentRail` — always rendered ("0 images").
+            (None, None) => self.attachment_rail(cx).into_any_element(),
         };
 
         h_flex()
@@ -1061,11 +1132,14 @@ impl Render for CreateIssueDialogView {
                 ),
             )
             .child(
-                // EXP-3: only this region scrolls; header/chips/footer pinned.
+                // EXP-3: only this region scrolls; header/chips/footer
+                // pinned. The 56px floor mirrors web's `.tiptap-content
+                // { min-height: 3.5rem }` so an empty dialog still shows a
+                // description area (content-hugging above that).
                 div()
                     .id("create-issue-description")
                     .flex_1()
-                    .min_h_0()
+                    .min_h(px(56.))
                     .px_3()
                     .overflow_y_scroll()
                     .child(self.description.clone()),
@@ -1104,15 +1178,59 @@ fn strip_draft_images(markdown: &str) -> String {
     canonical.trim().to_string()
 }
 
-/// `ButtonCustomVariant` mirroring the web submit's fixed indigo
-/// (`bg-indigo-600 hover:bg-indigo-700 text-white` — literal on web too,
-/// not a theme token).
-fn indigo_submit(cx: &App) -> ButtonCustomVariant {
-    ButtonCustomVariant::new(cx)
-        .color(rgb_hsla(0x4f, 0x46, 0xe5)) // indigo-600
-        .hover(rgb_hsla(0x43, 0x38, 0xca)) // indigo-700
-        .active(rgb_hsla(0x37, 0x30, 0xa3)) // indigo-800
-        .foreground(gpui::white())
+/// Web `bg-indigo-600` (a literal Tailwind color on web, not a theme token).
+fn indigo_600() -> gpui::Hsla {
+    rgb_hsla(0x4f, 0x46, 0xe5)
+}
+
+/// Web `hover:bg-indigo-700`.
+fn indigo_700() -> gpui::Hsla {
+    rgb_hsla(0x43, 0x38, 0xca)
+}
+
+/// Pressed state: indigo-800.
+fn indigo_800() -> gpui::Hsla {
+    rgb_hsla(0x37, 0x30, 0xa3)
+}
+
+/// The web's solid primary-action button (`bg-indigo-600 hover:bg-indigo-700
+/// text-white text-xs font-medium rounded-md`, size xs) — used by the board
+/// "New Issue" button and the create-dialog submit.
+///
+/// Hand-rolled `div` on purpose: the pinned gpui-component
+/// `ButtonCustomVariant` ignores its `.foreground()` (labels render in the
+/// fill color) and washes the fill toward transparent
+/// (`mix_oklab(transparent, 0.2..0.4)` in `button.rs`), so it cannot produce
+/// this solid fill. Callers add label/icon children and — when not disabled —
+/// an `.on_click`.
+pub(crate) fn indigo_button(
+    id: impl Into<gpui::ElementId>,
+    disabled: bool,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let base = div()
+        .id(id)
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .h_6()
+        .px_2p5()
+        .rounded(cx.theme().radius)
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(gpui::white())
+        .bg(indigo_600())
+        .cursor_default();
+    if disabled {
+        // Web `disabled:opacity-50 disabled:pointer-events-none` (callers
+        // skip `.on_click` while disabled).
+        base.opacity(0.5)
+    } else {
+        base.hover(|style| style.bg(indigo_700()))
+            .active(|style| style.bg(indigo_800()))
+    }
 }
 
 fn rgb_hsla(r: u8, g: u8, b: u8) -> gpui::Hsla {

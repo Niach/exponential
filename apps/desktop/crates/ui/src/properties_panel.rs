@@ -8,8 +8,10 @@
 //! `issueLabels.add|remove`) in the §4.1 un-gated form — the Electric echo
 //! re-renders. `completed_at` is server-managed and never set here.
 //!
-//! Due-date control (§4.2 / EXP-3): a **square icon-only trigger when
-//! empty**, icon + short date once set; the popover hosts the
+//! Due-date control (§4.2, web `DueDateControl` sidebar layout): a ghost
+//! trigger labeled **"Due date" when empty**, icon + short date once set
+//! (the EXP-3 icon-only-when-empty rule applies to the board ROW's
+//! `due-date-dropdown.tsx`, not this panel); the popover hosts the
 //! gpui-component `Calendar` plus a Clear action. Clearing the date
 //! cascade-nulls `due_time`/`end_time` (web `onDueDateSelect`). The synced
 //! `issues` shape deliberately drops `due_time`/`end_time` (§5.4), so the
@@ -483,23 +485,21 @@ impl PropertiesPanel {
             })
     }
 
-    /// The due-date control: square icon-only trigger when empty (EXP-3),
-    /// icon + short date when set; popover = Calendar + Clear.
+    /// The due-date control (web `DueDateControl`, sidebar layout): a ghost
+    /// `CalendarDays` trigger labeled with the formatted short date when set,
+    /// or the literal "Due date" when empty (`triggerLabel = dueDate ?
+    /// formatDate(dueDate) : 'Due date'`); popover = Calendar + Clear.
     fn due_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let due = issue.due_date.clone();
-        let trigger = match due.as_deref() {
-            Some(date) => Button::new("prop-due")
-                .ghost()
-                .xsmall()
-                .icon(
-                    Icon::from(ExpIcon::CalendarDays).text_color(cx.theme().muted_foreground),
-                )
-                .label(SharedString::from(format_short_date(date))),
-            // EXP-3: square icon-only trigger when no due date is set.
-            None => Button::new("prop-due").ghost().xsmall().icon(
-                Icon::from(ExpIcon::CalendarDays).text_color(cx.theme().muted_foreground),
-            ),
+        let label: SharedString = match due.as_deref() {
+            Some(date) => format_short_date(date).into(),
+            None => "Due date".into(),
         };
+        let trigger = Button::new("prop-due")
+            .ghost()
+            .xsmall()
+            .icon(Icon::from(ExpIcon::CalendarDays).text_color(cx.theme().muted_foreground))
+            .label(label);
 
         let calendar = self.due_calendar.clone();
         let panel = cx.entity();
@@ -675,17 +675,19 @@ use gpui::prelude::FluentBuilder as _;
 // Pieces
 // ---------------------------------------------------------------------------
 
-/// Web `PropertyGroup`: uppercase micro-label over the control.
+/// Web `PropertyGroup`: UPPERCASE micro-label over the control
+/// (`text-[11px] font-medium uppercase tracking-wide text-muted-foreground`
+/// — the CSS `uppercase` transform is baked into the string here).
 fn property_group(label: &'static str, control: impl IntoElement, cx: &App) -> impl IntoElement {
     v_flex()
         .gap_1()
         .items_start()
         .child(
             div()
-                .text_xs()
+                .text_size(px(11.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(cx.theme().muted_foreground)
-                .child(label),
+                .child(SharedString::from(label.to_uppercase())),
         )
         .child(control)
 }

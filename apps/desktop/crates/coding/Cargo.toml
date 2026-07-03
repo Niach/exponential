@@ -15,6 +15,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }
+# §7.5 stop semantics: SIGTERM → grace → SIGKILL (run_launch.rs) —
+# portable-pty's ChildKiller only sends SIGHUP.
+libc = { workspace = true }
 # Only the thin gpui-facing driver (launcher::spawn_prepared) touches gpui —
 # the core (git/mcp/prompt/doctor/settings + prepare_launch) is gpui-free and
 # headless-testable (§7.1 "gpui-free-at-its-core state machine").
@@ -33,4 +36,11 @@ gpui_platform = { workspace = true }
 # green and fast.
 [[test]]
 name = "dry_run"
+harness = false
+
+# §7.6 / §11.4 Phase-5 gate #6: two concurrent coding sessions across two
+# TerminalManagers (the two-window scenario) — same harness rules as dry_run;
+# self-skips unless EXP_CODING_CONCURRENT_E2E=1.
+[[test]]
+name = "concurrent"
 harness = false

@@ -12,6 +12,13 @@ ureq = { workspace = true }
 flume = { workspace = true }
 open = { workspace = true }
 dirs = { workspace = true }
+# §7.3.5 per-device Trust & Run store ((device_id, project_id) → trusted_hash
+# + the last-selected run config per project) — a tiny sqlite in the
+# per-account dir (trust_store.rs).
+rusqlite = { workspace = true }
+# §7.7 stable per-install deviceId (a UUID in the local config; shared by the
+# trust store and steer presence).
+uuid = { workspace = true }
 
 # NOTE (locked decision 2026-07-03): secrets are ALWAYS file-based (0600/0700,
 # see token_store.rs) — never the OS keyring. The keyring crate was removed:

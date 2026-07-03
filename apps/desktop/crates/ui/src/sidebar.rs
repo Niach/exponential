@@ -200,11 +200,17 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// First-class nav rows (EXP-1 #3): My Issues, Inbox, Search — active
-    /// state mirrors the resolved screen.
+    /// First-class nav rows (EXP-1 #3) in the web's order — Search, My
+    /// Issues, Inbox (`workspace/sidebar.tsx`); active state mirrors the
+    /// resolved screen.
     fn nav_menu(&self, cx: &App) -> SidebarMenu {
         let screen = resolved_screen(&self.nav, cx);
         SidebarMenu::new()
+            .child(
+                SidebarMenuItem::new("Search")
+                    .icon(IconName::Search)
+                    .on_click(dispatch(OpenSearch)),
+            )
             .child(
                 SidebarMenuItem::new("My Issues")
                     .icon(IconName::CircleUser)
@@ -216,11 +222,6 @@ impl SidebarPanel {
                     .icon(IconName::Inbox)
                     .active(matches!(screen, Some(Screen::Inbox)))
                     .on_click(dispatch(OpenInbox)),
-            )
-            .child(
-                SidebarMenuItem::new("Search")
-                    .icon(IconName::Search)
-                    .on_click(dispatch(OpenSearch)),
             )
     }
 

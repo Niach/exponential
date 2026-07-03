@@ -109,7 +109,9 @@ pub fn device_key_name() -> String {
     format!("Device: {}", hostname())
 }
 
-fn hostname() -> String {
+/// The OS hostname — the human-readable steer `deviceLabel` in the phone's
+/// device picker (§8.2) and the suffix of [`device_key_name`].
+pub fn hostname() -> String {
     // No std hostname API; env vars first (cheap), then the ubiquitous
     // `hostname` binary (macOS/Linux/Windows all ship one).
     for var in ["HOSTNAME", "COMPUTERNAME", "HOST"] {

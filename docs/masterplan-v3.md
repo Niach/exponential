@@ -2065,7 +2065,7 @@ Bridge to gpui via the `flume` wake/event channels drained by one foreground `cx
 
 ```rust
 let mut cmd = CommandBuilder::new("claude");
-cmd.args(["--dangerously-skip-permissions", &seed_prompt]); // seed prompt as POSITIONAL argv
+cmd.args(["--model", &settings.claude_model, "--dangerously-skip-permissions", &seed_prompt]); // model explicit-always (§7.7); seed prompt as POSITIONAL argv
 cmd.cwd(&worktree_path);
 cmd.env("TERM", "xterm-256color");
 cmd.env("COLORTERM", "truecolor");
@@ -2238,7 +2238,7 @@ This must complete (or be bounded — see §7.2 on not blocking the critical pat
 **Step 7 — Spawn `claude`.**
 Ask the `TerminalManager` (§06) to open a **Claude tab keyed by `coding_sessions.id`**, with:
 - program = the resolved Claude CLI path (default `claude`, §7.7),
-- args = `["--dangerously-skip-permissions"]`,
+- args = `["--model", <claude model setting, §7.7 — default "opus">, "--dangerously-skip-permissions"]` — the model is ALWAYS passed explicitly so the user's CLI default (which may be a scarcer model like Fable) is never silently consumed by coding sessions or E2E tests (locked 2026-07-03),
 - `cwd` = the worktree path,
 - and an initial written line seeding the session: **"Read PROMPT.md in this directory, then follow it."**
 
@@ -2406,6 +2406,7 @@ A JetBrains-SDK-settings-style pane, built from gpui-component `form` / `input` 
 | Setting | Default | Notes |
 |---|---|---|
 | **Claude CLI path** | `claude` | Editable; accepts an absolute path. Used verbatim as the launcher's program (§7.1 step 7) and the doctor's target. |
+| **Claude model** | `opus` | Passed as `--model <value>` on every coding-session spawn (§7.1 step 7). Explicit-always so the user's `claude` CLI default is never silently used (it may be a scarcer model, e.g. Fable — locked 2026-07-03). Free-text with the common values offered (opus, sonnet, haiku, fable). |
 | **Repos & worktrees root** | `~/Exponential/repos` | Tilde-expanded. The `<repos_root>` of §7.1's layout. |
 | **Branch prefix** | `exp/` | Prepended to `<IDENTIFIER>` for the coding branch. |
 | **Personal API key** | *(auto)* | STATUS row only (§7.2): "active · `<start>`…" + **Regenerate**. Never a value field. |
@@ -2470,7 +2471,7 @@ The **preview feature is dead** (EXP-2c — "DITCH the preview feature"). Do not
 
 All must pass on a real machine before Phase 5 is done:
 
-1. **Full Start coding on a REAL repo:** press Start coding on an issue whose project has a linked repo → a worktree + `exp/<IDENTIFIER>` branch are created, `.mcp.json` + `PROMPT.md` are written, a `coding_sessions` row goes `running`, and `claude --dangerously-skip-permissions` spawns in a Claude tab and reads PROMPT.md; Claude commits, pushes, and **opens a PR via the `exponential_pr_open` MCP tool**.
+1. **Full Start coding on a REAL repo** (spawned with `--model opus` — E2E/agentic tests must never consume the Fable quota): press Start coding on an issue whose project has a linked repo → a worktree + `exp/<IDENTIFIER>` branch are created, `.mcp.json` + `PROMPT.md` are written, a `coding_sessions` row goes `running`, and `claude --dangerously-skip-permissions` spawns in a Claude tab and reads PROMPT.md; Claude commits, pushes, and **opens a PR via the `exponential_pr_open` MCP tool**.
 2. **Hidden key:** the `expu_` key **auto-mints on the first coding session** (named `Device: <hostname>`, stored in the file-based token store), never appears as a manual field, and **Regenerate works** (mint-new-then-revoke-old, `.mcp.json` on the next launch carries the new key).
 3. **Run configs:** create → list → launch a run config → a bottom terminal **tab opens, runs, and shows an exit code**; changing the config set **re-fires the Trust & Run prompt** before the next launch.
 4. **Diff:** the side-by-side, syntax-highlighted, read-only diff renders from a **real PR's** `issues.prFiles`, virtualized, row-aligned, with per-line anchors present.
