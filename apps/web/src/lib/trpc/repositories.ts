@@ -10,7 +10,10 @@ import {
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
 import { assertWithinPlanLimits } from "@/lib/billing"
-import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
+import {
+  resolveRepoDefaultBranch,
+  resolveRepoInstallationToken,
+} from "@/lib/integrations/github-app"
 
 // GitHub installation tokens last ~1h; we hand back a conservative 55-minute
 // horizon so the desktop launcher refreshes before the real expiry. (The
@@ -341,10 +344,21 @@ export const repositoriesRouter = router({
           message: `The Exponential GitHub App is not installed on ${repo.fullName}. Reconnect it in workspace settings.`,
         })
       }
+      // GitHub is authoritative on the default branch — a stale/misseeded row
+      // (e.g. `main` for a `master` repo) would break the launcher's
+      // `git worktree add … origin/<default>`. Prefer the live value; heal the
+      // row when it drifted; fall back to the stored value if the lookup fails.
+      const liveDefaultBranch = await resolveRepoDefaultBranch(repo.fullName)
+      if (liveDefaultBranch && liveDefaultBranch !== repo.defaultBranch) {
+        await ctx.db
+          .update(repositories)
+          .set({ defaultBranch: liveDefaultBranch })
+          .where(eq(repositories.id, repo.id))
+      }
       return {
         token,
         fullName: repo.fullName,
-        defaultBranch: repo.defaultBranch,
+        defaultBranch: liveDefaultBranch ?? repo.defaultBranch,
         expiresAt: new Date(Date.now() + INSTALLATION_TOKEN_TTL_MS),
       }
     }),

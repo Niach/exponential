@@ -104,6 +104,21 @@ export async function resolveRepoInstallationToken(
   return installationToken(id)
 }
 
+// GitHub's authoritative default branch for a repo ("owner/name"), or null if
+// unknown (App not configured, not installed, repo gone). Used to override a
+// stale/misseeded `repositories.defaultBranch` at token-mint time so the
+// launcher's `git worktree add … origin/<default>` can't fail on a wrong ref
+// (e.g. a row seeded `main` for a `master` repo).
+export async function resolveRepoDefaultBranch(
+  repo: string
+): Promise<string | null> {
+  if (!githubAppConfigured()) return null
+  const res = await ghApp(`/repos/${repo}`)
+  if (!res.ok) return null
+  const data = (await res.json()) as { default_branch?: string }
+  return data.default_branch ?? null
+}
+
 export interface AppInstallation {
   id: number
   account: string
