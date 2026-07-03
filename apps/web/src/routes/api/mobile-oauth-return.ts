@@ -15,6 +15,65 @@ function readCookie(cookieHeader: string, name: string): string | null {
   return decodeURIComponent(entry.slice(name.length + 1))
 }
 
+// The final hop hands off to the native app via the `exp://` custom scheme.
+// A bare 302 to `exp://` leaves a real desktop browser tab spinning forever —
+// the OS grabs the scheme but the browser can never "complete" the navigation.
+// So we serve a 200 HTML page that fires the deep link from JS (iOS's
+// ASWebAuthenticationSession and desktop's registered handler both intercept
+// it) AND shows a "you can close this tab" confirmation the browser can render.
+// `deepLink` is already percent-encoded (URL-safe), so it's inert in both the
+// href attribute and the JSON-stringified script string.
+function renderReturnPage(deepLink: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Signed in — Exponential</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; place-items: center;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #09090b; color: #fafafa;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    text-align: center; padding: 2.5rem 2rem; max-width: 24rem;
+    border: 1px solid #27272a; border-radius: 16px; background: #18181b;
+  }
+  .check {
+    width: 48px; height: 48px; margin: 0 auto 1.25rem;
+    border-radius: 999px; background: #22c55e1a;
+    display: grid; place-items: center; color: #22c55e;
+  }
+  h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem; }
+  p { font-size: 0.9rem; line-height: 1.5; color: #a1a1aa; margin: 0 0 1.5rem; }
+  a.btn {
+    display: inline-block; text-decoration: none; font-size: 0.875rem; font-weight: 500;
+    padding: 0.5rem 1rem; border-radius: 8px; background: #fafafa; color: #09090b;
+  }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="check">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+    </div>
+    <h1>You're signed in</h1>
+    <p>Exponential is opening. You can close this tab and return to the app.</p>
+    <a class="btn" href="${deepLink}">Open Exponential</a>
+  </main>
+  <script>
+    // Hand off to the native app immediately; the confirmation card stays put.
+    window.location.href = ${JSON.stringify(deepLink)};
+  </script>
+</body>
+</html>
+`
+}
+
 export const Route = createFileRoute(`/api/mobile-oauth-return`)({
   server: {
     handlers: {
@@ -66,12 +125,14 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
         }
 
         const target = `${APP_DEEP_LINK}#token=${encodeURIComponent(token)}`
-        // Use raw Response — Response.redirect() may reject non-http schemes.
-        return new Response(null, {
-          status: 302,
+        // 200 HTML (not a 302 to exp://) so the browser tab renders a
+        // confirmation instead of spinning on an uncompletable navigation.
+        return new Response(renderReturnPage(target), {
+          status: 200,
           headers: {
-            Location: target,
+            "Content-Type": `text/html; charset=utf-8`,
             "Set-Cookie": CLEAR_STATE_COOKIE,
+            "Cache-Control": `no-store`,
           },
         })
       },
