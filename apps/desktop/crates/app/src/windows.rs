@@ -36,11 +36,12 @@ pub fn open_workspace_window(cx: &mut App) {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(min_size),
             kind: WindowKind::Normal,
-            // Linux CSD: Root draws the client-side window border/shadow.
+            // Linux: let the compositor draw the native (server-side) titlebar
+            // and window controls — parity with the macOS native titlebar. SSD
+            // wants an opaque window (no CSD shadow/border to composite), so we
+            // keep the default background rather than the transparent CSD one.
             #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
-            #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Client),
+            window_decorations: Some(gpui::WindowDecorations::Server),
             ..Default::default()
         };
 
@@ -52,7 +53,7 @@ pub fn open_workspace_window(cx: &mut App) {
         })?;
 
         window.update(cx, |_, window, cx| {
-            window.set_window_title("Exponential");
+            window.set_window_title(crate::channel::APP_NAME);
             window.activate_window();
             let _ = cx;
         })?;

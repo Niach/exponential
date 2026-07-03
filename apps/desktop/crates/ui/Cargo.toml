@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Staging/dev channel: "Exponential Cloud" targets next.exponential.at instead
+# of app.exponential.at (see login.rs `CLOUD_INSTANCE`).
+staging = []
+
 [dependencies]
 theme = { path = "../theme" }
 domain = { path = "../domain" }

@@ -20,24 +20,69 @@ jobs:
   build:
     needs: codegen-drift
     strategy:
+      fail-fast: false
       matrix:
+        # Two channels (production → app.exponential.at, staging →
+        # next.exponential.at) × two OSes. Staging builds pass `--features
+        # staging` and carry a distinct app id so both can coexist.
         include:
           - os: macos-14 # arm64
             target: aarch64-apple-darwin
-          - os: ubuntu-latest # x86_64
+            channel: production
+          - os: macos-14
+            target: aarch64-apple-darwin
+            channel: staging
+          # NB: the runner's glibc is the AppImage's compatibility floor
+          # (glibc is forward-compatible only). ubuntu-22.04 → glibc 2.35,
+          # covering current mainstream distros. For older targets, run this
+          # job in an `ubuntu:20.04` container instead.
+          - os: ubuntu-22.04 # x86_64
             target: x86_64-unknown-linux-gnu
+            channel: production
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            channel: staging
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Linux system deps (wgpu/gpui)
+      - name: Linux system deps (wgpu/gpui + AppImage packaging)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev pkg-config
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            librsvg2-bin file wget
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
-      - run: cargo build --release --manifest-path apps/desktop/Cargo.toml
-      - uses: actions/upload-artifact@v4
+          key: ${{ matrix.channel }}
+      - name: Cargo features for channel
+        id: feat
+        shell: bash
+        run: |
+          if [ "${{ matrix.channel }}" = "staging" ]; then
+            echo "flags=--features staging" >> "$GITHUB_OUTPUT"
+          else
+            echo "flags=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build (${{ matrix.channel }})
+        run: cargo build --release --manifest-path apps/desktop/Cargo.toml -p app ${{ steps.feat.outputs.flags }}
+
+      # Linux → package a single-file AppImage; macOS → raw binary (signing /
+      # .app packaging is a manual release step, see the CLAUDE.md checklist).
+      - name: Package AppImage
+        if: runner.os == 'Linux'
+        run: apps/desktop/scripts/build-appimage.sh ${{ matrix.channel }}
+      - name: Upload AppImage
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
         with:
-          name: exp-desktop-${{ matrix.target }}
+          name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
+          path: apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage
+      - name: Upload macOS binary
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
           path: apps/desktop/target/release/exp-desktop

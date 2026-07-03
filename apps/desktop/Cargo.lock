@@ -236,6 +236,7 @@ dependencies = [
  "anyhow",
  "api",
  "coding",
+ "dirs",
  "domain",
  "flume",
  "gpui",

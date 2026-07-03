@@ -46,8 +46,14 @@ use sync::{SessionPhase, Store};
 use crate::icons::ExpIcon;
 use crate::session::{connect_account, AuthContext};
 
-/// The cloud instance (§4.2: "Exponential Cloud (`app.exponential.at`)").
+/// The cloud instance the "Exponential Cloud" button targets (§4.2). Channel-
+/// selected at compile time (mirrors iOS `AppConstants.defaultCloudUrl`):
+/// production builds point at `app.exponential.at`, staging/dev builds
+/// (`--features staging`) at `next.exponential.at`.
+#[cfg(not(feature = "staging"))]
 const CLOUD_INSTANCE: &str = "https://app.exponential.at";
+#[cfg(feature = "staging")]
+const CLOUD_INSTANCE: &str = "https://next.exponential.at";
 
 /// Which instance the user is signing in to (cloud FIRST — EXP-5).
 #[derive(Clone, Copy, PartialEq, Eq)]

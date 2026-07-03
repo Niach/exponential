@@ -8,6 +8,11 @@ license.workspace = true
 name = "exp-desktop"
 path = "src/main.rs"
 
+[features]
+# Staging/dev channel: targets next.exponential.at and installs a distinct
+# `.desktop` app id so a staging build can coexist with a production one.
+staging = ["ui/staging"]
+
 [dependencies]
 ui = { path = "../ui" }
 theme = { path = "../theme" }
@@ -24,3 +29,4 @@ gpui-component-assets.workspace = true
 rust-embed.workspace = true
 anyhow.workspace = true
 flume.workspace = true
+dirs.workspace = true

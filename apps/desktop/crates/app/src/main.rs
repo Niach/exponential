@@ -10,17 +10,37 @@
 
 mod actions;
 mod assets;
+mod channel;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod desktop_integration;
 #[cfg(target_os = "macos")]
 mod menus;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod single_instance;
 mod windows;
 
 fn main() {
+    // OAuth-callback channel (exp:// → §5.7): filled by the macOS
+    // `on_open_urls` surface AND — on Linux, where gpui never invokes that —
+    // by the single-instance datagram bridge. Drained by a foreground task
+    // (§3.6) into `ui::handle_open_urls`.
+    let (url_tx, url_rx) = flume::unbounded::<Vec<String>>();
+
+    // Linux/BSD: enforce a single instance and route the browser's exp://
+    // deep link into the RUNNING window (gpui's on_open_urls is macOS-only).
+    // A forwarding launch exits here BEFORE we spin up any display/GPU state;
+    // the primary registers itself as the exp:// handler so the callback can
+    // reach it at all (AppImage/dev builds register nothing otherwise).
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    match single_instance::acquire(url_tx.clone()) {
+        single_instance::Instance::Forwarded => return,
+        single_instance::Instance::Primary => desktop_integration::ensure_scheme_registered(),
+    }
+
     let app = gpui_platform::application().with_assets(assets::Assets);
 
     // on_open_urls is the macOS OAuth-callback surface (exp:// → §5.7).
-    // Real signature: FnMut(Vec<String>) — NO cx. Marshal into the App via a
-    // channel drained by a foreground task (§3.6).
-    let (url_tx, url_rx) = flume::unbounded::<Vec<String>>();
+    // Real signature: FnMut(Vec<String>) — NO cx.
     app.on_open_urls(move |urls| {
         let _ = url_tx.send(urls);
     });
