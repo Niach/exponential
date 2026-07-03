@@ -75,12 +75,11 @@ fn main() {
         ui::bootstrap_session(cx);
 
         // Foreground drain for the OAuth-callback URLs (on_open_urls has no
-        // cx). The full OAuth browser round-trip is Phase-3 login-UI work
-        // (§5.7); the drain exists so the marshalling stays proven.
-        cx.spawn(async move |_cx| {
+        // cx): `exp://oauth-return#token=…` → the §5.7 token adoption in
+        // `ui::handle_open_urls` (parse locally, validate, sign in, sync).
+        cx.spawn(async move |cx| {
             while let Ok(urls) = url_rx.recv_async().await {
-                // Stub handler — OAuth callback routing lands with Phase 3.
-                eprintln!("[exp-desktop] open-urls (unhandled until Phase 3): {urls:?}");
+                cx.update(|cx| ui::handle_open_urls(urls, cx));
             }
         })
         .detach();

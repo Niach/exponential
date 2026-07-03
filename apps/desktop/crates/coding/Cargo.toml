@@ -5,5 +5,17 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# §3.1 dependency direction: coding ──▶ api, terminal (never ui, never steer —
+# the launcher returns the session id and the app/ui layer hands it to the
+# steer publisher).
 api = { path = "../api" }
 terminal = { path = "../terminal" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+# Only the thin gpui-facing driver (launcher::spawn_prepared) touches gpui —
+# the core (git/mcp/prompt/doctor/settings + prepare_launch) is gpui-free and
+# headless-testable (§7.1 "gpui-free-at-its-core state machine").
+gpui = { workspace = true }

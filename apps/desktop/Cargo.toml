@@ -35,6 +35,10 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 # the icons dir for the icon_named! macro), so this adds no new tree weight.
 # The app's AssetSource delegates icon lookups to it (§3.6 with_assets).
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
+# The `icon_named!` proc macro (same pinned rev) — generates the project-local
+# `ExpIcon` enum from `apps/desktop/assets/icons/` (masterplan-v3 §4.7: several
+# Lucide glyphs the option tables need are not in the bundled IconName set).
+gpui-component-macros = { git = "https://github.com/longbridge/gpui-component", rev = "a9a7341c35b62f27ff512371c62419342264710c" }
 
 alacritty_terminal = "0.26"                                            # UPSTREAM, Apache-2.0 — never Zed's GPL fork (resolves 0.26.0)
 portable-pty = "0.9"                                                   # resolves 0.9.0

@@ -13,9 +13,28 @@ terminal = { path = "../terminal" }
 coding = { path = "../coding" }
 steer = { path = "../steer" }
 gpui.workspace = true
-gpui-component.workspace = true
+# §7.8 diff view: `tree-sitter-languages` bundles the Tree-sitter grammars the
+# `highlighter` resolves by name (diff + common languages). Additive — other
+# gpui-component consumers in the workspace are unaffected.
+gpui-component = { workspace = true, features = ["tree-sitter-languages"] }
+# Same ropey the pinned gpui-component uses (its `SyntaxHighlighter::update`
+# takes `&ropey::Rope`; two ropey majors in the tree would not unify).
+ropey = "2.0.0-beta.1"
+# §4.7 ExpIcon: icon_named!(ExpIcon, "../../assets/icons") — the project-local
+# Lucide set (status circles, priority signal bars, …).
+gpui-component-macros.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# §4.2 detail: due-date/recurrence calendars + relative times. Same 0.4 line
+# as the pinned gpui-component's own `calendar` module, so `NaiveDate` unifies
+# across the CalendarState event boundary.
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 anyhow.workspace = true
 dirs.workspace = true
 log = "0.4"
+comrak = { version = "0.53.0", default-features = false }
+ureq.workspace = true
+
+[dev-dependencies]
+# markdown/image_paste.rs one-shot HTTP fixture server.
+flume.workspace = true

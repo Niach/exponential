@@ -1,5 +1,49 @@
-//! `coding` — the Start-coding launcher (masterplan-v3 §3.1 / §07).
+//! `coding` — the Start-coding launcher (masterplan-v3 §3.1 / §07, DC-1).
 //!
-//! Phase 5 lands: git worktree creation, the `exp/<IDENTIFIER>` branch, the
-//! token-embedded remote (never logged), `.mcp.json`, `PROMPT.md`, and the
+//! Phase 5 lands: git worktree creation via argv `git` (never `gh`, never a
+//! git library), the `exp/<IDENTIFIER>` branch, the token-embedded remote
+//! (never logged — [`git_worktree::TokenUrl`] redacts, git output is
+//! scrubbed), `.mcp.json` + `PROMPT.md`, the tooling doctor (EXP-2b), the
+//! coding settings (EXP-2f: repos root / branch prefix / claude path — never
+//! a manual API-key field, EXP-2a), and the
 //! `claude --dangerously-skip-permissions` spawn into the embedded terminal.
+//!
+//! ## The one entry point (§7.1)
+//!
+//! Local button press and relay `start_session` frame run the SAME sequence:
+//!
+//! ```text
+//! // background executor (blocking network + git I/O, gpui-free):
+//! let prepared = coding::prepare_launch(&req, &deps)?;
+//! // foreground (gpui):
+//! match prepared {
+//!     Prepared::Ready(p) => coding::spawn_prepared(p, &terminal_manager, cx, trpc)?,
+//!     Prepared::Disabled(reason) => LaunchOutcome::Disabled { reason },
+//! }
+//! ```
+//!
+//! On `LaunchOutcome::Spawned { session_id, .. }` the app/ui layer hands the
+//! session id + PTY tee to the steer publisher (§08) — `coding` deliberately
+//! does not depend on `steer` (§3.1 dependency direction).
+//!
+//! The eight steps, their failure surfaces (`DisabledReason` — EXP-4: never
+//! falsely block, always explain), and the worktree layout are specified in
+//! [`launcher`] / [`git_worktree`].
+
+pub mod doctor;
+pub mod git_worktree;
+pub mod launcher;
+pub mod mcp_json;
+pub mod prompt;
+pub mod settings;
+
+pub use doctor::{run_doctor, DoctorReport, Tool, ToolCheck};
+pub use git_worktree::{branch_name, clone_path, worktree_path, GitError, TokenUrl};
+pub use launcher::{
+    end_session_best_effort, prepare_launch, spawn_prepared, CodingDeps, CodingError,
+    DisabledReason, GitWorktrees, IssueSeed, LaunchOrigin, LaunchOutcome, LaunchRequest,
+    Prepared, PreparedLaunch, WorktreeProvider,
+};
+pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};
+pub use prompt::{render_prompt, write_prompt, PROMPT_FILE, SEED_LINE};
+pub use settings::Settings;

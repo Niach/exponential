@@ -30,6 +30,18 @@
 //!   `listPersonalApiKeys` / `revokePersonalApiKey`, plus the EXP-2a hidden
 //!   auto-minted `expu_` personal key (mint silently on first need, file store
 //!   storage, mint-new-then-revoke-old regenerate — never a UI text field).
+//! - [`repositories`] / [`coding_sessions`] / [`run_configs`] — the Phase-5
+//!   launcher's typed procs (§7.1/§7.3): `repositories.forIssue` +
+//!   `installationToken` (JIT GitHub-App token, Debug-redacted, never
+//!   persisted/logged), `codingSessions.start`/`end` (idempotent), and
+//!   `runConfigs.list` + the §7.3.5 Trust & Run `command_set_hash`.
+//!
+//! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
+//! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`
+//! query), [`projects`], [`workspaces`] (+ members + invites), [`labels`]
+//! (+ issueLabels), [`comments`], [`notifications`] — plus [`patch`], the
+//! tri-state omit/null/set field for zod `.nullable().optional()` updates.
+//! Mutation outputs decode the server `txId` for the §4.1 `awaitTxId` gate.
 //!
 //! **Two distinct credentials — never confuse them (§5.7):** the Better Auth
 //! *session token* is the `Authorization: Bearer` on every shape + tRPC
@@ -38,18 +50,29 @@
 //! separate token-store entries.
 
 pub mod accounts;
+pub mod coding_sessions;
+pub mod comments;
 pub mod error;
+pub mod issues;
+pub mod labels;
 pub mod login;
+pub mod notifications;
 pub mod opener;
+pub mod patch;
+pub mod projects;
+pub mod repositories;
+pub mod run_configs;
 pub mod token_store;
 pub mod trpc;
 pub mod users;
+pub mod workspaces;
 
 mod encode;
 
 pub use accounts::{Account, AuthEvent, AuthStore};
 pub use error::ApiError;
 pub use login::{AuthClient, AuthConfig, AuthUser, OidcProvider, SignInSuccess};
+pub use patch::Patch;
 pub use token_store::{SecretKind, TokenStore};
 pub use trpc::TrpcClient;
 

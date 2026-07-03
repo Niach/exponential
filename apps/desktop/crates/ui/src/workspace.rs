@@ -30,15 +30,17 @@ use gpui_component::{
 use sync::{SessionPhase, Store};
 
 use crate::{
-    debug_board::DebugBoardPanel, login::LoginView, sidebar::SidebarPanel,
-    terminal_dock::TerminalDockPanel,
+    debug_board::DebugBoardPanel, login::LoginView, navigation, screens::ScreensPanel,
+    sidebar::SidebarPanel, terminal_dock::TerminalDockPanel,
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
 /// discarded and rebuilt (mirrors the gpui-component dock example's version
 /// check; we silently reset instead of prompting).
 /// v2: the Phase-2 debug board landed in the center tabs.
-const LAYOUT_VERSION: usize = 2;
+/// v3: the Phase-3 screens panel replaced the debug board as the default
+///     center (debug board only behind `EXP_DEV_BOARD=1`).
+const LAYOUT_VERSION: usize = 3;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
@@ -71,6 +73,13 @@ impl Workspace {
             cx.new(|cx| DockArea::new(DOCK_AREA_ID, Some(LAYOUT_VERSION), window, cx));
         let login = cx.new(|cx| LoginView::new(window, cx));
 
+        // Per-window navigation state (§4.2): create it before any panel so
+        // every `nav_for_window` lookup (sidebar, screens, cold-restored
+        // panels) resolves to the same entity; the registry entry dies with
+        // the window (release hook below).
+        let _ = navigation::nav_for_window(window, cx);
+        let window_id = window.window_handle().window_id();
+
         // ---- Shared-store window accounting (§3.10 multi-window gate) ------
         // Also drives the login-vs-board switch: re-render on session-phase
         // changes.
@@ -83,6 +92,7 @@ impl Workspace {
         cx.on_release({
             let shared = shared.clone();
             move |_, cx| {
+                navigation::remove_window(window_id, cx);
                 shared.update(cx, |state, cx| {
                     state.windows_open = state.windows_open.saturating_sub(1);
                     cx.notify();
@@ -153,16 +163,22 @@ impl Workspace {
         dock_area.update(cx, |dock_area, cx| dock_area.load(state, window, cx))
     }
 
-    /// The default layout: the Phase-2 debug board in the center tabs (the
-    /// real issue tabs replace it in Phase 3).
+    /// The default layout: the Phase-3 screens panel in the center tabs
+    /// (§4.2 — board / detail / my-issues / inbox / settings, swapped on the
+    /// per-window navigation). `EXP_DEV_BOARD=1` adds the Phase-2 debug board
+    /// as a second tab (the sync-instrumentation surface stays reachable).
     fn reset_default_layout(
         dock_area: &Entity<DockArea>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         let weak = dock_area.downgrade();
-        let board: Arc<dyn PanelView> = Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx)));
-        let center = DockItem::tabs(vec![board], &weak, window, cx);
+        let screens: Arc<dyn PanelView> = Arc::new(cx.new(|cx| ScreensPanel::new(window, cx)));
+        let mut tabs: Vec<Arc<dyn PanelView>> = vec![screens];
+        if std::env::var("EXP_DEV_BOARD").as_deref() == Ok("1") {
+            tabs.push(Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx))));
+        }
+        let center = DockItem::tabs(tabs, &weak, window, cx);
         dock_area.update(cx, |dock_area, cx| {
             dock_area.set_version(LAYOUT_VERSION, window, cx);
             dock_area.set_center(center, window, cx);

@@ -159,10 +159,10 @@ impl Panel for DebugBoardPanel {
         "Board (debug)"
     }
 
-    /// The only center content until Phase 3 — closing it would leave an
-    /// empty center that persists into the saved layout.
+    /// Phase 3 made the screens panel the center default; the debug board is
+    /// an optional dev tab (`EXP_DEV_BOARD=1`) and may be closed freely.
     fn closable(&self, _cx: &App) -> bool {
-        false
+        true
     }
 
     fn zoomable(&self, _cx: &App) -> Option<PanelControl> {

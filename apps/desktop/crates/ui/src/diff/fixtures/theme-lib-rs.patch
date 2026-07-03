@@ -1,0 +1,23 @@
+diff --git a/apps/desktop/crates/theme/src/lib.rs b/apps/desktop/crates/theme/src/lib.rs
+index fa9f660..704fa75 100644
+--- a/apps/desktop/crates/theme/src/lib.rs
++++ b/apps/desktop/crates/theme/src/lib.rs
+@@ -68,6 +68,8 @@ pub mod tokens {
+     include!("tokens.generated.rs");
+ }
+ 
++pub mod terminal;
++
+ use tokens as t;
+ 
+ /// Compact-density base font size (§4.4 knob 1): web is 14px (`text-sm`);
+@@ -346,7 +348,8 @@ pub fn apply_exponential_dark(cx: &mut App) {
+     // AssetSource and registers them with `cx.text_system().add_fonts(...)`
+     // BEFORE any window opens (§3.2 — no runtime font path), so the family is
+     // always resolvable. Mono stays the component's platform default (web's
+-    // mono stack is ui-monospace/system too).
++    // mono stack is ui-monospace/system too); the TERMINAL grid uses its own
++    // bundled JetBrains Mono family (`terminal::FONT_FAMILY`, §6.9).
+     theme.font_family = "Inter".into();
+     // Compact density (§4.4): base font one notch under web's 14px text-sm;
+     // radius from the generated token scale — theme.radius drives the general

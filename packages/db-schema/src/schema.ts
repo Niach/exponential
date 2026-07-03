@@ -545,6 +545,44 @@ export const projectRepositories = pgTable(
   ]
 )
 
+// Per-project terminal run commands (SERVER-ONLY, tRPC-managed — never an
+// Electric shape; the proxy count stays 14). A run config is just a named
+// argv the desktop apps spawn into a terminal tab (EXP-2d: run configs live
+// in the DATABASE, not the repo). SECURITY: because this is DB-stored argv
+// executed locally, desktops MUST keep the per-device Trust & Run
+// commandSetHash prompt and re-hash whenever the fetched config set changes —
+// never auto-run synced values. `workspace_id` is denormalized from the
+// project server-side on insert (tRPC-only writes, so no trigger needed).
+export const runConfigs = pgTable(
+  `run_configs`,
+  {
+    id: uuidPk(),
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    name: varchar({ length: 255 }).notNull(),
+    // Program + arguments, spawned as-is (no shell). At least one element.
+    argv: jsonb().$type<string[]>().notNull(),
+    // Working directory relative to the repo root; null = repo root. The
+    // server rejects absolute paths and `..` segments.
+    cwd: text(),
+    // Extra environment. PATH/LD_PRELOAD/DYLD_* are stripped server-side.
+    env: jsonb()
+      .$type<Record<string, string>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.projectId, table.name),
+    index(`idx_run_configs_workspace`).on(table.workspaceId),
+  ]
+)
+
 // Per-user notification delivery prefs (SERVER-ONLY). Missing row = all
 // defaults (email on, no digest). Email is a free delivery channel, never a
 // notification type and never plan-gated.
@@ -771,6 +809,11 @@ export const selectRepositorySchema = createSelectSchema(repositories)
 export const selectProjectRepositorySchema =
   createSelectSchema(projectRepositories)
 
+export const selectRunConfigSchema = createSelectSchema(runConfigs, {
+  argv: z.array(z.string()),
+  env: z.record(z.string(), z.string()),
+})
+
 export const selectWidgetConfigSchema = createSelectSchema(widgetConfigs, {
   allowedDomains: z.array(z.string()),
   formConfig: z.record(z.string(), z.unknown()).nullable(),
@@ -804,6 +847,7 @@ export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Repository = InferSelectModel<typeof repositories>
 export type ProjectRepository = InferSelectModel<typeof projectRepositories>
+export type RunConfig = InferSelectModel<typeof runConfigs>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >
