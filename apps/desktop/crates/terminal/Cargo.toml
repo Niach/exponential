@@ -5,3 +5,40 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# §6.1: the emulator is UPSTREAM alacritty_terminal (Apache-2.0) — Term/Grid/
+# Config ONLY. Never Zed's GPL fork; never alacritty's own tty/event_loop
+# machinery (it would consume the raw bytes where the steer tee must sit).
+alacritty_terminal = { workspace = true }
+# vte is a DIRECT dep (§6.1.2), version-matched to the single vte 0.15.0
+# alacritty_terminal pins — the parser (Processor/StdSyncHandler) and the
+# color types (Color/NamedColor/Rgb) are imported from here explicitly.
+vte = { workspace = true }
+# MIT — we own the PTY master (openpty/spawn/reader/writer/resize).
+portable-pty = { workspace = true }
+flume = { workspace = true }
+anyhow = { workspace = true }
+log = "0.4"
+
+# The gpui glue (§6.2): element.rs (the grid Element + TerminalView) plus
+# keys.rs/mouse.rs (gpui Keystroke / mouse-event / Hsla types only — no
+# Window needed, so they stay unit-testable in isolation). Terminal colors
+# come from the theme crate's terminal palette (§6.8). gpui-component is
+# deliberately NOT a dependency — nothing in the grid element needs it
+# (tab.rs/manager.rs may add it in the next P4 step).
+gpui = { workspace = true }
+theme = { path = "../theme" }
+
+[dev-dependencies]
+# tests/exit_hook.rs only: a real (headless) gpui platform to drive the
+# manager's on_exit hook end-to-end. Already in the build graph via the app
+# crate — adds no new tree weight.
+gpui_platform = { workspace = true }
+
+# §6.7 exit-hook e2e (Phase-4 gate). harness = false: gpui's platform run
+# loop must own the PROCESS MAIN THREAD (libtest always runs #[test] fns on
+# worker threads, where the macOS main-queue dispatcher never drains). The
+# binary self-skips unless EXP_EXIT_HOOK_E2E=1, so plain `cargo test` stays
+# green and fast.
+[[test]]
+name = "exit_hook"
+harness = false
