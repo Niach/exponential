@@ -498,7 +498,7 @@ impl RunBar {
         let manager = manager.downgrade();
         cx.spawn(async move |_, cx| {
             cx.background_executor().timer(run_launch::STOP_GRACE).await;
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 let Some(manager) = manager.upgrade() else {
                     return;
                 };
@@ -801,6 +801,10 @@ mod run_configs_editor {
         Existing(String),
     }
 
+    /// A validated run-config form — `(name, argv, cwd, env)` (§7.3.3). Aliased
+    /// so `read_form`'s return type stays under clippy's `type_complexity` bar.
+    type ValidatedForm = (String, Vec<String>, Option<String>, BTreeMap<String, String>);
+
     pub(super) struct Editor {
         project_id: String,
         run_bar: WeakEntity<RunBar>,
@@ -895,7 +899,7 @@ mod run_configs_editor {
                     this.busy = false;
                     cx.notify();
                 });
-                let _ = cx.update(|cx| {
+                cx.update(|cx| {
                     if let Some(run_bar) = run_bar.upgrade() {
                         run_bar.update(cx, |run_bar, cx| run_bar.mark_stale(cx));
                     }
@@ -950,11 +954,7 @@ mod run_configs_editor {
 
         /// Validate the form into `(name, argv, cwd, env)` using the same
         /// pure rules the server applies (§7.3.3).
-        fn read_form(
-            &self,
-            cx: &App,
-        ) -> Result<(String, Vec<String>, Option<String>, BTreeMap<String, String>), String>
-        {
+        fn read_form(&self, cx: &App) -> Result<ValidatedForm, String> {
             let name = self.name.read(cx).value().trim().to_string();
             if name.is_empty() {
                 return Err("Name is required".to_string());

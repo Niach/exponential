@@ -175,8 +175,7 @@ pub(crate) mod tests {
             let mut buf = [0u8; 4096];
             // Read the head, then any Content-Length body.
             let (mut head_end, mut content_length) = (None, 0usize);
-            loop {
-                let Ok(n) = stream.read(&mut buf) else { break };
+            while let Ok(n) = stream.read(&mut buf) {
                 if n == 0 {
                     break;
                 }

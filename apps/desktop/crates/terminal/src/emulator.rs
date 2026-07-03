@@ -181,6 +181,17 @@ impl Emulator {
     }
 }
 
+/// Current grid geometry `(cols, rows)` from a shared [`TermHandle`] — the
+/// steer publisher's off-thread read for the §8.4 `hello` (TRUE geometry,
+/// never a hardcoded 80×24). Mirrors the [`screen_lines`] free-fn pattern.
+pub fn grid_size(term: &TermHandle) -> (u16, u16) {
+    let term = term.lock();
+    (
+        term.grid().columns().max(1) as u16,
+        term.grid().screen_lines().max(1) as u16,
+    )
+}
+
 /// Free-function variant of [`Emulator::screen_lines`] usable with just a
 /// [`TermHandle`].
 pub fn screen_lines(term: &TermHandle) -> Vec<String> {

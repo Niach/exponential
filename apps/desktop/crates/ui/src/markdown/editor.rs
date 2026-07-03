@@ -53,13 +53,18 @@ use super::toolbar::{self, LinePrefix};
 // RefResolver — live @email / #IDENT resolution (§4.5 pills)
 // ---------------------------------------------------------------------------
 
+/// `email` → member display name (None ⇒ not a known member; stays text).
+pub type MemberNameResolver = Rc<dyn Fn(&str, &App) -> Option<String>>;
+/// `IDENTIFIER` → does the issue exist in this workspace?
+pub type IssueExistsResolver = Rc<dyn Fn(&str, &App) -> bool>;
+
 /// Resolves decoration tokens against the synced collections at render time.
 #[derive(Clone)]
 pub struct RefResolver {
     /// `email` → member display name (None ⇒ not a known member; stays text).
-    pub member_name: Rc<dyn Fn(&str, &App) -> Option<String>>,
+    pub member_name: MemberNameResolver,
     /// `IDENTIFIER` → does the issue exist in this workspace?
-    pub issue_exists: Rc<dyn Fn(&str, &App) -> bool>,
+    pub issue_exists: IssueExistsResolver,
 }
 
 impl RefResolver {

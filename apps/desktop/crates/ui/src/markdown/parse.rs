@@ -249,15 +249,13 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
         NodeValue::Document => render_children(node, collector, ctx),
 
         NodeValue::Paragraph => {
-            let attrs = ctx.pending_item_attrs.take().unwrap_or_else(|| {
-                if ctx.in_blockquote {
-                    ParagraphAttrs {
-                        kind: BlockKind::Blockquote,
-                        ..ParagraphAttrs::PLAIN
-                    }
-                } else {
-                    ParagraphAttrs::PLAIN
+            let attrs = ctx.pending_item_attrs.take().unwrap_or(if ctx.in_blockquote {
+                ParagraphAttrs {
+                    kind: BlockKind::Blockquote,
+                    ..ParagraphAttrs::PLAIN
                 }
+            } else {
+                ParagraphAttrs::PLAIN
             });
             collector.start_para(attrs);
             render_children(node, collector, ctx);

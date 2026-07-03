@@ -5,6 +5,7 @@
 //! | Claude CLI path    | `claude`             | §7.1 step 7 spawn + doctor   |
 //! | Repos root         | `~/Exponential/repos`| §7.1 step 3 worktree layout  |
 //! | Branch prefix      | `exp/`               | `<prefix><IDENTIFIER>` branch|
+//! | Claude model       | `opus`               | §7.1 step 7 `--model` argv   |
 //!
 //! Persisted to a small `settings.json` in the app data dir — **local,
 //! per-install, never synced**. Saving merges into the existing JSON object
@@ -23,6 +24,10 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_CLAUDE_PATH: &str = "claude";
 pub const DEFAULT_REPOS_ROOT: &str = "~/Exponential/repos";
 pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
+/// §7.7 default coding model — passed as `--model opus` on every spawn. Explicit
+/// -always so the user's `claude` CLI default (possibly a scarcer model like
+/// Fable) is never silently consumed by coding sessions or E2E tests.
+pub const DEFAULT_CLAUDE_MODEL: &str = "opus";
 
 /// The resolved coding settings. `repos_root` is stored in its raw
 /// (possibly `~`-prefixed) form and tilde-expanded at use
@@ -37,6 +42,9 @@ pub struct Settings {
     pub repos_root: String,
     /// Prepended to the issue identifier for the coding branch (`exp/EXP-42`).
     pub branch_prefix: String,
+    /// The Claude model, passed verbatim as `--model <value>` on every spawn
+    /// (§7.7 — explicit-always; free text, common values opus/sonnet/haiku/fable).
+    pub claude_model: String,
 }
 
 impl Default for Settings {
@@ -45,6 +53,7 @@ impl Default for Settings {
             claude_path: DEFAULT_CLAUDE_PATH.to_string(),
             repos_root: DEFAULT_REPOS_ROOT.to_string(),
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
+            claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
         }
     }
 }
@@ -74,6 +83,9 @@ impl Settings {
         }
         if settings.branch_prefix.trim().is_empty() {
             settings.branch_prefix = defaults.branch_prefix;
+        }
+        if settings.claude_model.trim().is_empty() {
+            settings.claude_model = defaults.claude_model;
         }
         settings
     }
@@ -156,6 +168,7 @@ mod tests {
         assert_eq!(settings.claude_path, "claude");
         assert_eq!(settings.repos_root, "~/Exponential/repos");
         assert_eq!(settings.branch_prefix, "exp/");
+        assert_eq!(settings.claude_model, "opus");
     }
 
     #[test]
@@ -177,7 +190,11 @@ mod tests {
     fn blank_values_degrade_to_defaults() {
         let dir = TempDir::new("blank");
         let path = dir.0.join("settings.json");
-        fs::write(&path, r#"{"claudePath":"","reposRoot":"  ","branchPrefix":""}"#).unwrap();
+        fs::write(
+            &path,
+            r#"{"claudePath":"","reposRoot":"  ","branchPrefix":"","claudeModel":"  "}"#,
+        )
+        .unwrap();
         assert_eq!(Settings::load(&path), Settings::default());
     }
 
@@ -189,10 +206,12 @@ mod tests {
             claude_path: "/opt/homebrew/bin/claude".to_string(),
             repos_root: "~/code/repos".to_string(),
             branch_prefix: "feat/".to_string(),
+            claude_model: "sonnet".to_string(),
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"claudePath\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"claudeModel\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 

@@ -75,7 +75,9 @@ pub enum IssueQuery {
     },
 }
 
-/// One flattened virtual-list row.
+/// One flattened virtual-list row. The issue payload is boxed so the enum
+/// stays small (clippy `large_enum_variant` — `Issue` is ~520 bytes vs the
+/// header's ~10).
 enum ListRow {
     Header {
         status: IssueStatus,
@@ -83,7 +85,7 @@ enum ListRow {
         collapsed: bool,
     },
     Issue {
-        issue: Issue,
+        issue: Box<Issue>,
         labels: Vec<Label>,
     },
 }
@@ -415,7 +417,7 @@ impl Render for IssueListView {
                     .cloned()
                     .unwrap_or_default();
                 rows.push(ListRow::Issue {
-                    issue: issue.clone(),
+                    issue: Box::new(issue.clone()),
                     labels,
                 });
             }

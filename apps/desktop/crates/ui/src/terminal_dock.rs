@@ -120,9 +120,19 @@ pub struct TerminalDockPanel {
     manager: Entity<TerminalManager>,
     dock_area: WeakEntity<DockArea>,
     _subscription: Subscription,
+    /// Repaints the §8.5 "Remote steering" banner when a `presence` frame
+    /// changes the steerer. `None` when steer isn't installed (headless tests).
+    _steer_subscription: Option<Subscription>,
 }
 
 impl TerminalDockPanel {
+    /// This window's tab-strip model — §07's Start-coding launcher / run bar
+    /// open their `Claude`/`Run` tabs through it (the §6.13 "same entry
+    /// point" rule; resolved per window via `coding_flow`).
+    pub(crate) fn manager(&self) -> &Entity<TerminalManager> {
+        &self.manager
+    }
+
     pub fn new(
         dock_area: WeakEntity<DockArea>,
         window: &mut Window,
@@ -212,11 +222,17 @@ impl TerminalDockPanel {
             });
         }
 
+        // §8.5: repaint when a `presence` frame flips the remote steerer, so the
+        // banner shows/hides without waiting for an unrelated tab event.
+        let steer_subscription =
+            crate::steer_wiring::observe_steer_presence(cx, |_, cx| cx.notify());
+
         Self {
             focus_handle: cx.focus_handle(),
             manager,
             dock_area,
             _subscription: subscription,
+            _steer_subscription: steer_subscription,
         }
     }
 
@@ -345,6 +361,50 @@ impl TerminalDockPanel {
                             this.new_shell_tab(window, cx);
                         })),
                 ),
+            )
+    }
+
+    /// The §8.5 "Remote steering" banner: shown while a REMOTE viewer holds the
+    /// steer claim on the active coding tab. The LOCAL user is never gated —
+    /// this is purely informational plus a "Take over" affordance that revokes
+    /// the remote steerer (publisher-sent `claim` → relay `publisherTakeover`).
+    fn render_steer_banner(
+        &self,
+        session_id: String,
+        steerer: String,
+        cx: &gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let accent = cx.theme().warning;
+        h_flex()
+            .gap_2()
+            .px_3()
+            .py_1()
+            .items_center()
+            .justify_between()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .bg(accent.opacity(0.12))
+            .text_xs()
+            .child(
+                h_flex()
+                    .gap_1p5()
+                    .items_center()
+                    .child(Icon::new(IconName::Eye).xsmall().text_color(accent))
+                    .child(
+                        div()
+                            .text_color(cx.theme().foreground)
+                            .child(SharedString::from(format!("Remote steering — {steerer}"))),
+                    ),
+            )
+            .child(
+                Button::new("steer-take-over")
+                    .outline()
+                    .xsmall()
+                    .label("Take over")
+                    .tooltip("Revoke the remote steerer — your typing is never blocked.")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _window, cx| {
+                        crate::steer_wiring::take_over(&session_id, cx);
+                    })),
             )
     }
 
@@ -498,6 +558,12 @@ impl Render for TerminalDockPanel {
             )
         };
 
+        // §8.5: is a REMOTE viewer steering the active coding tab right now?
+        // (`metas[active_ix]` is the active tab — same order as `manager.tabs()`.)
+        let steer_banner = metas
+            .get(active_ix)
+            .and_then(|meta| crate::steer_wiring::remote_steerer_for_tab(meta.id, cx));
+
         let root = v_flex()
             .id("terminal-dock")
             .key_context(KEY_CONTEXT)
@@ -514,6 +580,9 @@ impl Render for TerminalDockPanel {
         };
 
         root.child(self.render_tab_bar(&metas, active_ix, cx))
+            .when_some(steer_banner, |this, (session_id, steerer)| {
+                this.child(self.render_steer_banner(session_id, steerer, cx))
+            })
             // min_h(0) so the flex child can shrink with the dock; the grid
             // element itself guards the 0-height collapsed case (§6.9).
             .child(div().flex_1().min_h_0().child(active_view))

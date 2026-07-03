@@ -114,7 +114,7 @@ pub fn install(cx: &mut App) {
     cx.set_global(RemoteStartGlobal(tx));
     cx.spawn(async move |cx| {
         while let Ok(issue_id) = rx.recv_async().await {
-            let _ = cx.update(|cx| handle_remote_start(issue_id, cx));
+            cx.update(|cx| handle_remote_start(issue_id, cx));
         }
     })
     .detach();
@@ -197,6 +197,24 @@ pub fn stop_control_channel(account_id: &str, cx: &mut App) {
 /// `prepare_launch` → `spawn_into_window`), only the [`LaunchOrigin`] differs
 /// (§7.1: there is no second, divergent remote-start implementation).
 fn handle_remote_start(issue_id: String, cx: &mut App) {
+    // Dedup: never launch a second session for an issue this process is
+    // already coding. Without this, a relay `start_session` arriving while a
+    // session is live (a phone tapping "Start on my desktop" for an issue
+    // already coding locally, or two taps in a row) would spawn a second
+    // `claude` into the SAME `exp/<ID>` worktree and orphan the first — the
+    // first child keeps running, its row never ends on tab-close, and Stop
+    // only reaches the second. The button path is already guarded by its
+    // Coding…/Stop render state; this closes the relay entry (LocalSessions is
+    // process-global, so this covers every window).
+    if coding_flow::LocalSessions::global(cx)
+        .read(cx)
+        .get(&issue_id)
+        .is_some()
+    {
+        log::info!("steer: remote start for {issue_id} ignored — already coding this issue");
+        return;
+    }
+
     let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
     let claimant = queries::active_account(cx)
         .map(|account| account.id)
@@ -366,6 +384,19 @@ pub fn attach_publisher(
     let sink = handle.raw_sink();
     view.read(cx).session().borrow().attach_sink(sink.clone());
 
+    // §8.4 resize-up: install the §6.10-step-3 observer so a genuine LOCAL grid
+    // change (the terminal element's resize path) forwards `resize` up and
+    // remote viewers reflow. The observer holds only a cheap resize notifier —
+    // `crates/terminal` stays gpui-/steer-free — and the publisher dedups
+    // against its last-sent geometry, so a steerer-origin resize can't loop.
+    let resize_notifier = handle.resize_notifier();
+    view.read(cx)
+        .session()
+        .borrow_mut()
+        .set_resize_observer(Box::new(move |cols, rows| {
+            resize_notifier.notify(cols, rows);
+        }));
+
     // Register the session (banner state + take-over + teardown).
     let registry = PublisherRegistry::global(cx);
     registry.update(cx, |registry, _| {
@@ -433,9 +464,14 @@ fn apply_steer_event(
                     .map(|viewer| viewer.name.clone())
             });
             if let Some(registry) = PublisherRegistry::global_ref(cx) {
-                registry.update(cx, |registry, _| {
+                registry.update(cx, |registry, cx| {
                     if let Some(entry) = registry.entries.get_mut(session_id) {
-                        entry.steerer = name;
+                        // Notify only on a real change so the §8.5 banner
+                        // repaints exactly when the remote steerer flips.
+                        if entry.steerer != name {
+                            entry.steerer = name;
+                            cx.notify();
+                        }
                     }
                 });
             }
@@ -498,15 +534,20 @@ fn teardown_session(
             let session = view.read(cx).session();
             session.borrow().kill();
             session.borrow().detach_sink(&sink);
+            // Drop the §8.4 resize observer so its notifier can't outlive the
+            // publisher (send-into-dead-channel is harmless but untidy).
+            session.borrow_mut().clear_resize_observer();
         }
     }
 
-    // Stop the publisher (idempotent) and forget the entry.
-    registry.update(cx, |registry, _| {
+    // Stop the publisher (idempotent) and forget the entry. Notify so any
+    // §8.5 banner watching this registry clears itself.
+    registry.update(cx, |registry, cx| {
         if let Some(entry) = registry.entries.get(session_id) {
             entry.handle.session_ended();
         }
         registry.entries.remove(session_id);
+        cx.notify();
     });
 
     // Drop the kill-watch registration so a later row change can't re-fire.
@@ -528,6 +569,31 @@ pub fn remote_steerer(session_id: &str, cx: &App) -> Option<String> {
         .entries
         .get(session_id)
         .and_then(|entry| entry.steerer.clone())
+}
+
+/// The §8.5 banner's per-tab entry point: resolve the coding session shown in
+/// `tab` and, if a remote viewer holds the claim right now, return its
+/// `(session_id, name)` — the session id keys the "Take over" button. `None`
+/// when the tab is not a live coding session this process is publishing, or
+/// nobody remote is steering it. The LOCAL user is never gated (§8.5).
+pub fn remote_steerer_for_tab(tab: TabId, cx: &App) -> Option<(String, String)> {
+    let sessions = coding_flow::LocalSessions::global_ref(cx)?;
+    let session_id = sessions.read(cx).session_id_for_tab(tab)?.to_string();
+    let name = remote_steerer(&session_id, cx)?;
+    Some((session_id, name))
+}
+
+/// Observe the §8.5 publisher registry so a surface (the terminal-dock banner)
+/// repaints when a `presence` frame changes the remote steerer. Returns `None`
+/// (no subscription) when steer isn't installed — e.g. headless tests — so the
+/// caller degrades to a static, never-shown banner. The registry global is
+/// materialized in [`install`], before any window/dock exists.
+pub fn observe_steer_presence<T: 'static>(
+    cx: &mut gpui::Context<T>,
+    mut on_change: impl FnMut(&mut T, &mut gpui::Context<T>) + 'static,
+) -> Option<gpui::Subscription> {
+    let registry = PublisherRegistry::global_ref(cx)?;
+    Some(cx.observe(&registry, move |this, _registry, cx| on_change(this, cx)))
 }
 
 /// The §8.5 "Take over" button: send a publisher `claim`, which the relay's

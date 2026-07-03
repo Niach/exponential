@@ -76,7 +76,11 @@ impl TerminalManager {
     }
 
     pub fn active_index(&self) -> Option<usize> {
-        (!self.tabs.is_empty()).then_some(self.active.min(self.tabs.len() - 1))
+        // `then` (lazy) — NOT `then_some`, whose argument evaluates eagerly:
+        // `self.tabs.len() - 1` underflows (usize) when tabs is empty, which
+        // the overflow check turns into a debug-build panic BEFORE the guard's
+        // `None` can win (harmlessly wraps + is discarded in release).
+        (!self.tabs.is_empty()).then(|| self.active.min(self.tabs.len() - 1))
     }
 
     pub fn active_tab(&self) -> Option<&TerminalTab> {
@@ -308,6 +312,14 @@ mod tests {
     #[test]
     fn active_index_zero_when_strip_empties() {
         assert_eq!(active_after_close(0, 0, 0), 0);
+    }
+
+    #[test]
+    fn active_index_is_none_on_empty_without_underflow() {
+        // Regression: an empty manager must return `None`, never underflow
+        // `tabs.len() - 1` (the `then_some` eager-eval bug that panicked debug
+        // builds when the terminal dock rendered with zero tabs).
+        assert_eq!(TerminalManager::new().active_index(), None);
     }
 
     #[test]

@@ -40,6 +40,17 @@ use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTE
 /// the relay's own viewer-side slow-consumer guard.
 pub const IN_FLIGHT_CAP: usize = 32;
 
+/// Clamp a grid dimension to the relay's zod bounds (`helloFrame`/`resizeFrame`
+/// require `positive().max(1000)` in `protocol.ts`). Sending cols/rows outside
+/// `1..=1000` makes `parseClientFrame` return `null` and the relay SILENTLY
+/// drops the frame — the exact silent-hang failure (§8.1): no room is ever
+/// created (hello) or no reflow happens (resize). A very wide/tall grid
+/// (hi-dpi + tiny font) is the realistic trigger; clamping degrades to a
+/// slightly-cropped viewer view instead of a dead room.
+fn clamp_dim(value: u16) -> u16 {
+    value.clamp(1, 1000)
+}
+
 /// §8.7: surfaced after two consecutive fresh-ticket 401s (never silently
 /// retry a skewed clock — the native failure mode this fixes).
 const CLOCK_SKEW_ERROR: &str = "Steer relay rejected the connection (ticket expired on \
@@ -134,13 +145,17 @@ pub enum KillSignal {
     SessionEnded,
 }
 
+/// Remote `input` bytes → the shared PTY writer (§6.5). Aliased so the
+/// `&[u8]`-taking `Fn` type stays under clippy's `type_complexity` bar.
+pub type InputHook = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 /// The seam back into the app (§8.9). Every hook is invoked on the steer
 /// runtime — implementations marshal to the gpui foreground themselves where
 /// needed. Cheap-and-non-blocking applies to all of them.
 pub struct PublisherHooks {
     /// Remote `input` frames → the ONE shared PTY writer (§6.5). Build with
     /// [`pty_writer_input_hook`] over `Terminal::writer()`.
-    pub write_input: Arc<dyn Fn(&[u8]) + Send + Sync>,
+    pub write_input: InputHook,
     /// Steerer-origin resize (§8.4): apply via §6 `terminal.resize` — which
     /// already no-ops on an unchanged size, killing the resize ping-pong.
     pub resize: Arc<dyn Fn(u16, u16) + Send + Sync>,
@@ -160,7 +175,7 @@ pub struct PublisherHooks {
 /// (`Terminal::writer()`): remote keystrokes land exactly like local typing.
 pub fn pty_writer_input_hook(
     writer: Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>>,
-) -> Arc<dyn Fn(&[u8]) + Send + Sync> {
+) -> InputHook {
     Arc::new(move |bytes| {
         if let Ok(mut w) = writer.lock() {
             let _ = w.write_all(bytes);
@@ -201,6 +216,24 @@ pub struct PublisherHandle {
     running: Arc<AtomicBool>,
 }
 
+/// A cheap `Send + Sync` clone of the publisher's control sender, dedicated to
+/// §8.4 resize-up. The terminal session's [`terminal::ResizeObserver`] holds
+/// one and calls [`LocalResizeNotifier::notify`] on every genuine local grid
+/// change; the publisher task dedups against its last-sent geometry so a
+/// steerer-origin resize can't ping-pong. Cloning the handle itself would drag
+/// in the sink + running flag, so this exposes only the resize path.
+#[derive(Clone)]
+pub struct LocalResizeNotifier {
+    cmd_tx: flume::Sender<PublisherCmd>,
+}
+
+impl LocalResizeNotifier {
+    /// Forward a genuine local grid change so remote viewers reflow (§8.4).
+    pub fn notify(&self, cols: u16, rows: u16) {
+        let _ = self.cmd_tx.send(PublisherCmd::LocalResize { cols, rows });
+    }
+}
+
 impl PublisherHandle {
     /// The tee sink to attach via `Terminal::attach_sink` (and detach on
     /// teardown). The publisher never re-reads the PTY (§8.4).
@@ -218,6 +251,15 @@ impl PublisherHandle {
     /// path already debounces); the task additionally skips no-op repeats.
     pub fn notify_local_resize(&self, cols: u16, rows: u16) {
         let _ = self.cmd_tx.send(PublisherCmd::LocalResize { cols, rows });
+    }
+
+    /// A cheap [`LocalResizeNotifier`] for the terminal session's resize
+    /// observer (§8.4 resize-up) — routes local geometry changes here without
+    /// coupling `crates/terminal` to the whole handle.
+    pub fn resize_notifier(&self) -> LocalResizeNotifier {
+        LocalResizeNotifier {
+            cmd_tx: self.cmd_tx.clone(),
+        }
     }
 
     /// The §8.5 "Take over" button: revoke the remote steerer.
@@ -372,11 +414,14 @@ async fn run_publisher_loop(
         // publisher with CLOSE_REPLACED). No resize comes back; no resync is
         // sent on reconnect — resume live teeing at once (§8.6).
         let (cols, rows) = (hooks.geometry)();
+        // Clamp to the relay's zod bound (§8.1): out-of-range geometry is
+        // silently dropped, leaving the room uncreated.
+        let (cols, rows) = (clamp_dim(cols), clamp_dim(rows));
         let hello = ClientFrame::Hello {
             session_id: &spec.session_id,
             issue_id: spec.issue_id.as_deref(),
-            cols: Some(cols.max(1)),
-            rows: Some(rows.max(1)),
+            cols: Some(cols),
+            rows: Some(rows),
         }
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {
@@ -478,7 +523,10 @@ async fn pump_connection(
                 let Ok(cmd) = cmd else { return LoopEnd::Dropped };
                 match cmd {
                     PublisherCmd::LocalResize { cols, rows } => {
-                        // Anti-ping-pong: only genuine changes go up (§8.4).
+                        // Clamp to the relay's zod bound (§8.1) so a wide grid
+                        // never silently drops the reflow, then anti-ping-pong:
+                        // only genuine changes go up (§8.4).
+                        let (cols, rows) = (clamp_dim(cols), clamp_dim(rows));
                         if (cols, rows) != *last_sent_geometry {
                             *last_sent_geometry = (cols, rows);
                             let frame = ClientFrame::Resize { cols, rows }.to_json();

@@ -123,7 +123,7 @@ impl CodingHub {
                 .background_executor()
                 .spawn(async move { run_doctor(&settings) })
                 .await;
-            let _ = hub.update(cx, |this, cx| {
+            hub.update(cx, |this, cx| {
                 if this.doctor.generation != generation {
                     return; // superseded
                 }
@@ -199,8 +199,24 @@ impl LocalSessions {
         sessions
     }
 
+    /// Immutable accessor — `None` before the first coding session materializes
+    /// the global. Used by the §8.5 banner (render has no `&mut App`).
+    pub fn global_ref(cx: &App) -> Option<Entity<LocalSessions>> {
+        cx.try_global::<LocalSessionsGlobal>().map(|g| g.0.clone())
+    }
+
     pub fn get(&self, issue_id: &str) -> Option<&LocalCodingSession> {
         self.by_issue.get(issue_id)
+    }
+
+    /// The coding session id whose terminal tab is `tab`, if this process is
+    /// coding it (reverse of the issue-keyed map — the §8.5 banner resolves a
+    /// dock tab back to its steer session).
+    pub fn session_id_for_tab(&self, tab: TabId) -> Option<&str> {
+        self.by_issue
+            .values()
+            .find(|session| session.tab == tab)
+            .map(|session| session.session_id.as_str())
     }
 
     fn remove(sessions: &Entity<LocalSessions>, issue_id: &str, cx: &mut App) {

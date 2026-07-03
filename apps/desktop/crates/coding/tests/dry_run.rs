@@ -166,7 +166,8 @@ fn main() {
         &stub,
         "#!/bin/sh\n\
          if [ \"$1\" = \"--version\" ]; then echo '9.9.9 (Claude Code stub)'; exit 0; fi\n\
-         [ \"$1\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
+         [ \"$1\" = \"--model\" ] || exit 7\n\
+         [ \"$3\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
          head -n 1 PROMPT.md > claude-ran.txt || exit 9\n\
          exit 0\n",
     )
@@ -205,6 +206,7 @@ fn main() {
             claude_path: stub.to_string_lossy().into_owned(),
             repos_root: repos_root.to_string_lossy().into_owned(),
             branch_prefix: "exp/".to_string(),
+            claude_model: "opus".to_string(),
         },
         issue_seed: Arc::new(|_| {
             Some(IssueSeed {
@@ -267,9 +269,13 @@ fn main() {
     assert!(!status.contains(".mcp.json"), "seed file not excluded: {status}");
     assert!(!status.contains("PROMPT.md"), "seed file not excluded: {status}");
 
-    // The composed spawn spec: stub program, the one flag, worktree cwd.
+    // The composed spawn spec: stub program, explicit --model, the skip flag,
+    // worktree cwd. Model is ALWAYS passed (§7.7).
     assert_eq!(prepared.spawn.program, stub.to_string_lossy());
-    assert_eq!(prepared.spawn.args, vec!["--dangerously-skip-permissions"]);
+    assert_eq!(
+        prepared.spawn.args,
+        vec!["--model", "opus", "--dangerously-skip-permissions"]
+    );
     assert_eq!(prepared.spawn.cwd.as_deref(), Some(expected_worktree.as_path()));
     assert_eq!(prepared.tab_title, "claude · GATE-99");
     eprintln!("dry_run e2e: steps 1–6 verified (worktree, remote, .mcp.json, PROMPT.md, spawn spec)");

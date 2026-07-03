@@ -360,9 +360,16 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
             Err(err) => return Err(err.into()),
         };
 
-    // Step 7's spawn spec — program from settings (§7.7), argv-direct.
+    // Step 7's spawn spec — program from settings (§7.7), argv-direct. The
+    // model is passed explicitly-ALWAYS (never the user's `claude` CLI default,
+    // which may be a scarcer model like Fable) so coding sessions never silently
+    // consume it (§7.7, locked 2026-07-03).
     let spawn = SpawnSpec::new(&deps.settings.claude_path)
-        .arg("--dangerously-skip-permissions")
+        .args([
+            "--model",
+            deps.settings.claude_model.as_str(),
+            "--dangerously-skip-permissions",
+        ])
         .cwd(&worktree);
 
     Ok(Prepared::Ready(PreparedLaunch {
@@ -604,6 +611,7 @@ mod tests {
                 claude_path: "git".to_string(),
                 repos_root: data_dir.join("repos").to_string_lossy().into_owned(),
                 branch_prefix: "exp/".to_string(),
+                claude_model: "opus".to_string(),
             },
             issue_seed: Arc::new(|_| {
                 Some(IssueSeed {
@@ -760,9 +768,13 @@ mod tests {
         assert_eq!(prepared.worktree, worktree);
         assert_eq!(prepared.tab_title, "claude · EXP-42");
 
-        // Step 7's spawn spec: configured program, the one flag, worktree cwd.
+        // Step 7's spawn spec: configured program, explicit --model, the skip
+        // flag, worktree cwd. Model is ALWAYS passed (§7.7).
         assert_eq!(prepared.spawn.program, "git"); // test claude_path
-        assert_eq!(prepared.spawn.args, vec!["--dangerously-skip-permissions"]);
+        assert_eq!(
+            prepared.spawn.args,
+            vec!["--model", "opus", "--dangerously-skip-permissions"]
+        );
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
 
         // Step 3 got the server-confirmed repo + §7.1 branch name.

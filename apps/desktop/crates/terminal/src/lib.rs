@@ -28,12 +28,14 @@ pub mod session;
 pub mod tab;
 
 pub use element::{GridGeometry, TerminalElement, TerminalView, TerminalViewEvent};
-pub use emulator::{screen_lines, Emulator, EmulatorSignal, EventProxy, GridSize, TermHandle};
+pub use emulator::{
+    grid_size, screen_lines, Emulator, EmulatorSignal, EventProxy, GridSize, TermHandle,
+};
 pub use keys::to_esc_str;
 pub use manager::{TerminalManager, TerminalManagerEvent};
 pub use pty::{
     build_command, login_path, open, prewarm_login_path, ChildExit, ExitSlot, Pty, SpawnSpec,
 };
 pub use read_loop::{spawn_read_loop, CaptureSink, RawSink, SinkSet, Wake};
-pub use session::Terminal;
+pub use session::{ResizeObserver, Terminal};
 pub use tab::{ExitHook, RunConfigId, TabId, TabKind, TabStatus, TerminalTab};

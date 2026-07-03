@@ -100,6 +100,7 @@ fn load_key_status(
 
 pub struct CodingPane {
     claude_input: Entity<InputState>,
+    model_input: Entity<InputState>,
     repos_input: Entity<InputState>,
     prefix_input: Entity<InputState>,
     /// The hub settings the inputs were last synced from (dirty baseline).
@@ -115,6 +116,8 @@ impl CodingPane {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let claude_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
+        let model_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_MODEL));
         let repos_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_REPOS_ROOT));
         let prefix_input =
@@ -129,7 +132,7 @@ impl CodingPane {
                 cx.notify();
             }),
         ];
-        for input in [&claude_input, &repos_input, &prefix_input] {
+        for input in [&claude_input, &model_input, &repos_input, &prefix_input] {
             subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify(); // live dirty tracking on the Save button
@@ -139,6 +142,7 @@ impl CodingPane {
 
         let mut this = Self {
             claude_input,
+            model_input,
             repos_input,
             prefix_input,
             synced: None,
@@ -162,6 +166,9 @@ impl CodingPane {
         }
         self.claude_input.update(cx, |input, cx| {
             input.set_value(settings.claude_path.clone(), window, cx)
+        });
+        self.model_input.update(cx, |input, cx| {
+            input.set_value(settings.claude_model.clone(), window, cx)
         });
         self.repos_input.update(cx, |input, cx| {
             input.set_value(settings.repos_root.clone(), window, cx)
@@ -188,6 +195,7 @@ impl CodingPane {
         };
         Settings {
             claude_path: value(&self.claude_input, &defaults.claude_path),
+            claude_model: value(&self.model_input, &defaults.claude_model),
             repos_root: value(&self.repos_input, &defaults.repos_root),
             branch_prefix: value(&self.prefix_input, &defaults.branch_prefix),
         }
@@ -487,6 +495,12 @@ impl Render for CodingPane {
                 "Claude CLI path",
                 "Command name or absolute path — used verbatim to launch coding sessions.",
                 &self.claude_input,
+                cx,
+            ))
+            .child(Self::labeled_input(
+                "Claude model",
+                "Passed as --model on every coding session — never your CLI default. Try opus, sonnet, haiku, or fable.",
+                &self.model_input,
                 cx,
             ))
             .child(Self::labeled_input(

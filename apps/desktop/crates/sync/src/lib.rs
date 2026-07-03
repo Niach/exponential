@@ -23,6 +23,7 @@
 
 pub mod client;
 pub mod collections;
+pub mod kill_watch;
 pub mod manager;
 pub mod protocol;
 pub mod shapes;
@@ -36,4 +37,5 @@ pub use collections::{
     Collection, Collections, SessionPhase, ShapeRow, ShapeStatus, ShapeSyncPhase, SharedState,
     Store,
 };
+pub use kill_watch::{session_row_is_ended, KillWatch, OnSessionEnded};
 pub use manager::{AccountSyncConfig, SyncManager};

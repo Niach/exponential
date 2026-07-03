@@ -162,7 +162,8 @@ fn main() {
         &stub,
         "#!/bin/sh\n\
          if [ \"$1\" = \"--version\" ]; then echo '9.9.9 (Claude Code stub)'; exit 0; fi\n\
-         [ \"$1\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
+         [ \"$1\" = \"--model\" ] || exit 7\n\
+         [ \"$3\" = \"--dangerously-skip-permissions\" ] || exit 8\n\
          echo alive > alive.txt\n\
          while [ ! -f release.txt ]; do sleep 0.05; done\n\
          exit 0\n",
@@ -208,6 +209,7 @@ fn main() {
             claude_path: stub.to_string_lossy().into_owned(),
             repos_root: repos_root.to_string_lossy().into_owned(),
             branch_prefix: "exp/".to_string(),
+            claude_model: "opus".to_string(),
         },
         issue_seed: Arc::new(|_| {
             Some(IssueSeed {

@@ -53,8 +53,17 @@ anyhow = "1"
 rust-embed = "8"    # embeds assets/ (Inter TTFs, future icons) into the binary — no runtime asset paths (§3.7)
 dirs = "6"          # per-user state dir for the DockAreaState layout persistence (§3.3)
 open = "5"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+# Steer publisher stream/sink combinators (§8) — already a transitive of
+# tokio-tungstenite at this exact minor version; adds no new tree weight.
+futures-util = "0.3"
+# Persistent steer deviceId (§8.2) — uuid 1.x is already in the tree via gpui.
+uuid = { version = "1", features = ["v4"] }
+# §7.5 stop semantics (SIGTERM → grace → SIGKILL): direct signal delivery —
+# portable-pty's ChildKiller only speaks SIGHUP. Already in the tree
+# transitively (portable-pty, gpui) at this exact major.
+libc = "0.2"
 
 # Dev-profile opt-level overrides for the heavy layout/render/text crates
 # (masterplan-v3 §3.7 — adopted from gpui-component's own workspace, which does

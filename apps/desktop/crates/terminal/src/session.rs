@@ -16,6 +16,12 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+/// Notified with the new `(cols, rows)` whenever a genuine integer cell change
+/// is applied (§6.10 step 3 / §8.4 resize-up). The steer layer installs one so
+/// remote viewers reflow when the LOCAL window resizes the grid; `crates/terminal`
+/// stays gpui-free and steer-free — it only invokes the callback (no ui dep).
+pub type ResizeObserver = Box<dyn Fn(u16, u16) + Send + Sync>;
+
 pub struct Terminal {
     pty: Pty,
     emulator: Emulator,
@@ -25,6 +31,8 @@ pub struct Terminal {
     title: Option<String>,
     read_thread: Option<JoinHandle<()>>,
     wait_thread: Option<JoinHandle<()>>,
+    /// §6.10 step 3 seam — set by the steer wiring on a published session.
+    resize_observer: Option<ResizeObserver>,
 }
 
 impl Terminal {
@@ -48,6 +56,7 @@ impl Terminal {
             title: None,
             read_thread: Some(read_thread),
             wait_thread: Some(wait_thread),
+            resize_observer: None,
         })
     }
 
@@ -93,9 +102,28 @@ impl Terminal {
         // stale would warn-log every frame forever.
         let pty_result = self.pty.resize(cols, rows);
         self.emulator.resize(cols, rows);
-        // §6.10 step 3 — the relay `resize` frame — is the steer crate's
-        // wiring (§08), attached at a higher layer.
+        // §6.10 step 3 — forward the genuine local geometry change to the steer
+        // publisher (if one is attached) so remote viewers reflow (§8.4). We are
+        // past the no-op guard above, so this only fires on a real cell change;
+        // the publisher additionally clamps against its last-sent geometry, so a
+        // resize that came DOWN from a steerer can't ping-pong back up.
+        if let Some(observer) = &self.resize_observer {
+            observer(cols, rows);
+        }
         pty_result
+    }
+
+    /// Install the §6.10-step-3 resize observer (steer wiring, on a published
+    /// session). Replaces any prior observer; cleared with [`Terminal::
+    /// clear_resize_observer`] on teardown.
+    pub fn set_resize_observer(&mut self, observer: ResizeObserver) {
+        self.resize_observer = Some(observer);
+    }
+
+    /// Drop the resize observer (publisher teardown) so a stale notifier can't
+    /// keep forwarding into a dead channel.
+    pub fn clear_resize_observer(&mut self) {
+        self.resize_observer = None;
     }
 
     /// Drain pending emulator events (§6.6): reply-required answers are
@@ -157,6 +185,13 @@ impl Terminal {
 
     pub fn detach_sink(&self, sink: &Arc<dyn RawSink>) {
         self.sinks.detach(sink);
+    }
+
+    /// The ONE shared PTY writer (§6.3/§6.14) as a `Send + Sync` handle — the
+    /// steer publisher's inject path. Remote `input` frames written here land
+    /// exactly like local keystrokes; the child cannot tell them apart (§8.4).
+    pub fn writer(&self) -> Arc<std::sync::Mutex<Box<dyn std::io::Write + Send>>> {
+        self.pty.writer()
     }
 
     /// Plain-text snapshot of the visible screen (test/debug helper, §6.9

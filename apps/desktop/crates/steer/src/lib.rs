@@ -307,7 +307,7 @@ pub(crate) fn redact_ticket(message: &str) -> String {
     match message.find("ticket=") {
         Some(at) => {
             let end = message[at..]
-                .find(|c: char| c == '&' || c == ' ' || c == '"')
+                .find(['&', ' ', '"'])
                 .map(|rel| at + rel)
                 .unwrap_or(message.len());
             format!("{}ticket=<redacted>{}", &message[..at], &message[end..])

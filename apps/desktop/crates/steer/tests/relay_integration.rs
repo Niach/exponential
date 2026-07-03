@@ -328,8 +328,7 @@ impl Viewer {
         let texts = self.log.texts.lock().unwrap();
         texts
             .iter()
-            .filter(|t| t.contains("\"t\":\"presence\""))
-            .next_back()
+            .rfind(|t| t.contains("\"t\":\"presence\""))
             .map(|t| {
                 let value: serde_json::Value = serde_json::from_str(t).unwrap();
                 value["steererId"].as_str().map(|s| s.to_string())
