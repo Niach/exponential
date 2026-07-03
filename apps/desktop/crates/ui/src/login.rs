@@ -48,12 +48,23 @@ use crate::session::{connect_account, AuthContext};
 
 /// The cloud instance the "Exponential Cloud" button targets (§4.2). Channel-
 /// selected at compile time (mirrors iOS `AppConstants.defaultCloudUrl`):
-/// production builds point at `app.exponential.at`, staging/dev builds
+/// production builds point at `app.exponential.at`, staging builds
 /// (`--features staging`) at `next.exponential.at`.
 #[cfg(not(feature = "staging"))]
 const CLOUD_INSTANCE: &str = "https://app.exponential.at";
 #[cfg(feature = "staging")]
 const CLOUD_INSTANCE: &str = "https://next.exponential.at";
+
+/// The effective cloud instance. The compile-time channel is the default, but
+/// `EXP_INSTANCE_URL` overrides it at runtime so the `dev:desktop*` scripts can
+/// retarget local/staging/prod without a recompile (e.g.
+/// `EXP_INSTANCE_URL=http://localhost:3000`).
+fn cloud_instance() -> String {
+    match std::env::var("EXP_INSTANCE_URL") {
+        Ok(url) if !url.trim().is_empty() => api::login::normalize_instance_url(&url),
+        _ => CLOUD_INSTANCE.to_string(),
+    }
+}
 
 /// Which instance the user is signing in to (cloud FIRST — EXP-5).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -92,7 +103,8 @@ impl LoginView {
         let (server_prefill, email_prefill) = remembered
             .map(|account| (account.instance_url, account.email))
             .unwrap_or_else(|| (String::new(), String::new()));
-        let choice = if server_prefill.is_empty() || server_prefill == CLOUD_INSTANCE {
+        let cloud = cloud_instance();
+        let choice = if server_prefill.is_empty() || server_prefill == cloud {
             InstanceChoice::Cloud
         } else {
             InstanceChoice::SelfHosted
@@ -101,7 +113,7 @@ impl LoginView {
         let server = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("https://exponential.example.com")
-                .default_value(if server_prefill == CLOUD_INSTANCE {
+                .default_value(if server_prefill == cloud {
                     String::new()
                 } else {
                     server_prefill
@@ -164,7 +176,7 @@ impl LoginView {
     /// an empty URL field.
     fn effective_instance(&self, cx: &App) -> Option<String> {
         match self.choice {
-            InstanceChoice::Cloud => Some(CLOUD_INSTANCE.to_string()),
+            InstanceChoice::Cloud => Some(cloud_instance()),
             InstanceChoice::SelfHosted => {
                 let raw = self.server.read(cx).value().trim().to_string();
                 (!raw.is_empty()).then(|| api::login::normalize_instance_url(&raw))

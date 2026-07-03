@@ -84,8 +84,13 @@ bun run format                     # Prettier format
 bun run android:build              # ./gradlew :app:assembleProductionDebug in apps/android (:staging variant exists)
 bun run android:install            # ./gradlew :app:installProductionDebug (:staging variant exists)
 
-bun run dev:desktop                # cargo run -p app (apps/desktop, the gpui IDE)
-bun run build:desktop              # cargo build --release (apps/desktop)
+bun run dev:desktop                # gpui IDE against LOCAL backend (EXP_INSTANCE_URL=http://localhost:3000)
+bun run dev:desktop:staging        # gpui IDE, "Cloud" button → next.exponential.at (EXP_INSTANCE_URL override)
+bun run dev:desktop:prod           # gpui IDE, "Cloud" button → app.exponential.at
+bun run build:desktop              # cargo build --release -p app (production channel)
+bun run build:desktop:staging      # cargo build --release -p app --features staging (staging channel: next.exponential.at + distinct app id)
+bun run appimage:desktop           # build + package a Linux AppImage (production)
+bun run appimage:desktop:staging   # build + package a Linux AppImage (staging)
 bun run test:desktop               # cargo test (apps/desktop workspace)
 
 bun run --filter @exp/domain-contract generate   # Regenerate iOS + Android + desktop enum constants
