@@ -10,10 +10,30 @@
 //! links gpui** (it is the single seam between the headless engine and the
 //! view tree).
 //!
-//! Phase-1 state: only [`collections::Store`] exists — the gpui global the
-//! §3.6 shell installs so multi-window shared state is proven before the
-//! engine lands underneath it.
+//! Phase-2 state: `protocol.rs` (wire protocol, fixture-locked against
+//! `packages/electric-protocol`), `shapes.rs` (the 14 `ShapeSpec` entries),
+//! `store.rs` (rusqlite/WAL generic upsert + the §5.6c atomic-refetch dance),
+//! `client.rs` (the blocking ureq long-poll engine, one thread per shape) and
+//! `manager.rs` (per-account pipeline reconcile) are in — all gpui-free and
+//! covered by `tests/{protocol,store,engine}.rs`. `collections.rs` is the
+//! real §5.8 glue: the global [`Store`] with one reactive
+//! `Entity<Collection<T>>` per shape, the single foreground delta drain, and
+//! the §5 session state machine (SignedOut → SigningIn → Synced /
+//! AuthExpired — a dead token routes to login, never an empty board).
 
+pub mod client;
 pub mod collections;
+pub mod manager;
+pub mod protocol;
+pub mod shapes;
+pub mod store;
 
-pub use collections::{SharedState, Store};
+pub use client::{
+    ShapeClient, ShapeClientConfig, ShapeDelta, ShapeError, ShapeTransport, TokenFn,
+    TransportError, TransportResponse, UnauthorizedFn, UreqTransport,
+};
+pub use collections::{
+    Collection, Collections, SessionPhase, ShapeRow, ShapeStatus, ShapeSyncPhase, SharedState,
+    Store,
+};
+pub use manager::{AccountSyncConfig, SyncManager};

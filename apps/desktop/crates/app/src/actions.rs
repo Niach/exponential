@@ -21,6 +21,9 @@ actions!(
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &NewWindow, cx| crate::windows::open_workspace_window(cx));
+    // Phase-2 session wiring: the sidebar footer's Sign out flips the §5
+    // state machine (pipeline stop + token delete + route to login).
+    cx.on_action(|_: &ui::SignOut, cx| ui::sign_out_active(cx));
 
     #[cfg(target_os = "macos")]
     cx.bind_keys([

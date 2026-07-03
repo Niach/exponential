@@ -10,3 +10,14 @@ domain = { path = "../domain" }
 # "Only sync::collections links gpui"). protocol/client/store/manager (Phase 2)
 # stay gpui-free and headless-testable.
 gpui.workspace = true
+# Phase-2 engine deps (masterplan-v3 §5.1) — all gpui-free.
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Blocking HTTP over rustls for the per-shape long-poll loops (§5.3) — no
+# async runtime under gpui's executor, and no HTTP cache layer, ever (§5.6a).
+ureq.workspace = true
+# The outward ShapeDelta change-notification channel (§5.8) — the collections
+# layer drains it on one foreground task.
+flume.workspace = true
+log = "0.4"

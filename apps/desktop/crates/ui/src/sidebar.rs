@@ -135,9 +135,22 @@ impl SidebarPanel {
     /// Footer: Send Feedback direct item (EXP-1 #10), the account/settings
     /// dropdown (EXP-1 #11), and the shared-store status line (§3.10 proof).
     fn render_footer(&self, cx: &App) -> impl IntoElement {
-        let windows_open = Store::global(cx).state().read(cx).windows_open;
+        let state = Store::global(cx).state();
+        let windows_open = state.read(cx).windows_open;
+        // The sidebar only renders when Synced (the workspace swaps to the
+        // login surface otherwise), so show who is signed in.
+        let who: SharedString = state
+            .read(cx)
+            .session
+            .account_id()
+            .and_then(|account_id| {
+                cx.try_global::<crate::AuthContext>()
+                    .and_then(|auth| auth.auth.account(account_id))
+                    .map(|account| SharedString::from(account.email))
+            })
+            .unwrap_or_else(|| "Not signed in".into());
         let status: SharedString = format!(
-            "Not signed in · {windows_open} {}",
+            "{who} · {windows_open} {}",
             if windows_open == 1 { "window" } else { "windows" }
         )
         .into();

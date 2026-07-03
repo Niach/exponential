@@ -6,3 +6,14 @@ license.workspace = true
 
 [dependencies]
 domain = { path = "../domain" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ureq = { workspace = true }
+flume = { workspace = true }
+open = { workspace = true }
+dirs = { workspace = true }
+
+# NOTE (locked decision 2026-07-03): secrets are ALWAYS file-based (0600/0700,
+# see token_store.rs) — never the OS keyring. The keyring crate was removed:
+# its macOS Keychain backend re-prompts on every rebuild of an unsigned dev
+# binary, and Secret Service is absent on headless Linux anyway.

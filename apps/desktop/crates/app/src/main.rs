@@ -54,20 +54,33 @@ fn main() {
         #[cfg(target_os = "macos")]
         menus::install_menubar(cx);
 
-        // The global Store (§3.6). Phase 2 gives open() its real job
-        // (rusqlite/WAL + the 14 shape threads); Phase 1 installs the shared
-        // state every window reads — the multi-window gate.
-        let store = sync::Store::open(cx);
+        // ---- Auth + sync globals (§5.7 / §5.8) -----------------------------
+        // The AuthStore hydrates remembered accounts + tokens (0600-file
+        // store); its unauthorized handler is wired into the sync manager so a
+        // hard 401 deletes the dead token BEFORE the store's delta drain
+        // routes the UI to login (EXP-1 #13b).
+        let data_dir = api::default_data_dir();
+        let auth = api::AuthStore::load(data_dir.clone());
+        let store = sync::Store::open(cx, Some(auth.unauthorized_handler_fn()));
         cx.set_global(store);
+        cx.set_global(ui::AuthContext {
+            auth,
+            client: std::sync::Arc::new(api::AuthClient::new()),
+            data_dir,
+        });
+
+        // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
+        // (headless verification, dev-only) or a warm-start resume of the
+        // persisted account — else the workspace boots to the login surface.
+        ui::bootstrap_session(cx);
 
         // Foreground drain for the OAuth-callback URLs (on_open_urls has no
-        // cx). Phase 2 routes these into the auth flow (§5.7 exp:// deep
-        // links + §4.2 invite links); the drain exists now so the marshalling
-        // is proven and Phase 2 only swaps the handler body.
+        // cx). The full OAuth browser round-trip is Phase-3 login-UI work
+        // (§5.7); the drain exists so the marshalling stays proven.
         cx.spawn(async move |_cx| {
             while let Ok(urls) = url_rx.recv_async().await {
-                // Stub handler — auth comes in Phase 2.
-                eprintln!("[exp-desktop] open-urls (unhandled until Phase 2): {urls:?}");
+                // Stub handler — OAuth callback routing lands with Phase 3.
+                eprintln!("[exp-desktop] open-urls (unhandled until Phase 3): {urls:?}");
             }
         })
         .detach();

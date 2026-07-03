@@ -27,14 +27,18 @@ use gpui_component::{
     dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
     ActiveTheme as _,
 };
-use sync::Store;
+use sync::{SessionPhase, Store};
 
-use crate::{sidebar::SidebarPanel, terminal_dock::TerminalDockPanel};
+use crate::{
+    debug_board::DebugBoardPanel, login::LoginView, sidebar::SidebarPanel,
+    terminal_dock::TerminalDockPanel,
+};
 
 /// Bump when the default layout shape changes so stale persisted layouts are
 /// discarded and rebuilt (mirrors the gpui-component dock example's version
 /// check; we silently reset instead of prompting).
-const LAYOUT_VERSION: usize = 1;
+/// v2: the Phase-2 debug board landed in the center tabs.
+const LAYOUT_VERSION: usize = 2;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
@@ -50,6 +54,10 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub struct Workspace {
     dock_area: Entity<DockArea>,
+    /// The functional Phase-2 login surface — rendered INSTEAD of the dock
+    /// whenever the session machine is not `Synced` (§5: a dead token routes
+    /// to login, never an empty board).
+    login: Entity<LoginView>,
     /// Which per-window layout slot this window persists to (window 0 = the
     /// main window; further windows get the next ordinal at open time).
     ordinal: usize,
@@ -61,9 +69,13 @@ impl Workspace {
     pub fn new(ordinal: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let dock_area =
             cx.new(|cx| DockArea::new(DOCK_AREA_ID, Some(LAYOUT_VERSION), window, cx));
+        let login = cx.new(|cx| LoginView::new(window, cx));
 
         // ---- Shared-store window accounting (§3.10 multi-window gate) ------
+        // Also drives the login-vs-board switch: re-render on session-phase
+        // changes.
         let shared = Store::global(cx).state();
+        cx.observe(&shared, |_, _, cx| cx.notify()).detach();
         shared.update(cx, |state, cx| {
             state.windows_open += 1;
             cx.notify();
@@ -117,6 +129,7 @@ impl Workspace {
 
         Self {
             dock_area,
+            login,
             ordinal,
             last_saved: None,
             _save_task: None,
@@ -140,14 +153,16 @@ impl Workspace {
         dock_area.update(cx, |dock_area, cx| dock_area.load(state, window, cx))
     }
 
-    /// The default layout: empty center tabs (issue tabs land in Phase 3).
+    /// The default layout: the Phase-2 debug board in the center tabs (the
+    /// real issue tabs replace it in Phase 3).
     fn reset_default_layout(
         dock_area: &Entity<DockArea>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         let weak = dock_area.downgrade();
-        let center = DockItem::tabs(vec![], &weak, window, cx);
+        let board: Arc<dyn PanelView> = Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx)));
+        let center = DockItem::tabs(vec![board], &weak, window, cx);
         dock_area.update(cx, |dock_area, cx| {
             dock_area.set_version(LAYOUT_VERSION, window, cx);
             dock_area.set_center(center, window, cx);
@@ -188,7 +203,7 @@ impl Workspace {
 
             if dock_area.bottom_dock().is_none() {
                 let terminal: Arc<dyn PanelView> =
-                    Arc::new(cx.new(|cx| TerminalDockPanel::new(window, cx)));
+                    Arc::new(cx.new(|cx| TerminalDockPanel::new(weak.clone(), window, cx)));
                 let bottom = DockItem::tabs(vec![terminal], &weak, window, cx);
                 // Collapsed by default — the Dock keeps a 29px toggle strip.
                 dock_area.set_bottom_dock(bottom, Some(TERMINAL_DOCK_HEIGHT), false, window, cx);
@@ -249,11 +264,20 @@ impl Render for Workspace {
             return div().into_any_element();
         }
 
+        // The §5 session switch: anything but `Synced` renders the login
+        // surface — including `AuthExpired`, the EXP-1 #13(b) dead-token
+        // routing (login screen, never an empty board).
+        let session = Store::global(cx).session(cx);
+        let content: gpui::AnyElement = match session {
+            SessionPhase::Synced { .. } => self.dock_area.clone().into_any_element(),
+            _ => self.login.clone().into_any_element(),
+        };
+
         div()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(self.dock_area.clone())
+            .child(content)
             .into_any_element()
     }
 }
