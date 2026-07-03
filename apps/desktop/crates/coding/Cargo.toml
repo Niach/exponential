@@ -19,3 +19,18 @@ dirs = { workspace = true }
 # the core (git/mcp/prompt/doctor/settings + prepare_launch) is gpui-free and
 # headless-testable (§7.1 "gpui-free-at-its-core state machine").
 gpui = { workspace = true }
+
+[dev-dependencies]
+# tests/dry_run.rs only: a real (headless) gpui platform to drive
+# spawn_prepared + the exit hook end-to-end (same pattern as the terminal
+# crate's exit_hook e2e). Already in the build graph via the app crate.
+gpui_platform = { workspace = true }
+
+# §11.4 Phase-5 launcher dry-run e2e. harness = false: gpui's platform run
+# loop must own the PROCESS MAIN THREAD (libtest runs #[test] fns on worker
+# threads, where the macOS main-queue dispatcher never drains). The binary
+# self-skips unless EXP_CODING_DRYRUN_E2E=1, so plain `cargo test` stays
+# green and fast.
+[[test]]
+name = "dry_run"
+harness = false

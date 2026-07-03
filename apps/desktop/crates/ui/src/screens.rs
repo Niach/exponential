@@ -182,6 +182,31 @@ impl Focusable for ScreensPanel {
 impl Render for ScreensPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
+
+        // DEV-ONLY (§11.4 headless verification, EXP_DEV_* family): once the
+        // board resolves, `EXP_DEV_CREATE_DIALOG=1` opens the create-issue
+        // dialog exactly once so gate screenshots can capture it without
+        // synthetic input. Delayed a beat so the dock/window chrome finishes
+        // settling first. Unset in normal runs.
+        if let Some(Screen::Board { ref project_id }) = screen {
+            if std::env::var("EXP_DEV_CREATE_DIALOG").as_deref() == Ok("1") {
+                use std::sync::atomic::{AtomicBool, Ordering};
+                static FIRED: AtomicBool = AtomicBool::new(false);
+                if !FIRED.swap(true, Ordering::SeqCst) {
+                    let project_id = project_id.clone();
+                    cx.spawn_in(_window, async move |_this, cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(1500))
+                            .await;
+                        let opened = cx.update(|window, cx| {
+                            crate::create_issue_dialog::open(window, cx, project_id);
+                        });
+                        eprintln!("[exp-desktop] dev: EXP_DEV_CREATE_DIALOG fired ({opened:?})");
+                    })
+                    .detach();
+                }
+            }
+        }
         let content = match screen {
             None => self.render_syncing(cx),
             Some(Screen::Board { project_id }) => self.render_board(&project_id, cx),

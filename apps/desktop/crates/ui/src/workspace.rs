@@ -25,7 +25,7 @@ use gpui::{
 };
 use gpui_component::{
     dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
-    ActiveTheme as _,
+    ActiveTheme as _, Root,
 };
 use sync::{SessionPhase, Store};
 
@@ -289,11 +289,23 @@ impl Render for Workspace {
             _ => self.login.clone().into_any_element(),
         };
 
+        // Root overlay layers (the sanctioned gpui-component pattern — story
+        // lib.rs `StoryRoot::render`): the app's root view must compose the
+        // sheet/dialog/notification layers or `window.open_dialog` /
+        // `push_notification` silently never paint (§3.3 "Root MUST be the
+        // first view" is necessary but not sufficient).
+        let sheet_layer = Root::render_sheet_layer(window, cx);
+        let dialog_layer = Root::render_dialog_layer(window, cx);
+        let notification_layer = Root::render_notification_layer(window, cx);
+
         div()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(content)
+            .children(sheet_layer)
+            .children(dialog_layer)
+            .children(notification_layer)
             .into_any_element()
     }
 }

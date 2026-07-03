@@ -41,7 +41,8 @@ pub use doctor::{run_doctor, DoctorReport, Tool, ToolCheck};
 pub use git_worktree::{branch_name, clone_path, worktree_path, GitError, TokenUrl};
 pub use launcher::{
     end_session_best_effort, prepare_launch, spawn_prepared, CodingDeps, CodingError,
-    DisabledReason, GitWorktrees, IssueSeed, LaunchOrigin, LaunchOutcome, LaunchRequest,
+    DisabledReason, GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome,
+    LaunchRequest,
     Prepared, PreparedLaunch, WorktreeProvider,
 };
 pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};

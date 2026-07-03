@@ -774,8 +774,14 @@ fn unit_select(interval: i64, current: String, panel: &Entity<PropertiesPanel>) 
         })
 }
 
-/// Web `issueLabels.add` / `issueLabels.remove` toggle.
-fn toggle_label(cx: &mut App, issue_id: String, label_id: String, currently_selected: bool) {
+/// Web `issueLabels.add` / `issueLabels.remove` toggle. `pub(crate)` — shared
+/// with the issue-row context menu's Labels submenu (§4.2).
+pub(crate) fn toggle_label(
+    cx: &mut App,
+    issue_id: String,
+    label_id: String,
+    currently_selected: bool,
+) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] issueLabels toggle skipped: no signed-in account");
         return;

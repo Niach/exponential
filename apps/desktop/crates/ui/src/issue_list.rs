@@ -25,14 +25,15 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{
-    div, px, size, App, ElementId, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement as _, Styled,
-    Window,
+    div, px, size, App, ClipboardItem, ElementId, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement, Pixels, Render, SharedString, Size,
+    StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
+    avatar::Avatar,
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
     v_flex, v_virtual_list, ActiveTheme as _, Icon, IconName, Side, Sizable as _,
@@ -45,11 +46,13 @@ use domain::options::{
     get_issue_priority_config, get_issue_status_config, IssueOption, ISSUE_PRIORITY_OPTIONS,
     ISSUE_STATUS_OPTIONS,
 };
-use domain::rows::{Issue, Label};
+use domain::rows::{Issue, Label, User};
 use domain::{IssueFilters, IssueStatus};
 
 use crate::icons::{option_icon, ExpIcon};
+use crate::issue_detail::{open_duplicate_picker, set_duplicate_of};
 use crate::navigation::{navigate, Screen};
+use crate::properties_panel::toggle_label;
 use crate::queries::{self, BoardData};
 
 /// Compact row height (§4.4: ~28px vs web's ~40px desktop row).
@@ -235,7 +238,8 @@ impl IssueListView {
     }
 
     /// The web row grid at compact density: priority · identifier · status ·
-    /// title · labels · due.
+    /// title · labels · assignee · due (the 7-column
+    /// `grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]` template).
     fn render_issue_row(
         &self,
         issue: &Issue,
@@ -243,6 +247,7 @@ impl IssueListView {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
+        let menu_issue = issue.clone();
 
         div()
             // Stable per-issue ElementId (§4.6): echo/refetch keeps row
@@ -325,9 +330,21 @@ impl IssueListView {
                     .flex_shrink_0()
                     .children(labels.iter().map(|label| label_chip(label, cx))),
             )
+            // 28px assignee dropdown cell (web `AssigneeDropdown` — avatar or
+            // dashed placeholder circle).
+            .child(
+                control_cell(row_id("assignee-cell", &issue.id))
+                    .ml_3()
+                    .child(assignee_dropdown(issue, cx)),
+            )
             // auto due date: CalendarDays + short date (dimmed placeholder
-            // glyph when unset — web parity).
+            // glyph when unset — web parity; presets edit via the context
+            // menu's "Set due date" submenu, mirroring `due-date-presets.tsx`).
             .child(due_cell(issue, cx))
+            // Right-click context menu (web `IssueRowContextMenu`, §4.2/§4.6).
+            .context_menu(move |menu, window, cx| {
+                build_row_context_menu(menu, &menu_issue, window, cx)
+            })
     }
 }
 
@@ -513,6 +530,430 @@ fn status_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
             }
             menu
         })
+}
+
+/// Assignee dropdown (web `AssigneeDropdown`): avatar trigger when assigned,
+/// dashed placeholder circle otherwise; menu = Unassign + the workspace's
+/// human members (current assignee first — web `orderedUsers`).
+fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
+    let assignee = issue
+        .assignee_id
+        .as_deref()
+        .and_then(|id| Store::global(cx).collections().users.read(cx).get(id).cloned());
+
+    let trigger = match &assignee {
+        Some(user) => Button::new(row_id("assignee", &issue.id))
+            .ghost()
+            .xsmall()
+            .child(
+                Avatar::new()
+                    .name(SharedString::from(crate::comments::author_label(Some(user))))
+                    .xsmall(),
+            ),
+        None => Button::new(row_id("assignee", &issue.id)).ghost().xsmall().child(
+            div()
+                .size_4()
+                .rounded_full()
+                .border_1()
+                .border_dashed()
+                .border_color(cx.theme().border)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    Icon::new(IconName::User)
+                        .size_2p5()
+                        .text_color(cx.theme().muted_foreground.opacity(0.5)),
+                ),
+        ),
+    };
+
+    let issue_id = issue.id.clone();
+    let project_id = issue.project_id.clone();
+    let current = issue.assignee_id.clone();
+    trigger.dropdown_menu(move |menu, _window, cx| {
+        assignee_menu(menu, &issue_id, &project_id, current.as_deref(), cx)
+    })
+}
+
+/// The shared assignee menu body (row dropdown + context-menu submenu).
+fn assignee_menu(
+    menu: PopupMenu,
+    issue_id: &str,
+    project_id: &str,
+    current: Option<&str>,
+    cx: &App,
+) -> PopupMenu {
+    let mut menu = menu.check_side(Side::Right);
+    if current.is_some() {
+        let issue_id = issue_id.to_string();
+        menu = menu.item(
+            PopupMenuItem::new("Unassign")
+                .icon(Icon::new(IconName::Close))
+                .on_click(move |_, _, cx| {
+                    let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                    input.assignee_id = api::Patch::Null;
+                    spawn_issue_update(cx, input);
+                }),
+        );
+    }
+    for user in assignable_users(project_id, current, cx) {
+        let checked = current == Some(user.id.as_str());
+        let name = crate::comments::author_label(Some(&user));
+        let issue_id = issue_id.to_string();
+        let user_id = user.id.clone();
+        menu = menu.item(
+            PopupMenuItem::new(SharedString::from(name))
+                .icon(Icon::new(IconName::CircleUser))
+                .checked(checked)
+                .on_click(move |_, _, cx| {
+                    let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                    input.assignee_id = api::Patch::Set(user_id.clone());
+                    spawn_issue_update(cx, input);
+                }),
+        );
+    }
+    menu
+}
+
+/// The workspace's human members eligible as assignees (project → workspace →
+/// members ⨝ users, agents hidden — web `people`), current assignee first
+/// (web `orderedUsers`), then name-sorted.
+fn assignable_users(project_id: &str, current: Option<&str>, cx: &App) -> Vec<User> {
+    let collections = Store::global(cx).collections();
+    let Some(project) = collections.projects.read(cx).get(project_id).cloned() else {
+        return Vec::new();
+    };
+    let member_ids: HashSet<String> = collections
+        .workspace_members
+        .read(cx)
+        .iter()
+        .filter(|member| member.workspace_id == project.workspace_id)
+        .map(|member| member.user_id.clone())
+        .collect();
+    let mut users: Vec<User> = collections
+        .users
+        .read(cx)
+        .iter()
+        .filter(|user| member_ids.contains(&user.id) && user.is_agent != Some(true))
+        .cloned()
+        .collect();
+    users.sort_by_key(|user| {
+        (
+            current != Some(user.id.as_str()),
+            crate::comments::author_label(Some(user)).to_lowercase(),
+        )
+    });
+    users
+}
+
+// ---------------------------------------------------------------------------
+// Row context menu (web `issue-row-menu/context-menu.tsx`)
+// ---------------------------------------------------------------------------
+
+/// Mirror of the web `IssueRowContextMenu`: header label, Open issue, Mark as
+/// done / Move to todo, Copy issue ID, Mark as duplicate… / Unmark duplicate,
+/// then Status / Assignee / Priority / Labels / Set-due-date submenus, then
+/// the Delete-issue confirm submenu. Mutations are the §4.1 un-gated form.
+fn build_row_context_menu(
+    menu: PopupMenu,
+    issue: &Issue,
+    window: &mut Window,
+    cx: &mut gpui::Context<PopupMenu>,
+) -> PopupMenu {
+    let mut menu = menu
+        .check_side(Side::Right)
+        .label(SharedString::from(issue.identifier.clone()));
+
+    // Open issue.
+    {
+        let issue_id = issue.id.clone();
+        menu = menu.item(
+            PopupMenuItem::new("Open issue")
+                .icon(Icon::from(ExpIcon::Pencil))
+                .on_click(move |_, window, cx| {
+                    navigate(
+                        window,
+                        cx,
+                        Screen::IssueDetail {
+                            issue_id: issue_id.clone(),
+                        },
+                    );
+                }),
+        );
+    }
+
+    // Mark as done / Move to todo (web toggles done ↔ todo).
+    {
+        let is_done = issue.status == IssueStatus::Done;
+        let (label, icon) = if is_done {
+            ("Move to todo", ExpIcon::ListTodo)
+        } else {
+            ("Mark as done", ExpIcon::CircleCheck)
+        };
+        let issue_id = issue.id.clone();
+        menu = menu.item(PopupMenuItem::new(label).icon(Icon::from(icon)).on_click(
+            move |_, _, cx| {
+                let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                input.status = Some(if is_done {
+                    IssueStatus::Todo
+                } else {
+                    IssueStatus::Done
+                });
+                spawn_issue_update(cx, input);
+            },
+        ));
+    }
+
+    // Copy issue ID.
+    {
+        let identifier = issue.identifier.clone();
+        menu = menu.item(
+            PopupMenuItem::new("Copy issue ID")
+                .icon(Icon::from(ExpIcon::Copy))
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(identifier.clone()));
+                }),
+        );
+    }
+
+    // Mark as duplicate… / Unmark duplicate (shared IssuePicker, §4.6).
+    if issue.duplicate_of_id.is_some() {
+        let issue_id = issue.id.clone();
+        menu = menu.item(
+            PopupMenuItem::new("Unmark duplicate")
+                .icon(Icon::new(IconName::Undo2))
+                .on_click(move |_, _, cx| {
+                    // Server restores the prior status and clears the link.
+                    set_duplicate_of(issue_id.clone(), None, cx);
+                }),
+        );
+    } else {
+        let issue_id = issue.id.clone();
+        menu = menu.item(
+            PopupMenuItem::new("Mark as duplicate…")
+                .icon(Icon::from(ExpIcon::Copy))
+                .on_click(move |_, window, cx| {
+                    open_duplicate_picker(issue_id.clone(), window, cx);
+                }),
+        );
+    }
+
+    menu = menu.separator();
+
+    // Status submenu (option icons + right-side check, EXP-1 #5).
+    {
+        let issue_id = issue.id.clone();
+        let current = issue.status;
+        menu = menu.submenu("Status", window, cx, move |menu, _, cx| {
+            let mut menu = menu.check_side(Side::Right);
+            for option in &ISSUE_STATUS_OPTIONS {
+                menu = menu.item(option_item(option, option.value == current, cx, {
+                    let issue_id = issue_id.clone();
+                    let value = option.value;
+                    move |cx| {
+                        let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                        input.status = Some(value);
+                        spawn_issue_update(cx, input);
+                    }
+                }));
+            }
+            menu
+        });
+    }
+
+    // Assignee submenu (current member first, agents hidden).
+    {
+        let issue_id = issue.id.clone();
+        let project_id = issue.project_id.clone();
+        let current = issue.assignee_id.clone();
+        menu = menu.submenu("Assignee", window, cx, move |menu, _, cx| {
+            assignee_menu(menu, &issue_id, &project_id, current.as_deref(), cx)
+        });
+    }
+
+    // Priority submenu.
+    {
+        let issue_id = issue.id.clone();
+        let current = issue.priority;
+        menu = menu.submenu("Priority", window, cx, move |menu, _, cx| {
+            let mut menu = menu.check_side(Side::Right);
+            for option in &ISSUE_PRIORITY_OPTIONS {
+                menu = menu.item(option_item(option, option.value == current, cx, {
+                    let issue_id = issue_id.clone();
+                    let value = option.value;
+                    move |cx| {
+                        let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                        input.priority = Some(value);
+                        spawn_issue_update(cx, input);
+                    }
+                }));
+            }
+            menu
+        });
+    }
+
+    // Labels submenu (colored dot + name + check, toggle membership).
+    {
+        let issue_id = issue.id.clone();
+        let project_id = issue.project_id.clone();
+        menu = menu.submenu("Labels", window, cx, move |menu, _, cx| {
+            let mut menu = menu.check_side(Side::Right);
+            let collections = Store::global(cx).collections();
+            let Some(project) = collections.projects.read(cx).get(&project_id).cloned() else {
+                return menu;
+            };
+            let mut labels: Vec<Label> = collections
+                .labels
+                .read(cx)
+                .iter()
+                .filter(|label| label.workspace_id == project.workspace_id)
+                .cloned()
+                .collect();
+            labels.sort_by(|a, b| {
+                a.sort_order
+                    .unwrap_or(f64::MAX)
+                    .total_cmp(&b.sort_order.unwrap_or(f64::MAX))
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            });
+            if labels.is_empty() {
+                return menu.item(PopupMenuItem::label("No labels in this workspace"));
+            }
+            let selected: HashSet<String> = collections
+                .issue_labels
+                .read(cx)
+                .iter()
+                .filter(|link| link.issue_id == issue_id)
+                .map(|link| link.label_id.clone())
+                .collect();
+            for label in labels {
+                let checked = selected.contains(&label.id);
+                let dot = label
+                    .color
+                    .as_deref()
+                    .and_then(parse_hex_color)
+                    .unwrap_or(gpui::opaque_grey(0.5, 1.0));
+                let name = SharedString::from(label.name.clone());
+                let issue_id = issue_id.clone();
+                let label_id = label.id.clone();
+                menu = menu.item(
+                    PopupMenuItem::element(move |_, cx| {
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().size_2().rounded_full().flex_shrink_0().bg(dot))
+                            .child(
+                                div()
+                                    .text_color(cx.theme().popover_foreground)
+                                    .child(name.clone()),
+                            )
+                    })
+                    .checked(checked)
+                    .on_click(move |_, _, cx| {
+                        toggle_label(cx, issue_id.clone(), label_id.clone(), checked);
+                    }),
+                );
+            }
+            menu
+        });
+    }
+
+    // Set due date submenu (web `due-date-presets.tsx`: Tomorrow / End of this
+    // week / In one week, plus Clear when set).
+    {
+        let issue_id = issue.id.clone();
+        let due = issue.due_date.clone();
+        menu = menu.submenu("Set due date", window, cx, move |menu, _, _| {
+            let mut menu = menu.check_side(Side::Right);
+            let today = chrono::Local::now().date_naive();
+            for (label, date) in due_date_presets(today) {
+                let formatted = date.format("%Y-%m-%d").to_string();
+                let checked = due.as_deref() == Some(formatted.as_str());
+                let issue_id = issue_id.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(label)
+                        .icon(Icon::from(ExpIcon::CalendarDays))
+                        .checked(checked)
+                        .on_click(move |_, _, cx| {
+                            let mut input =
+                                api::issues::IssuesUpdateInput::new(issue_id.clone());
+                            input.due_date = api::Patch::Set(formatted.clone());
+                            spawn_issue_update(cx, input);
+                        }),
+                );
+            }
+            if due.is_some() {
+                let issue_id = issue_id.clone();
+                menu = menu.separator().item(
+                    PopupMenuItem::new("Clear due date")
+                        .icon(Icon::new(IconName::Close))
+                        .on_click(move |_, _, cx| {
+                            let mut input =
+                                api::issues::IssuesUpdateInput::new(issue_id.clone());
+                            input.due_date = api::Patch::Null;
+                            spawn_issue_update(cx, input);
+                        }),
+                );
+            }
+            menu
+        });
+    }
+
+    // Delete issue → nested confirm (web's destructive submenu).
+    {
+        let issue_id = issue.id.clone();
+        menu = menu.separator().submenu_with_icon(
+            Some(Icon::new(IconName::Delete)),
+            "Delete issue",
+            window,
+            cx,
+            move |menu, _, _| {
+                let issue_id = issue_id.clone();
+                menu.item(
+                    PopupMenuItem::new("Confirm delete")
+                        .icon(Icon::new(IconName::Delete))
+                        .on_click(move |_, _, cx| {
+                            spawn_issue_delete(cx, issue_id.clone());
+                        }),
+                )
+            },
+        );
+    }
+
+    menu
+}
+
+/// Web `getDueDatePresets` (`lib/issue-due-date.ts`): Tomorrow, end of the
+/// work week (next Friday, today included), in one week.
+fn due_date_presets(today: chrono::NaiveDate) -> [(&'static str, chrono::NaiveDate); 3] {
+    use chrono::Datelike as _;
+    // web: (5 - day + 7) % 7 with Sunday=0 — "this week's Friday", today if
+    // Friday.
+    let days_until_friday = (5 + 7 - today.weekday().num_days_from_sunday() as i64) % 7;
+    [
+        ("Tomorrow", today + chrono::Duration::days(1)),
+        (
+            "End of this week",
+            today + chrono::Duration::days(days_until_friday),
+        ),
+        ("In one week", today + chrono::Duration::days(7)),
+    ]
+}
+
+/// §4.1 un-gated `issues.delete` on a background thread (the row vanishes on
+/// the Electric echo, web parity).
+fn spawn_issue_delete(cx: &mut App, issue_id: String) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[ui] issues.delete skipped: no signed-in account");
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::issues::issues_delete(&trpc, &issue_id) {
+                log::warn!("[ui] issues.delete({issue_id}) failed: {err}");
+            }
+        })
+        .detach();
 }
 
 /// One option row: `domain`-table icon (colored) + label + check when
@@ -704,4 +1145,31 @@ fn header_id(kind: &str, status: IssueStatus) -> ElementId {
         "{kind}-{}",
         status.as_wire().unwrap_or("unknown")
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn due_date_presets_mirror_web_issue_due_date() {
+        // Web getDueDatePresets: tomorrow, this week's Friday (today if
+        // Friday), in one week.
+        let wednesday = chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let [tomorrow, end_of_week, one_week] = due_date_presets(wednesday);
+        assert_eq!(tomorrow.0, "Tomorrow");
+        assert_eq!(tomorrow.1, chrono::NaiveDate::from_ymd_opt(2026, 7, 2).unwrap());
+        assert_eq!(end_of_week.1, chrono::NaiveDate::from_ymd_opt(2026, 7, 3).unwrap()); // Friday
+        assert_eq!(one_week.1, chrono::NaiveDate::from_ymd_opt(2026, 7, 8).unwrap());
+
+        // On a Friday the end-of-week preset is today (web (5-day+7)%7 == 0).
+        let friday = chrono::NaiveDate::from_ymd_opt(2026, 7, 3).unwrap();
+        let [_, end_of_week, _] = due_date_presets(friday);
+        assert_eq!(end_of_week.1, friday);
+
+        // On a Saturday it wraps to NEXT Friday (web modulo behavior).
+        let saturday = chrono::NaiveDate::from_ymd_opt(2026, 7, 4).unwrap();
+        let [_, end_of_week, _] = due_date_presets(saturday);
+        assert_eq!(end_of_week.1, chrono::NaiveDate::from_ymd_opt(2026, 7, 10).unwrap());
+    }
 }

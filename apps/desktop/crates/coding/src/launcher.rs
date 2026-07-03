@@ -6,12 +6,11 @@
 //! Split to match gpui's threading model while keeping one code path:
 //!
 //! 1. [`prepare_launch`] — steps 1–6 (repo resolve → JIT token → git →
-//!    `.mcp.json` → `PROMPT.md` → `codingSessions.start`). **Blocking network
-//!    + git I/O, gpui-free** — run it on the background executor. Returns
-//!    either a [`PreparedLaunch`] (the spawn spec for
-//!    `claude --dangerously-skip-permissions`) or a [`DisabledReason`]
-//!    (EXP-4: never falsely block, always explain — none of these are
-//!    errors/panics).
+//!    `.mcp.json` → `PROMPT.md` → `codingSessions.start`). **Blocking
+//!    network and git I/O, gpui-free** — run it on the background executor.
+//!    Returns either a [`PreparedLaunch`] (the spawn spec for
+//!    `claude --dangerously-skip-permissions`) or a [`DisabledReason`] (EXP-4:
+//!    never falsely block, always explain — none of these are errors/panics).
 //! 2. [`spawn_prepared`] — steps 7–8 on the foreground: opens the Claude tab
 //!    through the §06 `TerminalManager` (keyed by the `coding_sessions` id),
 //!    types the seed line, and installs the one-shot exit hook that ends the
@@ -86,7 +85,8 @@ pub trait WorktreeProvider: Send + Sync {
 
 /// The real git path: `ensure_clone` → `set_token_remote` (re-set EVERY
 /// launch — the previous embedded token is dead) → best-effort fetch of the
-/// base branch → `create_worktree` (idempotent reuse).
+/// base branch → `create_worktree` (idempotent reuse) → repo-local excludes
+/// for the credential-bearing seed files.
 pub struct GitWorktrees;
 
 impl WorktreeProvider for GitWorktrees {
@@ -103,9 +103,22 @@ impl WorktreeProvider for GitWorktrees {
         // Best-effort: a stale-but-present origin/<default> still yields a
         // valid worktree; only a truly missing base ref fails below.
         let _ = fetch_base(&clone, default_branch, url);
-        create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)
+        let worktree =
+            create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
+        // .mcp.json carries the raw expu_ key and claude is told to commit +
+        // push — keep both seed files out of `git add -A` via the shared,
+        // never-committed `.git/info/exclude` (best-effort by design).
+        let _ = crate::git_worktree::ensure_local_excludes(
+            &clone,
+            &[crate::mcp_json::MCP_JSON_FILE, crate::prompt::PROMPT_FILE],
+        );
+        Ok(worktree)
     }
 }
+
+/// Issue title/description lookup for `PROMPT.md` (sync-store backed; the
+/// caller owns the store — §3.1: `coding` cannot depend on `sync`).
+pub type IssueSeedFn = Arc<dyn Fn(&str) -> Option<IssueSeed> + Send + Sync>;
 
 /// The injected collaborators (§7.1) — everything the sequence needs, so the
 /// crate stays testable and both launch origins share one code path.
@@ -119,7 +132,7 @@ pub struct CodingDeps {
     /// Resolved coding settings (claude path, repos root, branch prefix).
     pub settings: Settings,
     /// Issue title/description lookup for `PROMPT.md` (sync-store backed).
-    pub issue_seed: Arc<dyn Fn(&str) -> Option<IssueSeed> + Send + Sync>,
+    pub issue_seed: IssueSeedFn,
     /// Git ops ([`GitWorktrees`] in production).
     pub worktrees: Arc<dyn WorktreeProvider>,
 }
@@ -359,30 +372,44 @@ pub fn spawn_prepared(
     let PreparedLaunch { session_id, worktree, branch, spawn, tab_title, .. } = prepared;
 
     let end_session_id = session_id.clone();
+    let exit_trpc = Arc::clone(&trpc);
     let on_exit: terminal::ExitHook = Box::new(move |_tab, _exit, _cx| {
         // Blocking HTTP off the foreground; best-effort — the server also
         // reconciles (idempotent end), and a dead network here must never
         // take the exit-strip rendering down with it.
-        let trpc = Arc::clone(&trpc);
+        let trpc = Arc::clone(&exit_trpc);
+        let end_session_id = end_session_id.clone();
         std::thread::spawn(move || {
             let _ = coding_sessions::end(&trpc, &end_session_id);
         });
     });
 
-    let tab_id = manager.update(cx, |manager, cx| -> Result<TabId, CodingError> {
-        let tab_id = manager
-            .open_tab(TabKind::Claude, tab_title, &spawn, Some(on_exit), cx)
-            .map_err(|e| CodingError::Terminal(format!("spawn claude tab: {e}")))?;
-        // Seed line + Enter through the ONE shared writer (§6.3) — sits in
-        // the PTY buffer until claude's TUI reads it.
-        if let Some(tab) = manager.tab(tab_id) {
-            let session = tab.view.read(cx).session().clone();
-            let session = session.borrow();
-            session.write(SEED_LINE.as_bytes());
-            session.write(b"\r");
-        }
-        Ok(tab_id)
-    })?;
+    let tab_id = manager
+        .update(cx, |manager, cx| -> Result<TabId, CodingError> {
+            let tab_id = manager
+                .open_tab(TabKind::Claude, tab_title, &spawn, Some(on_exit), cx)
+                .map_err(|e| CodingError::Terminal(format!("spawn claude tab: {e}")))?;
+            // Seed line + Enter through the ONE shared writer (§6.3) — sits in
+            // the PTY buffer until claude's TUI reads it.
+            if let Some(tab) = manager.tab(tab_id) {
+                let session = tab.view.read(cx).session().clone();
+                let session = session.borrow();
+                session.write(SEED_LINE.as_bytes());
+                session.write(b"\r");
+            }
+            Ok(tab_id)
+        })
+        .inspect_err(|_| {
+            // Step 6 already created a `running` row; a spawn failure means no
+            // child and therefore no exit hook will EVER fire — end the row
+            // now (idempotent server-side) or the "coding now" badge ghosts
+            // on every client forever.
+            let trpc = Arc::clone(&trpc);
+            let session_id = session_id.clone();
+            std::thread::spawn(move || {
+                let _ = coding_sessions::end(&trpc, &session_id);
+            });
+        })?;
 
     Ok(LaunchOutcome::Spawned {
         session_id,
@@ -447,8 +474,7 @@ mod tests {
                 let mut buf = Vec::new();
                 let mut chunk = [0u8; 4096];
                 let (mut head_end, mut content_length) = (None::<usize>, 0usize);
-                loop {
-                    let Ok(n) = stream.read(&mut chunk) else { break };
+                while let Ok(n) = stream.read(&mut chunk) {
                     if n == 0 {
                         break;
                     }

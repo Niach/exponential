@@ -38,8 +38,8 @@ use gpui_component::{
 use sync::Store;
 
 use crate::actions::{
-    CreateWorkspace, NewProject, OpenInbox, OpenMyIssues, OpenProject, OpenSearch, OpenSettings,
-    SendFeedback, SignOut, SwitchWorkspace,
+    CreateWorkspace, JoinWorkspace, NewProject, OpenInbox, OpenMyIssues, OpenProject, OpenSearch,
+    OpenSettings, SendFeedback, SignOut, SwitchWorkspace,
 };
 use crate::navigation::{active_workspace_id, nav_for_window, resolved_screen, Navigation, Screen};
 
@@ -338,6 +338,13 @@ impl SidebarPanel {
                                 Box::new(CreateWorkspace),
                             );
                         }
+                        // §4.2 accept-invite fallback: desktop cannot catch
+                        // the browser's /invite/<token> click.
+                        menu = menu.menu_with_icon(
+                            "Join workspace…",
+                            Icon::from(crate::icons::ExpIcon::UserPlus),
+                            Box::new(JoinWorkspace),
+                        );
                         menu.separator().menu("Sign out", Box::new(SignOut))
                     }),
             )

@@ -63,8 +63,15 @@ pub struct Navigation {
 impl Navigation {
     fn new() -> Self {
         Self {
-            workspace_id: None,
-            screen: None,
+            // DEV-ONLY (§11.4 headless verification, same family as
+            // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a workspace and/or
+            // pre-route the first screen so gate screenshots can reach
+            // surfaces without synthetic input. Unset in normal runs.
+            workspace_id: std::env::var("EXP_DEV_WORKSPACE").ok(),
+            screen: std::env::var("EXP_DEV_SCREEN")
+                .ok()
+                .as_deref()
+                .and_then(parse_dev_screen),
             back_stack: Vec::new(),
         }
     }
@@ -79,6 +86,20 @@ impl Navigation {
     #[allow(dead_code)] // consumer = detail-header back affordance (later Phase-3 step)
     pub fn can_go_back(&self) -> bool {
         !self.back_stack.is_empty()
+    }
+}
+
+/// DEV-ONLY `EXP_DEV_SCREEN` values: `my-issues` | `inbox` | `settings` |
+/// `account` | `issue:<uuid>` (anything else = no pre-route).
+fn parse_dev_screen(spec: &str) -> Option<Screen> {
+    match spec {
+        "my-issues" => Some(Screen::MyIssues),
+        "inbox" => Some(Screen::Inbox),
+        "settings" => Some(Screen::Settings),
+        "account" => Some(Screen::Account),
+        _ => spec.strip_prefix("issue:").map(|id| Screen::IssueDetail {
+            issue_id: id.to_string(),
+        }),
     }
 }
 

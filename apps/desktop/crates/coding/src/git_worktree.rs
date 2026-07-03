@@ -99,14 +99,28 @@ impl std::error::Error for GitError {}
 
 // ---- pure path/branch composition (unit-tested, no git) ----
 
-/// `<repos_root>/<owner>/<name>` (§7.1). Tolerates a malformed `full_name`
-/// by nesting it verbatim.
+/// `<repos_root>/<owner>/<name>` (§7.1). Defense-in-depth: `full_name` comes
+/// from the server (workspace-owner-writable), so each segment is sanitized —
+/// traversal (`..`), no-op (`.`/empty) and separator bytes must never let a
+/// crafted repo name escape the repos root ([`sanitize_path_segment`]).
 pub fn clone_path(repos_root: &Path, full_name: &str) -> PathBuf {
     let mut path = repos_root.to_path_buf();
     for segment in full_name.split('/') {
-        path.push(segment);
+        path.push(sanitize_path_segment(segment));
     }
     path
+}
+
+/// Make one path segment safe to join under the repos root: `\` (a separator
+/// on Windows, legal-but-hostile elsewhere) becomes `-`, and the traversal /
+/// degenerate segments (`..`, `.`, empty) become `_`. Regular names pass
+/// through untouched.
+fn sanitize_path_segment(segment: &str) -> String {
+    let flattened = segment.replace('\\', "-");
+    match flattened.as_str() {
+        "" | "." | ".." => "_".to_string(),
+        _ => flattened,
+    }
 }
 
 /// The coding branch: `<prefix><IDENTIFIER>` (default prefix `exp/`, so
@@ -117,8 +131,11 @@ pub fn branch_name(prefix: &str, identifier: &str) -> String {
 
 /// Directory-segment form of a branch: `/` → `-` (`exp/EXP-42` →
 /// `exp-EXP-42`). Path segment only — the git branch keeps its slashes.
+/// Runs through [`sanitize_path_segment`] so a degenerate branch name (a
+/// user-set prefix like `..` with an empty identifier) can never traverse
+/// out of the `.worktrees/` dir.
 pub fn sanitize_branch_for_path(branch: &str) -> String {
-    branch.replace('/', "-")
+    sanitize_path_segment(&branch.replace('/', "-"))
 }
 
 /// `<clone>.worktrees/` — sibling of the clone dir (§7.1 layout).
@@ -234,6 +251,44 @@ pub fn create_worktree(
     Ok(worktree)
 }
 
+/// Append `entries` to the repo-local ignore file (`.git/info/exclude`) if
+/// missing. The common git dir is shared by every worktree, so one write
+/// covers them all — and unlike `.gitignore` it is never committed.
+///
+/// This is a TOKEN-LEAK guard, not cosmetics: `.mcp.json` carries the raw
+/// `expu_` personal key, and the spawned `claude` is told to commit + push —
+/// without the exclude, a `git add -A` would ship the key to GitHub.
+/// Best-effort: a missing/at-odds `.git` layout only skips the write (the
+/// launch itself must not fail on it).
+pub fn ensure_local_excludes(clone: &Path, entries: &[&str]) -> std::io::Result<()> {
+    let git_dir = clone.join(".git");
+    if !git_dir.is_dir() {
+        return Ok(()); // unexpected layout (bare/worktree) — skip, don't fail
+    }
+    let info_dir = git_dir.join("info");
+    std::fs::create_dir_all(&info_dir)?;
+    let exclude = info_dir.join("exclude");
+    let current = std::fs::read_to_string(&exclude).unwrap_or_default();
+    let existing: std::collections::HashSet<&str> =
+        current.lines().map(str::trim).collect();
+    let mut additions = String::new();
+    for entry in entries {
+        if !existing.contains(entry) {
+            additions.push_str(entry);
+            additions.push('\n');
+        }
+    }
+    if additions.is_empty() {
+        return Ok(());
+    }
+    let mut content = current;
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str(&additions);
+    std::fs::write(&exclude, content)
+}
+
 fn branch_exists(clone: &Path, branch: &str, url: &TokenUrl) -> bool {
     run_git(
         Some(clone),
@@ -250,6 +305,9 @@ fn branch_exists(clone: &Path, branch: &str, url: &TokenUrl) -> bool {
 fn run_git(cwd: Option<&Path>, args: &[&str], url: &TokenUrl, op: &str) -> Result<String, GitError> {
     let mut command = Command::new("git");
     command.args(args);
+    // A rejected/expired token must FAIL the command, never park a GUI app
+    // behind an invisible username/password prompt.
+    command.env("GIT_TERMINAL_PROMPT", "0");
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -296,6 +354,32 @@ mod tests {
         assert_eq!(sanitize_branch_for_path("exp/EXP-42"), "exp-EXP-42");
         assert_eq!(sanitize_branch_for_path("a/b/c"), "a-b-c");
         assert_eq!(sanitize_branch_for_path("plain"), "plain");
+        // Degenerate branch names can never traverse out of `.worktrees/`.
+        assert_eq!(sanitize_branch_for_path(".."), "_");
+        assert_eq!(sanitize_branch_for_path(""), "_");
+        assert_eq!(sanitize_branch_for_path("..\\up"), "..-up");
+    }
+
+    #[test]
+    fn clone_path_never_escapes_the_repos_root() {
+        // full_name is server data a workspace owner can influence — `..`,
+        // `.`, empty and backslash segments must all stay under the root.
+        let root = PathBuf::from("/home/u/Exponential/repos");
+        for (full_name, expect) in [
+            ("../..", "/home/u/Exponential/repos/_/_"),
+            ("./evil", "/home/u/Exponential/repos/_/evil"),
+            ("a/..", "/home/u/Exponential/repos/a/_"),
+            ("..\\up/name", "/home/u/Exponential/repos/..-up/name"),
+        ] {
+            let path = clone_path(&root, full_name);
+            assert_eq!(path, PathBuf::from(expect), "for {full_name:?}");
+            assert!(path.starts_with(&root));
+        }
+        // Regular names are untouched.
+        assert_eq!(
+            clone_path(&root, "acme/web"),
+            PathBuf::from("/home/u/Exponential/repos/acme/web")
+        );
     }
 
     #[test]
@@ -475,6 +559,37 @@ mod tests {
         // Relaunch: same issue → same worktree, no error (idempotent reuse).
         let again = create_worktree(&clone, &branch, "origin/main", &url).unwrap();
         assert_eq!(again, worktree);
+    }
+
+    #[test]
+    fn local_excludes_hide_the_seed_files_from_git_add() {
+        let dir = temp_dir("exclude");
+        let origin = seed_origin(&dir.0);
+        let clone = dir.0.join("clone");
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+
+        ensure_local_excludes(&clone, &[".mcp.json", "PROMPT.md"]).unwrap();
+        // Idempotent — no duplicate lines on relaunch.
+        ensure_local_excludes(&clone, &[".mcp.json", "PROMPT.md"]).unwrap();
+        let exclude = fs::read_to_string(clone.join(".git/info/exclude")).unwrap();
+        assert_eq!(exclude.matches(".mcp.json").count(), 1);
+        assert_eq!(exclude.matches("PROMPT.md").count(), 1);
+
+        // The real assertion: git itself must consider both files ignored —
+        // a `git add -A` by the spawned claude can never stage the raw key.
+        fs::write(clone.join(".mcp.json"), "{\"secret\":true}").unwrap();
+        fs::write(clone.join("PROMPT.md"), "seed").unwrap();
+        let status = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&clone)
+            .output()
+            .unwrap();
+        let listing = String::from_utf8_lossy(&status.stdout).into_owned();
+        assert!(!listing.contains(".mcp.json"), "not ignored: {listing}");
+        assert!(!listing.contains("PROMPT.md"), "not ignored: {listing}");
     }
 
     #[test]

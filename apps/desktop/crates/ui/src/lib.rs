@@ -36,6 +36,7 @@ mod icons;
 mod inbox;
 pub mod issue_detail;
 mod issue_list;
+mod join_workspace;
 mod login;
 pub mod markdown;
 mod mention_input;
@@ -81,6 +82,9 @@ pub fn init(cx: &mut App) {
     create_issue_dialog::init(cx);
     create_project_dialog::init(cx);
     create_workspace_dialog::init(cx);
+    // §4.2 accept-invite fallback: "Join workspace…" in the footer account
+    // menu (the exp://invite/<token> deep link routes through oauth.rs).
+    join_workspace::init(cx);
     // EXP-1 #10: the sidebar Feedback item opens the public feedback project
     // in the system browser (the §4.8 browser-path decision; the embedded JS
     // widget is an explicit desktop non-goal for v1). `/feedback` redirects

@@ -49,11 +49,22 @@ pub(crate) fn start(instance_url: String, start_url: String, cx: &mut App) -> Re
 }
 
 /// The `on_open_urls` sink (call from the app shell's foreground drain).
-/// Non-OAuth URLs are ignored (future deep links route from here too).
+/// Routes OAuth callbacks and the §4.2 `exp://invite/<token>` deep link;
+/// anything else is ignored.
 pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     for url in urls {
         if let Some(token) = api::login::parse_oauth_callback(&url) {
             complete(token, cx);
+            continue;
+        }
+        if let Some(token) = crate::join_workspace::parse_invite_deep_link(&url) {
+            // Open the accept card directly (§4.2 path 1). Requires a signed
+            // in session — the dialog itself renders the sign-in nudge.
+            if let Some(window) = cx.active_window() {
+                let _ = window.update(cx, |_, window, cx| {
+                    crate::join_workspace::open(window, cx, Some(token));
+                });
+            }
             continue;
         }
         log::info!("[ui] open-urls: unhandled URL {url}");

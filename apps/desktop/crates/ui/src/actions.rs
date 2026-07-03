@@ -34,6 +34,10 @@ actions!(
         /// Footer account dropdown: open the Account screen (§4.2
         /// integrations + notification prefs).
         OpenAccount,
+        /// Footer account dropdown: join a workspace by invite link/token
+        /// (§4.2 accept-invite fallback — desktop can't catch the browser's
+        /// `/invite/<token>` click).
+        JoinWorkspace,
         /// Footer account dropdown: sign out (Phase 2 auth).
         SignOut,
     ]
