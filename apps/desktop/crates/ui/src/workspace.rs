@@ -40,7 +40,11 @@ use crate::{
 /// v2: the Phase-2 debug board landed in the center tabs.
 /// v3: the Phase-3 screens panel replaced the debug board as the default
 ///     center (debug board only behind `EXP_DEV_BOARD=1`).
-const LAYOUT_VERSION: usize = 3;
+/// v4: the center is a chrome-less `DockItem::panel` (no redundant "Workspace"
+///     TabPanel title bar) — rebuilt fresh each launch in `install_fixed_chrome`
+///     (a persisted panel rehydrates wrapped in a TabPanel, growing the bar
+///     back), exactly like the sidebar.
+const LAYOUT_VERSION: usize = 4;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
@@ -182,30 +186,29 @@ impl Workspace {
         dock_area.update(cx, |dock_area, cx| dock_area.load(state, window, cx))
     }
 
-    /// The default layout: the Phase-3 screens panel in the center tabs
-    /// (§4.2 — board / detail / my-issues / inbox / settings, swapped on the
-    /// per-window navigation). `EXP_DEV_BOARD=1` adds the Phase-2 debug board
-    /// as a second tab (the sync-instrumentation surface stays reachable).
+    /// The default layout marker. The center + docks are (re)built fresh in
+    /// [`Self::install_fixed_chrome`] on BOTH the fresh and restore paths, so
+    /// this only needs to stamp the version onto a first-run dock (§4.2 — the
+    /// screens panel is the center, swapped on the per-window navigation).
     fn reset_default_layout(
         dock_area: &Entity<DockArea>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let weak = dock_area.downgrade();
-        let screens: Arc<dyn PanelView> = Arc::new(cx.new(|cx| ScreensPanel::new(window, cx)));
-        let mut tabs: Vec<Arc<dyn PanelView>> = vec![screens];
-        if std::env::var("EXP_DEV_BOARD").as_deref() == Ok("1") {
-            tabs.push(Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx))));
-        }
-        let center = DockItem::tabs(tabs, &weak, window, cx);
         dock_area.update(cx, |dock_area, cx| {
             dock_area.set_version(LAYOUT_VERSION, window, cx);
-            dock_area.set_center(center, window, cx);
         });
     }
 
     /// (Re)install the fixed chrome on BOTH the restore and default paths:
     ///
+    /// - The **center** is always rebuilt fresh as a chrome-less
+    ///   `DockItem::Panel` holding the screens panel — a `DockItem::Tabs` would
+    ///   grow the redundant "Workspace" `TabPanel` title bar (+ zoom control),
+    ///   and a persisted panel rehydrates wrapped in a `TabPanel` all the same,
+    ///   so we never restore the center from disk (same rule as the sidebar).
+    ///   `EXP_DEV_BOARD=1` keeps a tab strip so the second (debug-board) tab
+    ///   stays reachable.
     /// - The **sidebar** is always rebuilt fresh as a chrome-less
     ///   `DockItem::Panel` — the serialized form would rehydrate wrapped in a
     ///   `TabPanel` (growing a title bar), and the sidebar carries no inner
@@ -227,7 +230,19 @@ impl Workspace {
             Arc::new(cx.new(|cx| SidebarPanel::new(window, cx)));
         let weak: WeakEntity<DockArea> = dock_area.downgrade();
 
+        // Fresh chrome-less center (see the doc note): a single `DockItem::Panel`
+        // renders raw (no title bar); the dev-board escape hatch keeps tabs.
+        let screens: Arc<dyn PanelView> = Arc::new(cx.new(|cx| ScreensPanel::new(window, cx)));
+        let center = if std::env::var("EXP_DEV_BOARD").as_deref() == Ok("1") {
+            let debug: Arc<dyn PanelView> = Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx)));
+            DockItem::tabs(vec![screens, debug], &weak, window, cx)
+        } else {
+            DockItem::panel(screens)
+        };
+
         dock_area.update(cx, |dock_area, cx| {
+            dock_area.set_center(center, window, cx);
+
             dock_area.set_left_dock(
                 DockItem::panel(sidebar),
                 Some(saved_width.unwrap_or(SIDEBAR_WIDTH)),

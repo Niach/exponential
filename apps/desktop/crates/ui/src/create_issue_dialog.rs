@@ -61,10 +61,7 @@ use crate::queries;
 /// project boards — web `canCreate`).
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &NewIssue, cx| {
-        let Some(window) = cx.active_window() else {
-            return;
-        };
-        let _ = window.update(cx, move |_, window, cx| {
+        crate::navigation::on_active_window(cx, |window, cx| {
             let nav = nav_for_window(window, cx);
             let Some(Screen::Board { project_id }) = resolved_screen(&nav, cx) else {
                 return; // no board in the center — nothing to create into

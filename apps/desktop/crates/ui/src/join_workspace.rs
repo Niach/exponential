@@ -38,10 +38,7 @@ use crate::queries;
 /// `ui::init`).
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &JoinWorkspace, cx| {
-        let Some(window) = cx.active_window() else {
-            return;
-        };
-        let _ = window.update(cx, |_, window, cx| open(window, cx, None));
+        crate::navigation::on_active_window(cx, |window, cx| open(window, cx, None));
     });
 }
 

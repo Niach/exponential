@@ -45,10 +45,7 @@ const DIALOG_WIDTH: f32 = 512.;
 /// once from `ui::init`.
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &OpenSearch, cx| {
-        let Some(window) = cx.active_window() else {
-            return;
-        };
-        let _ = window.update(cx, |_, window, cx| open_search(window, cx));
+        crate::navigation::on_active_window(cx, |window, cx| open_search(window, cx));
     });
     #[cfg(target_os = "macos")]
     cx.bind_keys([KeyBinding::new("cmd-k", OpenSearch, None)]);

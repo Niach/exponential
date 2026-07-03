@@ -613,15 +613,13 @@ impl RunBar {
 impl Render for RunBar {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
-        // No project scope (my-issues/inbox/settings/account) → no run bar.
-        if self.project_id.is_none() {
-            return div().into_any_element();
-        }
 
-        let snapshot = self.run_tab_snapshot(cx);
-        let state = play_state(self.selected.as_deref(), &snapshot);
-
-        h_flex()
+        // The bar is the window's single top strip (it replaced the dock's
+        // redundant "Workspace" TabPanel title bar). It keeps a CONSTANT height
+        // on every screen — off a project scope (my-issues/inbox/settings/
+        // account) it renders the empty frame rather than collapsing to 0px, so
+        // navigation never shifts the sidebar/center below it (EXP-2f jump fix).
+        let bar = h_flex()
             .h(px(BAR_HEIGHT))
             .flex_shrink_0()
             .px_2()
@@ -630,8 +628,15 @@ impl Render for RunBar {
             .justify_end()
             .border_b_1()
             .border_color(cx.theme().border)
-            .bg(cx.theme().title_bar)
-            .child(self.render_dropdown(cx))
+            .bg(cx.theme().title_bar);
+
+        // Run-config controls only when a project scope resolves.
+        if self.project_id.is_none() {
+            return bar.into_any_element();
+        }
+        let snapshot = self.run_tab_snapshot(cx);
+        let state = play_state(self.selected.as_deref(), &snapshot);
+        bar.child(self.render_dropdown(cx))
             .child(self.render_play_button(state, cx))
             .into_any_element()
     }

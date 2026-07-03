@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use gpui::{App, AppContext as _, Entity, Global, Window, WindowId};
+use gpui::{AnyWindowHandle, App, AppContext as _, Entity, Global, Window, WindowId};
 use sync::Store;
 
 use crate::actions::{
@@ -140,8 +140,9 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
 /// Navigate the window to `screen`, pushing the previous screen onto the
 /// back stack (no-op when already there).
 pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
-    let nav = nav_for_window_readonly(window, cx);
-    let Some(nav) = nav else { return };
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
     nav.update(cx, |nav, cx| {
         if nav.screen.as_ref() == Some(&screen) {
             return;
@@ -196,6 +197,49 @@ fn nav_for_window_readonly(window: &Window, cx: &App) -> Option<Entity<Navigatio
         .and_then(|registry| registry.by_window.get(&window_id).cloned())
 }
 
+/// Resolve the window a global action should target.
+///
+/// [`App::active_window`] is the right source. The fallback to the sole window
+/// only matters on the Linux backend, where `active_window` is derived from the
+/// compositor's `keyboard_focused_window` and can momentarily be `None` (e.g.
+/// under focus-follows-mouse before the first keyboard enter); with a single
+/// window there is no ambiguity. With several windows and no active one we
+/// can't tell them apart, so we return `None` (unchanged prior behavior).
+pub fn active_or_primary_window(cx: &App) -> Option<AnyWindowHandle> {
+    if let Some(window) = cx.active_window() {
+        return Some(window);
+    }
+    let windows = cx.windows();
+    if windows.len() == 1 {
+        windows.into_iter().next()
+    } else {
+        None
+    }
+}
+
+/// Run `f` with the target window's `&mut Window`, **deferred**.
+///
+/// Every App-global `cx.on_action` handler runs INSIDE gpui's `window.update`:
+/// [`gpui::Window::dispatch_action`] defers its work into
+/// `window.update(|_, window, cx| dispatch_action_on_node(..))`, and the global
+/// action listeners fire from there. `update_window_id` `.take()`s the window
+/// out of its slot for the duration of an update, so calling `window.update`
+/// *again* on that same window — synchronously, from the handler — finds `None`
+/// and returns `Err("window not found")` WITHOUT ever running the closure (the
+/// usual `let _ =` then swallows the error). That silent re-entrancy failure is
+/// why every action-dispatched nav/dialog appeared completely dead.
+///
+/// Deferring lets the outer dispatch update unwind first (window back in its
+/// slot), so the re-entrant `window.update` succeeds and `f` actually runs.
+pub fn on_active_window(cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 'static) {
+    let Some(window) = active_or_primary_window(cx) else {
+        return;
+    };
+    cx.defer(move |cx| {
+        let _ = window.update(cx, move |_, window, cx| f(window, cx));
+    });
+}
+
 /// Register the App-global action handlers (call once from `ui::init`).
 /// Actions navigate the **active** window — nav actions only ever originate
 /// from user interaction (sidebar, menus, future keymap), which happens in
@@ -215,20 +259,14 @@ pub fn init(cx: &mut App) {
     });
     cx.on_action(|action: &SwitchWorkspace, cx| {
         let workspace_id = action.workspace_id.clone();
-        let Some(window) = cx.active_window() else {
-            return;
-        };
-        let _ = window.update(cx, move |_, window, cx| {
+        on_active_window(cx, move |window, cx| {
             switch_workspace(window, cx, workspace_id);
         });
     });
 }
 
 fn navigate_active(cx: &mut App, screen: Screen) {
-    let Some(window) = cx.active_window() else {
-        return;
-    };
-    let _ = window.update(cx, move |_, window, cx| {
+    on_active_window(cx, move |window, cx| {
         navigate(window, cx, screen);
     });
 }

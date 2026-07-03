@@ -44,10 +44,7 @@ const DEFAULT_COLOR: &str = "#6366f1";
 /// Register the App-global [`NewProject`] handler (call once from `ui::init`).
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &NewProject, cx| {
-        let Some(window) = cx.active_window() else {
-            return;
-        };
-        let _ = window.update(cx, |_, window, cx| {
+        crate::navigation::on_active_window(cx, |window, cx| {
             let nav = nav_for_window(window, cx);
             let Some(workspace_id) = active_workspace_id(&nav, cx) else {
                 return;

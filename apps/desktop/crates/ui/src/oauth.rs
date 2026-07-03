@@ -60,7 +60,7 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
         if let Some(token) = crate::join_workspace::parse_invite_deep_link(&url) {
             // Open the accept card directly (§4.2 path 1). Requires a signed
             // in session — the dialog itself renders the sign-in nudge.
-            if let Some(window) = cx.active_window() {
+            if let Some(window) = crate::navigation::active_or_primary_window(cx) {
                 let _ = window.update(cx, |_, window, cx| {
                     crate::join_workspace::open(window, cx, Some(token));
                 });
