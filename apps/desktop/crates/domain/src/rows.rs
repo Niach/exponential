@@ -54,6 +54,11 @@ pub struct Project {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
+    /// `projects.repository_id` (v4 §3.1) — the one repository this project
+    /// clones/branches against. Additive shape column (shape count unchanged);
+    /// `None` on legacy rows until the server backfill lands.
+    #[serde(default)]
+    pub repository_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]

@@ -8,6 +8,9 @@ import com.exponential.app.data.api.CreateProjectInput
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.OnboardingApi
 import com.exponential.app.data.api.ProjectsApi
+import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.RepositoryRef
+import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,6 +30,7 @@ class OnboardingViewModel @Inject constructor(
     private val authApi: AuthApi,
     private val workspacesApi: WorkspacesApi,
     private val projectsApi: ProjectsApi,
+    private val repositoriesApi: RepositoriesApi,
     private val issuesApi: IssuesApi,
     private val onboardingApi: OnboardingApi,
 ) : ViewModel() {
@@ -37,6 +41,10 @@ class OnboardingViewModel @Inject constructor(
         val projectId: String? = null,
         val busy: Boolean = false,
         val error: String? = null,
+        // v4: a project requires an already-connected repository (connecting new
+        // repos is web-only on Android). Loaded once the workspace resolves.
+        val repos: List<WorkspaceRepo> = emptyList(),
+        val reposLoading: Boolean = false,
     )
 
     private val _state = MutableStateFlow(State())
@@ -66,12 +74,19 @@ class OnboardingViewModel @Inject constructor(
                 }
             }
             runCatching { workspacesApi.ensureDefault(accountId) }
-                .onSuccess { _state.value = _state.value.copy(workspaceId = it.id) }
+                .onSuccess {
+                    _state.value = _state.value.copy(workspaceId = it.id, reposLoading = true)
+                    // A project needs a connected repo — load the registry so the
+                    // project step can offer the required selector (or its empty state).
+                    val repos = runCatching { repositoriesApi.list(accountId, it.id) }
+                        .getOrDefault(emptyList())
+                    _state.value = _state.value.copy(repos = repos, reposLoading = false)
+                }
                 .onFailure { _state.value = _state.value.copy(error = it.message ?: "Couldn't load your workspace") }
         }
     }
 
-    fun createProject(name: String, prefix: String, color: String) {
+    fun createProject(name: String, prefix: String, color: String, repositoryId: String) {
         if (_state.value.busy) return
         val workspaceId = _state.value.workspaceId ?: return
         val accountId = auth.activeAccountId.value ?: return
@@ -85,6 +100,7 @@ class OnboardingViewModel @Inject constructor(
                         name = name.trim(),
                         prefix = prefix.trim().uppercase(),
                         color = color,
+                        repository = RepositoryRef(repositoryId),
                     ),
                 )
             }.onSuccess {

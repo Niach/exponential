@@ -16,12 +16,14 @@ struct CreateProjectSheet: View {
     @State private var prefix = ""
     @State private var prefixEdited = false
     @State private var color = DEFAULT_LABEL_COLOR
+    @State private var repository: ProjectRepositoryChoice?
     @State private var loading = false
     @State private var error: String?
 
     private var canCreate: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
             && !prefix.trimmingCharacters(in: .whitespaces).isEmpty
+            && repository != nil
             && !loading
     }
 
@@ -47,6 +49,15 @@ struct CreateProjectSheet: View {
                             .font(.caption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         ColorSwatchGrid(selection: $color)
+
+                        Divider().background(Color.white.opacity(0.08))
+
+                        // v4: every project is backed by a repo — required.
+                        RepositorySelector(
+                            accountId: accountId,
+                            workspaceId: workspaceId,
+                            selection: $repository
+                        )
 
                         if let error {
                             Text(error).font(.caption).foregroundStyle(.red)
@@ -77,6 +88,7 @@ struct CreateProjectSheet: View {
     }
 
     private func create() async {
+        guard let repository else { return }
         loading = true
         error = nil
         do {
@@ -84,7 +96,8 @@ struct CreateProjectSheet: View {
                 workspaceId: workspaceId,
                 name: name.trimmingCharacters(in: .whitespaces),
                 prefix: prefix.trimmingCharacters(in: .whitespaces),
-                color: color
+                color: color,
+                repository: repository
             ))
             onCreated(id)
             dismiss()

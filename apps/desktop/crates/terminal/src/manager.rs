@@ -125,9 +125,16 @@ impl TerminalManager {
         cx: &mut Context<Self>,
     ) -> anyhow::Result<TabId> {
         let shell = default_shell();
-        let title = shell_title(&shell);
+        let cwd = cwd.or_else(home_dir);
+        // v4 §4.6: shell tab headers show the cwd directory name (the trunk
+        // clone dir / `$HOME`), not the shell basename. OSC titles still
+        // override at runtime.
+        let title = cwd
+            .as_deref()
+            .and_then(dir_title)
+            .unwrap_or_else(|| shell_title(&shell));
         let mut spec = SpawnSpec::new(&shell).arg("-l");
-        if let Some(cwd) = cwd.or_else(home_dir) {
+        if let Some(cwd) = cwd {
             spec = spec.cwd(cwd);
         }
         self.open_tab(TabKind::Shell, title, &spec, None, cx)
@@ -259,6 +266,14 @@ fn shell_title(shell: &str) -> String {
         .to_owned()
 }
 
+/// The cwd directory name for a shell tab header (v4 §4.6). `None` for a
+/// root-only path with no final component (falls back to the shell basename).
+fn dir_title(cwd: &std::path::Path) -> Option<String> {
+    cwd.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+}
+
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .filter(|home| !home.is_empty())
@@ -337,6 +352,21 @@ mod tests {
         assert_eq!(shell_title("/bin/zsh"), "zsh");
         assert_eq!(shell_title("/usr/local/bin/fish"), "fish");
         assert_eq!(shell_title(""), "shell");
+    }
+
+    #[test]
+    fn dir_title_is_the_cwd_directory_name() {
+        // v4 §4.6: the trunk clone dir name / `$HOME` name heads the tab.
+        assert_eq!(
+            dir_title(std::path::Path::new("/home/u/Exponential/repos/acme/web")),
+            Some("web".to_string())
+        );
+        assert_eq!(
+            dir_title(std::path::Path::new("/Users/tester")),
+            Some("tester".to_string())
+        );
+        // A root path has no final component → fall back to the shell basename.
+        assert_eq!(dir_title(std::path::Path::new("/")), None);
     }
 
     #[test]

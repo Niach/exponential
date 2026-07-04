@@ -24,13 +24,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -229,9 +226,11 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
     }
 }
 
-// The server-only repositories registry (masterplan §7a): lists connected repos
-// with their project links; owners can remove repos and link/unlink projects +
-// set the primary clone target. Connecting NEW repos (the GitHub-App install
+// The server-only repositories registry (masterplan v4 §3/§6): a pure registry
+// listing connected repos with the projects that use each (a repo backs one or
+// more projects). Owners can remove a repo — blocked (CONFLICT) while any
+// project still points at it. Primary-star / per-project link editing is gone
+// (a project = a repository now). Connecting NEW repos (the GitHub-App install
 // flow) is web-only — we link out to the web workspace settings for that.
 @Composable
 private fun RepositoriesSection(
@@ -256,6 +255,7 @@ private fun RepositoriesSection(
                 RepositoryRow(
                     repo = repo,
                     projects = state.projects,
+                    allRepos = state.repos,
                     isOwner = isOwner,
                     viewModel = viewModel,
                 )
@@ -289,6 +289,7 @@ private fun RepositoriesSection(
 private fun RepositoryRow(
     repo: WorkspaceRepo,
     projects: List<ProjectEntity>,
+    allRepos: List<WorkspaceRepo>,
     isOwner: Boolean,
     viewModel: WorkspaceSettingsViewModel,
 ) {
@@ -321,87 +322,73 @@ private fun RepositoryRow(
                 }
             }
         }
+        // "Used by" chips: the projects backed by this repo (masterplan §6).
+        // Each chip carries the project's palette dot; no link/unlink/primary
+        // controls — a project is a repository now.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Used by",
+                style = MaterialTheme.typography.labelSmall,
+                color = tertiary,
+            )
+        }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (repo.projectLinks.isEmpty()) {
+            if (repo.projects.isEmpty()) {
                 Text(
-                    "No projects linked",
+                    "No projects",
                     style = MaterialTheme.typography.labelSmall,
                     color = tertiary,
                     modifier = Modifier.padding(vertical = 4.dp),
                 )
             }
-            repo.projectLinks.forEach { link ->
-                val project = projects.firstOrNull { it.id == link.projectId }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.glassRow().padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    // The star is the primary-clone-target marker (web parity):
-                    // owners tap it to promote the link to primary.
-                    Icon(
-                        if (link.isPrimary) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = if (link.isPrimary) "Primary repo" else "Make primary",
-                        modifier = Modifier
-                            .size(14.dp)
-                            .then(
-                                if (isOwner && !link.isPrimary) {
-                                    Modifier.clickable { viewModel.setPrimaryRepo(link.projectId, repo.id) }
-                                } else Modifier,
-                            ),
-                        tint = if (link.isPrimary) MaterialTheme.colorScheme.primary else tertiary,
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        project?.name ?: "Unknown project",
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 140.dp),
-                    )
-                    if (isOwner) {
-                        Spacer(Modifier.width(5.dp))
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = "Unlink project",
-                            modifier = Modifier
-                                .size(13.dp)
-                                .clickable { viewModel.unlinkRepoFromProject(link.projectId, repo.id) },
-                            tint = tertiary,
-                        )
-                    }
-                }
-            }
-            val linkedIds = repo.projectLinks.map { it.projectId }.toSet()
-            val unlinked = projects.filter { it.id !in linkedIds }
-            if (isOwner && unlinked.isNotEmpty()) {
-                var linkMenu by remember { mutableStateOf(false) }
+            repo.projects.forEach { ref ->
+                val project = projects.firstOrNull { it.id == ref.id }
+                // Owners can retarget a project to a different connected repo
+                // (projects.setRepository) — tap the chip to pick another repo.
+                val otherRepos = allRepos.filter { it.id != repo.id }
+                var retargetMenu by remember(ref.id) { mutableStateOf(false) }
+                val chipClickable = isOwner && otherRepos.isNotEmpty()
                 Box {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .glassRow()
-                            .clickable { linkMenu = true }
+                            .then(if (chipClickable) Modifier.clickable { retargetMenu = true } else Modifier)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(13.dp), tint = secondary)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Link project", style = MaterialTheme.typography.labelMedium, color = secondary)
+                        if (project != null) {
+                            Box(Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(
+                            ref.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 160.dp),
+                        )
                     }
-                    DropdownMenu(expanded = linkMenu, onDismissRequest = { linkMenu = false }) {
-                        unlinked.forEach { project ->
-                            DropdownMenuItem(
-                                text = { Text(project.name) },
-                                leadingIcon = {
-                                    Box(Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
-                                },
-                                onClick = {
-                                    linkMenu = false
-                                    viewModel.linkRepoToProject(project.id, repo.id)
-                                },
+                    if (chipClickable) {
+                        DropdownMenu(expanded = retargetMenu, onDismissRequest = { retargetMenu = false }) {
+                            Text(
+                                "Change repository",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = tertiary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             )
+                            otherRepos.forEach { target ->
+                                DropdownMenuItem(
+                                    text = { Text(target.fullName, fontFamily = FontFamily.Monospace) },
+                                    leadingIcon = { Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                                    onClick = {
+                                        retargetMenu = false
+                                        viewModel.setProjectRepository(ref.id, target.id)
+                                    },
+                                )
+                            }
                         }
                     }
                 }

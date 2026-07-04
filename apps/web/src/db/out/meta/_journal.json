@@ -15,6 +15,13 @@
       "when": 1783068020959,
       "tag": "0001_demonic_doctor_doom",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783161230086,
+      "tag": "0002_regular_eternity",
+      "breakpoints": true
     }
   ]
 }

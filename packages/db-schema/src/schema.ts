@@ -177,6 +177,14 @@ export const projects = pgTable(
     slug: varchar({ length: 255 }).notNull(),
     prefix: varchar({ length: 10 }).notNull(),
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
+    // Project = Repository (v4). Every project is backed by exactly one repo
+    // from the workspace registry; the desktop launcher clones this. `restrict`
+    // (not cascade): a repo that still backs a project can't be deleted —
+    // retarget or delete the projects first. One repo may back several projects
+    // (monorepo); plan limits still count registry rows.
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `restrict` }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     // Display-only mirror of the project's preview run targets + feedback issue
@@ -186,7 +194,10 @@ export const projects = pgTable(
     previewConfig: jsonb(`preview_config`).$type<ProjectPreviewMirror>(),
     ...timestamps,
   },
-  (table) => [unique().on(table.workspaceId, table.slug)]
+  (table) => [
+    unique().on(table.workspaceId, table.slug),
+    index(`idx_projects_repository`).on(table.repositoryId),
+  ]
 )
 
 export const issues = pgTable(
@@ -495,8 +506,8 @@ export const issueEvents = pgTable(
 
 // Workspace repository registry (SERVER-ONLY, tRPC-managed — never an Electric
 // shape). One row per connected GitHub repo; the desktop "Start coding"
-// launcher resolves its clone target through `project_repositories`. GitHub
-// itself stays storage-free (App JWT → JIT installation token on demand).
+// launcher resolves its clone target through the project's `repositoryId`.
+// GitHub itself stays storage-free (App JWT → JIT installation token on demand).
 export const repositories = pgTable(
   `repositories`,
   {
@@ -518,30 +529,6 @@ export const repositories = pgTable(
   (table) => [
     unique().on(table.workspaceId, table.fullName),
     index(`idx_repositories_workspace`).on(table.workspaceId),
-  ]
-)
-
-// Many-to-many project↔repo join (SERVER-ONLY). A repo may back several
-// projects; a project may span several repos. Exactly one `isPrimary` per
-// project (partial unique index) — that repo is the launcher's clone target.
-export const projectRepositories = pgTable(
-  `project_repositories`,
-  {
-    projectId: uuid(`project_id`)
-      .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
-    repositoryId: uuid(`repository_id`)
-      .notNull()
-      .references(() => repositories.id, { onDelete: `cascade` }),
-    isPrimary: boolean(`is_primary`).notNull().default(false),
-    ...timestamps,
-  },
-  (table) => [
-    primaryKey({ columns: [table.projectId, table.repositoryId] }),
-    index(`idx_project_repositories_repo`).on(table.repositoryId),
-    uniqueIndex(`uniq_project_primary_repo`)
-      .on(table.projectId)
-      .where(sql`is_primary`),
   ]
 )
 
@@ -806,8 +793,6 @@ export const selectCodingSessionSchema = createSelectSchema(codingSessions, {
 })
 
 export const selectRepositorySchema = createSelectSchema(repositories)
-export const selectProjectRepositorySchema =
-  createSelectSchema(projectRepositories)
 
 export const selectRunConfigSchema = createSelectSchema(runConfigs, {
   argv: z.array(z.string()),
@@ -846,7 +831,6 @@ export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Repository = InferSelectModel<typeof repositories>
-export type ProjectRepository = InferSelectModel<typeof projectRepositories>
 export type RunConfig = InferSelectModel<typeof runConfigs>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs

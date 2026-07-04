@@ -7,6 +7,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.UpdateWorkspaceInput
@@ -248,24 +249,22 @@ class WorkspaceSettingsViewModel @Inject constructor(
             .onFailure { _transient.value = it.message }
     }
 
-    private fun repoMutation(block: suspend (accountId: String) -> Unit) = viewModelScope.launch {
+    // Remove a repo from the registry. Blocked server-side (CONFLICT) while any
+    // project still points at it — surface that message verbatim (masterplan §6).
+    fun removeRepo(repositoryId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        runCatching { block(accountId) }
-            .onFailure { _transient.value = it.message }
+        runCatching { repositoriesApi.remove(accountId, repositoryId) }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't remove the repository") }
         refreshRepos()
     }
 
-    fun removeRepo(repositoryId: String) =
-        repoMutation { repositoriesApi.remove(it, repositoryId) }
-
-    fun linkRepoToProject(projectId: String, repositoryId: String) =
-        repoMutation { repositoriesApi.linkProject(it, projectId, repositoryId) }
-
-    fun unlinkRepoFromProject(projectId: String, repositoryId: String) =
-        repoMutation { repositoriesApi.unlinkProject(it, projectId, repositoryId) }
-
-    fun setPrimaryRepo(projectId: String, repositoryId: String) =
-        repoMutation { repositoriesApi.setPrimary(it, projectId, repositoryId) }
+    // Owner/admin: retarget a project's backing repo (projects.setRepository).
+    fun setProjectRepository(projectId: String, repositoryId: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { repositoriesApi.setRepository(accountId, projectId, repositoryId) }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the repository") }
+        refreshRepos()
+    }
 
     fun setPublic(isPublic: Boolean) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch

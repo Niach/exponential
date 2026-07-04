@@ -48,6 +48,12 @@ pub enum Screen {
     Settings,
     /// `routes/_authenticated/account/*` (integrations + notifications).
     Account,
+    /// Trunk Source Control screen (masterplan v4 §4.4). Trunk-only — no
+    /// project/issue scope (the active workspace's trunk clone).
+    SourceControl,
+    /// Read-only trunk file viewer (masterplan v4 §4.5); `path` is
+    /// trunk-relative.
+    FileViewer { path: String },
 }
 
 /// Per-window navigation state. Mutate through [`navigate`] /

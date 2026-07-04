@@ -6,7 +6,10 @@ import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.api.CreateProjectInput
 import com.exponential.app.data.api.CreateWorkspaceInput
 import com.exponential.app.data.api.ProjectsApi
+import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.RepositoryRef
 import com.exponential.app.data.api.TrpcException
+import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.http.HttpStatusCode
@@ -56,6 +59,7 @@ class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val workspacesApi: WorkspacesApi,
     private val projectsApi: ProjectsApi,
+    private val repositoriesApi: RepositoriesApi,
     private val holder: DatabaseHolder,
     private val selection: WorkspaceSelection,
     private val multiAccountWorkspaces: MultiAccountWorkspaceRepository,
@@ -167,13 +171,22 @@ class HomeViewModel @Inject constructor(
             error.message ?: "Failed to create workspace"
         }
 
-    // Create a project in the given workspace on the given account's server.
+    // The workspace's already-connected repos, for the create-project selector
+    // (masterplan §6 — a project requires a repository; connecting NEW repos
+    // stays web-only). Returns empty on any failure so the sheet shows the
+    // "connect a repository in the web app first" empty state.
+    suspend fun reposForWorkspace(accountId: String, workspaceId: String): List<WorkspaceRepo> =
+        runCatching { repositoriesApi.list(accountId, workspaceId) }.getOrDefault(emptyList())
+
+    // Create a project in the given workspace on the given account's server. v4:
+    // a project is backed by an already-connected repository (repositoryId).
     suspend fun createProject(
         accountId: String,
         workspaceId: String,
         name: String,
         prefix: String,
         color: String,
+        repositoryId: String,
     ): String? =
         try {
             projectsApi.create(
@@ -183,6 +196,7 @@ class HomeViewModel @Inject constructor(
                     name = name.trim(),
                     prefix = prefix.trim().uppercase(),
                     color = color,
+                    repository = RepositoryRef(repositoryId),
                 ),
             )
             null

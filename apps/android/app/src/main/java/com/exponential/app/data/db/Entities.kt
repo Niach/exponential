@@ -38,6 +38,11 @@ data class ProjectEntity(
     val slug: String,
     val prefix: String,
     val color: String,
+    // v4 (masterplan §3): a project is backed by exactly one repository. The
+    // uuid rides along on the existing projects shape (no new shape); the repo
+    // name is resolved on demand via the `repositories` tRPC router. Nullable +
+    // defaulted for defensive deserialization of any pre-refactor synced row.
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,

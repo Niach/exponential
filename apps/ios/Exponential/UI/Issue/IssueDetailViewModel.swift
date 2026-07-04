@@ -15,6 +15,9 @@ final class IssueDetailViewModel {
     /// The canonical issue when this one is marked a duplicate — resolves the
     /// "Duplicate of {IDENTIFIER}" banner (masterplan §5e).
     var duplicateOf: IssueEntity?
+    /// The issue's project — carries `workspaceId` + `repositoryId` so the repo
+    /// name chip can resolve the backing repo (masterplan §6, R4).
+    var project: ProjectEntity?
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
@@ -107,6 +110,7 @@ final class IssueDetailViewModel {
                         self.editor.applyRemote(markdown: remoteText, baseURL: self.baseURL)
                     }
                     self.refreshPermissions(for: issue)
+                    self.refreshProject(issue: issue, pool: pool)
                     self.refreshDuplicateOf(issue: issue, pool: pool)
                 }
             }
@@ -373,6 +377,13 @@ final class IssueDetailViewModel {
                 .sorted { $0.updatedAt > $1.updatedAt }
         }
         return result ?? []
+    }
+
+    private func refreshProject(issue: IssueEntity, pool: DatabasePool) {
+        guard project?.id != issue.projectId else { return }
+        project = (try? pool.read { db in
+            try ProjectEntity.fetchOne(db, key: issue.projectId)
+        }) ?? nil
     }
 
     private func refreshDuplicateOf(issue: IssueEntity, pool: DatabasePool) {

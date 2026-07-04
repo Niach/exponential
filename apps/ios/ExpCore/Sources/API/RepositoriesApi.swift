@@ -4,7 +4,7 @@ import Foundation
 // (NOT an Electric shape) — read on demand for the native "Start coding"
 // launcher: resolve the issue's repo, then mint a short-lived push token.
 
-/// The repo backing an issue's project (primary link, else the sole link).
+/// The repo backing an issue's project (v4: the project's `repositoryId`).
 public struct RepoForIssue: Decodable, Sendable {
     public let repositoryId: String
     public let fullName: String
@@ -45,30 +45,34 @@ public struct InstallationToken: Decodable, Sendable {
     }
 }
 
-/// A project ↔ repo link (`project_repositories` join row).
-public struct RepoProjectLink: Decodable, Sendable, Equatable {
-    public let projectId: String
-    public let isPrimary: Bool
+/// A project backed by a repo (v4 `repositories.list().projects[]`). Powers the
+/// settings "used by" chips and mobile repo pickers.
+public struct RepoProjectSummary: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let slug: String
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        projectId = try c.decode(String.self, forKey: .projectId)
-        isPrimary = (try? c.decode(Bool.self, forKey: .isPrimary)) ?? false
+        id = try c.decode(String.self, forKey: .id)
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        slug = (try? c.decode(String.self, forKey: .slug)) ?? ""
     }
 
-    enum CodingKeys: String, CodingKey { case projectId, isPrimary }
+    enum CodingKeys: String, CodingKey { case id, name, slug }
 }
 
 /// One connected repo in the workspace registry (`repositories.list` row).
 /// Decoded defensively — the server spreads the full DB row; we read only the
 /// fields the settings surface needs. `private` is a Swift keyword, mapped to
-/// `isPrivate`.
+/// `isPrivate`. `projects` are the projects this repo backs (v4 — no more
+/// per-project links / primary star).
 public struct WorkspaceRepo: Decodable, Sendable, Identifiable, Equatable {
     public let id: String
     public let fullName: String
     public let defaultBranch: String
     public let isPrivate: Bool
-    public let projectLinks: [RepoProjectLink]
+    public let projects: [RepoProjectSummary]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -76,11 +80,11 @@ public struct WorkspaceRepo: Decodable, Sendable, Identifiable, Equatable {
         fullName = try c.decode(String.self, forKey: .fullName)
         defaultBranch = (try? c.decode(String.self, forKey: .defaultBranch)) ?? "main"
         isPrivate = (try? c.decode(Bool.self, forKey: .isPrivate)) ?? false
-        projectLinks = (try? c.decode([RepoProjectLink].self, forKey: .projectLinks)) ?? []
+        projects = (try? c.decode([RepoProjectSummary].self, forKey: .projects)) ?? []
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, fullName, defaultBranch, projectLinks
+        case id, fullName, defaultBranch, projects
         case isPrivate = "private"
     }
 }
@@ -88,10 +92,6 @@ public struct WorkspaceRepo: Decodable, Sendable, Identifiable, Equatable {
 private struct IssueIdInput: Encodable { let issueId: String }
 private struct RepositoryIdInput: Encodable { let repositoryId: String }
 private struct RepoWorkspaceIdInput: Encodable { let workspaceId: String }
-private struct ProjectRepositoryInput: Encodable {
-    let projectId: String
-    let repositoryId: String
-}
 
 public final class RepositoriesApi: Sendable {
     private let trpc: TrpcClient
@@ -100,9 +100,10 @@ public final class RepositoriesApi: Sendable {
         self.trpc = trpc
     }
 
-    /// Resolve the repo backing an issue's project. `repositories.forIssue` is a
-    /// `.query`, so this uses the input-bearing GET helper. `nil` ⇒ no linked repo
-    /// (the launcher shows a "Link a repository" state).
+    /// Resolve the repo backing an issue's project (v4: the project's
+    /// `repositoryId`). `repositories.forIssue` is a `.query`, so this uses the
+    /// input-bearing GET helper. `nil` only for dangling data (a valid issue
+    /// always has a backing repo).
     public func forIssue(accountId: String, issueId: String) async throws -> RepoForIssue? {
         try await trpc.query(
             accountId: accountId,
@@ -121,9 +122,10 @@ public final class RepositoriesApi: Sendable {
         )
     }
 
-    // MARK: - Workspace registry (settings surface, masterplan §7a)
+    // MARK: - Workspace registry (settings surface, masterplan §6)
 
-    /// Member-readable: the workspace's repos with their project links.
+    /// Member-readable: the workspace's repos, each with the projects it backs
+    /// (v4 `projects[]` computed from `projects.repositoryId`).
     public func list(accountId: String, workspaceId: String) async throws -> [WorkspaceRepo] {
         try await trpc.query(
             accountId: accountId,
@@ -132,7 +134,8 @@ public final class RepositoriesApi: Sendable {
         )
     }
 
-    /// Owner-only (server-enforced): remove a repo; project links cascade.
+    /// Owner-only (server-enforced): remove a repo. Blocked (CONFLICT) while any
+    /// project still points at it — the caller surfaces the server message.
     public func remove(accountId: String, repositoryId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
@@ -141,30 +144,16 @@ public final class RepositoriesApi: Sendable {
         )
     }
 
-    /// Owner-only: link a repo to a project.
-    public func linkProject(accountId: String, projectId: String, repositoryId: String) async throws {
-        try await trpc.mutationVoid(
+    /// Middle tier of remote Changes visibility (§4.8, L18): the issue's
+    /// `exp/<IDENTIFIER>` branch compared against the repo default branch,
+    /// returned in the shared `prFiles` shape so the diff renderer is reused.
+    /// `nil` ⇒ the branch was never pushed (or no repo/PR yet). `.query`, so
+    /// this uses the GET-with-input helper.
+    public func branchDiff(accountId: String, issueId: String) async throws -> PrFilesResult? {
+        try await trpc.query(
             accountId: accountId,
-            path: "repositories.linkProject",
-            input: ProjectRepositoryInput(projectId: projectId, repositoryId: repositoryId)
-        )
-    }
-
-    /// Owner-only: unlink a repo from a project.
-    public func unlinkProject(accountId: String, projectId: String, repositoryId: String) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "repositories.unlinkProject",
-            input: ProjectRepositoryInput(projectId: projectId, repositoryId: repositoryId)
-        )
-    }
-
-    /// Owner-only: make a linked repo the project's primary clone target.
-    public func setPrimary(accountId: String, projectId: String, repositoryId: String) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "repositories.setPrimary",
-            input: ProjectRepositoryInput(projectId: projectId, repositoryId: repositoryId)
+            path: "repositories.branchDiff",
+            input: IssueIdInput(issueId: issueId)
         )
     }
 }

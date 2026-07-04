@@ -1,14 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
-import {
-  ExternalLink,
-  Github,
-  Lock,
-  Plus,
-  Sparkles,
-  Star,
-  Trash2,
-  X,
-} from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { ExternalLink, Github, Lock, Sparkles, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { Badge } from "@/components/ui/badge"
@@ -28,24 +19,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
-import type { Project } from "@/db/schema"
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type RepoRowData = RepoList[number]
@@ -58,16 +40,6 @@ export function WorkspaceRepositoriesSection({
 }: {
   workspaceId: string
 }) {
-  const projects = useWorkspaceProjects(workspaceId)
-  const visibleProjects = useMemo(
-    () => projects.filter((p) => !p.archivedAt),
-    [projects]
-  )
-  const projectMap = useMemo(
-    () => new Map(visibleProjects.map((p) => [p.id, p])),
-    [visibleProjects]
-  )
-
   const [repos, setRepos] = useState<RepoList | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -181,8 +153,8 @@ export function WorkspaceRepositoriesSection({
             </Badge>
           </CardTitle>
           <CardDescription>
-            Connect GitHub repos so issues in this workspace can be coded on.
-            Link a repo to a project to make it the clone target for
+            Connect GitHub repos so projects in this workspace can be coded on.
+            Point a project at a repo to make it the clone target for
             &ldquo;Start coding&rdquo;.
           </CardDescription>
         </CardHeader>
@@ -265,36 +237,13 @@ export function WorkspaceRepositoriesSection({
                 <RepoRow
                   key={repo.id}
                   repo={repo}
-                  projects={visibleProjects}
-                  projectMap={projectMap}
                   busy={busy}
                   onRemove={() =>
                     run(() =>
-                      trpc.repositories.remove.mutate({ repositoryId: repo.id })
-                    )
-                  }
-                  onLink={(projectId) =>
-                    run(() =>
-                      trpc.repositories.linkProject.mutate({
-                        projectId,
-                        repositoryId: repo.id,
-                      })
-                    )
-                  }
-                  onUnlink={(projectId) =>
-                    run(() =>
-                      trpc.repositories.unlinkProject.mutate({
-                        projectId,
-                        repositoryId: repo.id,
-                      })
-                    )
-                  }
-                  onSetPrimary={(projectId) =>
-                    run(() =>
-                      trpc.repositories.setPrimary.mutate({
-                        projectId,
-                        repositoryId: repo.id,
-                      })
+                      trpc.repositories.remove.mutate(
+                        { repositoryId: repo.id },
+                        { context: { skipErrorToast: true } }
+                      )
                     )
                   }
                 />
@@ -310,7 +259,7 @@ export function WorkspaceRepositoriesSection({
             <DialogTitle>Connect a repository</DialogTitle>
             <DialogDescription>
               Pick a repository the Exponential GitHub App is installed on. It
-              becomes available to link to this workspace&apos;s projects.
+              becomes available to point this workspace&apos;s projects at.
             </DialogDescription>
           </DialogHeader>
           <GithubRepoPicker onSelect={handleConnect} />
@@ -322,26 +271,14 @@ export function WorkspaceRepositoriesSection({
 
 function RepoRow({
   repo,
-  projects,
-  projectMap,
   busy,
   onRemove,
-  onLink,
-  onUnlink,
-  onSetPrimary,
 }: {
   repo: RepoRowData
-  projects: Project[]
-  projectMap: Map<string, Project>
   busy: boolean
   onRemove: () => void
-  onLink: (projectId: string) => void
-  onUnlink: (projectId: string) => void
-  onSetPrimary: (projectId: string) => void
 }) {
-  const [linkOpen, setLinkOpen] = useState(false)
-  const linkedIds = new Set(repo.projectLinks.map((l) => l.projectId))
-  const unlinked = projects.filter((p) => !linkedIds.has(p.id))
+  const inUse = repo.projects.length > 0
 
   return (
     <div className="space-y-2 px-3 py-2.5">
@@ -359,104 +296,59 @@ function RepoRow({
             Private
           </Badge>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-          disabled={busy}
-          onClick={onRemove}
-          title="Remove repository"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        {inUse ? (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* Wrapper span: a disabled button doesn't fire the pointer
+                    events the tooltip trigger relies on. */}
+                <span className="shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground"
+                    disabled
+                    aria-label="Remove repository"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                In use by {repo.projects.length}{` `}
+                {repo.projects.length === 1 ? `project` : `projects`} — change
+                their repository first
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+            disabled={busy}
+            onClick={onRemove}
+            title="Remove repository"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 pl-6">
-        {repo.projectLinks.length === 0 && (
+        {inUse ? (
+          <>
+            <span className="text-xs text-muted-foreground">Used by</span>
+            {repo.projects.map((project) => (
+              <Badge key={project.id} variant="outline" className="max-w-[12rem]">
+                <span className="truncate">{project.name}</span>
+              </Badge>
+            ))}
+          </>
+        ) : (
           <span className="text-xs text-muted-foreground">
-            No projects linked
+            Not used by any project
           </span>
-        )}
-        {repo.projectLinks.map((link) => {
-          const project = projectMap.get(link.projectId)
-          return (
-            <Badge
-              key={link.projectId}
-              variant="outline"
-              className="gap-1 pl-1.5"
-            >
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onSetPrimary(link.projectId)}
-                title={link.isPrimary ? `Primary repo` : `Make primary`}
-                className="flex items-center"
-              >
-                <Star
-                  className={
-                    link.isPrimary
-                      ? `h-3 w-3 fill-yellow-500 text-yellow-500`
-                      : `h-3 w-3 text-muted-foreground/60`
-                  }
-                />
-              </button>
-              <span className="max-w-[10rem] truncate">
-                {project?.name ?? `Unknown project`}
-              </span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onUnlink(link.projectId)}
-                title="Unlink project"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          )
-        })}
-
-        {unlinked.length > 0 && (
-          <Popover open={linkOpen} onOpenChange={setLinkOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-2 text-xs text-muted-foreground"
-                disabled={busy}
-              >
-                <Plus className="h-3 w-3" />
-                Link project
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[14rem] p-0" align="start">
-              <Command>
-                <CommandInput placeholder="Search projects..." />
-                <CommandList>
-                  <CommandEmpty>No projects found.</CommandEmpty>
-                  <CommandGroup>
-                    {unlinked.map((project) => (
-                      <CommandItem
-                        key={project.id}
-                        value={project.name}
-                        onSelect={() => {
-                          onLink(project.id)
-                          setLinkOpen(false)
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: project.color }}
-                        />
-                        <span className="truncate text-sm">{project.name}</span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
         )}
       </div>
     </div>

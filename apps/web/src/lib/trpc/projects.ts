@@ -1,18 +1,70 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { projects } from "@/db/schema"
-import { and, eq } from "drizzle-orm"
+import { projects, repositories } from "@/db/schema"
+import { and, eq, isNull } from "drizzle-orm"
 import {
   assertProjectMember,
   resolveWorkspaceAccess,
   assertWorkspaceOwner,
 } from "@/lib/workspace-membership"
 import { assertWithinPlanLimits } from "@/lib/billing"
+import type { db } from "@/db/connection"
+import {
+  assertCanManageRepos,
+  connectRepositoryInTx,
+} from "@/lib/trpc/repositories"
 import {
   platformValues,
   type ProjectPreviewMirror,
 } from "@exp/db-schema/domain"
+
+type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
+
+// Every project is backed by exactly one repo (v4). Create either points at an
+// existing registry repo (`repositoryId`) or connects one inline (`fullName`,
+// same validation as repositories.add).
+const fullNameSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`)
+
+const repositoryInputSchema = z.union([
+  z.object({ repositoryId: z.string().uuid() }),
+  z.object({
+    fullName: fullNameSchema,
+    defaultBranch: z.string().min(1).max(255).optional(),
+    private: z.boolean().optional(),
+    installationId: z.number().int().optional(),
+  }),
+])
+
+// Validate that a repo id belongs to the workspace and isn't archived.
+async function assertRepositoryInWorkspace(
+  tx: Tx,
+  repositoryId: string,
+  workspaceId: string
+): Promise<string> {
+  const [repo] = await tx
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.id, repositoryId),
+        eq(repositories.workspaceId, workspaceId),
+        isNull(repositories.archivedAt)
+      )
+    )
+    .limit(1)
+  if (!repo) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Repository not found in this workspace`,
+    })
+  }
+  return repo.id
+}
 
 // The DB mirror is display-only metadata — it is never executed. Even so we
 // clamp the strings the desktop syncs up (defence in depth) so a hostile or
@@ -57,6 +109,10 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
+        // v4: a project is a repo. Either target an existing registry repo or
+        // connect one inline in the same transaction (onboarding/create dialogs
+        // stay a single call).
+        repository: repositoryInputSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -67,8 +123,33 @@ export const projectsRouter = router({
       )
       await assertWithinPlanLimits(input.workspaceId, `projects`)
 
+      const inlineConnect = `fullName` in input.repository
+      if (inlineConnect) {
+        // The inline connect path also enforces the repositories axis and needs
+        // owner/admin (repo management), beyond the member-level project create.
+        await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
+        await assertWithinPlanLimits(input.workspaceId, `repositories`)
+      }
+
+      const repositoryInput = input.repository
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+
+        const repositoryId =
+          `fullName` in repositoryInput
+            ? await connectRepositoryInTx(tx, {
+                workspaceId: input.workspaceId,
+                fullName: repositoryInput.fullName,
+                defaultBranch: repositoryInput.defaultBranch,
+                private: repositoryInput.private,
+                installationId: repositoryInput.installationId,
+              })
+            : await assertRepositoryInWorkspace(
+                tx,
+                repositoryInput.repositoryId,
+                input.workspaceId
+              )
+
         const [project] = await tx
           .insert(projects)
           .values({
@@ -77,9 +158,46 @@ export const projectsRouter = router({
             slug: slugify(input.name),
             prefix: input.prefix.toUpperCase(),
             color: input.color ?? `#6366f1`,
+            repositoryId,
           })
           .returning()
 
+        return { project, txId }
+      })
+    }),
+
+  // Owner/admin: retarget a project's backing repo. Existing worktrees for
+  // old-repo issues keep working locally (they're just git); new launches use
+  // the new repo.
+  setRepository: authedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        repositoryId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const projectRecord = await assertProjectMember(
+        ctx.session.user.id,
+        input.projectId
+      )
+      await assertCanManageRepos(
+        ctx.session.user.id,
+        projectRecord.workspaceId
+      )
+
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const repositoryId = await assertRepositoryInWorkspace(
+          tx,
+          input.repositoryId,
+          projectRecord.workspaceId
+        )
+        const [project] = await tx
+          .update(projects)
+          .set({ repositoryId })
+          .where(eq(projects.id, input.projectId))
+          .returning()
         return { project, txId }
       })
     }),

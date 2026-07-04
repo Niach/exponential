@@ -13,8 +13,10 @@
 //!   desktop-side (defense in depth — never trust the fetched row);
 //! - [`run_spawn_spec`] — the §7.4 `SpawnSpec` builder (program = `argv[0]`,
 //!   args = `argv[1..]`, blocked env keys stripped client-side too);
-//! - [`run_root`] — the §7.4 root rule: no active coding worktree ⇒ the
-//!   project's clone root `<repos_root>/<owner>/<name>`;
+//! - [`run_root`] — the root rule (v4 §4.6): ALWAYS the project's trunk clone
+//!   root `<repos_root>/<owner>/<name>` (the run bar is trunk-only — no
+//!   active-worktree branch); [`shell_cwd`] — the `+` shell-tab cwd rule
+//!   (trunk root when it exists on disk, else `$HOME`);
 //! - [`play_state`] — the §7.5 play↔stop state machine (pure, unit-tested);
 //! - [`terminate`]/[`force_kill`] + [`STOP_GRACE`] — §7.5 stop semantics
 //!   (SIGTERM, then SIGKILL after a grace period; portable-pty's own killer
@@ -118,10 +120,24 @@ pub fn run_spawn_spec(config: &RunConfig, root: &Path) -> Result<SpawnSpec, Stri
     Ok(spec)
 }
 
-/// §7.4 root rule: a run config without an active coding worktree resolves
-/// against the project's clone root (`<repos_root>/<owner>/<name>`).
+/// Root rule (v4 §4.6): run configs ALWAYS resolve against the project's
+/// **trunk** clone root (`<repos_root>/<owner>/<name>`) — never an issue
+/// worktree. Running something inside a worktree is a power move done from a
+/// worktree shell tab, not from the run bar (v4 §4.2: the run bar is
+/// trunk-only). There is deliberately no active-worktree branch here.
 pub fn run_root(repos_root: &Path, repo_full_name: &str) -> PathBuf {
     clone_path(repos_root, repo_full_name)
+}
+
+/// `+` shell-tab cwd rule (v4 §4.6): open at the **trunk** clone root when it
+/// exists on disk, else `None` → the caller's `$HOME` fallback ("`$HOME` only
+/// while the clone doesn't exist yet or on non-project screens"). `trunk_root`
+/// is `None` off a project screen (no trunk to point at); `Some(root)` on a
+/// project screen, where the clone may or may not have finished cloning yet —
+/// an absent directory degrades to `$HOME` rather than spawning the shell in a
+/// path that isn't there.
+pub fn shell_cwd(trunk_root: Option<PathBuf>) -> Option<PathBuf> {
+    trunk_root.filter(|root| root.is_dir())
 }
 
 // ---------------------------------------------------------------------------
@@ -441,6 +457,21 @@ mod tests {
             run_root(Path::new("/repos"), "acme/web"),
             Path::new("/repos/acme/web")
         );
+    }
+
+    #[test]
+    fn shell_cwd_uses_trunk_only_when_it_exists() {
+        // Off a project screen → no trunk to point at → $HOME (None).
+        assert_eq!(shell_cwd(None), None);
+        // Project screen but the clone hasn't landed yet → $HOME (None).
+        assert_eq!(
+            shell_cwd(Some(PathBuf::from("/repos/acme/does-not-exist"))),
+            None
+        );
+        // Existing trunk clone dir → open there. Use a real dir (the crate's
+        // own manifest dir) so `is_dir()` holds without touching the network.
+        let real = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(shell_cwd(Some(real.clone())), Some(real));
     }
 
     // ---- play/stop state machine (§7.5) ---------------------------------

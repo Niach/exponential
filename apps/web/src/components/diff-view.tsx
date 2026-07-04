@@ -3,7 +3,7 @@ import { FileDiff, Loader2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
-interface PullFile {
+export interface PullFile {
   filename: string
   status: string
   additions: number
@@ -44,6 +44,19 @@ function FilePatch({ file }: { file: PullFile }) {
             : `No textual diff (binary or too large).`}
         </div>
       )}
+    </div>
+  )
+}
+
+// Shared file-patch list — reused by the PR-diff tier (this file's DiffView)
+// and the pushed-branch-no-PR tier (issue-changes-tab.tsx), both of which get
+// their files in the same `PullFile[]` shape (github-pr.ts / github-app.ts).
+export function FileDiffList({ files }: { files: PullFile[] }) {
+  return (
+    <div className="space-y-2 p-3">
+      {files.map((f) => (
+        <FilePatch key={f.filename} file={f} />
+      ))}
     </div>
   )
 }
@@ -96,11 +109,5 @@ export function DiffView({ issueId }: { issueId: string }) {
     )
   }
 
-  return (
-    <div className="space-y-2 p-3">
-      {files.map((f) => (
-        <FilePatch key={f.filename} file={f} />
-      ))}
-    </div>
-  )
+  return <FileDiffList files={files} />
 }

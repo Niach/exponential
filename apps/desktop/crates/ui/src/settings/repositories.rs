@@ -52,12 +52,13 @@ pub(super) struct GithubStatus {
     pub accounts: Vec<String>,
 }
 
-/// `repositories.list` — one connected repo + its project links.
+/// `repositories.list` — one connected repo + the projects it backs (v4
+/// `projects.repositoryId`; project names now resolved server-side).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RepoRow {
-    /// Consumed by the §7.9 repo mutations (remove/link/set-primary) when
-    /// the IDE track lands them; the read-only pane doesn't render it.
+    /// Consumed by the §7.9 repo mutations (remove) when the IDE track lands
+    /// them; the read-only pane doesn't render it.
     #[allow(dead_code)]
     pub id: String,
     pub full_name: String,
@@ -66,15 +67,14 @@ pub(super) struct RepoRow {
     #[serde(default)]
     pub private: bool,
     #[serde(default)]
-    pub project_links: Vec<ProjectLink>,
+    pub projects: Vec<RepoProjectRef>,
 }
 
+/// A project this repo backs (`{ id, name, slug }` from `repositories.list`).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ProjectLink {
-    pub project_id: String,
-    #[serde(default)]
-    pub is_primary: bool,
+pub(super) struct RepoProjectRef {
+    pub name: String,
 }
 
 pub(super) fn fetch_github_status(
@@ -126,12 +126,10 @@ pub struct RepositoriesPane {
 
 impl RepositoriesPane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
-        let collections = Store::global(cx).collections().clone();
-        let subscriptions = vec![
-            cx.observe(&nav, |_, _, cx| cx.notify()),
-            // Project names on link chips are live collection reads.
-            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
-        ];
+        // The GitHub-App install state + repo list (incl. project names) come
+        // straight from the server; only navigation (workspace switch) drives a
+        // re-render/re-fetch.
+        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         Self {
             nav,
             load: Load::Idle,
@@ -341,12 +339,9 @@ impl Render for RepositoriesPane {
                         );
                     }
                     Ok(repos) => {
-                        let projects = Store::global(cx)
-                            .collections()
-                            .projects_in_workspace(&workspace_id, cx);
                         let mut list = v_flex().gap_2();
                         for repo in repos {
-                            list = list.child(render_repo_row(repo, &projects, cx));
+                            list = list.child(render_repo_row(repo, cx));
                         }
                         body = body.child(list);
                     }
@@ -370,13 +365,9 @@ impl Render for RepositoriesPane {
 }
 
 /// Web `RepoRow` (read-only v1): name + branch/private chips, then the
-/// project-link line with the primary Star (`repositories.forIssue`'s clone
-/// target, §7.1).
-fn render_repo_row(
-    repo: &RepoRow,
-    projects: &[domain::rows::Project],
-    cx: &gpui::App,
-) -> impl IntoElement {
+/// "used by" line — one chip per project the repo backs (v4 one-repo-per-
+/// project; names resolved server-side).
+fn render_repo_row(repo: &RepoRow, cx: &gpui::App) -> impl IntoElement {
     let mut head = h_flex()
         .gap_2()
         .items_center()
@@ -402,7 +393,7 @@ fn render_repo_row(
     }
 
     let mut links = h_flex().flex_wrap().gap_1p5().pl_6().items_center();
-    if repo.project_links.is_empty() {
+    if repo.projects.is_empty() {
         links = links.child(
             div()
                 .text_xs()
@@ -410,21 +401,7 @@ fn render_repo_row(
                 .child("No projects linked"),
         );
     } else {
-        for link in &repo.project_links {
-            let name = projects
-                .iter()
-                .find(|project| project.id == link.project_id)
-                .map(|project| project.name.clone())
-                .unwrap_or_else(|| "Unknown project".to_string());
-            let star = if link.is_primary {
-                Icon::new(IconName::StarFill)
-                    .xsmall()
-                    .text_color(theme::tokens::YELLOW.to_hsla())
-            } else {
-                Icon::new(IconName::Star)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground.opacity(0.6))
-            };
+        for project in &repo.projects {
             links = links.child(
                 h_flex()
                     .gap_1()
@@ -435,8 +412,7 @@ fn render_repo_row(
                     .border_1()
                     .border_color(cx.theme().border)
                     .text_xs()
-                    .child(star)
-                    .child(SharedString::from(name)),
+                    .child(SharedString::from(project.name.clone())),
             );
         }
     }

@@ -2,19 +2,18 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-// Cross-platform-parity GitHub repo picker (web github-repo-picker.tsx): lists
-// the repos the user's GitHub App is installed on and links the chosen one to a
-// project. Handles not-configured / not-installed (browser install hop +
-// foreground re-query) / installed (searchable list). Hosted from workspace
-// settings; the link/unlink mutations are owner-gated server-side.
+// Installed-repo picker (web github-repo-picker.tsx): lists the repos the user's
+// GitHub App is installed on and returns the chosen one to the caller. v4: it no
+// longer links a repo to a project directly — instead it feeds the create-project
+// inline-connect path (`repository: { fullName }`). Handles not-configured /
+// not-installed (browser install hop + foreground re-query) / installed
+// (searchable list). The link/upsert happens server-side in `projects.create`.
 struct GithubRepoPicker: View {
     let accountId: String
-    let projectId: String
-    let projectName: String
-    let currentRepo: String?
     let integrationsApi: IntegrationsApi
-    let projectsApi: ProjectsApi
     let installBaseURL: URL?
+    /// Called with the picked repo; the sheet dismisses itself afterwards.
+    var onPick: (GithubPickerRepo) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -29,26 +28,15 @@ struct GithubRepoPicker: View {
                 AppBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text(projectName)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         content
                         if let error {
                             Text(error).font(.caption).foregroundStyle(.red)
-                        }
-                        if let current = currentRepo, !current.isEmpty {
-                            Button(role: .destructive) {
-                                Task { await unlink() }
-                            } label: {
-                                Text("Unlink \(current)").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
                         }
                     }
                     .padding(16)
                 }
             }
-            .navigationTitle("Connect repo")
+            .navigationTitle("Add repository")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
@@ -122,7 +110,8 @@ struct GithubRepoPicker: View {
 
             ForEach(repos) { repo in
                 Button {
-                    Task { await link(repo.fullName) }
+                    onPick(repo)
+                    dismiss()
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
@@ -133,9 +122,6 @@ struct GithubRepoPicker: View {
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         Spacer()
-                        if repo.fullName == currentRepo {
-                            Text("Linked").font(.caption2).foregroundStyle(DesignTokens.Semantic.blue)
-                        }
                         if repo.`private` {
                             Image(systemName: "lock.fill")
                                 .font(.caption2)
@@ -175,24 +161,6 @@ struct GithubRepoPicker: View {
             await MainActor.run { result = r; loading = false }
         } catch {
             await MainActor.run { self.error = error.localizedDescription; loading = false }
-        }
-    }
-
-    private func link(_ repo: String) async {
-        do {
-            try await projectsApi.linkGithubRepo(accountId: accountId, projectId: projectId, repo: repo)
-            await MainActor.run { dismiss() }
-        } catch {
-            await MainActor.run { self.error = error.localizedDescription }
-        }
-    }
-
-    private func unlink() async {
-        do {
-            try await projectsApi.unlinkGithubRepo(accountId: accountId, projectId: projectId)
-            await MainActor.run { dismiss() }
-        } catch {
-            await MainActor.run { self.error = error.localizedDescription }
         }
     }
 }

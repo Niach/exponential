@@ -18,8 +18,18 @@ struct IssueListView: View {
 
             if let vm = viewModel {
                 VStack(spacing: 0) {
-                    if let repo = vm.project?.githubRepo, !repo.isEmpty {
-                        githubRepoBanner(repo: repo)
+                    if let project = vm.project, project.repositoryId != nil {
+                        HStack {
+                            RepoNameChip(
+                                accountId: accountId,
+                                workspaceId: project.workspaceId,
+                                repositoryId: project.repositoryId
+                            )
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.04))
                     }
                     issueListContent(vm)
                 }
@@ -376,34 +386,6 @@ struct IssueListView: View {
         if calendar.isDateInToday(date) { return "Today" }
         if calendar.isDateInTomorrow(date) { return "Tomorrow" }
         return AppDateFormatters.MMMd.string(from: date)
-    }
-
-    // Surfaces the project's linked GitHub repo as a read-only tappable banner
-    // (opens it on GitHub). Linking now lives in workspace settings (the
-    // installed-repos picker), matching the web app.
-    @ViewBuilder
-    private func githubRepoBanner(repo: String) -> some View {
-        Button {
-            if let url = URL(string: "https://github.com/\(repo)") {
-                UIApplication.shared.open(url)
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.caption2)
-                Text(repo)
-                    .font(.caption.monospaced())
-                    .lineLimit(1)
-                Image(systemName: "arrow.up.right")
-                    .font(.caption2)
-                Spacer()
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color.white.opacity(0.04))
     }
 
     private func dueDateColor(_ dateString: String) -> Color {

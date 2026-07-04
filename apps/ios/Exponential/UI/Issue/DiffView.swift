@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The PR diff for an issue, loaded once from `issues.prFiles`. Renders each
 /// changed file as a patch block with +/−/context line coloring. Mirrors the
-/// web diff view (apps/web/src/components/diff-view.tsx). Read-only in v1.
+/// web diff view (apps/web/src/components/diff-view.tsx). Read-only.
 struct DiffView: View {
     let issueId: String
 
@@ -20,13 +20,7 @@ struct DiffView: View {
             if let loadError {
                 Text(loadError).font(.caption).foregroundStyle(.white.opacity(TextOpacity.secondary))
             } else if let files {
-                if files.isEmpty {
-                    Text("No changes yet.").font(.caption).foregroundStyle(.white.opacity(TextOpacity.secondary))
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(files) { fileBlock($0) }
-                    }
-                }
+                DiffFilesView(files: files)
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small).tint(.white)
@@ -44,6 +38,23 @@ struct DiffView: View {
             files = try await deps.issuesApi.prFiles(accountId: accountId, issueId: issueId).files
         } catch {
             loadError = "Couldn't load changes from GitHub."
+        }
+    }
+}
+
+/// Shared file-diff renderer (masterplan §4.8 — one diff surface reused across
+/// the PR-diff tier and the pushed-branch `branchDiff` tier). Renders each
+/// changed file as a patch block with +/−/context line coloring.
+struct DiffFilesView: View {
+    let files: [PrFile]
+
+    var body: some View {
+        if files.isEmpty {
+            Text("No changes yet.").font(.caption).foregroundStyle(.white.opacity(TextOpacity.secondary))
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(files) { fileBlock($0) }
+            }
         }
     }
 

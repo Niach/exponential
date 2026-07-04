@@ -107,6 +107,7 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "slug",
             "prefix",
             "color",
+            "repository_id",
             "sort_order",
             "archived_at",
             "preview_config",

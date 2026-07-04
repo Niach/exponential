@@ -2,7 +2,6 @@ import { and, eq, inArray, notExists, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   issues,
-  projectRepositories,
   projects,
   repositories,
   widgetConfigs,
@@ -28,6 +27,12 @@ const PUBLIC_WORKSPACE_NAME = `Exponential Feedback`
 const PUBLIC_PROJECT_SLUG = `exponential`
 const PUBLIC_PROJECT_NAME = `Exponential`
 const PUBLIC_PROJECT_PREFIX = `EXP`
+// v4: every project is backed by exactly one repository (projects.repository_id
+// NOT NULL). The canonical dogfood project is always backed by this repo. On
+// this internal bootstrap path we upsert the registry row DIRECTLY, with no
+// GitHub App validation — `installation_id` stays null and the empty-
+// installationId self-heal (github-app.ts) fills it in later.
+const PUBLIC_REPO_FULL_NAME = `Niach/exponential`
 // Pre-collapse deployments seeded this second project next to the dogfood one;
 // collapseLegacyFeedbackProject folds it away.
 const LEGACY_FEEDBACK_PROJECT_SLUG = `feedback`
@@ -97,6 +102,10 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
     .limit(1)
   if (existing) return existing.id
 
+  // v4: a project can't be inserted without a backing repository row — upsert
+  // the dogfood repo first (idempotent) and pass its id into project creation.
+  const repositoryId = await ensurePublicRepository(publicWorkspaceId)
+
   const [project] = await db
     .insert(projects)
     .values({
@@ -104,9 +113,50 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
       name: PUBLIC_PROJECT_NAME,
       slug: PUBLIC_PROJECT_SLUG,
       prefix: PUBLIC_PROJECT_PREFIX,
+      repositoryId,
     })
     .returning({ id: projects.id })
   return project.id
+}
+
+// Upsert the dogfood repositories row and return its id. Runs on the internal
+// bootstrap path only — no GitHub App validation, `installation_id` left null
+// (self-heal fills it). Idempotent via the (workspace_id, full_name) unique.
+async function ensurePublicRepository(
+  publicWorkspaceId: string
+): Promise<string> {
+  const [inserted] = await db
+    .insert(repositories)
+    .values({
+      workspaceId: publicWorkspaceId,
+      fullName: PUBLIC_REPO_FULL_NAME,
+      installationId: null,
+    })
+    .onConflictDoNothing({
+      target: [repositories.workspaceId, repositories.fullName],
+    })
+    .returning({ id: repositories.id })
+  if (inserted) return inserted.id
+
+  const [row] = await db
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.workspaceId, publicWorkspaceId),
+        eq(repositories.fullName, PUBLIC_REPO_FULL_NAME)
+      )
+    )
+    .limit(1)
+  // A concurrent delete between the onConflictDoNothing INSERT and this SELECT
+  // leaves no row to read — throw rather than dereferencing undefined; the next
+  // boot re-runs bootstrap idempotently.
+  if (!row) {
+    throw new Error(
+      `Dogfood repository row vanished concurrently during bootstrap — retry.`
+    )
+  }
+  return row.id
 }
 
 const FEEDBACK_WIDGET_NAME = `Exponential App`
@@ -169,80 +219,16 @@ const DOGFOOD_TARGETS: ProjectPreviewMirror[`targets`] = [
   { id: `ios-prod`, name: `iOS Prod`, platform: `ios` },
 ]
 
-// Upsert a `repositories` row for the dogfood repo and make it the dogfood
-// project's PRIMARY link, so the coding launcher can resolve a clone target and
-// dogfood coding works end-to-end. Replaces the removed `projects.githubRepo`
-// wiring. Idempotent.
-async function ensureDogfoodRepoLink(
-  workspaceId: string,
-  projectId: string,
-  repoFullName: string
-) {
-  const [inserted] = await db
-    .insert(repositories)
-    .values({
-      workspaceId,
-      fullName: repoFullName,
-      defaultBranch: `main`,
-      private: false,
-    })
-    .onConflictDoNothing({
-      target: [repositories.workspaceId, repositories.fullName],
-    })
-    .returning({ id: repositories.id })
-
-  let repositoryId = inserted?.id
-  if (!repositoryId) {
-    const [row] = await db
-      .select({ id: repositories.id })
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.workspaceId, workspaceId),
-          eq(repositories.fullName, repoFullName)
-        )
-      )
-      .limit(1)
-    repositoryId = row?.id
-  }
-  if (!repositoryId) return
-
-  await db.transaction(async (tx) => {
-    // Enforce one primary per project (partial unique index).
-    await tx
-      .update(projectRepositories)
-      .set({ isPrimary: false })
-      .where(
-        and(
-          eq(projectRepositories.projectId, projectId),
-          eq(projectRepositories.isPrimary, true)
-        )
-      )
-    await tx
-      .insert(projectRepositories)
-      .values({ projectId, repositoryId, isPrimary: true })
-      .onConflictDoUpdate({
-        target: [
-          projectRepositories.projectId,
-          projectRepositories.repositoryId,
-        ],
-        set: { isPrimary: true },
-      })
-  })
-}
-
-// Dogfood: bind the public workspace's single Exponential project to the repo
-// named by DOGFOOD_REPO, so the team previews + tests Exponential inside
-// Exponential and files straight into this project. Cloud-only + gated behind
-// DOGFOOD_REPO (self-hosters never inherit a repo binding). Purely about the
-// repo binding — the project itself always exists by now (ensurePublicProject
-// runs first, unconditionally). Idempotent: it seeds the preview mirror once,
-// links the repo registry row, and never clobbers a hand-edited previewConfig
-// later.
-async function ensureDogfoodProject(
-  publicWorkspaceId: string,
-  publicProjectId: string
-) {
+// Dogfood: seed the public workspace's single Exponential project preview
+// mirror, so the team previews + tests Exponential inside Exponential. The repo
+// BINDING is no longer set here — v4 collapses project↔repository to a single
+// mandatory `projects.repository_id`, wired at project creation
+// (ensurePublicProject → ensurePublicRepository). This path is now purely the
+// preview mirror, cloud-only + gated behind DOGFOOD_REPO (self-hosters never
+// inherit the preview targets). The project always exists by now
+// (ensurePublicProject runs first, unconditionally). Idempotent: seeds the
+// mirror once and never clobbers a hand-edited previewConfig later.
+async function ensureDogfoodProject(publicProjectId: string) {
   const repo = process.env.DOGFOOD_REPO?.trim()
   if (!repo) return
 
@@ -265,7 +251,6 @@ async function ensureDogfoodProject(
       })
       .where(eq(projects.id, publicProjectId))
   }
-  await ensureDogfoodRepoLink(publicWorkspaceId, publicProjectId, repo)
 }
 
 // Pre-collapse cloud deployments carried TWO projects in the public workspace:
@@ -385,12 +370,13 @@ export function bootstrapCloud(): Promise<void> {
       if (isCloudInstance()) {
         const publicWorkspaceId = await ensurePublicWorkspace()
         await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
-        // Canonical project first (created regardless of DOGFOOD_REPO), then
-        // the optional dogfood repo binding, then fold the legacy feedback
-        // project into the canonical one, then seed the widget config — which
-        // needs the Exponential project to exist as its target.
+        // Canonical project first — created regardless of DOGFOOD_REPO, and it
+        // upserts its mandatory backing repository row inline (v4). Then the
+        // optional dogfood preview mirror, then fold the legacy feedback project
+        // into the canonical one, then seed the widget config — which needs the
+        // Exponential project to exist as its target.
         const publicProjectId = await ensurePublicProject(publicWorkspaceId)
-        await ensureDogfoodProject(publicWorkspaceId, publicProjectId)
+        await ensureDogfoodProject(publicProjectId)
         await collapseLegacyFeedbackProject(publicWorkspaceId)
         await ensureFeedbackWidgetConfig(publicWorkspaceId)
       }

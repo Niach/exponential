@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.MoreVert
@@ -86,6 +87,7 @@ fun IssueDetailScreen(
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
     val runningSession by viewModel.runningSession.collectAsStateWithLifecycle()
+    val repoName by viewModel.repoName.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
     val startState by viewModel.startState.collectAsStateWithLifecycle()
@@ -173,7 +175,7 @@ fun IssueDetailScreen(
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .fillMaxWidth(),
         ) {
-            // Header: identifier chip + overflow
+            // Header: identifier chip + repo chip + overflow
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     issue.identifier,
@@ -184,6 +186,12 @@ fun IssueDetailScreen(
                         .glassButton()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
+                // The backing repo (name resolved via the repositories API, cached)
+                // — a project is a repository now (masterplan v4 §6).
+                repoName?.let { name ->
+                    Spacer(Modifier.width(6.dp))
+                    RepoChip(name)
+                }
                 Spacer(Modifier.weight(1f))
                 if (isModerator) {
                     var overflowOpen by remember { mutableStateOf(false) }
@@ -358,6 +366,9 @@ fun IssueDetailScreen(
             // live when a session is running; "Start on my desktop" otherwise.
             if (runningSession != null || (steerEnabled == true && permissions.isMember && !steerDevices.isNullOrEmpty())) {
                 Spacer(Modifier.height(20.dp))
+                repoName?.let { name ->
+                    Row(modifier = Modifier.padding(bottom = 8.dp)) { RepoChip(name) }
+                }
                 SteerPanel(
                     session = runningSession,
                     sessionOwner = runningSession?.let { s -> state.users.firstOrNull { it.id == s.userId } },
@@ -373,14 +384,20 @@ fun IssueDetailScreen(
             Spacer(Modifier.height(20.dp))
             AttachmentList(issueId = issue.id)
 
-            // Linked pull request (branch + browser link + collapsible diff),
-            // shown once server-side merge detection has populated the PR fields.
-            if (!issue.prUrl.isNullOrBlank()) {
+            // Changes (masterplan §4.8, mobile tiers 2–4): PR diff → pushed-branch
+            // diff → "being coded on <device>" opening the native steer viewer.
+            if (!issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank() || runningSession != null) {
                 Spacer(Modifier.height(20.dp))
-                PrSection(
+                ChangesSection(
                     prUrl = issue.prUrl,
                     branch = issue.branch,
-                    loadFiles = { viewModel.loadPrFiles() },
+                    runningSessionId = runningSession?.id,
+                    runningSessionDeviceLabel = runningSession?.deviceLabel,
+                    steerEnabled = steerEnabled == true,
+                    isMember = permissions.isMember,
+                    loadPrFiles = { viewModel.loadPrFiles() },
+                    loadBranchDiff = { viewModel.loadBranchDiff() },
+                    onWatch = onOpenSteer,
                 )
             }
 
@@ -505,6 +522,32 @@ fun IssueDetailScreen(
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
             },
+        )
+    }
+}
+
+// The backing repository's name (owner/name), resolved via the repositories API
+// and cached in the ViewModel. A project is a repository now (masterplan v4 §6).
+@Composable
+private fun RepoChip(fullName: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .glassButton()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Icon(
+            Icons.Filled.Code,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            fullName,
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
     }
 }

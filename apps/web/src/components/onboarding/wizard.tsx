@@ -1,29 +1,29 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { Check } from "lucide-react"
+import { FolderKanban, Github, Sparkles, X } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { useCreateProject } from "@/hooks/use-create-project"
 import { Button } from "@/components/ui/button"
-import { StepProject } from "@/components/onboarding/step-project"
-import { StepGithub } from "@/components/onboarding/step-github"
-import { cn } from "@/lib/utils"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
+import {
+  GithubRepoPicker,
+  type PickerRepo,
+} from "@/components/github-repo-picker"
+import { derivePrefix } from "@/lib/project"
 
-export type StepProps = {
-  workspaceId: string
-  workspaceSlug: string
-  projectId?: string
-  projectSlug?: string
-  onProjectCreated?: (project: { id: string; slug: string }) => void
-  onNext: () => void
-  onSkip: () => void
-}
-
-// Onboarding = name a project, then connect GitHub so "Start coding" works
-// from day one — then finish into the workspace. Both steps are skippable.
-const STEPS = [
-  { id: `project`, title: `Project`, component: StepProject },
-  { id: `github`, title: `GitHub`, component: StepGithub },
-] as const
-
+// v4 onboarding is a single screen: name/prefix/color plus a REQUIRED backing
+// repository (a project is a repo). One projects.create call connects the repo
+// inline. There is no skip — repo-less projects no longer exist, and invited
+// users never reach onboarding (they land in the shared workspace).
 export function OnboardingWizard({
   workspaceId,
   workspaceSlug,
@@ -32,75 +32,143 @@ export function OnboardingWizard({
   workspaceSlug: string
 }) {
   const navigate = useNavigate()
-  const [currentStep, setCurrentStep] = useState(0)
-  const [project, setProject] = useState<{ id: string; slug: string } | null>(
-    null
-  )
+  const { createProject } = useCreateProject()
+  const [name, setName] = useState(``)
+  const [prefix, setPrefix] = useState(``)
+  const [color, setColor] = useState(`#6366f1`)
+  const [repo, setRepo] = useState<PickerRepo | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Plan-cap failures render as a softer nudge than hard errors.
+  const [limitError, setLimitError] = useState<string | null>(null)
 
-  const finishWizard = async () => {
-    await trpc.onboarding.complete.mutate()
-    navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug } })
+  const handleNameChange = (value: string) => {
+    setName(value)
+    setPrefix(derivePrefix(value))
   }
 
-  const handleNext = () => {
-    if (currentStep >= STEPS.length - 1) {
-      void finishWizard()
-    } else {
-      setCurrentStep((s) => s + 1)
+  const canCreate =
+    !!name.trim() && !!prefix.trim() && !!repo && !saving
+
+  const handleCreate = async () => {
+    if (!repo || !name.trim() || !prefix.trim()) return
+    setSaving(true)
+    setError(null)
+    setLimitError(null)
+    const result = await createProject({
+      workspaceId,
+      name,
+      prefix,
+      color,
+      repository: {
+        fullName: repo.fullName,
+        defaultBranch: repo.defaultBranch,
+        private: repo.private,
+        installationId: repo.installationId,
+      },
+    })
+    if (result.ok) {
+      await trpc.onboarding.complete.mutate()
+      navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug } })
+      return
     }
+    if (result.error.kind === `planLimit`) {
+      setLimitError(result.error.message)
+    } else {
+      setError(result.error.message)
+    }
+    setSaving(false)
   }
-
-  const ActiveComponent = STEPS[currentStep]?.component
-  if (!ActiveComponent) return null
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-2xl space-y-8">
-        <div className="flex items-center justify-center gap-2">
-          {STEPS.map((step, i) => (
-            <div key={step.id} className="flex items-center gap-2">
-              <div
-                className={cn(
-                  `flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors`,
-                  i < currentStep && `bg-primary text-primary-foreground`,
-                  i === currentStep &&
-                    `bg-primary text-primary-foreground ring-2 ring-primary/30 ring-offset-2 ring-offset-background`,
-                  i > currentStep && `bg-muted text-muted-foreground`
-                )}
-              >
-                {i < currentStep ? <Check className="size-3.5" /> : i + 1}
-              </div>
-              {i < STEPS.length - 1 && (
-                <div
-                  className={cn(
-                    `h-px w-6`,
-                    i < currentStep ? `bg-primary` : `bg-muted`
-                  )}
+      <div className="w-full max-w-2xl">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+              <FolderKanban className="size-6 text-primary" />
+            </div>
+            <CardTitle className="text-xl">
+              Create your first project
+            </CardTitle>
+            <CardDescription>
+              A project is backed by a GitHub repository, so issues can be coded
+              on right away.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
+              <div className="space-y-2">
+                <Label htmlFor="onb-project-name">Project name</Label>
+                <Input
+                  id="onb-project-name"
+                  value={name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="e.g. Backend API"
+                  autoFocus
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="onb-project-prefix">Prefix</Label>
+                <Input
+                  id="onb-project-prefix"
+                  className="sm:w-28"
+                  value={prefix}
+                  onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+                  placeholder="e.g. API"
+                  maxLength={10}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Color</Label>
+              <ColorSwatchGrid value={color} onChange={setColor} />
+            </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <Label>Repository (required)</Label>
+              {repo ? (
+                <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                  <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {repo.fullName}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs text-muted-foreground"
+                    onClick={() => setRepo(null)}
+                  >
+                    <X className="mr-1 h-3.5 w-3.5" />
+                    Change
+                  </Button>
+                </div>
+              ) : (
+                <GithubRepoPicker onSelect={setRepo} />
               )}
             </div>
-          ))}
-        </div>
 
-        <ActiveComponent
-          workspaceId={workspaceId}
-          workspaceSlug={workspaceSlug}
-          projectId={project?.id}
-          projectSlug={project?.slug}
-          onProjectCreated={setProject}
-          onNext={handleNext}
-          onSkip={handleNext}
-        />
+            {error && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+            {limitError && (
+              <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">{limitError}</span>
+              </div>
+            )}
 
-        <div className="text-center">
-          <Button
-            variant="link"
-            className="text-xs text-muted-foreground"
-            onClick={() => void finishWizard()}
-          >
-            Skip setup entirely
-          </Button>
-        </div>
+            <div className="flex justify-end">
+              <Button onClick={() => void handleCreate()} disabled={!canCreate}>
+                {saving ? `Creating…` : `Create project`}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

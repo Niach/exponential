@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import type { ReactNode } from "react"
 import { Github, Loader2, Lock, RefreshCw } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
@@ -26,18 +27,22 @@ type ReposResult = {
   hasMore: boolean
 }
 
-// Repo-first connect surface shared by workspace settings → Repositories and
-// the onboarding GitHub step. Self-contained: loads the user's installable
-// repos, offers an inline GitHub App connect when none are installed, and
-// re-detects after the user returns from the GitHub install tab (window
-// focus). Calls `onSelect` with the chosen repo, or `onSkip` for the
-// plain-tracking fallback.
+// Repo-first connect surface shared by workspace settings → Repositories, the
+// onboarding project step, and the create-project dialog. Self-contained: loads
+// the user's installable repos, offers an inline GitHub App connect when none
+// are installed, and re-detects after the user returns from the GitHub install
+// tab (window focus). Calls `onSelect` with the chosen repo.
+//
+// v4: repo-less projects no longer exist, so there is no skip escape. Surfaces
+// that don't want the inline install CTA (the create-project dialog) pass
+// `installEmptyState` to render their own call to action (e.g. a link to
+// workspace settings → Repositories) in the App-absent states instead.
 export function GithubRepoPicker({
   onSelect,
-  onSkip,
+  installEmptyState,
 }: {
   onSelect: (repo: PickerRepo) => void
-  onSkip?: () => void
+  installEmptyState?: ReactNode
 }) {
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,25 +85,23 @@ export function GithubRepoPicker({
     )
   }
 
-  // App not configured on this server → only manual tracking is possible.
+  // App not configured on this server → no repo can be connected here.
   if (!data || !data.configured) {
+    if (installEmptyState) return <>{installEmptyState}</>
     return (
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          GitHub isn’t configured on this server. You can still track work
-          without a connected repo.
-        </p>
-        {onSkip && (
-          <Button type="button" variant="outline" onClick={onSkip}>
-            Track without a repo
-          </Button>
-        )}
+      <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
+        <Github className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          GitHub isn’t configured on this server, so repositories can’t be
+          connected.
+        </span>
       </div>
     )
   }
 
-  // Configured but not installed → inline connect.
+  // Configured but not installed → inline connect (or the caller's own CTA).
   if (!data.installed) {
+    if (installEmptyState) return <>{installEmptyState}</>
     return (
       <div className="space-y-3">
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
@@ -122,17 +125,6 @@ export function GithubRepoPicker({
             I’ve connected
           </Button>
         </div>
-        {onSkip && (
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            className="px-0 text-muted-foreground"
-            onClick={onSkip}
-          >
-            Track without a repo
-          </Button>
-        )}
       </div>
     )
   }
@@ -173,17 +165,6 @@ export function GithubRepoPicker({
             ? `Don’t see your repo? Add repos on GitHub`
             : `Add more repos on GitHub`}
         </Button>
-        {onSkip && (
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            className="px-0 text-xs text-muted-foreground"
-            onClick={onSkip}
-          >
-            Track without a repo
-          </Button>
-        )}
       </div>
     </div>
   )

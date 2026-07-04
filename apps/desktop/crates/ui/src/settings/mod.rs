@@ -22,6 +22,7 @@
 mod account;
 mod coding;
 mod labels;
+mod local_repos;
 mod members;
 mod notifications_prefs;
 mod projects;
@@ -42,6 +43,7 @@ use crate::navigation::{active_workspace_id, nav_for_window, Navigation};
 use crate::queries;
 
 use labels::LabelsPane;
+use local_repos::LocalReposPane;
 use members::MembersPane;
 use projects::ProjectsPane;
 use repositories::RepositoriesPane;
@@ -65,6 +67,9 @@ pub struct SettingsView {
     /// §7.7 desktop-only card block (launcher settings + doctor + key status)
     /// — local per-install state, so NOT owner-gated and last in the column.
     coding: Entity<CodingPane>,
+    /// §4.7 desktop-only Local repositories section (clone disk usage +
+    /// prune/remove) — local per-install state, un-gated, after Coding.
+    local_repos: Entity<LocalReposPane>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -77,6 +82,7 @@ impl SettingsView {
         let projects = cx.new(|cx| ProjectsPane::new(nav.clone(), cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), cx));
         let coding = cx.new(|cx| CodingPane::new(window, cx));
+        let local_repos = cx.new(LocalReposPane::new);
 
         // The section nav + header depend on role (owner gating) and the
         // solo heuristic — re-render when membership/workspace data moves.
@@ -96,6 +102,7 @@ impl SettingsView {
             projects,
             repositories,
             coding,
+            local_repos,
             _subscriptions: subscriptions,
         }
     }
@@ -158,9 +165,11 @@ impl Render for SettingsView {
             .child(self.labels.clone())
             // Desktop-only §7.7 block: launcher settings + tooling doctor +
             // the §7.2 personal-key status row. Local per-install state — no
-            // owner gate, no web-parity counterpart.
+            // owner gate, no web-parity counterpart. §4.7 Local repositories
+            // (clone disk usage + prune/remove) rides the same local block.
             .child(separator(cx))
-            .child(self.coding.clone());
+            .child(self.coding.clone())
+            .child(self.local_repos.clone());
 
         v_flex()
             .size_full()

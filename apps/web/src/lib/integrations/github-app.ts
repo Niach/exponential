@@ -1,4 +1,5 @@
 import crypto from "node:crypto"
+import type { PullFile } from "@/lib/integrations/github-pr"
 
 // GitHub App auth: mint a short-lived **installation token** for a repo, scoped
 // to exactly the permissions the App was granted (contents + pull_requests).
@@ -48,14 +49,24 @@ function appJwt(): string {
   return `${signingInput}.${b64url(sig)}`
 }
 
+// The GitHub REST header triple every call shares — `accept`, `user-agent`, and
+// the pinned API version. Pass a token to add the `authorization: Bearer` header
+// (App JWT or installation token, per call site).
+export function githubApiHeaders(token?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    accept: `application/vnd.github+json`,
+    "user-agent": `exponential`,
+    "x-github-api-version": `2022-11-28`,
+  }
+  if (token) headers.authorization = `Bearer ${token}`
+  return headers
+}
+
 async function ghApp(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
-      accept: `application/vnd.github+json`,
-      "user-agent": `exponential`,
-      "x-github-api-version": `2022-11-28`,
-      authorization: `Bearer ${appJwt()}`,
+      ...githubApiHeaders(appJwt()),
       ...(init?.headers ?? {}),
     },
   })
@@ -119,6 +130,112 @@ export async function resolveRepoDefaultBranch(
   return data.default_branch ?? null
 }
 
+// A changed file in a branch/PR diff reuses github-pr.ts's `PullFile` so every
+// client renders one diff shape across the PR-diff and pushed-branch-no-PR tiers
+// (§4.8). Re-exported for callers that reach for it via this module.
+export type { PullFile }
+
+// The `prFiles`-shaped result of a branch compare. `prNumber` is always null
+// here (there is no PR yet — this is the "pushed, no PR" tier); it stays in the
+// shape so clients can render it exactly like the PR-diff tier.
+export interface BranchDiff {
+  repo: string
+  prNumber: number | null
+  files: PullFile[]
+}
+
+// Injectable fetch surface — the real `fetch`, or a stub in unit tests.
+export type CompareFetch = (
+  url: string,
+  init: { headers: Record<string, string> }
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
+
+// GitHub's compare API is stable within a short window and the diff view polls
+// (§4.8 freshness) — a ~60s per-branch cache absorbs the churn. Module-level so
+// it survives across requests, keyed by `repo#base#branch` (the base ref is part
+// of the compare identity — a default-branch change must not serve a stale diff).
+// Only successful compares are cached; a 404 (branch not pushed) is never cached
+// so a manual Refresh re-checks immediately once the branch lands. Mirrors the
+// widget rate-limiter's in-process-map style.
+const BRANCH_DIFF_TTL_MS = 60_000
+const branchDiffCache = new Map<string, { at: number; value: BranchDiff }>()
+
+function branchDiffKey(repo: string, base: string, branch: string): string {
+  return `${repo}#${base}#${branch}`
+}
+
+// Warm-cache peek: the fresh cached diff for `<base>...<branch>`, or null when
+// there's no live entry. Callers use this to short-circuit BEFORE resolving a
+// GitHub installation token (the token/installation lookups are uncached), so a
+// cache hit costs zero GitHub round-trips.
+export function peekBranchDiff(
+  repo: string,
+  base: string,
+  branch: string,
+  now: number = Date.now()
+): BranchDiff | null {
+  const cached = branchDiffCache.get(branchDiffKey(repo, base, branch))
+  if (cached && now - cached.at < BRANCH_DIFF_TTL_MS) return cached.value
+  return null
+}
+
+// Compare `<base>...<branch>` on GitHub and return the changed files in the
+// shared diff shape. Returns null when the branch was never pushed (GitHub 404).
+// The installation `token` covers private repos; a self-hoster `GITHUB_TOKEN`
+// is the fallback. `now`/`fetchImpl` are injectable for tests.
+export async function fetchBranchDiff(opts: {
+  repo: string // "owner/name"
+  base: string // default branch
+  branch: string // e.g. "exp/EXP-42"
+  token: string | null
+  now?: number
+  fetchImpl?: CompareFetch
+}): Promise<BranchDiff | null> {
+  const { repo, base, branch, token } = opts
+  const now = opts.now ?? Date.now()
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as CompareFetch)
+
+  const cached = peekBranchDiff(repo, base, branch, now)
+  if (cached) return cached
+
+  const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
+
+  const url = `https://api.github.com/repos/${repo}/compare/${base}...${branch}?per_page=100`
+  const res = await doFetch(url, { headers })
+  if (res.status === 404) {
+    // Branch not pushed (or gone) — never cache the miss so a manual Refresh
+    // re-checks immediately once the branch is pushed.
+    return null
+  }
+  if (!res.ok) {
+    throw new Error(
+      `GitHub compare failed (${res.status}) for ${repo} ${base}...${branch}`
+    )
+  }
+  const data = (await res.json()) as {
+    files?: Array<{
+      filename: string
+      status: string
+      additions: number
+      deletions: number
+      patch?: string
+    }>
+  }
+  const value: BranchDiff = {
+    repo,
+    prNumber: null,
+    files: (data.files ?? []).map((f) => ({
+      filename: f.filename,
+      status: f.status,
+      additions: f.additions,
+      deletions: f.deletions,
+      patch: f.patch,
+    })),
+  }
+  branchDiffCache.set(branchDiffKey(repo, base, branch), { at: now, value })
+  return value
+}
+
 export interface AppInstallation {
   id: number
   account: string
@@ -162,14 +279,7 @@ export async function listInstallationRepos(
   const token = await installationToken(installationId)
   const res = await fetch(
     `https://api.github.com/installation/repositories?per_page=${perPage}&page=${page}`,
-    {
-      headers: {
-        accept: `application/vnd.github+json`,
-        "user-agent": `exponential`,
-        "x-github-api-version": `2022-11-28`,
-        authorization: `Bearer ${token}`,
-      },
-    }
+    { headers: githubApiHeaders(token) }
   )
   if (!res.ok) {
     throw new Error(`GitHub repo list failed (${res.status})`)

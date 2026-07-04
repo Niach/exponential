@@ -75,8 +75,15 @@ See [`.env.example`](./.env.example) for the full list. Highlights:
 | `BETTER_AUTH_URL` | yes | Public app URL |
 | `ELECTRIC_URL` | yes | Electric service URL |
 | `S3_*` | yes | Attachment storage (Garage by default) |
+| `GITHUB_APP_ID` + `GITHUB_APP_SLUG` + `GITHUB_APP_PRIVATE_KEY` | **yes** | Every project IS a repository (v4) — a configured GitHub App is **required to create projects** on both cloud and self-host |
 | `AUTH_OIDC_ENABLED` + `OIDC_*` | optional | Enable OIDC login |
 | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | optional | Enable "Sign in with Google" |
+
+> **A GitHub App is now mandatory.** As of v4 `projects.repository_id` is `NOT NULL` — a
+> project is always backed by exactly one repository. An instance without
+> `GITHUB_APP_ID` / `GITHUB_APP_SLUG` / `GITHUB_APP_PRIVATE_KEY` **cannot create projects**:
+> the create-project UI surfaces "This instance has no GitHub App configured". Configure the
+> App (see [`.env.example`](./.env.example)) before onboarding, on cloud and self-host alike.
 
 After schema changes, regenerate + apply migrations:
 

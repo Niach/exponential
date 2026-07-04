@@ -46,6 +46,7 @@ use gpui_component::{
 };
 
 use api::issues::PullFile;
+use coding::scm::{DiffFile, DiffLine, DiffLineKind, UnifiedHunk};
 use gpui_component::highlighter::HighlightTheme;
 
 // ---------------------------------------------------------------------------
@@ -120,6 +121,16 @@ pub struct FileSummary {
     pub row_index: usize,
 }
 
+/// Prebuilt render rows + per-file summaries, produced off the foreground by
+/// [`build_pr_diff`] / [`build_scm_diff`] and installed with
+/// [`DiffView::set_prepared`]. Holds the (Tree-sitter-heavy) build result so
+/// the highlight pass runs on the background executor and only the cheap swap
+/// touches the UI thread. Opaque on purpose — `RenderRow` stays private.
+pub struct PreparedDiff {
+    rows: Vec<RenderRow>,
+    summaries: Vec<FileSummary>,
+}
+
 enum Phase {
     Loading,
     Error(SharedString),
@@ -131,12 +142,13 @@ enum Phase {
 // ---------------------------------------------------------------------------
 
 /// The standalone side-by-side diff component. Construct with [`new`], then
-/// either push data via [`set_files`] / [`set_error`] or let it fetch itself
-/// via [`fetch`]. Read-only; embeds anywhere (issue detail "Changes" tab, a
-/// popped-out review window).
+/// either install a background-built [`PreparedDiff`] via [`set_prepared`]
+/// (see [`build_pr_diff`] / [`build_scm_diff`]), push an error via
+/// [`set_error`], or let it fetch itself via [`fetch`]. Read-only; embeds
+/// anywhere (issue detail "Changes" tab, a popped-out review window).
 ///
 /// [`new`]: DiffView::new
-/// [`set_files`]: DiffView::set_files
+/// [`set_prepared`]: DiffView::set_prepared
 /// [`set_error`]: DiffView::set_error
 /// [`fetch`]: DiffView::fetch
 pub struct DiffView {
@@ -179,16 +191,16 @@ impl DiffView {
         cx.notify();
     }
 
-    /// Build and display the given PR files. Parsing + highlighting happen
-    /// here, once — render only slices precomputed rows. Prefer [`fetch`],
-    /// which runs the (Tree-sitter-heavy) build on the background executor;
-    /// this synchronous form is for callers that already hold the files.
+    /// Install a [`PreparedDiff`] built off the foreground (via
+    /// [`build_pr_diff`] / [`build_scm_diff`]) and flip to Ready. The
+    /// Tree-sitter-heavy parse+highlight is already done — this is only the
+    /// cheap pointer swap on the UI thread, mirroring the foreground half of
+    /// [`fetch`]. Callers own the background build so the highlight never
+    /// blocks the foreground (matching [`fetch`]'s pattern).
     ///
     /// [`fetch`]: DiffView::fetch
-    pub fn set_files(&mut self, files: Vec<PullFile>, cx: &mut gpui::Context<Self>) {
-        let theme = cx.theme().highlight_theme.clone();
-        let (rows, summaries) = build_rows(&files, &theme);
-        self.set_rows(rows, summaries, cx);
+    pub fn set_prepared(&mut self, prepared: PreparedDiff, cx: &mut gpui::Context<Self>) {
+        self.set_rows(prepared.rows, prepared.summaries, cx);
     }
 
     /// Install prebuilt rows (from [`build_rows`]) and flip to Ready.
@@ -488,9 +500,156 @@ impl Render for DiffView {
 // Pure row building (gpui-App-free → unit-testable)
 // ---------------------------------------------------------------------------
 
-/// Build the flat render-row list + per-file summaries from PR files.
-/// Pure — needs only a [`HighlightTheme`], no gpui App/Window.
+/// Source-agnostic per-file diff the renderer consumes. Both `issues.prFiles`
+/// (PR diffs, [`DiffFileModel::from_pull_file`]) and `coding::scm::DiffFile`
+/// (working / commit diffs, [`DiffFileModel::from_scm`]) normalize onto this
+/// so the two sources share ONE renderer (§4.4). Hunks are already parsed —
+/// the PR path parses the GitHub `patch` string here, the SCM path maps its
+/// pre-parsed [`UnifiedHunk`]s — so [`build_rows_from_models`] never touches a
+/// raw patch again and the render/highlight/virtualize pipeline is identical.
+struct DiffFileModel {
+    filename: String,
+    previous_filename: Option<String>,
+    /// GitHub-style status string (`added` / `modified` / `renamed` /
+    /// `removed`) — drives the header badge and the empty-hunks note.
+    status: String,
+    additions: u32,
+    deletions: u32,
+    /// Empty ⇒ render the "Renamed." / "No textual diff" note (binary,
+    /// too-large, or a pure rename).
+    hunks: Vec<patch::Hunk>,
+}
+
+impl DiffFileModel {
+    /// From an `issues.prFiles` [`PullFile`] — the PR-diff path. Parses the
+    /// GitHub `patch` body (hunks only) exactly as before.
+    fn from_pull_file(file: &PullFile) -> Self {
+        Self {
+            filename: file.filename.clone(),
+            previous_filename: file.previous_filename.clone(),
+            status: file.status.clone(),
+            additions: file.additions,
+            deletions: file.deletions,
+            hunks: file
+                .patch
+                .as_deref()
+                .map(patch::parse_patch)
+                .unwrap_or_default(),
+        }
+    }
+
+    /// From a [`coding::scm::DiffFile`] — the Source Control working/commit
+    /// diff path (§4.4). Hunks are already parsed by `scm::parse_unified_diff`;
+    /// binary files carry none, so they fall through to the note.
+    fn from_scm(file: &DiffFile) -> Self {
+        Self {
+            filename: file.path.clone(),
+            previous_filename: file.previous_path.clone(),
+            status: scm_status_str(file.status).to_string(),
+            additions: file.additions,
+            deletions: file.deletions,
+            hunks: if file.binary {
+                Vec::new()
+            } else {
+                file.hunks.iter().map(hunk_from_unified).collect()
+            },
+        }
+    }
+}
+
+/// Map an scm [`FileStatus`] to the GitHub-style status string the renderer's
+/// header badge + note logic already speak (mirrors the `PullFile.status`
+/// vocabulary). Untracked collapses to `added` (a wholly-new file).
+///
+/// [`FileStatus`]: coding::scm::FileStatus
+fn scm_status_str(status: coding::scm::FileStatus) -> &'static str {
+    use coding::scm::FileStatus;
+    match status {
+        FileStatus::Modified => "modified",
+        FileStatus::Added | FileStatus::Untracked => "added",
+        FileStatus::Deleted => "removed",
+        FileStatus::Renamed => "renamed",
+    }
+}
+
+/// Map an scm [`UnifiedHunk`] onto the renderer's [`patch::Hunk`]. The two
+/// carry the same information under different field names — the scm side is
+/// pre-parsed, so no `@@` re-parse happens.
+fn hunk_from_unified(hunk: &UnifiedHunk) -> patch::Hunk {
+    patch::Hunk {
+        old_start: hunk.old_start,
+        old_count: hunk.old_lines,
+        new_start: hunk.new_start,
+        new_count: hunk.new_lines,
+        header: hunk.header.clone(),
+        rows: hunk.lines.iter().map(row_from_diff_line).collect(),
+    }
+}
+
+/// Map one scm [`DiffLine`] onto the renderer's [`patch::DiffRow`]. `unwrap_or`
+/// guards a malformed producer (the side's line number is always present for
+/// its own kind) rather than panicking.
+fn row_from_diff_line(line: &DiffLine) -> patch::DiffRow {
+    match line.kind {
+        DiffLineKind::Context => patch::DiffRow::Context {
+            old_ln: line.old_line.unwrap_or(0),
+            new_ln: line.new_line.unwrap_or(0),
+            text: line.content.clone(),
+        },
+        DiffLineKind::Addition => patch::DiffRow::Added {
+            new_ln: line.new_line.unwrap_or(0),
+            text: line.content.clone(),
+        },
+        DiffLineKind::Deletion => patch::DiffRow::Removed {
+            old_ln: line.old_line.unwrap_or(0),
+            text: line.content.clone(),
+        },
+    }
+}
+
+/// Build a [`PreparedDiff`] from `issues.prFiles` off the foreground (the PR
+/// path). Pure — needs only a [`HighlightTheme`], no gpui App/Window — so
+/// callers run it on the background executor, then install the result with
+/// [`DiffView::set_prepared`].
+pub fn build_pr_diff(files: &[PullFile], theme: &HighlightTheme) -> PreparedDiff {
+    let (rows, summaries) = build_rows(files, theme);
+    PreparedDiff { rows, summaries }
+}
+
+/// Build a [`PreparedDiff`] from SCM working/commit diffs off the foreground
+/// (§4.4). Same background-build contract as [`build_pr_diff`]; install with
+/// [`DiffView::set_prepared`].
+pub fn build_scm_diff(files: &[DiffFile], theme: &HighlightTheme) -> PreparedDiff {
+    let (rows, summaries) = build_rows_from_scm(files, theme);
+    PreparedDiff { rows, summaries }
+}
+
+/// Build the flat render-row list + per-file summaries from PR files (the
+/// `issues.prFiles` path). Pure — needs only a [`HighlightTheme`], no gpui
+/// App/Window. Normalizes to [`DiffFileModel`] then defers to the shared core.
 fn build_rows(files: &[PullFile], theme: &HighlightTheme) -> (Vec<RenderRow>, Vec<FileSummary>) {
+    let models: Vec<DiffFileModel> = files.iter().map(DiffFileModel::from_pull_file).collect();
+    build_rows_from_models(&models, theme)
+}
+
+/// Build the same render-row list from SCM working/commit diffs (§4.4). Shares
+/// the core with [`build_rows`] via [`DiffFileModel`].
+fn build_rows_from_scm(
+    files: &[DiffFile],
+    theme: &HighlightTheme,
+) -> (Vec<RenderRow>, Vec<FileSummary>) {
+    let models: Vec<DiffFileModel> = files.iter().map(DiffFileModel::from_scm).collect();
+    build_rows_from_models(&models, theme)
+}
+
+/// The source-agnostic renderer core: normalized [`DiffFileModel`]s →
+/// virtualized render rows + per-file summaries. This is the single place the
+/// header, note, Tree-sitter highlight, and side-by-side alignment live, so PR
+/// and SCM diffs render pixel-identically.
+fn build_rows_from_models(
+    files: &[DiffFileModel],
+    theme: &HighlightTheme,
+) -> (Vec<RenderRow>, Vec<FileSummary>) {
     let mut rows: Vec<RenderRow> = Vec::new();
     let mut summaries: Vec<FileSummary> = Vec::new();
 
@@ -513,11 +672,7 @@ fn build_rows(files: &[PullFile], theme: &HighlightTheme) -> (Vec<RenderRow>, Ve
             deletions: file.deletions,
         });
 
-        let hunks = file
-            .patch
-            .as_deref()
-            .map(patch::parse_patch)
-            .unwrap_or_default();
+        let hunks = &file.hunks;
         if hunks.is_empty() {
             // Web parity: renamed-without-changes vs binary/too-large.
             let message = if file.status == "renamed" {
@@ -531,7 +686,7 @@ fn build_rows(files: &[PullFile], theme: &HighlightTheme) -> (Vec<RenderRow>, Ve
             continue;
         }
 
-        let aligned = patch::align_file(&file.filename, &hunks);
+        let aligned = patch::align_file(&file.filename, hunks);
 
         // Each side's fragment document, in row order (context lines belong
         // to BOTH sides), for one Tree-sitter pass per side.
@@ -753,6 +908,181 @@ mod tests {
         for (range, _) in &cell.highlights {
             assert!(range.end <= cell.text.len());
         }
+    }
+
+    // -- SCM adapter (R2.d): coding::scm::DiffFile → same renderer -----------
+
+    use coding::scm::{DiffFile, DiffLine, DiffLineKind, FileStatus, UnifiedHunk};
+
+    /// Re-encode a parsed patch as the scm model, so the PR fixture and the SCM
+    /// path exercise the exact same content through [`build_rows_from_scm`].
+    fn scm_file_from_patch(path: &str, status: FileStatus, patch: &str) -> DiffFile {
+        let hunks: Vec<UnifiedHunk> = patch::parse_patch(patch)
+            .into_iter()
+            .map(|h| UnifiedHunk {
+                old_start: h.old_start,
+                old_lines: h.old_count,
+                new_start: h.new_start,
+                new_lines: h.new_count,
+                header: h.header,
+                lines: h
+                    .rows
+                    .into_iter()
+                    .map(|row| match row {
+                        patch::DiffRow::Context { old_ln, new_ln, text } => DiffLine {
+                            kind: DiffLineKind::Context,
+                            old_line: Some(old_ln),
+                            new_line: Some(new_ln),
+                            content: text,
+                        },
+                        patch::DiffRow::Removed { old_ln, text } => DiffLine {
+                            kind: DiffLineKind::Deletion,
+                            old_line: Some(old_ln),
+                            new_line: None,
+                            content: text,
+                        },
+                        patch::DiffRow::Added { new_ln, text } => DiffLine {
+                            kind: DiffLineKind::Addition,
+                            old_line: None,
+                            new_line: Some(new_ln),
+                            content: text,
+                        },
+                    })
+                    .collect(),
+            })
+            .collect();
+        let additions = patch::parse_patch(patch)
+            .iter()
+            .flat_map(|h| &h.rows)
+            .filter(|r| matches!(r, patch::DiffRow::Added { .. }))
+            .count() as u32;
+        let deletions = patch::parse_patch(patch)
+            .iter()
+            .flat_map(|h| &h.rows)
+            .filter(|r| matches!(r, patch::DiffRow::Removed { .. }))
+            .count() as u32;
+        DiffFile {
+            path: path.to_string(),
+            previous_path: None,
+            status,
+            additions,
+            deletions,
+            hunks,
+            binary: false,
+        }
+    }
+
+    #[test]
+    fn scm_diff_file_renders_headers_hunks_and_anchored_lines() {
+        // Same TS fixture as the PR path, routed through the scm model: header,
+        // two hunks, 16 aligned line rows, anchors on every populated cell.
+        let theme = HighlightTheme::default_dark();
+        let file = scm_file_from_patch(
+            "apps/web/src/lib/integrations/github-pr.ts",
+            FileStatus::Modified,
+            TS_PATCH,
+        );
+        let (rows, summaries) = build_rows_from_scm(&[file], &theme);
+
+        assert_eq!(summaries.len(), 1);
+        assert!(matches!(&rows[0], RenderRow::FileHeader { path, .. }
+            if path.as_ref() == "apps/web/src/lib/integrations/github-pr.ts"));
+        let hunk_headers = rows
+            .iter()
+            .filter(|r| matches!(r, RenderRow::HunkHeader { .. }))
+            .count();
+        assert_eq!(hunk_headers, 2);
+        let mut line_rows = 0;
+        for row in &rows {
+            if let RenderRow::Line { left, right } = row {
+                line_rows += 1;
+                for (cell, side) in [(left, Side::Old), (right, Side::New)] {
+                    if let Some(cell) = cell {
+                        assert_eq!(cell.anchor.side, side);
+                        assert_eq!(
+                            cell.anchor.filename,
+                            "apps/web/src/lib/integrations/github-pr.ts"
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(line_rows, 16, "scm path aligns identically to the PR path");
+    }
+
+    #[test]
+    fn scm_diff_file_syntax_highlights_like_the_pr_path() {
+        // The rust fixture's added `pub mod terminal;` must still carry a
+        // Tree-sitter highlight run when it arrives via the scm model.
+        let theme = HighlightTheme::default_dark();
+        let file = scm_file_from_patch(
+            "apps/desktop/crates/theme/src/lib.rs",
+            FileStatus::Modified,
+            RS_PATCH,
+        );
+        let (rows, _) = build_rows_from_scm(&[file], &theme);
+        let cell = rows
+            .iter()
+            .find_map(|row| match row {
+                RenderRow::Line { right: Some(cell), .. }
+                    if cell.kind == CellKind::Added
+                        && cell.text.as_ref() == "pub mod terminal;" =>
+                {
+                    Some(cell)
+                }
+                _ => None,
+            })
+            .expect("added `pub mod terminal;` present via scm path");
+        assert_eq!(cell.anchor.line, 71);
+        assert!(!cell.highlights.is_empty());
+    }
+
+    #[test]
+    fn scm_binary_file_renders_note() {
+        let theme = HighlightTheme::default_dark();
+        let file = DiffFile {
+            path: "assets/logo.png".into(),
+            previous_path: None,
+            status: FileStatus::Added,
+            additions: 0,
+            deletions: 0,
+            hunks: Vec::new(),
+            binary: true,
+        };
+        let (rows, summaries) = build_rows_from_scm(&[file], &theme);
+        assert_eq!(rows.len(), 2);
+        assert!(matches!(&rows[1], RenderRow::Note { message }
+            if message.as_ref() == "No textual diff (binary or too large)."));
+        // Added maps to the GitHub "added" status string.
+        assert_eq!(summaries[0].status.as_ref(), "added");
+    }
+
+    #[test]
+    fn scm_renamed_without_hunks_says_renamed() {
+        let theme = HighlightTheme::default_dark();
+        let file = DiffFile {
+            path: "src/new-name.rs".into(),
+            previous_path: Some("src/old-name.rs".into()),
+            status: FileStatus::Renamed,
+            additions: 0,
+            deletions: 0,
+            hunks: Vec::new(),
+            binary: false,
+        };
+        let (rows, _) = build_rows_from_scm(&[file], &theme);
+        assert!(matches!(&rows[0], RenderRow::FileHeader { previous_path: Some(p), status, .. }
+            if p.as_ref() == "src/old-name.rs" && status.as_ref() == "renamed"));
+        assert!(matches!(&rows[1], RenderRow::Note { message }
+            if message.as_ref() == "Renamed."));
+    }
+
+    #[test]
+    fn scm_status_strings_match_the_github_vocabulary() {
+        assert_eq!(scm_status_str(FileStatus::Modified), "modified");
+        assert_eq!(scm_status_str(FileStatus::Added), "added");
+        assert_eq!(scm_status_str(FileStatus::Untracked), "added");
+        assert_eq!(scm_status_str(FileStatus::Deleted), "removed");
+        assert_eq!(scm_status_str(FileStatus::Renamed), "renamed");
     }
 
     #[test]

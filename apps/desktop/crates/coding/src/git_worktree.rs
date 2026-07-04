@@ -54,8 +54,12 @@ impl TokenUrl {
     }
 
     /// Scrub the raw token and raw URL out of arbitrary text (git error
-    /// output quotes the remote URL verbatim).
-    fn scrub(&self, text: &str) -> String {
+    /// output quotes the remote URL verbatim). Replaces BOTH the token-embedded
+    /// URL and the bare token substring — a bare-token echo (GIT_TRACE, a
+    /// credential-helper error) is scrubbed even when the full URL is not
+    /// present. `pub(crate)` so every runner in the crate shares this one
+    /// canonical redaction ([`crate::scm`], [`crate::clone_manager`]).
+    pub(crate) fn scrub(&self, text: &str) -> String {
         let without_url = text.replace(&self.raw(), &self.redacted());
         if self.token.is_empty() {
             without_url
@@ -175,7 +179,7 @@ pub fn ensure_clone(
     run_git(
         None,
         &["clone", &url.raw(), &clone_str],
-        url,
+        Some(url),
         &format!("git clone {full_name}"),
     )?;
     Ok(clone)
@@ -189,7 +193,7 @@ pub fn set_token_remote(repo: &Path, url: &TokenUrl) -> Result<(), GitError> {
     run_git(
         Some(repo),
         &["remote", "set-url", "origin", &url.raw()],
-        url,
+        Some(url),
         "git remote set-url origin",
     )?;
     Ok(())
@@ -202,7 +206,7 @@ pub fn fetch_base(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<
     run_git(
         Some(clone),
         &["fetch", "origin", default_branch],
-        url,
+        Some(url),
         &format!("git fetch origin {default_branch}"),
     )?;
     Ok(())
@@ -230,21 +234,21 @@ pub fn create_worktree(
     }
     // A manually deleted worktree dir leaves a stale registration that blocks
     // `worktree add` — prune is cheap and safe.
-    let _ = run_git(Some(clone), &["worktree", "prune"], url, "git worktree prune");
+    let _ = run_git(Some(clone), &["worktree", "prune"], Some(url), "git worktree prune");
 
     let worktree_str = worktree.to_string_lossy().into_owned();
     if branch_exists(clone, branch, url) {
         run_git(
             Some(clone),
             &["worktree", "add", &worktree_str, branch],
-            url,
+            Some(url),
             &format!("git worktree add ({branch})"),
         )?;
     } else {
         run_git(
             Some(clone),
             &["worktree", "add", "-b", branch, &worktree_str, base_ref],
-            url,
+            Some(url),
             &format!("git worktree add -b {branch} from {base_ref}"),
         )?;
     }
@@ -293,34 +297,49 @@ fn branch_exists(clone: &Path, branch: &str, url: &TokenUrl) -> bool {
     run_git(
         Some(clone),
         &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")],
-        url,
+        Some(url),
         "git rev-parse --verify",
     )
     .is_ok()
 }
 
-/// Run one git command (explicit argv, no shell), capturing output. Any
-/// failure detail is scrubbed through [`TokenUrl::scrub`] before it becomes
-/// a [`GitError`] — the token cannot leak via error strings.
-fn run_git(cwd: Option<&Path>, args: &[&str], url: &TokenUrl, op: &str) -> Result<String, GitError> {
+/// Run one git command (explicit argv, no shell), capturing output. The
+/// canonical crate-wide git runner (`pub(crate)`): [`crate::scm`] and
+/// [`crate::clone_manager`] route through this instead of reimplementing it.
+///
+/// `url` is `Some` for any op that can touch the token remote (git echoes the
+/// remote URL — and, via GIT_TRACE / credential helpers, the bare token — on
+/// failure): every captured stdout/stderr and spawn error is then scrubbed
+/// through [`TokenUrl::scrub`] before it becomes a [`GitError`]. Purely local,
+/// tokenless ops pass `None` (nothing to scrub). Shared hardening either way:
+/// no shell, and `GIT_TERMINAL_PROMPT=0` so a rejected/expired token FAILS the
+/// command rather than parking a GUI app behind an invisible credential prompt.
+pub(crate) fn run_git(
+    cwd: Option<&Path>,
+    args: &[&str],
+    url: Option<&TokenUrl>,
+    op: &str,
+) -> Result<String, GitError> {
     let mut command = Command::new("git");
     command.args(args);
-    // A rejected/expired token must FAIL the command, never park a GUI app
-    // behind an invisible username/password prompt.
     command.env("GIT_TERMINAL_PROMPT", "0");
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
+    let scrub = |text: &str| match url {
+        Some(url) => url.scrub(text),
+        None => text.to_string(),
+    };
     let output = command.output().map_err(|e| GitError {
         op: op.to_string(),
         detail: if e.kind() == std::io::ErrorKind::NotFound {
             "git not found on PATH".to_string()
         } else {
-            url.scrub(&e.to_string())
+            scrub(&e.to_string())
         },
     })?;
     if output.status.success() {
-        Ok(url.scrub(&String::from_utf8_lossy(&output.stdout)))
+        Ok(scrub(&String::from_utf8_lossy(&output.stdout)))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -331,7 +350,7 @@ fn run_git(cwd: Option<&Path>, args: &[&str], url: &TokenUrl, op: &str) -> Resul
         if detail.is_empty() {
             detail = format!("exit code {}", output.status.code().unwrap_or(-1));
         }
-        Err(GitError { op: op.to_string(), detail: url.scrub(&detail) })
+        Err(GitError { op: op.to_string(), detail: scrub(&detail) })
     }
 }
 
@@ -434,11 +453,11 @@ mod tests {
         // Force a real git failure whose stderr quotes the remote URL.
         let dir = temp_dir("git-error");
         let url = TokenUrl::new("acme/definitely-missing", "ghs_secret123");
-        run_git(Some(&dir.0), &["init", "--quiet"], &url, "git init").unwrap();
+        run_git(Some(&dir.0), &["init", "--quiet"], Some(&url), "git init").unwrap();
         let err = run_git(
             Some(&dir.0),
             &["fetch", &url.raw()],
-            &url,
+            Some(&url),
             "git fetch acme/definitely-missing",
         )
         .unwrap_err();
@@ -508,7 +527,7 @@ mod tests {
             run_git(
                 None,
                 &["clone", "--quiet", origin.to_str().unwrap(), target.to_str().unwrap()],
-                &url,
+                Some(&url),
                 "git clone acme/web",
             )
             .unwrap();

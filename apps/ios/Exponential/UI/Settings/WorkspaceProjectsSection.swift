@@ -5,9 +5,9 @@ import SwiftUI
 struct WorkspaceProjectsSection: View {
     let projects: [ProjectEntity]
     let accountId: String
+    let isOwner: Bool
     let projectsApi: ProjectsApi
-    let integrationsApi: IntegrationsApi
-    let installBaseURL: URL?
+    let repositoriesApi: RepositoriesApi
     let onDelete: (ProjectEntity) -> Void
 
     @State private var repoTarget: ProjectEntity?
@@ -45,22 +45,25 @@ struct WorkspaceProjectsSection: View {
 
                         Spacer()
 
-                        // Connect-repo affordance (installed-repos picker).
-                        Button {
-                            repoTarget = project
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                                    .font(.caption2)
-                                Text(repoLabel(project))
-                                    .font(.caption.monospaced())
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                        // Backing repo (v4: one project = one repo). Read-only
+                        // chip resolving the synced repositoryId to owner/name.
+                        RepoNameChip(
+                            accountId: accountId,
+                            workspaceId: project.workspaceId,
+                            repositoryId: project.repositoryId
+                        )
+
+                        // Owner-only retarget → projects.setRepository.
+                        if isOwner {
+                            Button {
+                                repoTarget = project
+                            } label: {
+                                Image(systemName: "arrow.left.arrow.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(maxWidth: 110, alignment: .trailing)
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
 
                         // Delete button
                         Button {
@@ -78,21 +81,123 @@ struct WorkspaceProjectsSection: View {
             }
         }
         .sheet(item: $repoTarget) { project in
-            GithubRepoPicker(
+            ChangeRepositorySheet(
                 accountId: accountId,
-                projectId: project.id,
-                projectName: project.name,
-                currentRepo: project.githubRepo,
-                integrationsApi: integrationsApi,
+                project: project,
                 projectsApi: projectsApi,
-                installBaseURL: installBaseURL
+                repositoriesApi: repositoriesApi
             )
             .presentationBackground(.ultraThinMaterial)
         }
     }
+}
 
-    private func repoLabel(_ project: ProjectEntity) -> String {
-        if let repo = project.githubRepo, !repo.isEmpty { return repo }
-        return "Connect"
+/// Retarget a project's backing repo to another already-connected registry repo
+/// (`projects.setRepository`). Connecting a brand-new repo stays a create-project
+/// / web-side flow — this picker only offers connected repos.
+private struct ChangeRepositorySheet: View {
+    let accountId: String
+    let project: ProjectEntity
+    let projectsApi: ProjectsApi
+    let repositoriesApi: RepositoriesApi
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var repos: [WorkspaceRepo] = []
+    @State private var loading = true
+    @State private var errorText: String?
+    @State private var saving = false
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppBackground()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(project.name)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+                        if loading {
+                            HStack { Spacer(); ProgressView().tint(.white); Spacer() }
+                                .padding(.vertical, 24)
+                        } else if repos.isEmpty {
+                            Text("No repositories connected. Connect one in the workspace settings on the web first.")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        } else {
+                            ForEach(repos) { repo in
+                                Button {
+                                    Task { await setRepo(repo) }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: repo.id == project.repositoryId
+                                            ? "checkmark.circle.fill" : "circle")
+                                            .font(.caption)
+                                            .foregroundStyle(repo.id == project.repositoryId
+                                                ? DesignTokens.Semantic.blue
+                                                : .white.opacity(TextOpacity.tertiary))
+                                        Text(repo.fullName)
+                                            .font(.subheadline.monospaced())
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                        Spacer()
+                                        if repo.isPrivate {
+                                            Image(systemName: "lock.fill")
+                                                .font(.caption2)
+                                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .glassRow()
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(saving)
+                            }
+                        }
+
+                        if let errorText {
+                            Text(errorText).font(.caption).foregroundStyle(.red)
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle("Change repository")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        do {
+            repos = try await repositoriesApi.list(accountId: accountId, workspaceId: project.workspaceId)
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func setRepo(_ repo: WorkspaceRepo) async {
+        guard repo.id != project.repositoryId else { dismiss(); return }
+        saving = true
+        defer { saving = false }
+        do {
+            try await projectsApi.setRepository(
+                accountId: accountId,
+                projectId: project.id,
+                repositoryId: repo.id
+            )
+            RepositoryDirectory.invalidate(accountId: accountId, workspaceId: project.workspaceId)
+            dismiss()
+        } catch {
+            errorText = error.localizedDescription
+        }
     }
 }

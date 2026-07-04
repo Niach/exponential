@@ -31,8 +31,11 @@ import androidx.room.RoomDatabase
     //     issue_subscribers.user_id nullable + email.
     // v7: dropped projects.github_repo — repos now live in the server-only
     //     repositories registry (tRPC `repositories` router, never synced).
-    // No Migration object — DatabaseHolder uses destructive fallback + resync.
-    version = 7,
+    // v8: added projects.repository_id (masterplan v4 §3 — project = repository;
+    //     additive column on the existing projects shape, no shape-count change).
+    // No Migration object — DatabaseHolder uses destructive fallback + resync,
+    // so an additive shape column just wipes and re-syncs from Electric.
+    version = 8,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

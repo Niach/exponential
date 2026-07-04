@@ -7,9 +7,10 @@
 //! `Pane`/`Dock` (§6.13's licensing rule). Behavior:
 //!
 //! - **"+"** (and cmd-t / ctrl-shift-t inside the dock) → a plain `Shell`
-//!   tab (`$SHELL -l`, cwd = `$HOME` until Phase 5 provides repo context).
-//!   This is also the Phase-5 launch surface: the Start-coding launcher and
-//!   run-bar play button call the same `TerminalManager::open_tab`.
+//!   tab (`$SHELL -l`, cwd = the active project's **trunk** clone root, v4
+//!   §4.6; `$HOME` only off a project screen or before the clone exists).
+//!   This is also the launch surface: the Start-coding launcher and run-bar
+//!   play button call the same `TerminalManager::open_tab`.
 //! - close buttons per tab (and cmd-w / ctrl-shift-w), ctrl-tab /
 //!   ctrl-shift-tab to switch;
 //! - empty state: "No terminal sessions" + a New-shell action;
@@ -42,7 +43,12 @@ use gpui_component::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use sync::Store;
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
+
+use crate::coding_flow::CodingHub;
+use crate::navigation::{self, Screen};
+use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
 /// Stable serialization name for the panel registry (§3.3: never change it).
 pub const PANEL_NAME: &str = "TerminalDock";
@@ -258,12 +264,72 @@ impl TerminalDockPanel {
         }
     }
 
+    /// The `+` shell tab (v4 §4.6): cwd = the **trunk** clone root of this
+    /// window's active project; `$HOME` only off a project screen or while the
+    /// clone doesn't exist yet. The repo→trunk-root resolution needs a
+    /// (tRPC-only, never synced) `repositories.list` lookup, so the resolve
+    /// runs off the foreground and the tab opens once the cwd is known; a
+    /// non-project screen (or missing session/project) opens at `$HOME`
+    /// immediately (`open_shell(None)`).
     fn new_shell_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let result = self.manager.update(cx, |manager, cx| manager.open_shell(None, cx));
+        let Some((resolver, project_id, settings)) = self.shell_scope(window, cx) else {
+            self.open_shell_cwd(None, cx);
+            return;
+        };
+        // The repo comes from the shared window resolver (the run/git bars keep
+        // it warm); a still-loading / unlinked repo just opens at `$HOME`.
+        resolver.update(cx, |resolver, cx| resolver.ensure_loaded(cx));
+        let full_name = match resolver.read(cx).lookup_project(&project_id) {
+            RepoLookup::Found(repo) => repo.full_name,
+            _ => {
+                self.open_shell_cwd(None, cx);
+                return;
+            }
+        };
+        cx.spawn(async move |this, cx| {
+            let cwd = cx
+                .background_executor()
+                .spawn(async move {
+                    let root = coding::run_launch::run_root(&settings.repos_root_path(), &full_name);
+                    // `$HOME` (None) until the clone actually exists on disk.
+                    coding::run_launch::shell_cwd(Some(root))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| this.open_shell_cwd(cwd, cx));
+        })
+        .detach();
+    }
+
+    /// Spawn a shell tab at `cwd` (`None` → `$HOME`, resolved by the manager).
+    fn open_shell_cwd(&mut self, cwd: Option<PathBuf>, cx: &mut gpui::Context<Self>) {
+        let result = self.manager.update(cx, |manager, cx| manager.open_shell(cwd, cx));
         if let Err(error) = result {
             log::error!("terminal dock: shell spawn failed: {error:#}");
         }
-        let _ = window;
+    }
+
+    /// The sync-resolvable inputs for the `+` shell cwd: the shared window repo
+    /// resolver, the active project's id, and the coding settings (repos root).
+    /// `None` off a project screen — the caller then opens the shell at `$HOME`.
+    fn shell_scope(
+        &self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<(Entity<RepoResolver>, String, coding::Settings)> {
+        let nav = navigation::nav_for_window(window, cx);
+        let project_id = match navigation::resolved_screen(&nav, cx)? {
+            Screen::Board { project_id } => project_id,
+            Screen::IssueDetail { issue_id } => Store::global(cx)
+                .collections()
+                .issues
+                .read(cx)
+                .get(&issue_id)
+                .map(|issue| issue.project_id.clone())?,
+            _ => return None,
+        };
+        let resolver = repo_resolver_for_window(window, cx);
+        let settings = CodingHub::global(cx).read(cx).settings.clone();
+        Some((resolver, project_id, settings))
     }
 
     fn on_new_tab(&mut self, _: &NewTerminalTab, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -516,6 +582,10 @@ impl Panel for TerminalDockPanel {
 fn persisted_kind(kind: &TabKind) -> &'static str {
     match kind {
         TabKind::Claude => "claude",
+        // v4 §4.9: not issue-bound and not persisted-restorable as a session —
+        // treated like a shell tab for cold-restore (a plain terminal), matching
+        // its shell-like runtime behavior.
+        TabKind::ClaudeTask => "shell",
         TabKind::Run(_) => "run",
         TabKind::Shell => "shell",
     }
@@ -591,3 +661,4 @@ impl Render for TerminalDockPanel {
             })
     }
 }
+

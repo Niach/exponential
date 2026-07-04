@@ -1,4 +1,7 @@
-import { resolveRepoInstallationToken } from "@/lib/integrations/github-app"
+import {
+  githubApiHeaders,
+  resolveRepoInstallationToken,
+} from "@/lib/integrations/github-app"
 
 export interface PullFile {
   filename: string
@@ -40,10 +43,7 @@ export async function createPullRequest(opts: {
   const res = await fetch(`https://api.github.com/repos/${opts.repo}/pulls`, {
     method: `POST`,
     headers: {
-      accept: `application/vnd.github+json`,
-      "user-agent": `exponential`,
-      "x-github-api-version": `2022-11-28`,
-      authorization: `Bearer ${opts.token}`,
+      ...githubApiHeaders(opts.token),
       "content-type": `application/json`,
     },
     body: JSON.stringify({
@@ -75,13 +75,7 @@ export async function fetchPullState(
   prNumber: number,
   token?: string | null
 ): Promise<PullState> {
-  const headers: Record<string, string> = {
-    accept: `application/vnd.github+json`,
-    "user-agent": `exponential`,
-    "x-github-api-version": `2022-11-28`,
-  }
-  const auth = token || process.env.GITHUB_TOKEN
-  if (auth) headers.authorization = `Bearer ${auth}`
+  const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
   const res = await fetch(
     `https://api.github.com/repos/${repo}/pulls/${prNumber}`,
     { headers }
@@ -107,16 +101,7 @@ export async function fetchPullFiles(
   prNumber: number,
   token?: string | null
 ): Promise<PullFile[]> {
-  const headers: Record<string, string> = {
-    accept: `application/vnd.github+json`,
-    "user-agent": `exponential`,
-    "x-github-api-version": `2022-11-28`,
-  }
-  const auth = token || process.env.GITHUB_TOKEN
-  if (auth) {
-    headers.authorization = `Bearer ${auth}`
-  }
-
+  const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
   const url = `https://api.github.com/repos/${repo}/pulls/${prNumber}/files?per_page=100`
   const res = await fetch(url, { headers })
   if (!res.ok) {

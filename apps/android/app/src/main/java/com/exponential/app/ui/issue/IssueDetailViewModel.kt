@@ -7,7 +7,10 @@ import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PrFilesApi
+import com.exponential.app.data.api.PrFilesResult
 import com.exponential.app.data.api.PullFile
+import com.exponential.app.data.api.RepositoriesApi
+import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -47,6 +50,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 data class IssueDetailState(
     val issue: IssueEntity? = null,
@@ -68,6 +72,7 @@ class IssueDetailViewModel @Inject constructor(
     private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
     private val prFilesApi: PrFilesApi,
+    private val repositoriesApi: RepositoriesApi,
     private val steerApi: SteerApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
@@ -292,6 +297,28 @@ class IssueDetailViewModel @Inject constructor(
                 .debounce(800)
                 .collect { saveDescription(it) }
         }
+        // Resolve the backing repo's name for the project/coding chips whenever
+        // the project (its repository_id) or active account changes.
+        viewModelScope.launch {
+            combine(auth.activeAccountId, _project) { a, p -> a to p }
+                .collectLatest { (accountId, project) ->
+                    val repoId = project?.repositoryId
+                    if (accountId == null || project == null || repoId == null) {
+                        _repoName.value = null
+                        return@collectLatest
+                    }
+                    // Return null (not emptyList) on failure so a single transient
+                    // network error is NOT memoized — the cache stays empty and the
+                    // next resolve retries instead of pinning the chip null forever.
+                    val repos = RepoRegistryCache.get(accountId, project.workspaceId) {
+                        runCatching { repositoriesApi.list(accountId, project.workspaceId) }
+                            .getOrNull()
+                    }
+                    if (repos != null) {
+                        _repoName.value = repos.firstOrNull { it.id == repoId }?.fullName
+                    }
+                }
+        }
         // Steer availability + device presence, re-fetched on account switch.
         viewModelScope.launch {
             auth.activeAccountId.collectLatest { accountId ->
@@ -469,5 +496,43 @@ class IssueDetailViewModel @Inject constructor(
     suspend fun loadPrFiles(): List<PullFile> {
         val accountId = auth.activeAccountId.value ?: return emptyList()
         return prFilesApi.get(accountId, issueId).files
+    }
+
+    // Middle Changes tier (masterplan §4.8): the exp/<IDENTIFIER> branch compared
+    // against the repo default branch. Null when the branch was never pushed —
+    // the view then falls through to the "being coded on <device>" tier.
+    suspend fun loadBranchDiff(): PrFilesResult? {
+        val accountId = auth.activeAccountId.value ?: return null
+        return repositoriesApi.branchDiff(accountId, issueId)
+    }
+
+    // The backing repo's full name (owner/name) for the project + issue coding
+    // chips. repository_id rides on the synced projects shape; the name is a
+    // server-only tRPC read, cached per (account, workspace) so the chip doesn't
+    // refetch across recompositions or issue navigations.
+    private val _repoName = MutableStateFlow<String?>(null)
+    val repoName: StateFlow<String?> = _repoName
+}
+
+// Process-wide cache of a workspace's repos (server-only, no Electric shape).
+// Keyed by "accountId:workspaceId"; the create-project picker and this chip both
+// read the registry, but the chip must not block on a per-recomposition fetch.
+private object RepoRegistryCache {
+    private val byKey = mutableMapOf<String, List<WorkspaceRepo>>()
+    private val mutex = kotlinx.coroutines.sync.Mutex()
+
+    // `load` returns null to signal a failed fetch: only successful results are
+    // cached, so a transient failure leaves the cache empty and the next call
+    // retries (a failed load never becomes a permanent empty list).
+    suspend fun get(
+        accountId: String,
+        workspaceId: String,
+        load: suspend () -> List<WorkspaceRepo>?,
+    ): List<WorkspaceRepo>? {
+        val key = "$accountId:$workspaceId"
+        mutex.withLock { byKey[key] }?.let { return it }
+        val loaded = load() ?: return null
+        mutex.withLock { byKey[key] = loaded }
+        return loaded
     }
 }

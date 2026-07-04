@@ -38,19 +38,18 @@ struct WorkspaceSettingsView: View {
                     WorkspaceProjectsSection(
                         projects: projects.filter { $0.archivedAt == nil },
                         accountId: accountId,
+                        isOwner: isOwner,
                         projectsApi: deps.projectsApi,
-                        integrationsApi: deps.integrationsApi,
-                        installBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                        repositoriesApi: deps.repositoriesApi,
                         onDelete: { project in deleteProjectTarget = project }
                     )
 
                     // Repositories registry (server-only, read over tRPC —
-                    // masterplan §7a). Owners manage links; adding NEW repos
-                    // happens on the web (GitHub-App install flow).
+                    // masterplan §6). A pure registry with "used by" chips;
+                    // adding NEW repos happens on the web (GitHub-App install).
                     WorkspaceRepositoriesSection(
                         accountId: accountId,
                         workspace: workspace,
-                        projects: projects.filter { $0.archivedAt == nil },
                         isOwner: isOwner,
                         repositoriesApi: deps.repositoriesApi,
                         instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)

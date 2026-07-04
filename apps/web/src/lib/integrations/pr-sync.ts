@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, projectRepositories, projects, repositories } from "@/db/schema"
+import { issues, projects, repositories } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
@@ -32,16 +32,17 @@ export async function findIssueIdByBranch(
     .where(eq(repositories.fullName, repoFullName))
   if (repoRows.length === 0) return null
 
-  const linkRows = await db
-    .select({ projectId: projectRepositories.projectId })
-    .from(projectRepositories)
+  // Projects backed by any of these repos (v4: projects.repositoryId).
+  const projectRows = await db
+    .select({ projectId: projects.id })
+    .from(projects)
     .where(
       inArray(
-        projectRepositories.repositoryId,
+        projects.repositoryId,
         repoRows.map((r) => r.id)
       )
     )
-  const projectIds = [...new Set(linkRows.map((l) => l.projectId))]
+  const projectIds = [...new Set(projectRows.map((p) => p.projectId))]
   if (projectIds.length === 0) return null
 
   const [issue] = await db

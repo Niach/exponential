@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
-import { isPlanLimitError } from "@/lib/plan-limit-error"
+import { Link } from "@tanstack/react-router"
+import { eq, useLiveQuery } from "@tanstack/react-db"
+import { Check, Github } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -11,11 +13,20 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
-import { trpc } from "@/lib/trpc-client"
-import { invalidateBillingCache } from "@/hooks/use-billing"
+import { type PickerRepo } from "@/components/github-repo-picker"
+import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
+import { workspaceCollection } from "@/lib/collections"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { derivePrefix } from "@/lib/project"
+import { useCreateProject } from "@/hooks/use-create-project"
+
+// The chosen backing repo: either an existing registry repo (by id) or a
+// brand-new one picked through the GithubRepoPicker (connected inline by
+// projects.create in the same transaction).
+type RepoSelection =
+  | { kind: `registry`; repositoryId: string; fullName: string }
+  | { kind: `inline`; repo: PickerRepo }
 
 export function CreateProjectDialog({
   open,
@@ -26,6 +37,7 @@ export function CreateProjectDialog({
   onOpenChange: (open: boolean) => void
   workspaceId: string
 }) {
+  const { createProject } = useCreateProject()
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
@@ -35,6 +47,18 @@ export function CreateProjectDialog({
     pro: string | null
     business: string | null
   }>({ pro: null, business: null })
+
+  const [selection, setSelection] = useState<RepoSelection | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const { data: workspaceRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ workspaces: workspaceCollection })
+        .where(({ workspaces }) => eq(workspaces.id, workspaceId)),
+    [workspaceId]
+  )
+  const workspaceSlug = workspaceRows?.[0]?.slug ?? null
 
   useEffect(() => {
     void getRuntimeConfig().then((config) => {
@@ -49,6 +73,8 @@ export function CreateProjectDialog({
     setName(``)
     setPrefix(``)
     setColor(`#6366f1`)
+    setSelection(null)
+    setError(null)
   }
 
   const handleNameChange = (value: string) => {
@@ -56,30 +82,82 @@ export function CreateProjectDialog({
     setPrefix(derivePrefix(value))
   }
 
+  const handlePickerSelect = (repo: PickerRepo) => {
+    setSelection({ kind: `inline`, repo })
+  }
+
+  const canSubmit =
+    Boolean(name.trim()) && Boolean(prefix.trim()) && selection !== null
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || !prefix.trim()) return
+    if (!name.trim() || !prefix.trim() || !selection) return
 
     setSubmitting(true)
-    try {
-      await trpc.projects.create.mutate({
-        workspaceId,
-        name: name.trim(),
-        prefix: prefix.trim(),
-        color,
-      })
-      invalidateBillingCache()
+    setError(null)
+    const repository =
+      selection.kind === `registry`
+        ? { repositoryId: selection.repositoryId }
+        : {
+            fullName: selection.repo.fullName,
+            defaultBranch: selection.repo.defaultBranch,
+            private: selection.repo.private,
+            installationId: selection.repo.installationId,
+          }
+    const result = await createProject({
+      workspaceId,
+      name,
+      prefix,
+      color,
+      repository,
+    })
+    setSubmitting(false)
+    if (result.ok) {
       resetAll()
       onOpenChange(false)
-    } catch (err) {
-      if (isPlanLimitError(err)) {
-        onOpenChange(false)
-        setUpgradeOpen(true)
-      }
-    } finally {
-      setSubmitting(false)
+      return
+    }
+    if (result.error.kind === `planLimit`) {
+      onOpenChange(false)
+      setUpgradeOpen(true)
+    } else {
+      setError(result.error.message)
     }
   }
+
+  const selectedInlineName =
+    selection?.kind === `inline` ? selection.repo.fullName : null
+
+  // The App-absent empty state used inside the picker: point owners at
+  // workspace settings → Repositories to install the GitHub App.
+  const installEmptyState = (
+    <div className="space-y-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
+      <div className="flex items-start gap-2">
+        <Github className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          No repository is connected yet. Connect the GitHub App in workspace
+          settings, then pick a repository here.
+        </span>
+      </div>
+      {workspaceSlug && (
+        <Button
+          asChild
+          type="button"
+          variant="link"
+          size="sm"
+          className="px-0"
+        >
+          <Link
+            to="/w/$workspaceSlug/settings"
+            params={{ workspaceSlug }}
+            onClick={() => onOpenChange(false)}
+          >
+            Go to Repositories settings
+          </Link>
+        </Button>
+      )}
+    </div>
+  )
 
   return (
     <>
@@ -120,11 +198,43 @@ export function CreateProjectDialog({
               <Label>Color</Label>
               <ColorSwatchGrid value={color} onChange={setColor} />
             </div>
+
+            <div className="space-y-2">
+              <Label>Repository</Label>
+              <ConnectedRepoPicker
+                workspaceId={workspaceId}
+                value={
+                  selection?.kind === `registry` ? selection.repositoryId : null
+                }
+                onSelectRegistry={(repo) =>
+                  setSelection({
+                    kind: `registry`,
+                    repositoryId: repo.id,
+                    fullName: repo.fullName,
+                  })
+                }
+                onConnectNew={handlePickerSelect}
+                installEmptyState={installEmptyState}
+                appendedRow={
+                  selectedInlineName ? (
+                    <div className="flex w-full items-center gap-2 px-3 py-2 text-sm">
+                      <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{selectedInlineName}</span>
+                      <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
+                    </div>
+                  ) : undefined
+                }
+              />
+            </div>
+
+            {error && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
             <DialogFooter>
-              <Button
-                type="submit"
-                disabled={!name.trim() || !prefix.trim() || submitting}
-              >
+              <Button type="submit" disabled={!canSubmit || submitting}>
                 {submitting ? `Creating...` : `Create project`}
               </Button>
             </DialogFooter>

@@ -30,15 +30,26 @@
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 
+pub mod claude_task;
+pub mod clone_manager;
 pub mod doctor;
 pub mod git_worktree;
 pub mod launcher;
 pub mod mcp_json;
 pub mod prompt;
 pub mod run_launch;
+pub mod scm;
 pub mod settings;
+pub mod trunk_state;
 
+pub use claude_task::{claude_task, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask};
+pub use clone_manager::CloneEvent;
 pub use doctor::{run_doctor, DoctorReport, Tool, ToolCheck};
+pub use scm::{
+    CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,
+    FileStatus, StatusSummary, UnifiedHunk,
+};
+pub use trunk_state::TrunkState;
 pub use git_worktree::{branch_name, clone_path, worktree_path, GitError, TokenUrl};
 pub use launcher::{
     default_device_label, end_session_best_effort, prepare_launch, spawn_prepared,
@@ -50,6 +61,6 @@ pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};
 pub use prompt::{render_prompt, write_prompt, PROMPT_FILE, SEED_LINE};
 pub use run_launch::{
     format_argv_line, format_env_lines, parse_argv_line, parse_env_lines, play_state, run_root,
-    run_spawn_spec, PlayState, STOP_GRACE,
+    run_spawn_spec, shell_cwd, PlayState, STOP_GRACE,
 };
 pub use settings::Settings;

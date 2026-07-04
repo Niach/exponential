@@ -50,8 +50,8 @@ use domain::rows::{Issue, Project};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
+use crate::issue_changes::IssueChanges;
 use crate::navigation::{navigate, Screen};
-use crate::pr_section::PrSection;
 use crate::properties_panel::{parse_hex_color, spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
@@ -108,6 +108,14 @@ pub fn install_description_editor(cx: &mut App, build: DescriptionEditorBuilder)
 // The view
 // ---------------------------------------------------------------------------
 
+/// The segmented header's two panes (§4.8): the issue body vs. the single
+/// worktree/PR diff surface.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DetailTab {
+    Details,
+    Changes,
+}
+
 pub struct IssueDetailView {
     issue_id: Option<String>,
     title_input: Entity<InputState>,
@@ -128,7 +136,9 @@ pub struct IssueDetailView {
     start_coding: Entity<StartCodingControl>,
     properties: Entity<PropertiesPanel>,
     timeline: Entity<IssueTimeline>,
-    pr_section: Entity<PrSection>,
+    /// §4.8 segmented header: Details (the body) vs. Changes (the diff tab).
+    tab: DetailTab,
+    changes: Entity<IssueChanges>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -139,7 +149,7 @@ impl IssueDetailView {
         let start_coding = cx.new(StartCodingControl::new);
         let properties = cx.new(|cx| PropertiesPanel::new(window, cx));
         let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
-        let pr_section = cx.new(|cx| PrSection::new(window, cx));
+        let changes = cx.new(|cx| IssueChanges::new(window, cx));
 
         let mut subscriptions = Vec::new();
         // Title saves on blur when changed (web `handleTitleBlur`).
@@ -181,7 +191,8 @@ impl IssueDetailView {
             start_coding,
             properties,
             timeline,
-            pr_section,
+            tab: DetailTab::Details,
+            changes,
             _subscriptions: subscriptions,
         }
     }
@@ -215,8 +226,13 @@ impl IssueDetailView {
             .update(cx, |timeline, cx| {
                 timeline.set_issue(Some(issue_id.clone()), window, cx)
             });
-        self.pr_section
-            .update(cx, |section, cx| section.set_issue(Some(issue_id), cx));
+        // §4.8: navigating resets to the Details pane; the Changes tab (hidden)
+        // repoints and won't fetch until it becomes visible again.
+        self.tab = DetailTab::Details;
+        self.changes.update(cx, |changes, cx| {
+            changes.set_visible(false, cx);
+            changes.set_issue(Some(issue_id), cx);
+        });
 
         self.sync_from_issue(window, cx);
         cx.notify();
@@ -672,8 +688,57 @@ impl IssueDetailView {
         if let Some(rail) = attachments_row::attachments_row(&issue.id, cx) {
             column = column.child(rail);
         }
-        column = column.child(self.pr_section.clone());
         column.child(self.timeline.clone())
+    }
+
+    /// §4.8 segmented header — Details (the body) · Changes (the diff tab).
+    /// Selecting Changes makes the tab visible (it fetches on focus); selecting
+    /// Details hides it (stops its poll).
+    fn render_tabs(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let tab_button = |this: &Self, tab: DetailTab, label: &'static str, cx: &App| {
+            let active = this.tab == tab;
+            Button::new(match tab {
+                DetailTab::Details => "issue-tab-details",
+                DetailTab::Changes => "issue-tab-changes",
+            })
+            .ghost()
+            .xsmall()
+            .label(label)
+            .text_color(if active {
+                cx.theme().foreground
+            } else {
+                cx.theme().muted_foreground
+            })
+        };
+
+        h_flex()
+            .w_full()
+            .px_3()
+            .py_1()
+            .gap_1()
+            .items_center()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                tab_button(self, DetailTab::Details, "Details", cx).on_click(cx.listener(
+                    |this, _, _, cx| this.select_tab(DetailTab::Details, cx),
+                )),
+            )
+            .child(
+                tab_button(self, DetailTab::Changes, "Changes", cx).on_click(cx.listener(
+                    |this, _, _, cx| this.select_tab(DetailTab::Changes, cx),
+                )),
+            )
+    }
+
+    fn select_tab(&mut self, tab: DetailTab, cx: &mut gpui::Context<Self>) {
+        if self.tab == tab {
+            return;
+        }
+        self.tab = tab;
+        self.changes
+            .update(cx, |changes, cx| changes.set_visible(tab == DetailTab::Changes, cx));
+        cx.notify();
     }
 }
 
@@ -718,26 +783,38 @@ impl Render for IssueDetailView {
                 view = view.child(banner);
             }
         }
+        view = view.child(self.render_tabs(cx));
 
-        let left = self.render_left_column(&issue, window, cx);
-        view.child(
-            h_flex()
+        // §4.8: Changes is a full-width single diff surface (no properties
+        // panel); Details keeps the two-pane body + properties panel.
+        let body = match self.tab {
+            DetailTab::Changes => div()
                 .flex_1()
                 .min_h_0()
-                .items_start()
                 .overflow_hidden()
-                .child(
-                    div()
-                        .id("issue-detail-scroll")
-                        .flex_1()
-                        .min_w_0()
-                        .h_full()
-                        .overflow_y_scroll()
-                        .child(left),
-                )
-                .child(self.properties.clone()),
-        )
-        .into_any_element()
+                .child(self.changes.clone())
+                .into_any_element(),
+            DetailTab::Details => {
+                let left = self.render_left_column(&issue, window, cx);
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .items_start()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .id("issue-detail-scroll")
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_y_scroll()
+                            .child(left),
+                    )
+                    .child(self.properties.clone())
+                    .into_any_element()
+            }
+        };
+        view.child(body).into_any_element()
     }
 }
 

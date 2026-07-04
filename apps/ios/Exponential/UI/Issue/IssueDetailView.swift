@@ -16,7 +16,6 @@ struct IssueDetailView: View {
     @State private var showAssigneePicker = false
     @State private var showRecurrencePicker = false
     @State private var showDuplicatePicker = false
-    @State private var showDiff = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -124,6 +123,19 @@ struct IssueDetailView: View {
                                 deps.deepLinkBus.navigateToIssue(issueId)
                             }
                         )
+
+                        // Backing repo chip (v4 §6): the project's repositoryId
+                        // resolved to owner/name via the repositories API.
+                        if let project = vm.project, project.repositoryId != nil {
+                            HStack {
+                                RepoNameChip(
+                                    accountId: accountId,
+                                    workspaceId: project.workspaceId,
+                                    repositoryId: project.repositoryId
+                                )
+                                Spacer()
+                            }
+                        }
 
                         // Coding session: "Coding now" badge + live steer
                         // viewer / remote "Start on my desktop" (§5b/§5c).
@@ -292,40 +304,12 @@ struct IssueDetailView: View {
                                 .foregroundStyle(.red)
                         }
 
-                        // Pull request (read-only diff; one issue = one PR =
-                        // one exp/<IDENTIFIER> branch).
-                        if let prUrl = issue.prUrl, let url = URL(string: prUrl) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "arrow.triangle.branch")
-                                        .foregroundStyle(Accent.indigo)
-                                    Text("Pull request")
-                                        .font(.subheadline.weight(.semibold))
-                                    if let prState = issue.prState {
-                                        Text(prState.capitalized)
-                                            .font(.caption2.weight(.medium))
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.white.opacity(0.08))
-                                            .clipShape(Capsule())
-                                    }
-                                    Spacer()
-                                    Link("Open on GitHub", destination: url)
-                                        .font(.caption)
-                                }
-                                if let branch = issue.branch, !branch.isEmpty {
-                                    Text(branch)
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                }
-                                DisclosureGroup("Changed files", isExpanded: $showDiff) {
-                                    DiffView(issueId: issue.id).padding(.top, 6)
-                                }
-                                .font(.subheadline)
-                            }
-                            .padding(12)
-                            .glassSection()
-                        }
+                        // Changes (§4.8, mobile tiers 2–4): PR diff → pushed
+                        // branch diff → "Being coded on <device>" steer state.
+                        ChangesSection(
+                            issue: issue,
+                            runningSessions: vm.runningSessions
+                        )
 
                         // Attachments (read-only list synced from Electric).
                         // Inline images in the description still preview

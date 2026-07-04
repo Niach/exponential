@@ -32,24 +32,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.api.WorkspaceRepo
+import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.theme.LabelPalette
 
 // New-project form. Mirrors the web create-project dialog: name + prefix
-// (auto-derived from the name, editable) + a color swatch. The host owns
-// isCreating/error and dismisses on success.
+// (auto-derived from the name, editable) + a color swatch + a REQUIRED
+// repository (masterplan v4 §6 — a project is backed by a repo). The selector
+// lists only already-connected repos; connecting new repos stays web-only. The
+// host owns isCreating/error/repos and dismisses on success.
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CreateProjectSheet(
     isCreating: Boolean,
     error: String?,
+    repos: List<WorkspaceRepo>,
+    reposLoading: Boolean,
     onDismiss: () -> Unit,
-    onCreate: (name: String, prefix: String, color: String) -> Unit,
+    onCreate: (name: String, prefix: String, color: String, repositoryId: String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var name by remember { mutableStateOf("") }
     var prefix by remember { mutableStateOf("") }
     var prefixEdited by remember { mutableStateOf(false) }
     var color by remember { mutableStateOf("#6366f1") }
+    var repositoryId by remember { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -104,6 +111,15 @@ fun CreateProjectSheet(
                     )
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            Text("Repository", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            RepositorySelector(
+                repos = repos,
+                loading = reposLoading,
+                selectedId = repositoryId,
+                onSelect = { repositoryId = it },
+            )
             if (error != null) {
                 Spacer(Modifier.height(8.dp))
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -111,8 +127,11 @@ fun CreateProjectSheet(
             Spacer(Modifier.height(16.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(
-                    enabled = !isCreating && name.isNotBlank() && prefix.isNotBlank(),
-                    onClick = { onCreate(name.trim(), prefix.trim().uppercase(), color) },
+                    enabled = !isCreating && name.isNotBlank() && prefix.isNotBlank() && repositoryId != null,
+                    onClick = {
+                        val repoId = repositoryId ?: return@Button
+                        onCreate(name.trim(), prefix.trim().uppercase(), color, repoId)
+                    },
                 ) {
                     Text(if (isCreating) "Creating…" else "Create")
                 }

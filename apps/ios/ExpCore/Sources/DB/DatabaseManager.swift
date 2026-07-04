@@ -157,6 +157,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // column stays so the (now-inert) repo-picker UI still compiles.
                 // Electric no longer populates it.
                 t.column("github_repo", .text)
+                // v4: the repo backing this project (Electric ride-along on the
+                // projects shape). Nullable locally for dangling-data safety.
+                t.column("repository_id", .text)
                 // Display-only mirror of the preview run targets + feedback target.
                 t.column("preview_config", .text)
                 t.column("created_at", .text).notNull()
@@ -344,6 +347,16 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.alter(table: "electric_offsets") { t in
                 t.add(column: "needs_refetch", .boolean).notNull().defaults(to: false)
                 t.add(column: "is_live", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        // v3 (masterplan v4 R4): `projects.repository_id` rides along on the
+        // projects shape. Additive ALTER for DBs already past v1; fresh installs
+        // get it from the v1 create above. Strictly additive — never bump the
+        // `-v4` file suffix for this (that would wipe local snapshots + cursors).
+        migrator.registerMigration("v3_project_repository_id") { db in
+            try db.alter(table: "projects") { t in
+                t.add(column: "repository_id", .text)
             }
         }
 

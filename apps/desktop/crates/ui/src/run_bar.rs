@@ -48,7 +48,6 @@ use gpui_component::{
     notification::Notification,
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
-use serde::Deserialize;
 use sync::Store;
 
 use api::run_configs::{command_set_hash, RunConfig, RunConfigUpdate};
@@ -62,6 +61,7 @@ use terminal::{TabKind, TerminalManager, TerminalManagerEvent};
 use crate::icons::ExpIcon;
 use crate::navigation::{self, Navigation, Screen};
 use crate::queries;
+use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::session::AuthContext;
 use crate::terminal_dock::TerminalDockPanel;
 
@@ -77,12 +77,14 @@ enum Load {
 /// Background fetch result for one project scope.
 struct Fetched {
     configs: Result<Vec<RunConfig>, String>,
-    repo_full_name: Option<String>,
     persisted_selection: Option<String>,
 }
 
 pub struct RunBar {
     nav: Entity<Navigation>,
+    /// The shared per-window repo resolver (§4.2) — the §7.4 clone-root repo
+    /// comes from here instead of a per-bar `repositories.list` call.
+    repo_resolver: Entity<RepoResolver>,
     dock_area: WeakEntity<DockArea>,
     /// The project scope the loaded state below belongs to.
     project_id: Option<String>,
@@ -110,6 +112,7 @@ impl RunBar {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let nav = navigation::nav_for_window(window, cx);
+        let repo_resolver = repo_resolver_for_window(window, cx);
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             // Scope follows navigation (board/issue-detail → project).
@@ -118,9 +121,12 @@ impl RunBar {
             // read the synced collections.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.projects, |_, _, cx| cx.notify()),
+            // Re-render when the shared repo resolution lands / changes.
+            cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
+            repo_resolver,
             dock_area,
             project_id: None,
             load: Load::Idle,
@@ -154,6 +160,11 @@ impl RunBar {
     /// resets, `Idle` kicks one background fetch of configs + repo link +
     /// persisted selection.
     fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        // Drive the shared window resolver (idempotent — one fetch per
+        // workspace, shared by all five trunk/IDE surfaces).
+        self.repo_resolver
+            .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
+
         let scope = self.scope_project_id(cx);
         if scope != self.project_id {
             self.project_id = scope;
@@ -169,16 +180,13 @@ impl RunBar {
         let Some(project_id) = self.project_id.clone() else {
             return;
         };
-        // repositories.list is workspace-scoped; wait for the project row
-        // (the projects observer re-notifies when it syncs in).
-        let Some(workspace_id) = Store::global(cx)
-            .collections()
-            .projects
-            .read(cx)
-            .get(&project_id)
-            .map(|project| project.workspace_id.clone())
-        else {
-            return;
+        // The §7.4 clone-root repo comes from the shared resolver; wait until it
+        // has resolved (its observer re-renders us), then a missing/failed repo
+        // is simply `None` (the play button surfaces the EXP-4 helper).
+        let repo_full_name = match self.repo_resolver.read(cx).lookup_project(&project_id) {
+            RepoLookup::Loading => return,
+            RepoLookup::Found(repo) => Some(repo.full_name),
+            RepoLookup::NotFound | RepoLookup::Error(_) => None,
         };
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
@@ -198,8 +206,6 @@ impl RunBar {
                 .spawn(async move {
                     let configs =
                         api::run_configs::list(&trpc, &project).map_err(|err| err.to_string());
-                    let repo_full_name = fetch_project_repo(&trpc, &workspace_id, &project)
-                        .unwrap_or_default();
                     let persisted_selection =
                         TrustStore::open(&TrustStore::default_path(&data_dir, &account.id))
                             .ok()
@@ -208,7 +214,6 @@ impl RunBar {
                             });
                     Fetched {
                         configs,
-                        repo_full_name,
                         persisted_selection,
                     }
                 })
@@ -230,7 +235,7 @@ impl RunBar {
                         this.error = Some(err.into());
                     }
                 }
-                this.repo_full_name = fetched.repo_full_name;
+                this.repo_full_name = repo_full_name;
                 // Persisted selection wins while it still exists; else the
                 // first config (server order: sortOrder, name).
                 this.selected = fetched
@@ -656,56 +661,6 @@ fn find_terminal_panel(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
         DockItem::Split { items, .. } => items.iter().find_map(find_terminal_panel),
         _ => None,
     }
-}
-
-/// `repositories.list` → the project's primary link, else its sole link
-/// (mirror of the server's `pickRepoLink` — the §7.4 clone-root repo).
-fn fetch_project_repo(
-    trpc: &api::TrpcClient,
-    workspace_id: &str,
-    project_id: &str,
-) -> Result<Option<String>, api::ApiError> {
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        workspace_id: &'a str,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct RepoRow {
-        full_name: String,
-        #[serde(default)]
-        project_links: Vec<RepoLink>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct RepoLink {
-        project_id: String,
-        #[serde(default)]
-        is_primary: bool,
-    }
-
-    let rows: Vec<RepoRow> =
-        trpc.query_with_input("repositories.list", &Input { workspace_id })?;
-    let linked: Vec<&RepoRow> = rows
-        .iter()
-        .filter(|row| {
-            row.project_links
-                .iter()
-                .any(|link| link.project_id == project_id)
-        })
-        .collect();
-    let primary = linked.iter().find(|row| {
-        row.project_links
-            .iter()
-            .any(|link| link.project_id == project_id && link.is_primary)
-    });
-    let chosen = primary.copied().or(if linked.len() == 1 {
-        linked.first().copied()
-    } else {
-        None
-    });
-    Ok(chosen.map(|row| row.full_name.clone()))
 }
 
 /// The Trust & Run dialog body: warning + the exact argv/cwd/env of every

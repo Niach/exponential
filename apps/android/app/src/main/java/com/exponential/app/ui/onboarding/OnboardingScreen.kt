@@ -41,6 +41,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.api.WorkspaceRepo
+import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
@@ -91,8 +93,12 @@ fun OnboardingScreen(
 
             Box(modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth()) {
                 when (state.step) {
-                    0 -> ProjectStep(busy = state.busy) { name, prefix, color ->
-                        viewModel.createProject(name, prefix, color)
+                    0 -> ProjectStep(
+                        busy = state.busy,
+                        repos = state.repos,
+                        reposLoading = state.reposLoading,
+                    ) { name, prefix, color, repositoryId ->
+                        viewModel.createProject(name, prefix, color, repositoryId)
                     }
                     else -> IssueStep(
                         busy = state.busy,
@@ -120,11 +126,17 @@ fun OnboardingScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProjectStep(busy: Boolean, onContinue: (name: String, prefix: String, color: String) -> Unit) {
+private fun ProjectStep(
+    busy: Boolean,
+    repos: List<WorkspaceRepo>,
+    reposLoading: Boolean,
+    onContinue: (name: String, prefix: String, color: String, repositoryId: String) -> Unit,
+) {
     var name by remember { mutableStateOf("") }
     var prefix by remember { mutableStateOf("") }
     var prefixEdited by remember { mutableStateOf(false) }
     var color by remember { mutableStateOf(LabelPalette.colors.first()) }
+    var repositoryId by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp)) {
         Text("Create your first project", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
@@ -168,10 +180,22 @@ private fun ProjectStep(busy: Boolean, onContinue: (name: String, prefix: String
                 )
             }
         }
+        Spacer(Modifier.height(14.dp))
+        Text("Repository", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+        Spacer(Modifier.height(8.dp))
+        RepositorySelector(
+            repos = repos,
+            loading = reposLoading,
+            selectedId = repositoryId,
+            onSelect = { repositoryId = it },
+        )
         Spacer(Modifier.height(18.dp))
         Button(
-            enabled = !busy && name.isNotBlank() && prefix.isNotBlank(),
-            onClick = { onContinue(name.trim(), prefix.trim().uppercase(), color) },
+            enabled = !busy && name.isNotBlank() && prefix.isNotBlank() && repositoryId != null,
+            onClick = {
+                val repoId = repositoryId ?: return@Button
+                onContinue(name.trim(), prefix.trim().uppercase(), color, repoId)
+            },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (busy) "Creating…" else "Continue")

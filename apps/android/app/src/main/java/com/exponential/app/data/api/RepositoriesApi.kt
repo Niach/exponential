@@ -5,17 +5,24 @@ import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
 
-// Mirrors apps/web/src/lib/trpc/repositories.ts. Repositories are server-only
-// (NOT an Electric shape) — read on demand over tRPC for the workspace-settings
-// registry. Connecting NEW repos (the GitHub-App install flow) stays web-only;
-// Android links out to the web settings for that.
+// Mirrors apps/web/src/lib/trpc/repositories.ts + projects.ts. Repositories are
+// server-only (NOT an Electric shape) — read on demand over tRPC for the
+// workspace-settings registry and the create-project / retarget pickers.
+// Connecting NEW repos (the GitHub-App install flow) stays web-only; Android
+// links out to the web settings for that (masterplan v4 §6).
 
-/** A project ↔ repo link (`project_repositories` join row). */
+/**
+ * A project that points at a repo, computed from `projects.repository_id`
+ * (masterplan v4 §3.2 — `repositories.list` no longer returns join rows).
+ * Powers the settings "used by" chips and the picker "in use" hints.
+ */
 @Serializable
-data class RepoProjectLink(
-    val projectId: String,
-    val isPrimary: Boolean = false,
+data class RepoProjectRef(
+    val id: String,
+    val name: String,
+    val slug: String,
 )
 
 /**
@@ -28,7 +35,8 @@ data class WorkspaceRepo(
     val fullName: String,
     val defaultBranch: String = "main",
     @SerialName("private") val isPrivate: Boolean = false,
-    val projectLinks: List<RepoProjectLink> = emptyList(),
+    // v4: the projects backed by this repo (many for a monorepo).
+    val projects: List<RepoProjectRef> = emptyList(),
 )
 
 @Serializable
@@ -38,15 +46,18 @@ private data class RepoWorkspaceIdInput(val workspaceId: String)
 private data class RepositoryIdInput(val repositoryId: String)
 
 @Serializable
-private data class ProjectRepositoryInput(
+private data class SetRepositoryInput(
     val projectId: String,
     val repositoryId: String,
 )
 
+@Serializable
+private data class BranchDiffInput(@SerialName("issueId") val issueId: String)
+
 @Singleton
 class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
 
-    /** Member-readable: the workspace's repos with their project links. */
+    /** Member-readable: the workspace's repos with their backing projects. */
     suspend fun list(accountId: String, workspaceId: String): List<WorkspaceRepo> =
         trpc.query(
             accountId,
@@ -56,7 +67,11 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = ListSerializer(WorkspaceRepo.serializer()),
         )
 
-    /** Owner-only (server-enforced): remove a repo; project links cascade. */
+    /**
+     * Owner-only (server-enforced): remove a repo. Blocked (CONFLICT — "repository
+     * backs N projects") while any project still points at it, via the
+     * `projects.repository_id` FK `restrict`.
+     */
     suspend fun remove(accountId: String, repositoryId: String) =
         trpc.mutationUnit(
             accountId,
@@ -65,30 +80,31 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = RepositoryIdInput.serializer(),
         )
 
-    /** Owner-only: link a repo to a project. */
-    suspend fun linkProject(accountId: String, projectId: String, repositoryId: String) =
+    /**
+     * Owner/admin: retarget a project's backing repo (masterplan v4 §3.2 —
+     * `projects.setRepository`, replacing the deleted link/unlink/setPrimary).
+     */
+    suspend fun setRepository(accountId: String, projectId: String, repositoryId: String) =
         trpc.mutationUnit(
             accountId,
-            path = "repositories.linkProject",
-            input = ProjectRepositoryInput(projectId, repositoryId),
-            inputSerializer = ProjectRepositoryInput.serializer(),
+            path = "projects.setRepository",
+            input = SetRepositoryInput(projectId, repositoryId),
+            inputSerializer = SetRepositoryInput.serializer(),
         )
 
-    /** Owner-only: unlink a repo from a project. */
-    suspend fun unlinkProject(accountId: String, projectId: String, repositoryId: String) =
-        trpc.mutationUnit(
+    /**
+     * Member-gated middle tier of remote Changes visibility (masterplan v4 §4.8,
+     * L18): the issue's `exp/<IDENTIFIER>` branch compared against the repo
+     * default branch, returned in the shared `prFiles` shape (reuses [PrFilesResult]).
+     * Null when the branch was never pushed (the caller falls through to the
+     * "being coded on <device>" tier).
+     */
+    suspend fun branchDiff(accountId: String, issueId: String): PrFilesResult? =
+        trpc.query(
             accountId,
-            path = "repositories.unlinkProject",
-            input = ProjectRepositoryInput(projectId, repositoryId),
-            inputSerializer = ProjectRepositoryInput.serializer(),
-        )
-
-    /** Owner-only: make a linked repo the project's primary clone target. */
-    suspend fun setPrimary(accountId: String, projectId: String, repositoryId: String) =
-        trpc.mutationUnit(
-            accountId,
-            path = "repositories.setPrimary",
-            input = ProjectRepositoryInput(projectId, repositoryId),
-            inputSerializer = ProjectRepositoryInput.serializer(),
+            path = "repositories.branchDiff",
+            input = BranchDiffInput(issueId),
+            inputSerializer = BranchDiffInput.serializer(),
+            outputSerializer = PrFilesResult.serializer().nullable,
         )
 }

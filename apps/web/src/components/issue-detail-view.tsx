@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { ChevronRight, Files, MoreHorizontal, Undo2 } from "lucide-react"
 import { Link } from "@tanstack/react-router"
-import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, User, Project } from "@/db/schema"
-import { issueCollection } from "@/lib/collections"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import type { CodingSession, Issue, User, Project } from "@/db/schema"
+import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import {
   formatDateForMutation,
@@ -36,7 +36,7 @@ import {
 import { IssueEditorAttachmentRail } from "@/components/issue-editor/attachment-rail"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
-import { SteerTerminal } from "@/components/steer-terminal"
+import { IssueChangesTab } from "@/components/issue-changes-tab"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
 
@@ -132,6 +132,21 @@ export function IssueDetailView({
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
   const [duplicatePickerOpen, setDuplicatePickerOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<`details` | `changes`>(`details`)
+
+  // Live "coding now" dot on the Changes tab: a running session (or an open PR /
+  // pushed branch) means there is something to see in Changes.
+  const { data: runningSessionRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ s: codingSessionCollection })
+        .where(({ s }) =>
+          and(eq(s.issueId, issue.id), eq(s.status, `running`))
+        ),
+    [issue.id]
+  )
+  const isCodingNow = ((runningSessionRows ?? []) as CodingSession[]).length > 0
+  const hasChanges = isCodingNow || issue.prNumber != null
 
   const incomingDescription = getIssueDescriptionText(issue.description)
   const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
@@ -143,6 +158,7 @@ export function IssueDetailView({
     descriptionRef.current = incomingDescription
     lastSavedDescriptionRef.current = normalizedIncoming
     setAttachmentStatus(null)
+    setActiveTab(`details`)
     editorRef.current?.setMarkdown(incomingDescription)
   }, [issue.id])
 
@@ -478,16 +494,58 @@ export function IssueDetailView({
     />
   ) : null
 
-  // Live "coding now" badge + remote terminal watch/steer + "Start on my
-  // desktop" (masterplan §3.7), sitting where the PR/diff review lives.
-  const steerPanel = currentUserId ? (
-    <SteerTerminal
-      issueId={issue.id}
+  // Details · Changes segmented control (masterplan §4.8 / §5.4). Changes is
+  // the single home of PR/branch diffs + the live steer viewer.
+  const tabsBar = (
+    <div className="flex items-center gap-1 px-4 py-2 border-b border-border">
+      <div className="inline-flex items-center gap-0.5 rounded-lg bg-muted/50 p-0.5">
+        {(
+          [
+            { id: `details`, label: `Details` },
+            { id: `changes`, label: `Changes` },
+          ] as const
+        ).map((tab) => (
+          <Button
+            key={tab.id}
+            variant="ghost"
+            size="sm"
+            onClick={() => setActiveTab(tab.id)}
+            className={`h-6 rounded-md px-3 text-xs ${
+              activeTab === tab.id
+                ? `bg-background text-foreground shadow-sm`
+                : `text-muted-foreground hover:text-foreground`
+            }`}
+          >
+            {tab.label}
+            {tab.id === `changes` && hasChanges && (
+              <span className="relative ml-1.5 flex size-1.5">
+                {isCodingNow && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                )}
+                <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+              </span>
+            )}
+          </Button>
+        ))}
+      </div>
+    </div>
+  )
+
+  // Changes tab body: PR diff → branchDiff → "Being coded on <device>" steer
+  // viewer (masterplan §5.4). Mounted only while active so opening the tab
+  // triggers a fresh branch-diff fetch (§4.8 freshness).
+  const changesContent = currentUserId ? (
+    <IssueChangesTab
+      issue={issue}
       workspaceId={workspaceId}
       currentUserId={currentUserId}
       users={users}
     />
-  ) : null
+  ) : (
+    <div className="px-4 py-6 text-xs text-muted-foreground">
+      Sign in to view changes.
+    </div>
+  )
 
   if (isMobile) {
     return (
@@ -495,12 +553,18 @@ export function IssueDetailView({
         {breadcrumb}
         {duplicateBanner}
         {propsPanel}
+        {tabsBar}
         <div className="flex-1 overflow-y-auto">
-          {titleField}
-          {editor}
-          {attachmentRail}
-          {steerPanel}
-          {timeline}
+          {activeTab === `details` ? (
+            <>
+              {titleField}
+              {editor}
+              {attachmentRail}
+              {timeline}
+            </>
+          ) : (
+            changesContent
+          )}
         </div>
         {duplicatePicker}
       </div>
@@ -512,13 +576,19 @@ export function IssueDetailView({
       {breadcrumb}
       {duplicateBanner}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 min-w-0 overflow-y-auto">
-          <div className="mx-auto max-w-3xl">
-            {titleField}
-            {editor}
-            {attachmentRail}
-            {steerPanel}
-            {timeline}
+        <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
+          {tabsBar}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {activeTab === `details` ? (
+              <div className="mx-auto max-w-3xl">
+                {titleField}
+                {editor}
+                {attachmentRail}
+                {timeline}
+              </div>
+            ) : (
+              <div className="mx-auto max-w-3xl">{changesContent}</div>
+            )}
           </div>
         </div>
         {propsPanel}

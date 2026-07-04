@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.exponential.app.data.api.WorkspaceRepo
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,22 @@ fun HomeScreen(
     var createProjectFor by remember { mutableStateOf<Pair<String, String>?>(null) }
     var creating by remember { mutableStateOf(false) }
     var createError by remember { mutableStateOf<String?>(null) }
+    // v4: a project requires an already-connected repository — load the
+    // workspace's repos when the sheet opens (they aren't an Electric shape).
+    var createRepos by remember { mutableStateOf<List<WorkspaceRepo>>(emptyList()) }
+    var reposLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(createProjectFor) {
+        val target = createProjectFor
+        if (target == null) {
+            createRepos = emptyList()
+            reposLoading = false
+            return@LaunchedEffect
+        }
+        reposLoading = true
+        createRepos = viewModel.reposForWorkspace(target.first, target.second)
+        reposLoading = false
+    }
 
     LaunchedEffect(Unit) { viewModel.bootstrap() }
 
@@ -120,11 +137,13 @@ fun HomeScreen(
         CreateProjectSheet(
             isCreating = creating,
             error = createError,
+            repos = createRepos,
+            reposLoading = reposLoading,
             onDismiss = { createProjectFor = null; createError = null },
-            onCreate = { name, prefix, color ->
+            onCreate = { name, prefix, color, repositoryId ->
                 scope.launch {
                     creating = true
-                    val err = viewModel.createProject(accountId, workspaceId, name, prefix, color)
+                    val err = viewModel.createProject(accountId, workspaceId, name, prefix, color, repositoryId)
                     creating = false
                     if (err == null) {
                         createProjectFor = null

@@ -23,6 +23,7 @@ struct OnboardingView: View {
     @State private var prefix = ""
     @State private var prefixEdited = false
     @State private var color = DEFAULT_LABEL_COLOR
+    @State private var repository: ProjectRepositoryChoice?
 
     // Issue step
     @State private var issueTitle = ""
@@ -115,6 +116,16 @@ struct OnboardingView: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             ColorSwatchGrid(selection: $color)
 
+            // v4: a project is a repo — required before the project can be created.
+            if let workspaceId {
+                Divider().background(Color.white.opacity(0.08))
+                RepositorySelector(
+                    accountId: deps.auth.activeAccountId ?? "",
+                    workspaceId: workspaceId,
+                    selection: $repository
+                )
+            }
+
             primaryButton(busy ? "Creating…" : "Continue", enabled: canCreateProject) {
                 Task { await createProject() }
             }
@@ -202,7 +213,7 @@ struct OnboardingView: View {
     }
 
     private var canCreateProject: Bool {
-        !busy && workspaceId != nil
+        !busy && workspaceId != nil && repository != nil
             && !projectName.trimmingCharacters(in: .whitespaces).isEmpty
             && !prefix.trimmingCharacters(in: .whitespaces).isEmpty
     }
@@ -236,7 +247,8 @@ struct OnboardingView: View {
     }
 
     private func createProject() async {
-        guard !busy, let workspaceId, let accountId = deps.auth.activeAccountId else { return }
+        guard !busy, let workspaceId, let repository,
+              let accountId = deps.auth.activeAccountId else { return }
         busy = true
         error = nil
         do {
@@ -244,7 +256,8 @@ struct OnboardingView: View {
                 workspaceId: workspaceId,
                 name: projectName.trimmingCharacters(in: .whitespaces),
                 prefix: prefix.trimmingCharacters(in: .whitespaces).uppercased(),
-                color: color
+                color: color,
+                repository: repository
             ))
             step = 1
         } catch {

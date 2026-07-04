@@ -20,8 +20,8 @@
 //! live shared-`Store` window count — the §3.10 multi-window proof.
 
 use gpui::{
-    div, App, ClickEvent, ElementId, FocusHandle, Focusable, FontWeight, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, App, AppContext as _, ClickEvent, ElementId, FocusHandle, Focusable, FontWeight,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -33,7 +33,7 @@ use gpui_component::{
         SidebarMenuItem,
     },
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Collapsible, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme as _, Collapsible, Icon, IconName, Selectable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -47,11 +47,25 @@ use crate::navigation::{active_workspace_id, nav_for_window, resolved_screen, Na
 /// must not be changed").
 pub const PANEL_NAME: &str = "Sidebar";
 
+/// Which rail fills the left dock (masterplan v4 §4.5): the existing Navigator
+/// (workspace chrome) or the trunk file tree.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Rail {
+    Navigator,
+    Files,
+}
+
 /// The left-dock sidebar panel. Implements [`Panel`] because everything
 /// dockable must (§3.3), but renders chrome-less via `DockItem::Panel`.
+///
+/// v4 §4.5: a two-icon rail at the top toggles the dock body between the
+/// Navigator (the sidebar sections below) and the [`FileTreeView`] of the
+/// active project's trunk clone.
 pub struct SidebarPanel {
     focus_handle: FocusHandle,
     nav: gpui::Entity<Navigation>,
+    active_rail: Rail,
+    file_tree: gpui::Entity<crate::file_tree::FileTreeView>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -72,11 +86,68 @@ impl SidebarPanel {
             cx.observe(&nav, |_, _, cx| cx.notify()),
         ];
 
+        let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
+
         Self {
             focus_handle: cx.focus_handle(),
             nav,
+            active_rail: Rail::Navigator,
+            file_tree,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// The v4 §4.5 two-icon rail: Navigator ⟷ Files. Switching to Files kicks a
+    /// git-status refresh so the tree's dots reflect the trunk as of now.
+    fn render_rail(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        h_flex()
+            .flex_shrink_0()
+            .w_full()
+            .gap_1()
+            .px_2()
+            .py_1()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                Button::new("rail-navigator")
+                    .icon(IconName::PanelLeft)
+                    .tooltip("Navigator")
+                    .ghost()
+                    .small()
+                    .selected(self.active_rail == Rail::Navigator)
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.active_rail = Rail::Navigator;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Button::new("rail-files")
+                    .icon(IconName::Folder)
+                    .tooltip("Files")
+                    .ghost()
+                    .small()
+                    .selected(self.active_rail == Rail::Files)
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.active_rail = Rail::Files;
+                        this.file_tree.update(cx, |tree, cx| tree.refresh(cx));
+                        cx.notify();
+                    })),
+            )
+    }
+
+    /// The Navigator body (the existing workspace chrome: picker, nav rows,
+    /// projects, footer).
+    fn render_navigator(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        Sidebar::new("workspace-sidebar")
+            // EXP-1 #8: NOT collapsible — the enum value exists for this.
+            .collapsible(SidebarCollapsible::None)
+            // Fill the dock (the Dock owns the width; its resize handle works,
+            // collapse does not).
+            .w_full()
+            .header(self.render_header(cx))
+            .child(SidebarSection::Menu(self.nav_menu(cx)))
+            .child(SidebarSection::Projects(self.projects_menu(cx)))
+            .footer(self.render_footer(cx))
     }
 
     /// Workspace picker (EXP-1 #1): shadcn-style dropdown on the sidebar
@@ -481,16 +552,14 @@ impl Focusable for SidebarPanel {
 
 impl Render for SidebarPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        Sidebar::new("workspace-sidebar")
-            // EXP-1 #8: NOT collapsible — the enum value exists for this.
-            .collapsible(SidebarCollapsible::None)
-            // Fill the dock (the Dock owns the width; its resize handle works,
-            // collapse does not).
-            .w_full()
-            .header(self.render_header(cx))
-            .child(SidebarSection::Menu(self.nav_menu(cx)))
-            .child(SidebarSection::Projects(self.projects_menu(cx)))
-            .footer(self.render_footer(cx))
+        let body = match self.active_rail {
+            Rail::Navigator => self.render_navigator(cx).into_any_element(),
+            Rail::Files => self.file_tree.clone().into_any_element(),
+        };
+        v_flex()
+            .size_full()
+            .child(self.render_rail(cx))
+            .child(div().flex_1().min_h_0().child(body))
     }
 }
 

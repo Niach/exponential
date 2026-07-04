@@ -2,16 +2,17 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// The server-only repositories registry (masterplan §7a): lists the
-/// workspace's connected repos with their project links; owners can remove a
-/// repo, link/unlink projects, and set the primary clone target. Connecting
-/// NEW repos (the GitHub-App install flow) is web-only — this section links
-/// out to the web workspace settings for that. Mirrors the Android
-/// `RepositoriesSection` + the web repositories-section semantics.
+/// The server-only repositories registry (masterplan §6 / §5.3). v4: a pure
+/// registry — each row shows `owner/name`, the default branch, and the projects
+/// it backs ("used by" chips from `repositories.list().projects`). Owners can
+/// remove a repo; removal is blocked server-side (CONFLICT) while any project
+/// still points at it, and that message is surfaced inline. The primary-star and
+/// per-project link/unlink UI is gone (a project now owns exactly one repo, set
+/// at creation or via the projects section's "Change repository"). Connecting
+/// NEW repos (the GitHub-App install flow) stays web-only.
 struct WorkspaceRepositoriesSection: View {
     let accountId: String
     let workspace: WorkspaceEntity?
-    let projects: [ProjectEntity]
     let isOwner: Bool
     let repositoriesApi: RepositoriesApi
     let instanceBaseURL: URL?
@@ -78,7 +79,7 @@ struct WorkspaceRepositoriesSection: View {
                 }
             }
         } message: {
-            Text("This disconnects \(removeTarget?.fullName ?? "this repository") from the workspace. Project links are removed too.")
+            Text("This disconnects \(removeTarget?.fullName ?? "this repository") from the workspace.")
         }
     }
 
@@ -117,87 +118,28 @@ struct WorkspaceRepositoriesSection: View {
                 }
             }
 
+            // "Used by" project chips (v4 — computed from projects.repositoryId).
             FlowLayout(spacing: 6) {
-                if repo.projectLinks.isEmpty {
-                    Text("No projects linked")
+                if repo.projects.isEmpty {
+                    Text("Not used by any project")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(.vertical, 4)
                 }
-                ForEach(repo.projectLinks, id: \.projectId) { link in
-                    projectChip(repo: repo, link: link)
+                ForEach(repo.projects) { project in
+                    Text(project.name)
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .glassButton()
                 }
-                linkProjectMenu(repo)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .glassRow()
-    }
-
-    /// One linked project as a chip: star = primary clone target (owners tap
-    /// to promote), x = unlink (web parity).
-    @ViewBuilder
-    private func projectChip(repo: WorkspaceRepo, link: RepoProjectLink) -> some View {
-        let project = projects.first { $0.id == link.projectId }
-        HStack(spacing: 5) {
-            Button {
-                guard isOwner, !link.isPrimary else { return }
-                Task { await mutate { try await repositoriesApi.setPrimary(accountId: accountId, projectId: link.projectId, repositoryId: repo.id) } }
-            } label: {
-                Image(systemName: link.isPrimary ? "star.fill" : "star")
-                    .font(.caption2)
-                    .foregroundStyle(link.isPrimary ? Color.yellow : .white.opacity(TextOpacity.tertiary))
-            }
-            .buttonStyle(.plain)
-            .disabled(!isOwner || link.isPrimary)
-
-            Text(project?.name ?? "Unknown project")
-                .font(.caption)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-
-            if isOwner {
-                Button {
-                    Task { await mutate { try await repositoriesApi.unlinkProject(accountId: accountId, projectId: link.projectId, repositoryId: repo.id) } }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .glassButton(isActive: link.isPrimary)
-    }
-
-    /// Owner-only "+ Link project" chip offering the not-yet-linked projects.
-    @ViewBuilder
-    private func linkProjectMenu(_ repo: WorkspaceRepo) -> some View {
-        let linkedIds = Set(repo.projectLinks.map(\.projectId))
-        let unlinked = projects.filter { !linkedIds.contains($0.id) }
-        if isOwner, !unlinked.isEmpty {
-            Menu {
-                ForEach(unlinked, id: \.id) { project in
-                    Button(project.name) {
-                        Task { await mutate { try await repositoriesApi.linkProject(accountId: accountId, projectId: project.id, repositoryId: repo.id) } }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus")
-                        .font(.caption2)
-                    Text("Link project")
-                        .font(.caption)
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .glassButton()
-            }
-        }
     }
 
     // MARK: - Data (server-only registry; refetched after every mutation)
@@ -226,7 +168,12 @@ struct WorkspaceRepositoriesSection: View {
         do {
             try await operation()
             errorText = nil
+            // Registry changed — drop the per-workspace name cache used by chips.
+            if let workspaceId = workspace?.id {
+                RepositoryDirectory.invalidate(accountId: accountId, workspaceId: workspaceId)
+            }
         } catch {
+            // Surfaces the server CONFLICT ("repository backs N projects") message.
             errorText = error.localizedDescription
         }
         removeTarget = nil

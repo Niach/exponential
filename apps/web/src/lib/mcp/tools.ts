@@ -262,7 +262,7 @@ export function registerExponentialTools(
     `exponential_projects_create`,
     {
       title: `Create project`,
-      description: `Create a project in a workspace. The MCP user must be a member of the workspace.`,
+      description: `Create a project in a workspace. Every project is backed by exactly one GitHub repository: pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
       inputSchema: {
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
@@ -271,6 +271,19 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
+        repository: z.union([
+          z.object({ repositoryId: z.string().uuid() }),
+          z.object({
+            fullName: z
+              .string()
+              .min(1)
+              .max(255)
+              .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`),
+            defaultBranch: z.string().min(1).max(255).optional(),
+            private: z.boolean().optional(),
+            installationId: z.number().int().optional(),
+          }),
+        ]),
       },
     },
     async (input) => {

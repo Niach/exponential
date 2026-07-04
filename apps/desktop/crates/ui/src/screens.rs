@@ -39,6 +39,11 @@ pub struct ScreensPanel {
     inbox: Entity<crate::inbox::InboxView>,
     settings: Entity<crate::settings::SettingsView>,
     account: Entity<crate::settings::AccountView>,
+    /// Trunk Source Control screen (v4 §4.4) — skeleton; R3.b fills it.
+    source_control: Entity<crate::source_control::SourceControlView>,
+    /// Read-only trunk file viewer (v4 §4.5) — one instance, re-pointed on
+    /// `Screen::FileViewer` navigation. Skeleton; R3.c fills it.
+    file_viewer: Entity<crate::file_viewer::FileViewerView>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -57,6 +62,11 @@ impl ScreensPanel {
         // their server-only reads fetch lazily on first render).
         let settings = cx.new(|cx| crate::settings::SettingsView::new(window, cx));
         let account = cx.new(|cx| crate::settings::AccountView::new(window, cx));
+        // Trunk Source Control + read-only file viewer (v4 §4.4/§4.5):
+        // skeleton screens, one instance each (the file viewer re-points on
+        // navigation, like the issue detail).
+        let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
+        let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
 
         let mut subscriptions = Vec::new();
         // Navigation changes swap the center content (and retarget the
@@ -103,6 +113,8 @@ impl ScreensPanel {
             inbox,
             settings,
             account,
+            source_control,
+            file_viewer,
             _subscriptions: subscriptions,
         };
         this.sync_screen_targets(window, cx);
@@ -123,6 +135,10 @@ impl ScreensPanel {
             Some(Screen::IssueDetail { issue_id }) => {
                 self.issue_detail
                     .update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
+            }
+            Some(Screen::FileViewer { path }) => {
+                self.file_viewer
+                    .update(cx, |viewer, cx| viewer.set_path(path, cx));
             }
             _ => {} // other screens do not use these; keep them parked
         }
@@ -215,6 +231,8 @@ impl Render for ScreensPanel {
             Some(Screen::Inbox) => self.inbox.clone().into_any_element(),
             Some(Screen::Settings) => self.settings.clone().into_any_element(),
             Some(Screen::Account) => self.account.clone().into_any_element(),
+            Some(Screen::SourceControl) => self.source_control.clone().into_any_element(),
+            Some(Screen::FileViewer { .. }) => self.file_viewer.clone().into_any_element(),
         };
 
         div()

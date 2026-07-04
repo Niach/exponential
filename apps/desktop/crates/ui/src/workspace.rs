@@ -25,13 +25,14 @@ use gpui::{
 };
 use gpui_component::{
     dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
-    v_flex, ActiveTheme as _, Root,
+    h_flex, v_flex, ActiveTheme as _, Root,
 };
 use sync::{SessionPhase, Store};
 
 use crate::{
-    debug_board::DebugBoardPanel, login::LoginView, navigation, run_bar::RunBar,
-    screens::ScreensPanel, sidebar::SidebarPanel, terminal_dock::TerminalDockPanel,
+    debug_board::DebugBoardPanel, git_bar::GitBar, login::LoginView, navigation,
+    run_bar::RunBar, screens::ScreensPanel, sidebar::SidebarPanel,
+    terminal_dock::TerminalDockPanel,
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -66,6 +67,10 @@ pub struct Workspace {
     /// off a project scope; it resolves this window's bottom terminal dock
     /// through `dock_area` for the play→`TabKind::Run` launch (§7.4).
     run_bar: Entity<RunBar>,
+    /// The trunk git bar (v4 §4.3) — branch chip, clone/sync progress,
+    /// behind/ahead counts, Pull/Push, and the amber conflict chip. Sits left
+    /// of the run bar on the same top strip; self-hides off a project scope.
+    git_bar: Entity<GitBar>,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
@@ -109,6 +114,7 @@ impl Workspace {
             let shared = shared.clone();
             move |_, cx| {
                 navigation::remove_window(window_id, cx);
+                crate::repo_resolver::remove_window(window_id, cx);
                 shared.update(cx, |state, cx| {
                     state.windows_open = state.windows_open.saturating_sub(1);
                     cx.notify();
@@ -158,10 +164,13 @@ impl Workspace {
         // `TabKind::Run` tab; built after the fixed chrome so the terminal
         // dock already exists.
         let run_bar = cx.new(|cx| RunBar::new(dock_area.downgrade(), window, cx));
+        // The v4 §4.3 git bar shares the top strip, left of the run bar.
+        let git_bar = cx.new(|cx| GitBar::new(window, cx));
 
         Self {
             dock_area,
             run_bar,
+            git_bar,
             login,
             ordinal,
             last_saved: None,
@@ -324,7 +333,22 @@ impl Render for Workspace {
             // the full height); the dock fills the rest.
             SessionPhase::Synced { .. } => v_flex()
                 .size_full()
-                .child(self.run_bar.clone())
+                // §4.3: one top strip — git bar (left) + run bar (right). The
+                // strip owns the chrome (constant height, border, title-bar bg)
+                // so navigation off a project scope never shifts the layout;
+                // both children render inner content and self-hide.
+                .child(
+                    h_flex()
+                        .h(px(30.))
+                        .flex_shrink_0()
+                        .items_center()
+                        .border_b_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().title_bar)
+                        .child(self.git_bar.clone())
+                        .child(div().flex_1())
+                        .child(self.run_bar.clone()),
+                )
                 .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
                 .into_any_element(),
             _ => self.login.clone().into_any_element(),

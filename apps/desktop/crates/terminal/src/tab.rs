@@ -31,11 +31,16 @@ impl TabId {
     }
 }
 
-/// §6.13's three tab kinds.
+/// §6.13's tab kinds (v4 §4.9 adds [`TabKind::ClaudeTask`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabKind {
     /// A Start-coding session (one per `coding_sessions` row, §07 opens it).
     Claude,
+    /// A one-shot Claude task (masterplan v4 §4.9): interactive `claude` NOT
+    /// bound to a `coding_sessions` row (no steer room, no plan charge, no
+    /// worktree). Visually behaves like a [`TabKind::Shell`] tab. The
+    /// `coding::claude_task` primitive builds its spawn spec.
+    ClaudeTask,
     /// A launched DB run-config (§07's play button; argv-direct, never a
     /// shell).
     Run(RunConfigId),

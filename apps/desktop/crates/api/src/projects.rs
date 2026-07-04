@@ -32,6 +32,9 @@ pub struct ProjectOut {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
+    /// v4 §3.1: the project's one repository (`projects.repositoryId`).
+    #[serde(default)]
+    pub repository_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -108,6 +111,28 @@ pub fn projects_update(
     input: &ProjectsUpdateInput,
 ) -> Result<ProjectsUpdateOutput, ApiError> {
     trpc.mutation("projects.update", input)
+}
+
+/// `projects.setRepository({projectId, repositoryId})` → `{project, txId}`
+/// (v4 §3.2 / §5.3): retarget a project at another registry repository. The
+/// v4 replacement for the deleted `repositories.link/unlink/setPrimary` link
+/// procs — a project has exactly one repository now. Owner/manage-repos gated
+/// server-side; the repo must belong to the project's workspace.
+pub fn projects_set_repository(
+    trpc: &TrpcClient,
+    project_id: &str,
+    repository_id: &str,
+) -> Result<ProjectsCreateOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        project_id: &'a str,
+        repository_id: &'a str,
+    }
+    trpc.mutation(
+        "projects.setRepository",
+        &Input { project_id, repository_id },
+    )
 }
 
 /// `projects.delete` — mutation (owner-only; plan-cap/permission failures
