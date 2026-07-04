@@ -42,6 +42,10 @@
     "build:desktop:staging": "cd apps/desktop && cargo build --release -p app --features staging",
     "appimage:desktop": "cd apps/desktop && cargo build --release -p app && ./scripts/build-appimage.sh production",
     "appimage:desktop:staging": "cd apps/desktop && cargo build --release -p app --features staging && ./scripts/build-appimage.sh staging",
+    "macapp:desktop": "cd apps/desktop && cargo build --release -p app && ./scripts/build-macos-app.sh production",
+    "macapp:desktop:staging": "cd apps/desktop && cargo build --release -p app --features staging && ./scripts/build-macos-app.sh staging",
+    "run:desktop:mac": "bun run macapp:desktop && open \"apps/desktop/target/Exponential.app\"",
+    "run:desktop:mac:staging": "bun run macapp:desktop:staging && open \"apps/desktop/target/Exponential (staging).app\"",
     "test:desktop": "cd apps/desktop && cargo test",
 
     "android:build": "cd apps/android && ./gradlew :app:assembleProductionDebug",

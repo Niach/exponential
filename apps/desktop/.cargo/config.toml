@@ -1,5 +1,15 @@
-# apps/desktop/.cargo/config.toml — per-target link flags (masterplan-v3 §3.7).
+# apps/desktop/.cargo/config.toml — per-target build config (masterplan-v3 §3.7).
 # Linux pkg-config hints land in Phase 1 if the wgpu/gpui build reveals a need.
-
-[target.aarch64-apple-darwin]
-rustflags = ["-C", "link-arg=-mmacosx-version-min=13.0"]
+#
+# NOTE (macOS deployment target): we deliberately do NOT force a
+# `-mmacosx-version-min` / MACOSX_DEPLOYMENT_TARGET override here. A global
+# `[target.aarch64-apple-darwin]` rustflag also applies to the HOST build tools
+# (proc-macro dylibs), and on the current toolchain (rustc 1.96 + the Darwin 27
+# linker) a lowered min-version on a *release-profile* proc-macro dylib emits a
+# mis-aligned LINKEDIT code signature — dlopen then fails with "can't find crate
+# for <x>_derive" and every release build breaks. (Debug proc-macros at the same
+# min-version are fine; only release is affected.) rustc's built-in arm64 default
+# already targets an older floor than we ship, and the shipped `.app`'s
+# LSMinimumSystemVersion (assets/packaging/Info.plist) is the real install gate.
+# If a per-binary min-version is ever needed, pass `--target aarch64-apple-darwin`
+# so the flag hits only the app, not the host proc-macros.

@@ -14,6 +14,8 @@ mod channel;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod desktop_integration;
 #[cfg(target_os = "macos")]
+mod macos_integration;
+#[cfg(target_os = "macos")]
 mod menus;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod single_instance;
@@ -36,6 +38,13 @@ fn main() {
         single_instance::Instance::Forwarded => return,
         single_instance::Instance::Primary => desktop_integration::ensure_scheme_registered(),
     }
+
+    // macOS: re-assert ourselves as the default exp:// handler each launch
+    // (self-registration parity with Linux). No-op when run unbundled. macOS
+    // needs no single-instance socket — Launch Services delivers exp:// to the
+    // already-running bundle via on_open_urls below.
+    #[cfg(target_os = "macos")]
+    macos_integration::ensure_scheme_registered();
 
     let app = gpui_platform::application().with_assets(assets::Assets);
 

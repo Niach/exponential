@@ -30,3 +30,10 @@ rust-embed.workspace = true
 anyhow.workspace = true
 flume.workspace = true
 dirs.workspace = true
+
+# macOS: assert this bundle as the default `exp://` handler at startup
+# (self-registration, the Linux `desktop_integration` analog). core-foundation
+# 0.9 is already in the tree via gpui, so this adds no new weight; it wraps the
+# CFString / CFBundle handles the LaunchServices FFI needs.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"

@@ -69,8 +69,18 @@ jobs:
       - name: Build (${{ matrix.channel }})
         run: cargo build --release --manifest-path apps/desktop/Cargo.toml -p app ${{ steps.feat.outputs.flags }}
 
-      # Linux → package a single-file AppImage; macOS → raw binary (signing /
-      # .app packaging is a manual release step, see the CLAUDE.md checklist).
+      # Version strings for the bundle (from the desktop-v* tag; falls back to
+      # 0.0.0 on workflow_dispatch). Shared by macOS packaging below.
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME:-}"
+          version="${ref#desktop-v}"
+          [ "$version" = "$ref" ] && version="0.0.0"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Linux → package a single-file AppImage.
       - name: Package AppImage
         if: runner.os == 'Linux'
         run: apps/desktop/scripts/build-appimage.sh ${{ matrix.channel }}
@@ -80,9 +90,31 @@ jobs:
         with:
           name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
           path: apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage
-      - name: Upload macOS binary
+
+      # macOS → assemble a proper .app bundle. The Info.plist declares the
+      # `exp://` URL scheme (CFBundleURLTypes) so the OAuth-callback / invite
+      # deep link routes into on_open_urls. Ad-hoc signed only; Developer ID
+      # signing + notarization stay manual release steps (CLAUDE.md checklist).
+      - name: Icon rasterizer (macOS)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: brew install librsvg
+      - name: Package .app
+        if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: apps/desktop/scripts/build-macos-app.sh ${{ matrix.channel }}
+      - name: Zip .app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd apps/desktop/target
+          app=$(ls -d *.app | head -1)
+          ditto -c -k --sequesterRsrc --keepParent "$app" "exp-desktop-${{ matrix.channel }}.zip"
+      - name: Upload macOS .app
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
-          path: apps/desktop/target/release/exp-desktop
+          path: apps/desktop/target/exp-desktop-${{ matrix.channel }}.zip

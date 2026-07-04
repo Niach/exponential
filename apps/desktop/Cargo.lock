@@ -236,6 +236,7 @@ dependencies = [
  "anyhow",
  "api",
  "coding",
+ "core-foundation 0.9.4",
  "dirs",
  "domain",
  "flume",
