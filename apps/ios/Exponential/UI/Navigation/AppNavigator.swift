@@ -198,14 +198,12 @@ struct MainNavigator: View {
         return false
     }
 
-    /// Compose targets the project being viewed, else the last-opened project.
+    /// Compose only inside a project — the button targets the project being
+    /// viewed. On the outer surfaces (Home, My Issues, Inbox) it is hidden;
+    /// creating an issue without a project context is ambiguous.
     private var resolvedComposeTarget: ComposeTarget? {
         if case let .project(accountId, id)? = path.last {
             return ComposeTarget(accountId: accountId, projectId: id)
-        }
-        if let last = SharedProjectMirror.readLastUsed(),
-           deps.auth.accounts.contains(where: { $0.id == last.accountId && $0.token != nil }) {
-            return ComposeTarget(accountId: last.accountId, projectId: last.projectId)
         }
         return nil
     }
