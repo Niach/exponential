@@ -1,5 +1,5 @@
 import { motion } from "motion/react"
-import { Apple, Smartphone, TabletSmartphone, Terminal } from "lucide-react"
+import { Apple, Monitor, Smartphone, TabletSmartphone, Terminal } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
 import { LINKS } from "../lib/links"
 
@@ -29,6 +29,14 @@ const targets: Target[] = [
     cta: `download AppImage`,
     href: LINKS.downloads.linux,
     icon: <Terminal size={20} strokeWidth={1.8} />,
+  },
+  {
+    platform: `Windows`,
+    title: `Exponential for Windows`,
+    desc: `The same Rust + gpui IDE on Windows. Unzip and run — the app registers itself for sign-in links on first launch.`,
+    cta: `download .zip`,
+    href: LINKS.downloads.windows,
+    icon: <Monitor size={20} strokeWidth={1.8} />,
   },
   {
     platform: `iOS`,

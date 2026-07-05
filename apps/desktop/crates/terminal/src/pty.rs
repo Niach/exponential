@@ -14,6 +14,7 @@ use anyhow::Context as _;
 use portable_pty::{
     native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize,
 };
+#[cfg(not(windows))]
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -252,6 +253,7 @@ pub fn prewarm_login_path() {
 /// that is *detached* if a daemonized grandchild inherited the write end
 /// (`Command::output` would block on that to EOF). `None` = caller falls
 /// back; never hangs.
+#[cfg(not(windows))]
 fn run_captured(mut cmd: std::process::Command, timeout: Duration) -> Option<String> {
     use std::process::Stdio;
 
@@ -300,6 +302,15 @@ fn run_captured(mut cmd: std::process::Command, timeout: Duration) -> Option<Str
     reader.join().ok()
 }
 
+/// Windows has no login-shell/rc-file PATH split — the process environment
+/// already carries the user's full PATH (registry-backed), and it is
+/// `;`-separated, so the unix probe/join below would corrupt it.
+#[cfg(windows)]
+fn resolve_login_path() -> String {
+    std::env::var("PATH").unwrap_or_default()
+}
+
+#[cfg(not(windows))]
 fn resolve_login_path() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     // login+interactive so rc files run and export the user's real PATH.
@@ -330,6 +341,7 @@ fn resolve_login_path() -> String {
 /// npm) put their binaries. Resolved against the shell-derived base PATH so
 /// npm itself is findable. Cached transitively via `login_path`; bounded like
 /// the shell probe.
+#[cfg(not(windows))]
 fn npm_global_bin(base_path: &str) -> Option<String> {
     let mut cmd = std::process::Command::new("npm");
     cmd.env("PATH", base_path).args(["config", "get", "prefix"]);
@@ -343,6 +355,7 @@ fn npm_global_bin(base_path: &str) -> Option<String> {
 
 /// `prepend` entries first (in order), then `base` — deduped, first
 /// occurrence wins, empties dropped.
+#[cfg(not(windows))]
 fn dedup_prepend(prepend: &[String], base: &str) -> String {
     let mut seen: HashSet<&str> = HashSet::new();
     let mut parts: Vec<&str> = Vec::new();
@@ -361,6 +374,7 @@ fn dedup_prepend(prepend: &[String], base: &str) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(not(windows))]
     #[test]
     fn dedup_prepend_orders_and_dedupes() {
         let prepend = vec!["/opt/homebrew/bin".to_owned(), "/usr/local/bin".to_owned()];
@@ -371,6 +385,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn dedup_prepend_empty_base() {
         let prepend = vec!["/a".to_owned()];

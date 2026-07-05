@@ -133,7 +133,12 @@ impl TerminalManager {
             .as_deref()
             .and_then(dir_title)
             .unwrap_or_else(|| shell_title(&shell));
-        let mut spec = SpawnSpec::new(&shell).arg("-l");
+        // `-l` (login shell) is a unix-ism; PowerShell/cmd take no analog.
+        #[cfg(unix)]
+        let spec = SpawnSpec::new(&shell).arg("-l");
+        #[cfg(not(unix))]
+        let spec = SpawnSpec::new(&shell);
+        let mut spec = spec;
         if let Some(cwd) = cwd {
             spec = spec.cwd(cwd);
         }
@@ -245,6 +250,22 @@ impl Default for TerminalManager {
 
 /// The user's shell for `+` tabs (§6.13's `$SHELL`), with a platform default.
 fn default_shell() -> String {
+    #[cfg(windows)]
+    {
+        // PowerShell is present on every supported Windows; COMSPEC (cmd.exe)
+        // is the fallback of last resort. $SHELL is not a Windows convention.
+        if which_on_path("pwsh.exe") {
+            return "pwsh.exe".into();
+        }
+        if which_on_path("powershell.exe") {
+            return "powershell.exe".into();
+        }
+        return std::env::var("COMSPEC")
+            .ok()
+            .filter(|shell| !shell.trim().is_empty())
+            .unwrap_or_else(|| "cmd.exe".into());
+    }
+    #[cfg(not(windows))]
     std::env::var("SHELL")
         .ok()
         .filter(|shell| !shell.trim().is_empty())
@@ -255,6 +276,16 @@ fn default_shell() -> String {
                 "/bin/bash".into()
             }
         })
+}
+
+/// PATH probe for the Windows shell pick — plain existence check per PATH
+/// entry, no spawning.
+#[cfg(windows)]
+fn which_on_path(exe: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| dir.join(exe).is_file())
 }
 
 /// Default shell-tab title: the shell's basename (OSC titles override it).

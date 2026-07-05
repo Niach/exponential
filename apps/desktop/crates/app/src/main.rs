@@ -8,6 +8,10 @@
 //! panel registry, keymap/menubar, the global `Store`, then the first window
 //! inside a foreground `cx.spawn`.
 
+// GUI subsystem on Windows — without this every launch drags a console
+// window along. Costs us stdout/stderr there; logging goes to the log file.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod actions;
 mod assets;
 mod channel;
@@ -20,6 +24,8 @@ mod menus;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod single_instance;
 mod windows;
+#[cfg(target_os = "windows")]
+mod windows_integration;
 
 fn main() {
     // OAuth-callback channel (exp:// → §5.7): filled by the macOS
@@ -37,6 +43,17 @@ fn main() {
     match single_instance::acquire(url_tx.clone()) {
         single_instance::Instance::Forwarded => return,
         single_instance::Instance::Primary => desktop_integration::ensure_scheme_registered(),
+    }
+
+    // Windows: same single-instance + deep-link bridge as Linux (gpui's
+    // on_open_urls is macOS-only), over loopback TCP instead of a Unix
+    // socket, plus per-user HKCU registration of the exp:// scheme.
+    #[cfg(target_os = "windows")]
+    match windows_integration::acquire(url_tx.clone()) {
+        windows_integration::Instance::Forwarded => return,
+        windows_integration::Instance::Primary => {
+            windows_integration::ensure_scheme_registered()
+        }
     }
 
     // macOS: re-assert ourselves as the default exp:// handler each launch

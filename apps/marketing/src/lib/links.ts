@@ -20,6 +20,7 @@ export const LINKS = {
     // Asset names are fixed by the release pipeline (masterplan P4.d).
     macos: `${REPO}/releases/latest/download/Exponential-production.dmg`,
     linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
+    windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.zip`,
     // Mobile stores are placeholders until the apps are approved — see DownloadSection.
     // TODO(launch): App Store URL
     ios: `${REPO}/releases`,

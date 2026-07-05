@@ -42,7 +42,16 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             channel: staging
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            channel: production
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            channel: staging
     runs-on: ${{ matrix.os }}
+    # Windows is the newest, least-proven target — don't let it block a
+    # macOS/Linux release. Remove once a few releases have shipped green.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux system deps (wgpu/gpui + AppImage packaging)
@@ -97,6 +106,23 @@ jobs:
         with:
           name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
           path: apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage
+
+      # Windows → zip the bare exe. The exp:// protocol handler + single
+      # instance are self-registered at first launch (HKCU, no installer
+      # needed); a signed MSI/MSIX is future work.
+      - name: Package Windows zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path apps/desktop/target/release/exp-desktop.exe `
+            -DestinationPath "apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.zip"
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
+          path: apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.zip
+          if-no-files-found: error
 
       # macOS → assemble a proper .app bundle. The Info.plist declares the
       # `exp://` URL scheme (CFBundleURLTypes) so the OAuth-callback / invite
