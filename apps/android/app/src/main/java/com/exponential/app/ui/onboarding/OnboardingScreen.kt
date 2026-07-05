@@ -1,14 +1,8 @@
 package com.exponential.app.ui.onboarding
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,50 +13,48 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.WorkspaceRepo
-import com.exponential.app.ui.components.RepositorySelector
-import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 
-// First-run wizard (web onboarding parity): create your first project, then your
-// first issue, gated once by onboardingCompletedAt. Single screen with internal
-// step state; floats on the shared AppBackground (transparent Scaffold).
-@OptIn(ExperimentalLayoutApi::class)
+// First-run screen. The mobile app is a companion (masterplan L26) — workspaces
+// and projects are created on the web or desktop app, so onboarding is a single
+// informational screen instead of a create-project/issue wizard. Continue marks
+// onboarding complete so the nav gate stops showing it; the ViewModel also
+// self-heals a stale account via reconcile() before the user taps Continue.
 @Composable
 fun OnboardingScreen(
     onDone: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
+    val instanceUrl by viewModel.instanceUrl.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
     val done by viewModel.done.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) { viewModel.ensureWorkspace() }
+    LaunchedEffect(Unit) { viewModel.reconcile() }
     LaunchedEffect(done) { if (done) onDone() }
-    BackHandler(enabled = state.step > 0) { viewModel.back() }
+
+    val host = instanceUrl?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() ?: it }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(
@@ -70,7 +62,7 @@ fun OnboardingScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 32.dp),
+                .padding(horizontal = 32.dp, vertical = 48.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -80,181 +72,60 @@ fun OnboardingScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Let's set up your workspace.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(20.dp))
-            ProgressDots(step = state.step, count = 2)
             Spacer(Modifier.height(24.dp))
 
-            Box(modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth()) {
-                when (state.step) {
-                    0 -> ProjectStep(
-                        busy = state.busy,
-                        repos = state.repos,
-                        reposLoading = state.reposLoading,
-                    ) { name, prefix, color, repositoryId ->
-                        viewModel.createProject(name, prefix, color, repositoryId)
-                    }
-                    else -> IssueStep(
-                        busy = state.busy,
-                        onCreate = { viewModel.createIssue(it) },
-                        onSkip = { viewModel.skip() },
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 460.dp)
+                    .fillMaxWidth()
+                    .glassCard()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Devices,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Create your first project on the web or desktop app",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Text(
+                    "This app is your companion for tracking and updating issues on the go. " +
+                        "Set up workspaces and projects — and start coding — from the web or " +
+                        "desktop app, then everything syncs here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+                if (host != null) {
+                    Text(
+                        host,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = 0.06f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                     )
                 }
             }
 
-            state.error?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = { viewModel.skip() }, enabled = !state.busy) {
-                Text(
-                    "Skip setup entirely",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ProjectStep(
-    busy: Boolean,
-    repos: List<WorkspaceRepo>,
-    reposLoading: Boolean,
-    onContinue: (name: String, prefix: String, color: String, repositoryId: String) -> Unit,
-) {
-    var name by remember { mutableStateOf("") }
-    var prefix by remember { mutableStateOf("") }
-    var prefixEdited by remember { mutableStateOf(false) }
-    var color by remember { mutableStateOf(LabelPalette.colors.first()) }
-    var repositoryId by remember { mutableStateOf<String?>(null) }
-
-    Column(modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp)) {
-        Text("Create your first project", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = name,
-            onValueChange = {
-                name = it
-                if (!prefixEdited) prefix = derivePrefix(it)
-            },
-            label = { Text("Project name") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = prefix,
-            onValueChange = {
-                prefixEdited = true
-                prefix = it.uppercase().take(10)
-            },
-            label = { Text("Issue prefix") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(14.dp))
-        Text("Color", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
-        Spacer(Modifier.height(8.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            LabelPalette.colors.forEach { c ->
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(parseColor(c))
-                        .then(
-                            if (c == color) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                            else Modifier,
-                        )
-                        .clickable { color = c },
-                )
-            }
-        }
-        Spacer(Modifier.height(14.dp))
-        Text("Repository", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
-        Spacer(Modifier.height(8.dp))
-        RepositorySelector(
-            repos = repos,
-            loading = reposLoading,
-            selectedId = repositoryId,
-            onSelect = { repositoryId = it },
-        )
-        Spacer(Modifier.height(18.dp))
-        Button(
-            enabled = !busy && name.isNotBlank() && prefix.isNotBlank() && repositoryId != null,
-            onClick = {
-                val repoId = repositoryId ?: return@Button
-                onContinue(name.trim(), prefix.trim().uppercase(), color, repoId)
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (busy) "Creating…" else "Continue")
-        }
-    }
-}
-
-@Composable
-private fun IssueStep(busy: Boolean, onCreate: (String) -> Unit, onSkip: () -> Unit) {
-    var title by remember { mutableStateOf("") }
-    Column(modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp)) {
-        Text("Create your first issue", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            label = { Text("Issue title") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(18.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = onSkip, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Skip") }
+            Spacer(Modifier.height(24.dp))
             Button(
-                enabled = !busy && title.isNotBlank(),
-                onClick = { onCreate(title.trim()) },
-                modifier = Modifier.weight(1f),
+                enabled = !busy,
+                onClick = { viewModel.finish() },
+                modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth(),
             ) {
-                Text(if (busy) "Creating…" else "Create issue")
+                Text(if (busy) "Finishing…" else "Continue")
             }
         }
     }
 }
-
-@Composable
-private fun ProgressDots(step: Int, count: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        repeat(count) { i ->
-            val active = i <= step
-            Box(
-                modifier = Modifier
-                    .size(if (i == step) 10.dp else 8.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (active) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
-                    ),
-            )
-            if (i < count - 1) {
-                Box(
-                    modifier = Modifier
-                        .width(20.dp)
-                        .height(2.dp)
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)),
-                )
-            }
-        }
-    }
-}
-
-private fun derivePrefix(name: String): String =
-    name.trim().filter { it.isLetterOrDigit() }.take(3).uppercase()

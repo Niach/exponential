@@ -46,7 +46,8 @@ export function CreateProjectDialog({
   const [productIds, setProductIds] = useState<{
     pro: string | null
     business: string | null
-  }>({ pro: null, business: null })
+    businessYearly: string | null
+  }>({ pro: null, business: null, businessYearly: null })
 
   const [selection, setSelection] = useState<RepoSelection | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -65,6 +66,7 @@ export function CreateProjectDialog({
       setProductIds({
         pro: config.creemProProductId,
         business: config.creemBusinessProductId,
+        businessYearly: config.creemBusinessYearlyProductId,
       })
     })
   }, [])
@@ -249,6 +251,8 @@ export function CreateProjectDialog({
         description="You've reached the maximum number of projects for your plan. Upgrade to create more."
         proProductId={productIds.pro}
         businessProductId={productIds.business}
+        businessYearlyProductId={productIds.businessYearly}
+        workspaceId={workspaceId}
       />
     </>
   )

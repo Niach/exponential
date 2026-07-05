@@ -1,16 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// Only resolveRepoInstallationToken is stubbed — fetchBranchDiff / peekBranchDiff
-// stay real so the cache tests exercise the true module-level state.
-vi.mock("@/lib/integrations/github-app", async (importOriginal) => {
+// resolveRepoInstallationToken + resolveRepoDefaultBranch are stubbed —
+// fetchBranchDiff / peekBranchDiff stay real so the cache tests exercise the true
+// module-level state.
+vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => {
   const actual =
+    // eslint-disable-next-line quotes -- `typeof import()` requires a string literal; the backtick autofix breaks it
     await importOriginal<typeof import("@/lib/integrations/github-app")>()
-  return { ...actual, resolveRepoInstallationToken: vi.fn() }
+  return {
+    ...actual,
+    resolveRepoInstallationToken: vi.fn(),
+    resolveRepoDefaultBranch: vi.fn(),
+  }
 })
 
 import {
   BRANCH_PREFIX_DEFAULT,
   connectRepositoryInTx,
+  healRepoDefaultBranches,
   isForeignKeyViolation,
   issueBranchName,
   repoInUseMessage,
@@ -18,11 +25,13 @@ import {
 import {
   fetchBranchDiff,
   peekBranchDiff,
+  resolveRepoDefaultBranch,
   resolveRepoInstallationToken,
   type CompareFetch,
 } from "@/lib/integrations/github-app"
 
 const mockResolveToken = vi.mocked(resolveRepoInstallationToken)
+const mockResolveDefaultBranch = vi.mocked(resolveRepoDefaultBranch)
 
 function jsonResponse(status: number, body: unknown) {
   return {
@@ -259,14 +268,23 @@ describe(`fetchBranchDiff`, () => {
 // helper (install-check → upsert → un-archive), so its semantics ARE the shared
 // connect semantics. A minimal fake tx exercises each branch.
 describe(`connectRepositoryInTx`, () => {
-  beforeEach(() => mockResolveToken.mockReset())
+  beforeEach(() => {
+    mockResolveToken.mockReset()
+    mockResolveDefaultBranch.mockReset()
+    // Default: caller supplies no branch and the live lookup succeeds.
+    mockResolveDefaultBranch.mockResolvedValue(`main`)
+  })
 
   function makeTx(opts: {
     insert?: Array<{ id: string }>
     update?: Array<{ id: string }>
+    captured?: { values?: Record<string, unknown> }
   }) {
     const insertChain = {
-      values: () => insertChain,
+      values: (v: Record<string, unknown>) => {
+        if (opts.captured) opts.captured.values = v
+        return insertChain
+      },
       onConflictDoNothing: () => insertChain,
       returning: async () => opts.insert ?? [],
     }
@@ -291,6 +309,46 @@ describe(`connectRepositoryInTx`, () => {
     ).resolves.toBe(`r1`)
   })
 
+  it(`resolves the live default branch when the caller supplies none`, async () => {
+    mockResolveToken.mockResolvedValue(`tok`)
+    mockResolveDefaultBranch.mockResolvedValue(`master`)
+    const captured: { values?: Record<string, unknown> } = {}
+    const tx = makeTx({ insert: [{ id: `r1` }], captured })
+    await connectRepositoryInTx(tx as never, input)
+    expect(mockResolveDefaultBranch).toHaveBeenCalledWith(`acme/app`)
+    expect(captured.values?.defaultBranch).toBe(`master`)
+  })
+
+  it(`does NOT resolve when the caller already supplied a branch`, async () => {
+    mockResolveToken.mockResolvedValue(`tok`)
+    const captured: { values?: Record<string, unknown> } = {}
+    const tx = makeTx({ insert: [{ id: `r1` }], captured })
+    await connectRepositoryInTx(tx as never, {
+      ...input,
+      defaultBranch: `develop`,
+    })
+    expect(mockResolveDefaultBranch).not.toHaveBeenCalled()
+    expect(captured.values?.defaultBranch).toBe(`develop`)
+  })
+
+  it(`falls back to main when the live lookup yields nothing`, async () => {
+    mockResolveToken.mockResolvedValue(`tok`)
+    mockResolveDefaultBranch.mockResolvedValue(null)
+    const captured: { values?: Record<string, unknown> } = {}
+    const tx = makeTx({ insert: [{ id: `r1` }], captured })
+    await connectRepositoryInTx(tx as never, input)
+    expect(captured.values?.defaultBranch).toBe(`main`)
+  })
+
+  it(`falls back to main when the live lookup throws`, async () => {
+    mockResolveToken.mockResolvedValue(`tok`)
+    mockResolveDefaultBranch.mockRejectedValue(new Error(`network`))
+    const captured: { values?: Record<string, unknown> } = {}
+    const tx = makeTx({ insert: [{ id: `r1` }], captured })
+    await connectRepositoryInTx(tx as never, input)
+    expect(captured.values?.defaultBranch).toBe(`main`)
+  })
+
   it(`un-archives and returns the existing id on conflict`, async () => {
     mockResolveToken.mockResolvedValue(`tok`)
     const tx = makeTx({ insert: [], update: [{ id: `r2` }] })
@@ -313,5 +371,72 @@ describe(`connectRepositoryInTx`, () => {
     await expect(
       connectRepositoryInTx(tx as never, input)
     ).rejects.toThrow(/not installed/)
+  })
+})
+
+// The `list` procedure heals stale default branches through this helper. A
+// custom `resolve` + `persist` exercise each branch without a live GitHub call.
+describe(`healRepoDefaultBranches`, () => {
+  const rows = [
+    { id: `r1`, fullName: `acme/one`, defaultBranch: `main` },
+    { id: `r2`, fullName: `acme/two`, defaultBranch: `main` },
+  ]
+
+  it(`returns the live value and persists the fix when the stored branch disagrees`, async () => {
+    const persist = vi.fn<(id: string, branch: string) => Promise<void>>(
+      async () => {}
+    )
+    const resolve = vi.fn(async (fullName: string) =>
+      fullName === `acme/two` ? `master` : `main`
+    )
+
+    const healed = await healRepoDefaultBranches(rows, persist, resolve)
+
+    expect(healed[0].defaultBranch).toBe(`main`)
+    expect(healed[1].defaultBranch).toBe(`master`)
+    // Only the disagreeing row is written.
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(persist).toHaveBeenCalledWith(`r2`, `master`)
+  })
+
+  it(`leaves the stored value when the live lookup yields nothing`, async () => {
+    const persist = vi.fn<(id: string, branch: string) => Promise<void>>(
+      async () => {}
+    )
+    const resolve = vi.fn(async () => null)
+
+    const healed = await healRepoDefaultBranches(rows, persist, resolve)
+
+    expect(healed.map((r) => r.defaultBranch)).toEqual([`main`, `main`])
+    expect(persist).not.toHaveBeenCalled()
+  })
+
+  it(`still returns the healed value when the persist write fails`, async () => {
+    const persist = vi
+      .fn<(id: string, branch: string) => Promise<void>>()
+      .mockRejectedValue(new Error(`db down`))
+    const resolve = vi.fn(async () => `master`)
+
+    const healed = await healRepoDefaultBranches(
+      [rows[0]],
+      persist,
+      resolve
+    )
+
+    expect(healed[0].defaultBranch).toBe(`master`)
+  })
+
+  it(`keeps the stored value when the resolve lookup throws`, async () => {
+    const persist = vi.fn<(id: string, branch: string) => Promise<void>>(
+      async () => {}
+    )
+    const resolve = vi.fn(async () => {
+      throw new Error(`network`)
+    })
+
+    const healed = await healRepoDefaultBranches([rows[0]], persist, resolve)
+
+    expect(healed[0].defaultBranch).toBe(`main`)
+    expect(persist).not.toHaveBeenCalled()
   })
 })

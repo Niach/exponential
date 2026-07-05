@@ -61,12 +61,14 @@ mod source_control;
 pub mod steer_wiring;
 mod terminal_dock;
 mod timeline;
+mod update;
 mod workspace;
 
 pub use actions::*;
 pub use icons::ExpIcon;
 pub use navigation::{navigate, Screen};
 pub use oauth::handle_open_urls;
+pub use update::check_for_updates;
 pub use session::{bootstrap as bootstrap_session, sign_out_active, AuthContext};
 pub use workspace::Workspace;
 

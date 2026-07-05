@@ -302,14 +302,15 @@ type OpenIssueCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 pub struct MarkdownEditor {
     blocks: Vec<EditorBlock>,
     focused_block: Option<u64>,
-    preview: bool,
     placeholder: SharedString,
     on_change: Option<ChangeCallback>,
     on_blur: Option<BlurCallback>,
-    on_open_issue: Option<OpenIssueCallback>,
+    /// Fires with the canonical markdown after a STRUCTURAL edit (image
+    /// insert/remove) that must persist immediately without waiting for a
+    /// blur — screens wire this to the same save path as `on_blur`.
+    on_commit: Option<ChangeCallback>,
     completion_source: Option<Rc<dyn CompletionSource>>,
     completion: Option<ActiveCompletion>,
-    resolver: Option<RefResolver>,
     /// Shared image cache (create with [`MarkdownEditor::images`] to reuse in
     /// a sibling [`MarkdownView`]).
     images: Entity<ImageCache>,
@@ -331,14 +332,12 @@ impl MarkdownEditor {
         let mut this = Self {
             blocks: Vec::new(),
             focused_block: None,
-            preview: false,
             placeholder: "Add description...".into(),
             on_change: None,
             on_blur: None,
-            on_open_issue: None,
+            on_commit: None,
             completion_source: None,
             completion: None,
-            resolver: None,
             images,
             transport: None,
             upload_issue_id: None,
@@ -374,10 +373,6 @@ impl MarkdownEditor {
         self.completion_source = Some(source);
     }
 
-    pub fn set_resolver(&mut self, resolver: RefResolver) {
-        self.resolver = Some(resolver);
-    }
-
     /// Fires with the **canonical** markdown after every edit.
     pub fn set_on_change(&mut self, on_change: impl Fn(&str, &mut Window, &mut App) + 'static) {
         self.on_change = Some(Rc::new(on_change));
@@ -388,12 +383,11 @@ impl MarkdownEditor {
         self.on_blur = Some(Rc::new(on_blur));
     }
 
-    /// Navigate to `#IDENT` pills clicked in preview.
-    pub fn set_on_open_issue(
-        &mut self,
-        on_open_issue: impl Fn(&str, &mut Window, &mut App) + 'static,
-    ) {
-        self.on_open_issue = Some(Rc::new(on_open_issue));
+    /// Fires with the canonical markdown after a STRUCTURAL edit (image
+    /// insert/remove) that must persist immediately — screens wire this to the
+    /// same save path as blur.
+    pub fn set_on_commit(&mut self, on_commit: impl Fn(&str, &mut Window, &mut App) + 'static) {
+        self.on_commit = Some(Rc::new(on_commit));
     }
 
     /// The shared image cache (pass to a sibling [`MarkdownView`]).
@@ -435,10 +429,6 @@ impl MarkdownEditor {
             .filter(|staged| markdown.contains(&staged.draft_url))
             .cloned()
             .collect()
-    }
-
-    pub fn is_preview(&self) -> bool {
-        self.preview
     }
 
     pub fn is_uploading(&self) -> bool {
@@ -581,6 +571,17 @@ impl MarkdownEditor {
         if let Some(on_change) = self.on_change.clone() {
             let markdown = self.markdown(cx);
             on_change(&markdown, window, cx);
+        }
+    }
+
+    /// Structural-edit commit: persist the document immediately (image
+    /// insert/remove) without waiting for a blur. Runs the mirror-updating
+    /// `on_change` first, then the save-triggering `on_commit`.
+    fn emit_commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.emit_change(window, cx);
+        if let Some(on_commit) = self.on_commit.clone() {
+            let markdown = self.markdown(cx);
+            on_commit(&markdown, window, cx);
         }
     }
 
@@ -792,7 +793,10 @@ impl MarkdownEditor {
                                 }
                             }
                             this.staged.retain(|s| s.draft_url != draft);
-                            this.emit_change(window, cx);
+                            // Structural edit — the draft URL is now the
+                            // canonical relative URL; persist immediately so
+                            // the inserted image survives without a blur.
+                            this.emit_commit(window, cx);
                         }
                         Err(error) => {
                             log::warn!("image upload failed: {error}");
@@ -895,7 +899,9 @@ impl MarkdownEditor {
                 self.blocks.remove(index);
             }
         }
-        self.emit_change(window, cx);
+        // Structural edit — persist immediately (image removal must survive
+        // without a subsequent blur; masterplan §8.2 / EXP-8).
+        self.emit_commit(window, cx);
         cx.notify();
     }
 
@@ -1027,12 +1033,6 @@ impl MarkdownEditor {
             .ok();
         })
         .detach();
-    }
-
-    pub(super) fn toggle_preview(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.preview = !self.preview;
-        self.completion = None;
-        cx.notify();
     }
 
     // -- Rendering -------------------------------------------------------------
@@ -1216,8 +1216,6 @@ impl Render for MarkdownEditor {
         let theme_border = cx.theme().border;
         let error = self.error.clone();
         let completion = self.render_completion(window, cx);
-        let preview = self.preview;
-        let preview_markdown = preview.then(|| self.markdown(cx));
 
         v_flex()
             .key_context("MarkdownEditor")
@@ -1242,36 +1240,13 @@ impl Render for MarkdownEditor {
                         .child(error),
                 )
             })
-            .map(|el| {
-                if let Some(markdown) = preview_markdown {
-                    let entity = cx.entity();
-                    let mut view = MarkdownView::new("md-editor-preview", markdown)
-                        .images(self.images.clone())
-                        .on_source_edit(move |new_markdown, window, cx| {
-                            entity.update(cx, |this, cx| {
-                                this.set_markdown(&new_markdown, window, cx);
-                                this.emit_change(window, cx);
-                            });
-                        });
-                    if let Some(resolver) = self.resolver.clone() {
-                        view = view.resolver(resolver);
-                    }
-                    if let Some(on_open_issue) = self.on_open_issue.clone() {
-                        view = view.on_open_issue(move |identifier, window, cx| {
-                            on_open_issue(identifier, window, cx)
-                        });
-                    }
-                    el.child(div().p_2().child(view))
-                } else {
-                    el.child(
-                        v_flex()
-                            .p_1()
-                            .gap_1()
-                            .min_h(px(96.))
-                            .children(self.render_edit_blocks(cx)),
-                    )
-                }
-            })
+            .child(
+                v_flex()
+                    .p_1()
+                    .gap_1()
+                    .min_h(px(96.))
+                    .children(self.render_edit_blocks(cx)),
+            )
             .when_some(completion, |el, completion| el.child(completion))
     }
 }

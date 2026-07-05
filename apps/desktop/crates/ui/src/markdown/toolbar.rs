@@ -312,17 +312,6 @@ pub(super) fn render_toolbar(
                 this.pick_image(window, cx);
             },
         ))
-        .child(div().flex_1())
-        .child({
-            let (icon, tip) = if editor.is_preview() {
-                (ExpIcon::Pencil, "Write")
-            } else {
-                (ExpIcon::Eye, "Preview")
-            };
-            toolbar_button("md-preview", icon, tip, cx, |this, window, cx| {
-                this.toggle_preview(window, cx);
-            })
-        })
 }
 
 fn render_link_editor(

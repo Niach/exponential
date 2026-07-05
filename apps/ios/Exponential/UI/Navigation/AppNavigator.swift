@@ -12,7 +12,6 @@ enum AppRoute: Hashable {
     case settings
     case serverDetail(accountId: String)
     case workspaceSettings(accountId: String, workspaceId: String)
-    case integrations
     case invite(token: String)
     case syncDebug
 }
@@ -263,8 +262,6 @@ struct MainNavigator: View {
         case let .workspaceSettings(accountId, workspaceId):
             WorkspaceSettingsView(workspaceId: workspaceId)
                 .environment(\.accountId, accountId)
-        case .integrations:
-            IntegrationsView()
         case let .invite(token):
             InviteAcceptView(token: token)
         case .syncDebug:

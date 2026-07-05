@@ -144,7 +144,7 @@ export function WorkspaceProjectsSection({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 shrink-0 text-muted-foreground"
-                      title="Run Targets & Preview"
+                      title="Feedback project"
                       onClick={() => setPreviewTargetId(project.id)}
                     >
                       <SlidersHorizontal className="h-3.5 w-3.5" />

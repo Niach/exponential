@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks"
 import type { WidgetRuntimeState } from "../types"
-import type { AnnotationShape } from "../annotate/shapes"
+import type { AnnotationShape, NormalizedRect } from "../annotate/shapes"
 import { flattenAnnotations } from "../annotate/flatten"
 import { captureScreenshot } from "../capture/engine"
 import { snapdomEngine } from "../capture/snapdom-engine"
@@ -31,6 +31,10 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const [base, setBase] = useState<Screenshot | null>(null)
   const [annotated, setAnnotated] = useState<Screenshot | null>(null)
   const [shapes, setShapes] = useState<AnnotationShape[]>([])
+  // Crop rect in the ORIGINAL screenshot's pixel space (null = uncropped).
+  // Kept alongside shapes so reopening the editor stays non-destructive and
+  // recropping is possible right up to submit.
+  const [crop, setCrop] = useState<NormalizedRect | null>(null)
   const [captureFailed, setCaptureFailed] = useState(false)
   // Re-render when identify()/setCustomData() land after mount.
   const [, bumpVersion] = useState(0)
@@ -44,7 +48,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const accent =
     state.options.color ?? state.config?.form?.accentColor ?? theme.defaultAccent
   const position =
-    state.options.position ?? state.config?.form?.position ?? `bottom-right`
+    state.options.position ?? state.config?.form?.position ?? `bottom-left`
   const label = state.options.label ?? state.config?.form?.buttonLabel ?? `Feedback`
 
   const replaceBase = useCallback((next: Screenshot | null) => {
@@ -57,6 +61,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       return null
     })
     setShapes([])
+    setCrop(null)
   }, [])
 
   const capture = useCallback(async () => {
@@ -117,26 +122,31 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     setPhase({ kind: `open` })
   }, [])
 
-  const saveAnnotations = useCallback(async (next: AnnotationShape[]) => {
-    setPhase({ kind: `open` })
-    setShapes(next)
-    setAnnotated((previous) => {
-      if (previous) URL.revokeObjectURL(previous.objectUrl)
-      return null
-    })
-    const currentBase = baseRef.current
-    if (!currentBase || next.length === 0) return
-    const blob = await flattenAnnotations(currentBase.blob, next)
-    // The shot may have been retaken/removed while encoding.
-    if (baseRef.current !== currentBase) return
-    if (blob) {
-      setAnnotated({ blob, objectUrl: URL.createObjectURL(blob) })
-    } else {
-      // Encode failed: fall back to the clean screenshot instead of lying
-      // about what will be submitted.
-      setShapes([])
-    }
-  }, [])
+  const saveAnnotations = useCallback(
+    async (next: AnnotationShape[], nextCrop: NormalizedRect | null) => {
+      setPhase({ kind: `open` })
+      setShapes(next)
+      setCrop(nextCrop)
+      setAnnotated((previous) => {
+        if (previous) URL.revokeObjectURL(previous.objectUrl)
+        return null
+      })
+      const currentBase = baseRef.current
+      if (!currentBase || (next.length === 0 && !nextCrop)) return
+      const blob = await flattenAnnotations(currentBase.blob, next, nextCrop)
+      // The shot may have been retaken/removed while encoding.
+      if (baseRef.current !== currentBase) return
+      if (blob) {
+        setAnnotated({ blob, objectUrl: URL.createObjectURL(blob) })
+      } else {
+        // Encode failed: fall back to the clean screenshot instead of lying
+        // about what will be submitted.
+        setShapes([])
+        setCrop(null)
+      }
+    },
+    []
+  )
 
   const submit = useCallback(
     async (form: { title: string; description: string; email: string }) => {
@@ -215,7 +225,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
               // eslint-disable-next-line react/no-danger
               dangerouslySetInnerHTML={{ __html: megaphoneIconSvg }}
             />
-            {label ? <span>{label}</span> : null}
+            {label ? <span className="exp-fab-label">{label}</span> : null}
           </button>
         </div>
       )}
@@ -244,8 +254,9 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         <Annotator
           imageUrl={base.objectUrl}
           initialShapes={shapes}
+          initialCrop={crop}
           onCancel={cancelAnnotate}
-          onSave={(next) => void saveAnnotations(next)}
+          onSave={(next, nextCrop) => void saveAnnotations(next, nextCrop)}
         />
       )}
     </div>

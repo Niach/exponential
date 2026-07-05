@@ -78,34 +78,6 @@ function PriorityBars({
   )
 }
 
-function BotIcon({ size = 12 }: { size?: number }) {
-  return (
-    <MiniIcon
-      size={size}
-      d="M12 8V4H8m8 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-4V8h12zM2 14h2M20 14h2M15 11v2M9 11v2"
-      color="var(--accent)"
-    />
-  )
-}
-
-function SparklesIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="var(--accent)"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-      <path d="M20 3v4M22 5h-4" />
-    </svg>
-  )
-}
-
 const s = {
   dim: { color: `var(--fg-dim)` } as CSSProperties,
 }
@@ -260,16 +232,38 @@ export function DocsMockupIssueList() {
 }
 
 /* ═══════════════════════════════════════════
-   DocsMockupAgentSettings
+   DocsMockupRepositories — workspace repo registry
    ═══════════════════════════════════════════ */
-export function DocsMockupAgentSettings() {
+function GitBranchIcon({ size = 12 }: { size?: number }) {
+  return (
+    <MiniIcon
+      size={size}
+      d="M6 3v12M18 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 9a9 9 0 0 0 9 9"
+      color="var(--accent)"
+    />
+  )
+}
+
+export function DocsMockupRepositories() {
+  const repos = [
+    {
+      project: `Exponential`,
+      repo: `niach/exponential`,
+      meta: `main · cloned`,
+    },
+    {
+      project: `Marketing`,
+      repo: `niach/exponential-site`,
+      meta: `main · cloned`,
+    },
+  ]
   return (
     <div className="docs-mockup">
       <div className="dm-agent-settings">
         {/* Header */}
         <div className="dm-agent-header">
-          <BotIcon size={14} />
-          <span style={{ fontWeight: 600, fontSize: 13 }}>Agents</span>
+          <GitBranchIcon size={14} />
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Repositories</span>
         </div>
 
         <p
@@ -280,64 +274,49 @@ export function DocsMockupAgentSettings() {
             lineHeight: 1.5,
           }}
         >
-          Desktop devices register here automatically when their owner signs
-          in to the desktop app.
+          Every project is backed by one GitHub repository. The desktop app
+          clones it automatically the first time you open the project.
         </p>
 
-        {/* Registered devices */}
-        <div className="dm-agent-row">
-          <span className="dm-agent-avatar">
-            <SparklesIcon size={11} />
-          </span>
-          <span className="dm-agent-info">
-            <span className="dm-agent-name">
-              Danny&apos;s MacBook Pro
-              <span className="dm-agent-badge">agent</span>
+        {/* Connected repos */}
+        {repos.map((r) => (
+          <div className="dm-agent-row" key={r.repo}>
+            <span className="dm-agent-avatar">
+              <GitBranchIcon size={11} />
             </span>
-            <span className="dm-agent-email">claude · online</span>
-          </span>
-          <span className="dm-agent-meta">Last seen: just now</span>
-          <span className="dm-agent-actions">
-            <button className="dm-agent-action dm-danger" type="button">
-              Revoke
-            </button>
-          </span>
-        </div>
-        <div className="dm-agent-row">
-          <span className="dm-agent-avatar">
-            <SparklesIcon size={11} />
-          </span>
-          <span className="dm-agent-info">
-            <span className="dm-agent-name">
-              thinkpad-x1
-              <span className="dm-agent-badge">agent</span>
+            <span className="dm-agent-info">
+              <span className="dm-agent-name">
+                {r.project}
+                <span className="dm-agent-badge">repo</span>
+              </span>
+              <span className="dm-agent-email">{r.repo}</span>
             </span>
-            <span className="dm-agent-email">codex · offline</span>
-          </span>
-          <span className="dm-agent-meta">Last seen: 2h ago</span>
-          <span className="dm-agent-actions">
-            <button className="dm-agent-action dm-danger" type="button">
-              Revoke
-            </button>
-          </span>
-        </div>
+            <span className="dm-agent-meta">{r.meta}</span>
+            <span className="dm-agent-actions">
+              <button className="dm-agent-action" type="button">
+                Configure
+              </button>
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
 /* ═══════════════════════════════════════════
-   DocsMockupDesktopAgent — mini desktop window:
-   issue list beside the embedded ghostty terminal
+   DocsMockupDesktopCoding — mini desktop IDE window:
+   issue list beside the embedded coding terminal
    ═══════════════════════════════════════════ */
-export function DocsMockupDesktopAgent() {
+export function DocsMockupDesktopCoding() {
   const lines = [
-    { cls: `tl-cmd`, text: `claude --session exp-181` },
-    { cls: `tl-dim`, text: `[exponential] EXP-181 assigned` },
+    { cls: `tl-cmd`, text: `claude` },
+    { cls: `tl-dim`, text: `worktree exp/EXP-181 · branch created` },
+    { cls: `tl-plan`, text: `Plan: add webhooks table + dispatchWebhook()` },
     { cls: `tl-tool`, text: `▸ Edit src/lib/webhooks.ts` },
     { cls: `tl-tool`, text: `▸ Bash bun test` },
     { cls: `tl-ok`, text: `  ✓ 24 tests passed` },
-    { cls: `tl-ok`, text: `✓ Opened PR niach/exponential#214` },
+    { cls: `tl-ok`, text: `✓ Pushed exp/EXP-181 · opened PR #214` },
   ]
   return (
     <div className="docs-mockup">
@@ -352,7 +331,7 @@ export function DocsMockupDesktopAgent() {
         </div>
         <div className="dm-desktop-body">
           <div className="dm-desktop-side">
-            <div className="dm-desktop-side-label">Assigned to this device</div>
+            <div className="dm-desktop-side-label">Issues</div>
             <div className="dm-desktop-issue is-active">
               <span className="dm-row-ident">EXP-181</span>
               <span>Add webhook events</span>
@@ -383,39 +362,84 @@ export function DocsMockupDesktopAgent() {
 }
 
 /* ═══════════════════════════════════════════
-   DocsMockupPlanComment
+   DocsMockupSteerPhone — a phone streaming the
+   live desktop coding terminal, with a steer input
    ═══════════════════════════════════════════ */
-export function DocsMockupPlanComment() {
+export function DocsMockupSteerPhone() {
+  const lines = [
+    { cls: `tl-dim`, text: `worktree exp/EXP-181` },
+    { cls: `tl-plan`, text: `Plan: add webhooks table` },
+    { cls: `tl-tool`, text: `▸ Edit src/lib/webhooks.ts` },
+    { cls: `tl-ok`, text: `  ✓ 24 tests passed` },
+  ]
   return (
-    <div className="docs-mockup">
-      <div className="dm-plan-comment">
-        {/* Header */}
-        <div className="dm-plan-head">
-          <span className="dm-plan-avatar">
-            <SparklesIcon size={11} />
-          </span>
-          <strong>Claude</strong>
-          <span className="dm-plan-tag">Plan &middot; rev 1</span>
-          <span className="dm-plan-time">just now</span>
-        </div>
+    <div
+      className="docs-mockup"
+      style={{
+        display: `inline-block`,
+        background: `transparent`,
+        border: `none`,
+      }}
+    >
+      <div className="dm-phone">
+        <div className="dm-phone-screen">
+          {/* Status bar */}
+          <div className="dm-phone-status">
+            <span className="dm-phone-time">9:41</span>
+            <span className="dm-phone-island" />
+            <span className="dm-phone-icons">
+              <svg width={10} height={10} viewBox="0 0 16 16">
+                <path
+                  d="M1 12l3-3 3 3 3-5 3 5 2-2"
+                  stroke="white"
+                  strokeWidth={1.5}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span className="dm-phone-battery">
+                <span className="dm-phone-battery-fill" />
+              </span>
+            </span>
+          </div>
 
-        {/* Body */}
-        <div className="dm-plan-body">
-          <p>
-            1. Add webhook dispatch table{`\n`}
-            2. Wire up issue mutation events{`\n`}
-            3. Sign payloads with HMAC-SHA256
-          </p>
-        </div>
+          {/* Header */}
+          <div className="dm-phone-header">EXP-181 · Live session</div>
 
-        {/* Actions */}
-        <div className="dm-plan-actions">
-          <button className="dm-plan-btn is-primary" type="button">
-            Approve
-          </button>
-          <button className="dm-plan-btn" type="button">
-            Request changes
-          </button>
+          {/* Streamed terminal + steer input */}
+          <div className="dm-phone-body" style={{ gap: 10 }}>
+            <div
+              style={{
+                fontFamily: `var(--font-mono)`,
+                fontSize: 9.5,
+                lineHeight: 1.5,
+                background: `rgba(0,0,0,0.35)`,
+                border: `0.5px solid rgba(255,255,255,0.08)`,
+                borderRadius: 10,
+                padding: `10px 12px`,
+              }}
+            >
+              {lines.map((l) => (
+                <div
+                  key={l.text}
+                  className={`term-line ${l.cls}`}
+                  style={{ minHeight: `1.5em` }}
+                >
+                  {l.text}
+                </div>
+              ))}
+              <div className="term-line" style={{ minHeight: `1.5em` }}>
+                <span className="caret" aria-hidden />
+              </div>
+            </div>
+            <div className="dm-phone-input" style={{ fontSize: 12 }}>
+              <span style={{ color: `var(--accent)`, marginRight: 6 }}>›</span>
+              <span style={{ color: `rgba(255,255,255,0.4)` }}>
+                Type to steer…
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -20,6 +20,9 @@ actions!(
         OpenInbox,
         /// Sidebar nav: open the search sheet (EXP-1 #3, ⌘K in Phase 3).
         OpenSearch,
+        /// Window chrome / keymap: pop the per-window back stack (§8.11 —
+        /// `cmd-[` / `Alt+Left`; the back button dispatches this too).
+        GoBack,
         /// Sidebar "Projects" group header `+` (EXP-1 #2): create project.
         NewProject,
         /// Board filter bar "New Issue" (§4.2): open the create-issue dialog

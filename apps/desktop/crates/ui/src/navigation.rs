@@ -23,11 +23,19 @@
 
 use std::collections::HashMap;
 
-use gpui::{AnyWindowHandle, App, AppContext as _, Entity, Global, Window, WindowId};
+use gpui::{
+    AnyWindowHandle, App, AppContext as _, Entity, Global, IntoElement, KeyBinding, Styled as _,
+    Window, WindowId,
+};
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    ActiveTheme as _, Icon, IconName, Sizable as _,
+};
 use sync::Store;
 
 use crate::actions::{
-    OpenAccount, OpenInbox, OpenIssue, OpenMyIssues, OpenProject, OpenSettings, SwitchWorkspace,
+    GoBack, OpenAccount, OpenInbox, OpenIssue, OpenMyIssues, OpenProject, OpenSettings,
+    SwitchWorkspace,
 };
 
 /// Which surface fills the center panel (§4.2's screen map). `None` on
@@ -89,7 +97,6 @@ impl Navigation {
     }
 
     /// Whether [`go_back`] has anywhere to go.
-    #[allow(dead_code)] // consumer = detail-header back affordance (later Phase-3 step)
     pub fn can_go_back(&self) -> bool {
         !self.back_stack.is_empty()
     }
@@ -153,8 +160,18 @@ pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
         if nav.screen.as_ref() == Some(&screen) {
             return;
         }
-        if let Some(previous) = nav.screen.take() {
-            nav.back_stack.push(previous);
+        // File-viewer tab switches (FileViewer → FileViewer) replace rather than
+        // stack: the back stack keeps the screen the viewer was opened from (one
+        // entry), not a trail of individual files. Closing the last tab then
+        // returns there reliably instead of resurrecting an already-closed file.
+        let replace = matches!(
+            (nav.screen.as_ref(), &screen),
+            (Some(Screen::FileViewer { .. }), Screen::FileViewer { .. })
+        );
+        if !replace {
+            if let Some(previous) = nav.screen.take() {
+                nav.back_stack.push(previous);
+            }
         }
         nav.screen = Some(screen);
         cx.notify();
@@ -162,8 +179,6 @@ pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
 }
 
 /// Pop the back stack (issue detail → board, …).
-#[allow(dead_code)] // consumer = the §3.6 keymap back binding (later step);
-                    // the stack itself is maintained by `navigate`
 pub fn go_back(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
@@ -174,6 +189,25 @@ pub fn go_back(window: &Window, cx: &mut App) {
             cx.notify();
         }
     });
+}
+
+/// A ghost "back" affordance for the window chrome / breadcrumb strips
+/// (§8.11). Rendered only when [`Navigation::can_go_back`]; clicking pops the
+/// stack via [`go_back`] (window resolved from the click event). Shared by the
+/// screens-panel chrome and the issue-detail breadcrumb so the affordance is
+/// identical everywhere.
+pub fn back_button(nav: &Entity<Navigation>, cx: &App) -> Option<impl IntoElement> {
+    if !nav.read(cx).can_go_back() {
+        return None;
+    }
+    Some(
+        Button::new("nav-back")
+            .ghost()
+            .xsmall()
+            .icon(Icon::new(IconName::ArrowLeft).text_color(cx.theme().muted_foreground))
+            .tooltip("Back")
+            .on_click(|_, window, cx| go_back(window, cx)),
+    )
 }
 
 /// Switch the window's active workspace. Resets the screen + back stack —
@@ -269,6 +303,19 @@ pub fn init(cx: &mut App) {
             switch_workspace(window, cx, workspace_id);
         });
     });
+    cx.on_action(|_: &GoBack, cx| {
+        on_active_window(cx, |window, cx| go_back(window, cx));
+    });
+    // App-global back binding (§8.11): `cmd-[` on macOS, `Alt+Left` everywhere
+    // (the browser-style back chord). `None` context = fires regardless of
+    // focus, matching the ⌘K search binding.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("cmd-[", GoBack, None),
+        KeyBinding::new("alt-left", GoBack, None),
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new("alt-left", GoBack, None)]);
 }
 
 fn navigate_active(cx: &mut App, screen: Screen) {

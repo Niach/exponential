@@ -14,3 +14,13 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+# Play service-account JSON — path comes from SUPPLY_JSON_KEY; never commit a key
+fastlane/*.json
+.bundle/
+vendor/bundle/

@@ -9,12 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,12 +28,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import com.exponential.app.data.api.WorkspaceRepo
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -54,6 +46,10 @@ import com.exponential.app.ui.theme.TextEmphasis
  * account's workspaces and projects (server → workspace → project), shown
  * inline with no drawer and no workspace switcher. Settings + account live in
  * the top bar (gear + avatar), and everything is a push onto the back stack.
+ *
+ * The mobile app is a pure companion (masterplan L26): workspaces and projects
+ * are created on the web or desktop app, so Home only ever reads the synced
+ * tree — no create-project entry point lives here.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,30 +60,6 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-
-    // Create-project sheet. The non-null value carries the account + workspace
-    // the new project belongs to. (Workspace creation lives on the web app —
-    // mobile only creates projects.)
-    var createProjectFor by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var creating by remember { mutableStateOf(false) }
-    var createError by remember { mutableStateOf<String?>(null) }
-    // v4: a project requires an already-connected repository — load the
-    // workspace's repos when the sheet opens (they aren't an Electric shape).
-    var createRepos by remember { mutableStateOf<List<WorkspaceRepo>>(emptyList()) }
-    var reposLoading by remember { mutableStateOf(false) }
-
-    LaunchedEffect(createProjectFor) {
-        val target = createProjectFor
-        if (target == null) {
-            createRepos = emptyList()
-            reposLoading = false
-            return@LaunchedEffect
-        }
-        reposLoading = true
-        createRepos = viewModel.reposForWorkspace(target.first, target.second)
-        reposLoading = false
-    }
 
     LaunchedEffect(Unit) { viewModel.bootstrap() }
 
@@ -112,7 +84,10 @@ fun HomeScreen(
                 when {
                     error != null -> EmptyState(message = error!!, icon = Icons.Filled.Inbox)
                     state.isSyncing -> LoadingState()
-                    else -> EmptyState(message = "No projects yet", icon = Icons.Filled.Inbox)
+                    else -> EmptyState(
+                        message = "No projects yet. Create your first project on the web or desktop app.",
+                        icon = Icons.Filled.Inbox,
+                    )
                 }
             } else {
                 ProjectTree(
@@ -124,36 +99,9 @@ fun HomeScreen(
                         viewModel.onProjectTap(accountId)
                         onOpenProject(accountId, projectId)
                     },
-                    onNewProject = { accountId, workspaceId ->
-                        createError = null
-                        createProjectFor = accountId to workspaceId
-                    },
                 )
             }
         }
-    }
-
-    createProjectFor?.let { (accountId, workspaceId) ->
-        CreateProjectSheet(
-            isCreating = creating,
-            error = createError,
-            repos = createRepos,
-            reposLoading = reposLoading,
-            onDismiss = { createProjectFor = null; createError = null },
-            onCreate = { name, prefix, color, repositoryId ->
-                scope.launch {
-                    creating = true
-                    val err = viewModel.createProject(accountId, workspaceId, name, prefix, color, repositoryId)
-                    creating = false
-                    if (err == null) {
-                        createProjectFor = null
-                        createError = null
-                    } else {
-                        createError = err
-                    }
-                }
-            },
-        )
     }
 }
 
@@ -161,7 +109,6 @@ fun HomeScreen(
 private fun ProjectTree(
     groups: List<ServerProjectGroup>,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
-    onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -172,7 +119,6 @@ private fun ProjectTree(
             ServerSection(
                 group = group,
                 onOpenProject = onOpenProject,
-                onNewProject = onNewProject,
             )
         }
     }
@@ -182,7 +128,6 @@ private fun ProjectTree(
 private fun ServerSection(
     group: ServerProjectGroup,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
-    onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -209,7 +154,6 @@ private fun ServerSection(
                 accountId = group.accountId,
                 block = block,
                 onOpenProject = onOpenProject,
-                onNewProject = onNewProject,
             )
         }
     }
@@ -220,7 +164,6 @@ private fun WorkspaceBlockView(
     accountId: String,
     block: WorkspaceBlock,
     onOpenProject: (accountId: String, projectId: String) -> Unit,
-    onNewProject: (accountId: String, workspaceId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
@@ -240,16 +183,6 @@ private fun WorkspaceBlockView(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
-            IconButton(
-                onClick = { onNewProject(accountId, block.workspace.id) },
-                modifier = Modifier.size(28.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = "New project",
-                    modifier = Modifier.size(16.dp),
-                )
-            }
         }
         block.projects.forEach { project ->
             key(project.id) {

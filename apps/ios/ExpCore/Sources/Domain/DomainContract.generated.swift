@@ -15,7 +15,6 @@ public enum DomainContract {
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "pr_opened", "pr_merged"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "ended"]
-    public static let platformValues: [String] = ["web", "android", "ios", "command"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged"]
     public static let moderationRestrictedFields: [String] = ["status", "priority", "assigneeId", "dueDate", "dueTime", "endTime", "recurrenceInterval", "recurrenceUnit", "archivedAt"]
@@ -38,10 +37,6 @@ public enum DomainContract {
     public static let prStateDraft: String = "draft"
     public static let codingSessionStatusRunning: String = "running"
     public static let codingSessionStatusEnded: String = "ended"
-    public static let platformWeb: String = "web"
-    public static let platformAndroid: String = "android"
-    public static let platformIos: String = "ios"
-    public static let platformCommand: String = "command"
     public static let subscriberSourceCreator: String = "creator"
     public static let subscriberSourceAssignee: String = "assignee"
     public static let subscriberSourceCommenter: String = "commenter"

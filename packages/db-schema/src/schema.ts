@@ -132,6 +132,44 @@ export const workspaces = pgTable(`workspaces`, {
   ...timestamps,
 })
 
+// Better Auth's Drizzle adapter resolves models by snake_case key, so this
+// must be exported as `creem_subscriptions` (not camelCase). It lives here
+// (rather than in auth-schema.ts) so its `workspace_id` FK can reference
+// `workspaces` locally — auth-schema.ts must NOT import schema.ts (that edge
+// forms an eval-time circular import that crashes `createSelectSchema`).
+export const creem_subscriptions = pgTable(`creem_subscriptions`, {
+  id: text(`id`).primaryKey(),
+  productId: text(`product_id`).notNull(),
+  referenceId: text(`reference_id`)
+    .notNull()
+    .references(() => users.id, { onDelete: `cascade` }),
+  creemCustomerId: text(`creem_customer_id`),
+  creemSubscriptionId: text(`creem_subscription_id`),
+  creemOrderId: text(`creem_order_id`),
+  // v5 per-seat binding: a subscription belongs to exactly one workspace, and
+  // `seats` is the purchased quantity (Creem checkout `units`). Both are bound
+  // from checkout metadata on the webhook path (lib/billing/creem-binding.ts);
+  // the plugin's own persistence never writes these columns, so later webhook
+  // updates cannot clobber them. `set null` keeps the billing history row if
+  // the workspace is deleted.
+  workspaceId: uuid(`workspace_id`).references(() => workspaces.id, {
+    onDelete: `set null`,
+  }),
+  seats: integer(`seats`).default(1).notNull(),
+  status: text(`status`).$defaultFn(() => `pending`).notNull(),
+  periodStart: timestamp(`period_start`),
+  periodEnd: timestamp(`period_end`),
+  cancelAtPeriodEnd: boolean(`cancel_at_period_end`)
+    .$defaultFn(() => false)
+    .notNull(),
+  createdAt: timestamp(`created_at`)
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+  updatedAt: timestamp(`updated_at`)
+    .$defaultFn(() => /* @__PURE__ */ new Date())
+    .notNull(),
+})
+
 export const workspaceMembers = pgTable(
   `workspace_members`,
   {

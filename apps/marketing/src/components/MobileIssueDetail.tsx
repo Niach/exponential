@@ -1,8 +1,6 @@
-import { useState } from "react"
 import {
   AlertTriangle,
   Calendar,
-  Check,
   ChevronLeft,
   CircleCheck,
   CircleDashed,
@@ -10,7 +8,7 @@ import {
   CircleX,
   Hourglass,
   MessageSquare,
-  Pencil,
+  Radio,
   Sparkles,
   Minus,
   SignalHigh,
@@ -147,20 +145,13 @@ export function MobileIssueDetail({
           </div>
         </div>
 
-        <PlanComment />
+        <CodingSessionComment />
       </div>
     </div>
   )
 }
 
-function PlanComment() {
-  const [approved, setApproved] = useState(false)
-
-  const handleApprove = () => {
-    setApproved(true)
-    setTimeout(() => setApproved(false), 2000)
-  }
-
+function CodingSessionComment() {
   return (
     <div className="md-comment is-agent">
       <span className="md-comment-avatar is-bot">
@@ -169,27 +160,19 @@ function PlanComment() {
       <div className="md-comment-body">
         <div className="md-comment-meta">
           <strong>Claude</strong>
-          <span className="md-agent-badge">Plan &middot; rev 1</span>
-          <span>just now</span>
+          <span className="md-agent-badge">Live session</span>
+          <span>now</span>
         </div>
         <div className="md-plan-card">
           <p>
-            1. Add input validation for the core module{`\n`}
-            2. Wire up the API endpoint{`\n`}
-            3. Add integration tests
+            Opened a worktree on <code>exp/EXP-18</code>, proposed a plan, and
+            started coding. Watch the terminal live &mdash; or type to steer.
           </p>
         </div>
         <div className="md-plan-actions">
-          <button
-            className={`md-plan-btn ${approved ? `is-approved` : `is-primary`}`}
-            onClick={handleApprove}
-          >
-            {approved ? <Check size={11} strokeWidth={2.4} /> : <Check size={11} strokeWidth={2.4} />}
-            {approved ? `Approved` : `Approve`}
-          </button>
-          <button className="md-plan-btn">
-            <Pencil size={10} strokeWidth={2} />
-            Request changes
+          <button className="md-plan-btn is-primary">
+            <Radio size={10} strokeWidth={2} />
+            Watch &amp; steer
           </button>
         </div>
       </div>

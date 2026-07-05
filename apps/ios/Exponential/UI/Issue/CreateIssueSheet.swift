@@ -220,7 +220,9 @@ struct CreateIssueSheet: View {
             .sheet(isPresented: $showStatusPicker) {
                 PickerSheet(
                     title: "Status",
-                    items: IssueStatus.allCases,
+                    // Duplicate = status interception (L27): a new issue can't be a
+                    // duplicate (nothing to link yet), so it's not a create option.
+                    items: IssueStatus.allCases.filter { $0 != .duplicate },
                     selectedID: status.id,
                     idFor: { $0.id },
                     onSelect: { status = $0 }

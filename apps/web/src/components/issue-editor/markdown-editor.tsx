@@ -429,12 +429,6 @@ export const MarkdownEditor = forwardRef<
           "aria-label": `Issue description`,
           "aria-readonly": String(!editable),
         },
-        handleDOMEvents: {
-          contextmenu: (_view, event) => {
-            event.preventDefault()
-            return true
-          },
-        },
         handlePaste: (_view, event) => {
           const files = getImageFiles(event.clipboardData?.files)
 

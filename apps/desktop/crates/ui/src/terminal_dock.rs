@@ -32,7 +32,7 @@
 use gpui::{
     actions, div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
     FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement, Render,
-    SharedString, Styled, Subscription, WeakEntity, Window,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -202,7 +202,14 @@ impl TerminalDockPanel {
                         this.focus_active_terminal(window, cx);
                     }
                     TerminalManagerEvent::TabClosed(_) => {
-                        this.focus_active_terminal(window, cx);
+                        // §8.8b: closing the last tab collapses the bottom dock
+                        // (mirror of the TabOpened expand); otherwise focus the
+                        // tab that took over.
+                        if this.manager.read(cx).is_empty() {
+                            this.collapse_dock(window, cx);
+                        } else {
+                            this.focus_active_terminal(window, cx);
+                        }
                     }
                     // Exit strip/badge render on notify; ending the
                     // coding_sessions row is Phase 5's ExitHook (§6.7).
@@ -252,6 +259,20 @@ impl TerminalDockPanel {
         };
         if !dock.read(cx).is_open() {
             dock.update(cx, |dock, cx| dock.set_open(true, window, cx));
+        }
+    }
+
+    /// Collapse the bottom dock if it is open (§8.8b: the last tab closed) —
+    /// the Dock keeps its 29px toggle strip so the user can re-open it.
+    fn collapse_dock(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(dock_area) = self.dock_area.upgrade() else {
+            return;
+        };
+        let Some(dock) = dock_area.read(cx).bottom_dock().cloned() else {
+            return;
+        };
+        if dock.read(cx).is_open() {
+            dock.update(cx, |dock, cx| dock.set_open(false, window, cx));
         }
     }
 
@@ -498,12 +519,20 @@ impl TerminalDockPanel {
     }
 
     fn render_empty(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // The whole empty area is a click target that starts a shell (§8.8a) —
+        // the button below is a redundant affordance and stops propagation so a
+        // single spawn happens on either.
         v_flex()
+            .id("terminal-empty")
             .size_full()
             .items_center()
             .justify_center()
             .gap_2()
+            .cursor_pointer()
             .text_color(cx.theme().muted_foreground)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.new_shell_tab(window, cx);
+            }))
             .child(Icon::new(IconName::SquareTerminal))
             .child(div().text_sm().child("No terminal sessions"))
             .child(
@@ -513,6 +542,7 @@ impl TerminalDockPanel {
                     .icon(IconName::Plus)
                     .label("New shell")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
                         this.new_shell_tab(window, cx);
                     })),
             )

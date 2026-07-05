@@ -47,10 +47,14 @@ export function GithubRepoPicker({
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     setLoading(true)
     try {
-      setData(await trpc.integrations.github.repos.query())
+      setData(
+        await trpc.integrations.github.repos.query(
+          force ? { refresh: true } : undefined
+        )
+      )
     } catch {
       // Leave `data` as-is; the configured/installed branches degrade safely.
     } finally {
@@ -65,7 +69,7 @@ export function GithubRepoPicker({
   // Re-detect the connection after the user returns from the GitHub install
   // tab — avoids brittle popup postMessage relays.
   useEffect(() => {
-    const onFocus = () => void refresh()
+    const onFocus = () => void refresh(true)
     window.addEventListener(`focus`, onFocus)
     return () => window.removeEventListener(`focus`, onFocus)
   }, [refresh])
@@ -119,7 +123,7 @@ export function GithubRepoPicker({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => void refresh()}
+            onClick={() => void refresh(true)}
           >
             <RefreshCw className="mr-2 h-4 w-4" />
             I’ve connected

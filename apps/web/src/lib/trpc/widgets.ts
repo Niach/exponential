@@ -10,6 +10,7 @@ import {
 } from "@/lib/workspace-membership"
 import { generateWidgetKey } from "@/lib/widget/key"
 import { createWidgetUser, widgetUserName } from "@/lib/widget/widget-user"
+import { assertCanCreateWidget } from "@/lib/billing"
 
 const widgetNameSchema = z.string().trim().min(1).max(255)
 // Hostname[:port] patterns, optionally `*.`-prefixed. Kept permissive on
@@ -100,6 +101,9 @@ export const widgetsRouter = router({
         input.workspaceId,
         `mutate_resources`
       )
+      // Feedback widget is a Pro+ feature, capped per tier (§3.3(4)). The
+      // bootstrap dogfood config is inserted directly and is exempt.
+      await assertCanCreateWidget(input.workspaceId)
       const project = await getProjectWorkspaceId(input.projectId)
       if (project.workspaceId !== input.workspaceId) {
         throw new TRPCError({

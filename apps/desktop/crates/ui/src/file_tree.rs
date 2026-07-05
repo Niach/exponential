@@ -21,6 +21,7 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Once;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, Action, App, AppContext as _, ClickEvent, Entity, FontWeight, Global, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, Window, WindowId,
@@ -530,8 +531,16 @@ impl Render for FileTreeView {
             let trunk = self.trunk_root.clone().unwrap_or_default();
             let ctx_meta = meta.clone();
             let ctx_trunk = trunk.clone();
+            // The active file (the file viewer's active tab, kept in lockstep
+            // with the navigated `Screen::FileViewer`) is highlighted in the
+            // rail so the rail and viewer stay in sync.
+            let active_file: Option<SharedString> =
+                match navigation::resolved_screen(&self.nav, cx) {
+                    Some(Screen::FileViewer { path }) => Some(path.into()),
+                    _ => None,
+                };
             tree(&self.tree_state, move |ix, entry, _selected, _window, cx| {
-                render_tree_item(&meta, &trunk, ix, entry, cx)
+                render_tree_item(&meta, &trunk, active_file.as_deref(), ix, entry, cx)
             })
             .context_menu(move |_ix, entry, menu, _window, _cx| {
                 build_context_menu(&ctx_meta, &ctx_trunk, entry, menu)
@@ -554,6 +563,7 @@ impl Render for FileTreeView {
 fn render_tree_item(
     meta: &Rc<RefCell<HashMap<SharedString, NodeMeta>>>,
     trunk: &Path,
+    active_file: Option<&str>,
     ix: usize,
     entry: &TreeEntry,
     cx: &App,
@@ -595,8 +605,12 @@ fn render_tree_item(
         theme.foreground
     };
 
+    // The open file (viewer's active tab) is highlighted; folders never are.
+    let is_active_file = !node.is_dir && active_file == Some(id.as_ref());
+
     let mut row = ListItem::new(ix)
         .pl(indent(entry.depth()))
+        .when(is_active_file, |row| row.bg(theme.list_active))
         .child(
             Icon::new(icon)
                 .xsmall()

@@ -64,9 +64,14 @@ function start(): void {
 
     const host = document.createElement(`div`)
     host.setAttribute(`data-exponential-widget`, ``)
+    // Mounted on <html> (not <body>) with explicit pointer-events so the
+    // launcher stays clickable even while a host-page modal sets
+    // pointer-events:none on <body> (Radix dialogs do exactly this).
     host.style.cssText = `all:initial;position:fixed;bottom:20px;${
       resolvedPosition() === `bottom-left` ? `left:20px` : `right:20px`
-    };z-index:${state.options.zIndex ?? defaultZIndex};`
+    };z-index:${
+      state.options.zIndex ?? defaultZIndex
+    };pointer-events:auto;`
 
     const root = host.attachShadow({ mode: `open` })
     const style = document.createElement(`style`)
@@ -76,13 +81,13 @@ function start(): void {
     button.setAttribute(`aria-label`, `Send feedback`)
     button.setAttribute(`aria-haspopup`, `dialog`)
     button.innerHTML = `${megaphoneIconSvg}${
-      resolvedLabel() ? `<span></span>` : ``
+      resolvedLabel() ? `<span class="exp-fab-label"></span>` : ``
     }`
     const labelSpan = button.querySelector(`span`)
     if (labelSpan) labelSpan.textContent = resolvedLabel()
     button.addEventListener(`click`, () => api.open())
     root.append(style, button)
-    document.body.appendChild(host)
+    document.documentElement.appendChild(host)
     state.loaderButtonHost = host
   }
 
@@ -102,7 +107,7 @@ function start(): void {
 
   function resolvedPosition(): `bottom-right` | `bottom-left` {
     return (
-      state?.options.position ?? state?.config?.form?.position ?? `bottom-right`
+      state?.options.position ?? state?.config?.form?.position ?? `bottom-left`
     )
   }
 

@@ -10,7 +10,6 @@ import {
   notificationTypeValues,
   prStateValues,
   codingSessionStatusValues,
-  platformValues,
   subscriberSourceValues,
   issueEventTypeValues,
   recurrenceIntervals,
@@ -65,10 +64,6 @@ describe(`domain-contract parity`, () => {
     expect([...codingSessionStatusValues]).toEqual([
       ...contract.codingSessionStatus.values,
     ])
-  })
-
-  it(`platform values match the contract`, () => {
-    expect([...platformValues]).toEqual([...contract.platform.values])
   })
 
   it(`subscriber source values match the contract`, () => {

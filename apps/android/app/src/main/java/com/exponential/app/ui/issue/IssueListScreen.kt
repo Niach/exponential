@@ -1,8 +1,10 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
@@ -81,7 +82,6 @@ fun IssueListScreen(
     projectId: String,
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit,
-    onCreateIssue: () -> Unit,
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -92,7 +92,8 @@ fun IssueListScreen(
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // Pinned nav row: circular back + (filter) + create — iOS nav buttons.
+            // Pinned nav row: circular back + (filter) — iOS nav buttons. The
+            // single add-issue affordance is the project-only FAB (masterplan §9.3).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -105,10 +106,6 @@ fun IssueListScreen(
                     if (state.filters.count > 0) Badge { Text(state.filters.count.toString()) }
                 }) {
                     CircleIconButton(Icons.Filled.FilterList, "Filters", onClick = { showFilters = true })
-                }
-                if (permissions.canCreate) {
-                    Spacer(Modifier.width(8.dp))
-                    CircleIconButton(Icons.Filled.Add, "Create issue", onClick = onCreateIssue)
                 }
             }
 
@@ -198,7 +195,7 @@ fun IssueListScreen(
                             }
                             if (!isCollapsed) {
                                 items(group.issues, key = { it.issue.id }) { entry ->
-                                    SwipeableIssueRow(
+                                    LongPressIssueRow(
                                         issue = entry.issue,
                                         labels = entry.labels,
                                         assignee = usersById[entry.issue.assigneeId],
@@ -385,12 +382,14 @@ private fun StatusHeader(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun IssueRow(
     issue: IssueEntity,
     labels: List<LabelEntity>,
     assignee: UserEntity?,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val status = IssueStatus.fromWire(issue.status)
     val priority = IssuePriority.fromWire(issue.priority)
@@ -398,7 +397,7 @@ internal fun IssueRow(
         modifier = Modifier
             .fillMaxWidth()
             .glassRow()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {

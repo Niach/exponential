@@ -56,7 +56,7 @@ use coding::run_launch::{
     self, cwd_error, format_argv_line, format_env_lines, parse_argv_line, parse_env_lines,
     play_state, sort_order_after_move, PlayState,
 };
-use terminal::{TabKind, TerminalManager, TerminalManagerEvent};
+use terminal::{ExitHook, TabKind, TerminalManager, TerminalManagerEvent};
 
 use crate::icons::ExpIcon;
 use crate::navigation::{self, Navigation, Screen};
@@ -513,6 +513,115 @@ impl RunBar {
                     .is_some_and(|tab| tab.is_running());
                 if still_running {
                     run_launch::force_kill(pid);
+                }
+            });
+        })
+        .detach();
+    }
+
+    // --------------------- create configs with Claude --------------------
+
+    /// §7.3 / L24: the ONE MCP-enabled Claude task. Spawns
+    /// `coding::claude_task` at the project's trunk clone with a **scoped
+    /// `.mcp.json`** (the same expu_ key as a coding session), so Claude can
+    /// inspect the repo and create run configs via the `exponential_run_configs_*`
+    /// MCP tools. No worktree, no `coding_sessions` row — the tab is a plain
+    /// `ClaudeTask`. The `.mcp.json` is git-excluded, `0600`, and removed on
+    /// task exit; the run bar refetches its configs at that point too.
+    fn create_configs_with_claude(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(project_id) = self.project_id.clone() else {
+            return;
+        };
+        let Some(repo) = self.repo_full_name.clone() else {
+            window.push_notification(
+                Notification::error(
+                    "Link a repository to this project in workspace settings first.",
+                ),
+                cx,
+            );
+            return;
+        };
+        let Some(account) = queries::active_account(cx) else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let Some(manager) = self.manager(cx) else {
+            window.push_notification(Notification::error("Terminal dock is not available."), cx);
+            return;
+        };
+        let data_dir = AuthContext::global(cx).data_dir.clone();
+        let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
+        let root = run_launch::run_root(&settings.repos_root_path(), &repo);
+        if !root.is_dir() {
+            window.push_notification(
+                Notification::error(SharedString::from(format!(
+                    "Repository not cloned yet — start coding once to clone {repo}.",
+                ))),
+                cx,
+            );
+            return;
+        }
+        // Only reclaim a `.mcp.json` we created (never clobber-then-delete a
+        // file the repo already carried).
+        let created_marker = !root.join(coding::MCP_JSON_FILE).exists();
+        cx.spawn(async move |this, cx| {
+            let prep_root = root.clone();
+            let prep = cx
+                .background_executor()
+                .spawn(async move {
+                    let store = api::token_store::TokenStore::new(data_dir);
+                    let key = api::users::ensure_personal_key(&trpc, &store, &account.id)
+                        .map_err(|err| err.to_string())?;
+                    coding::write_mcp_json(&prep_root, trpc.base_url(), &key)
+                        .map_err(|err| format!("write .mcp.json: {err}"))?;
+                    // Token-leak guard (the file carries the raw expu_ key).
+                    let _ = coding::git_worktree::ensure_local_excludes(
+                        &prep_root,
+                        &[coding::MCP_JSON_FILE],
+                    );
+                    Ok::<(), String>(())
+                })
+                .await;
+            let _ = this.update_in(cx, |_this, window, cx| {
+                if let Err(message) = prep {
+                    window.push_notification(Notification::error(SharedString::from(message)), cx);
+                    return;
+                }
+                let prompt = coding::create_run_configs_prompt(&project_id);
+                let task = coding::claude_task(&settings, &root, &prompt, "Create run configs");
+                let cleanup_path = created_marker.then(|| root.join(coding::MCP_JSON_FILE));
+                let run_bar = cx.entity().downgrade();
+                let on_exit: ExitHook = Box::new(move |_id, _exit, cx| {
+                    if let Some(path) = cleanup_path {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    if let Some(run_bar) = run_bar.upgrade() {
+                        run_bar.update(cx, |run_bar, cx| run_bar.mark_stale(cx));
+                    }
+                });
+                let result = manager.update(cx, |manager, cx| {
+                    manager.open_tab(
+                        TabKind::ClaudeTask,
+                        task.tab_title.clone(),
+                        &task.spawn,
+                        Some(on_exit),
+                        cx,
+                    )
+                });
+                if let Err(err) = result {
+                    // The tab never opened, so its exit hook won't run — clean
+                    // up the just-written key file here.
+                    if created_marker {
+                        let _ = std::fs::remove_file(root.join(coding::MCP_JSON_FILE));
+                    }
+                    window.push_notification(
+                        Notification::error(SharedString::from(format!(
+                            "Could not start Claude: {err}"
+                        ))),
+                        cx,
+                    );
                 }
             });
         })
@@ -1259,15 +1368,38 @@ mod run_configs_editor {
                 .when(self.editing.is_some(), |this| this.child(self.render_form(cx)))
                 .when(self.editing.is_none() && self.is_owner, |this| {
                     this.child(
-                        Button::new("run-config-add")
-                            .outline()
-                            .small()
-                            .icon(IconName::Plus)
-                            .label("Add configuration")
-                            .disabled(self.busy || !self.loaded)
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.start_create(window, cx);
-                            })),
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("run-config-add")
+                                    .outline()
+                                    .small()
+                                    .icon(IconName::Plus)
+                                    .label("Add configuration")
+                                    .disabled(self.busy || !self.loaded)
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        this.start_create(window, cx);
+                                    })),
+                            )
+                            .child(
+                                // L24: hand the empty/unsure project to Claude —
+                                // it inspects the repo and creates configs via the
+                                // run-config MCP tools (the ONE MCP-enabled task).
+                                Button::new("run-config-claude")
+                                    .ghost()
+                                    .small()
+                                    .icon(Icon::from(ExpIcon::Sparkles))
+                                    .label("Create with Claude")
+                                    .disabled(self.busy || !self.loaded)
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        if let Some(run_bar) = this.run_bar.upgrade() {
+                                            run_bar.update(cx, |run_bar, cx| {
+                                                run_bar.create_configs_with_claude(window, cx);
+                                            });
+                                        }
+                                        window.close_dialog(cx);
+                                    })),
+                            ),
                     )
                 })
         }

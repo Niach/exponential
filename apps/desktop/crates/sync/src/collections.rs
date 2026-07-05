@@ -483,8 +483,26 @@ fn sort_issues(issues: &mut [Issue]) {
         a.sort_order
             .unwrap_or(f64::MAX)
             .total_cmp(&b.sort_order.unwrap_or(f64::MAX))
-            .then_with(|| a.identifier.cmp(&b.identifier))
+            .then_with(|| cmp_identifiers(&a.identifier, &b.identifier))
     });
+}
+
+/// Natural comparison of issue identifiers so `EXP-2` sorts before `EXP-10`
+/// (§8.7): compare the non-numeric prefix lexicographically, then the trailing
+/// number numerically. Malformed identifiers (no `{prefix}-{number}` shape)
+/// fall back to a plain string compare, preserving a total order.
+pub fn cmp_identifiers(a: &str, b: &str) -> std::cmp::Ordering {
+    match (split_identifier(a), split_identifier(b)) {
+        (Some((pa, na)), Some((pb, nb))) => pa.cmp(pb).then_with(|| na.cmp(&nb)),
+        _ => a.cmp(b),
+    }
+}
+
+/// Split `EXP-10` into (`"EXP"`, `10`); `None` when the trailing segment after
+/// the last `-` is not a number.
+fn split_identifier(ident: &str) -> Option<(&str, u64)> {
+    let (prefix, number) = ident.rsplit_once('-')?;
+    Some((prefix, number.parse().ok()?))
 }
 
 fn status_of<T: ShapeRow>(entity: &Entity<Collection<T>>, cx: &App) -> ShapeStatus {
@@ -893,5 +911,19 @@ mod tests {
             .account_id(),
             Some("a")
         );
+    }
+
+    #[test]
+    fn identifiers_sort_numerically_within_a_prefix() {
+        // §8.7: EXP-2 must precede EXP-10 (lexicographic order would flip them).
+        let mut idents = ["EXP-10", "EXP-1", "EXP-2", "EXP-20", "EXP-3"];
+        idents.sort_by(|a, b| cmp_identifiers(a, b));
+        assert_eq!(idents, ["EXP-1", "EXP-2", "EXP-3", "EXP-10", "EXP-20"]);
+
+        // Prefix wins over the number, then the number breaks the tie.
+        assert_eq!(cmp_identifiers("AAA-9", "EXP-1"), std::cmp::Ordering::Less);
+        assert_eq!(cmp_identifiers("EXP-2", "EXP-10"), std::cmp::Ordering::Less);
+        // Malformed identifiers fall back to a plain string compare.
+        assert_eq!(cmp_identifiers("EXP-x", "EXP-y"), std::cmp::Ordering::Less);
     }
 }

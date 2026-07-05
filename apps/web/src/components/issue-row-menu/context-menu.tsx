@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from "react"
+import { type ReactNode } from "react"
 import type { Issue, Label, User } from "@/db/schema"
 import { formatDateForMutation } from "@/lib/domain"
 import { trpc } from "@/lib/trpc-client"
-import { IssuePickerDialog } from "@/components/issue-picker-dialog"
+import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -17,7 +17,6 @@ import {
 import {
   CheckCheck,
   Copy,
-  Files,
   ListTodo,
   SquarePen,
   Trash2,
@@ -52,7 +51,6 @@ export function IssueRowContextMenu({
   userMap,
   users,
 }: IssueRowContextMenuProps) {
-  const [duplicatePickerOpen, setDuplicatePickerOpen] = useState(false)
   const selectedAssignee = issue.assigneeId
     ? (userMap.get(issue.assigneeId) ?? null)
     : null
@@ -81,6 +79,11 @@ export function IssueRowContextMenu({
       ...updates,
     })
   }
+
+  const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
+    issueId: issue.id,
+    onStatusChange: (status) => updateIssue({ status }),
+  })
 
   const applyDueDate = (date: Date | null | undefined) => {
     void updateIssue({
@@ -167,7 +170,7 @@ export function IssueRowContextMenu({
             Copy issue ID
           </ContextMenuItem>
 
-          {issue.duplicateOfId ? (
+          {issue.duplicateOfId && (
             <ContextMenuItem
               onSelect={() => {
                 // Server restores 'backlog' and clears the link atomically.
@@ -177,17 +180,6 @@ export function IssueRowContextMenu({
               <Undo2 className="size-4" />
               Unmark duplicate
             </ContextMenuItem>
-          ) : (
-            <ContextMenuItem
-              onSelect={() => {
-                // Defer past the menu's close/focus-restore so the dialog's
-                // focus trap doesn't fight Radix.
-                setTimeout(() => setDuplicatePickerOpen(true), 0)
-              }}
-            >
-              <Files className="size-4" />
-              Mark as duplicate…
-            </ContextMenuItem>
           )}
 
           <ContextMenuSeparator />
@@ -195,7 +187,7 @@ export function IssueRowContextMenu({
           <StatusSubmenu
             status={issue.status}
             topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-            onSelect={(status) => void updateIssue({ status })}
+            onSelect={handleStatusChange}
           />
 
           <AssigneeSubmenu
@@ -247,17 +239,7 @@ export function IssueRowContextMenu({
         </ContextMenuContent>
       </ContextMenu>
 
-      <IssuePickerDialog
-        open={duplicatePickerOpen}
-        onOpenChange={setDuplicatePickerOpen}
-        excludeIssueIds={[issue.id]}
-        title="Mark as duplicate"
-        placeholder="Search the canonical issue…"
-        onPick={(canonical) => {
-          // The server sets status='duplicate' atomically with the link.
-          void updateIssue({ duplicateOfId: canonical.id })
-        }}
-      />
+      {duplicatePicker}
     </>
   )
 }

@@ -20,8 +20,9 @@
 //! live shared-`Store` window count — the §3.10 multi-window proof.
 
 use gpui::{
-    div, App, AppContext as _, ClickEvent, ElementId, FocusHandle, Focusable, FontWeight,
-    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, ElementId, FocusHandle,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -34,6 +35,7 @@ use gpui_component::{
     },
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Collapsible, Icon, IconName, Selectable as _, Sizable as _,
+    StyledExt as _,
 };
 use sync::Store;
 
@@ -42,6 +44,7 @@ use crate::actions::{
     OpenSettings, SendFeedback, SignOut, SwitchWorkspace,
 };
 use crate::navigation::{active_workspace_id, nav_for_window, resolved_screen, Navigation, Screen};
+use crate::properties_panel::parse_hex_color;
 
 /// Stable serialization name (§3.3: "Once you have defined a panel name, this
 /// must not be changed").
@@ -146,7 +149,7 @@ impl SidebarPanel {
             .w_full()
             .header(self.render_header(cx))
             .child(SidebarSection::Menu(self.nav_menu(cx)))
-            .child(SidebarSection::Projects(self.projects_menu(cx)))
+            .child(SidebarSection::Projects(self.project_rows(cx)))
             .footer(self.render_footer(cx))
     }
 
@@ -297,19 +300,16 @@ impl SidebarPanel {
     }
 
     /// Project rows off the synced collection (sort-order, archived hidden —
-    /// web sidebar parity), highlighted when their board is the screen.
-    fn projects_menu(&self, cx: &App) -> SidebarMenu {
+    /// web sidebar parity), highlighted when their board is the screen. Each
+    /// row carries a `Project.color` dot (EXP-8 §8.4, web `sidebar.tsx:267-270`);
+    /// an empty vec renders the "No projects yet" placeholder.
+    fn project_rows(&self, cx: &App) -> Vec<ProjectRow> {
         let Some(workspace_id) = active_workspace_id(&self.nav, cx) else {
-            return SidebarMenu::new()
-                .child(SidebarMenuItem::new("No projects yet").disable(true));
+            return Vec::new();
         };
         let projects = Store::global(cx)
             .collections()
             .projects_in_workspace(&workspace_id, cx);
-        if projects.is_empty() {
-            return SidebarMenu::new()
-                .child(SidebarMenuItem::new("No projects yet").disable(true));
-        }
 
         let screen = resolved_screen(&self.nav, cx);
         let active_project = match &screen {
@@ -317,18 +317,15 @@ impl SidebarPanel {
             _ => None,
         };
 
-        let mut menu = SidebarMenu::new();
-        for project in projects {
-            let action = OpenProject {
-                project_id: project.id.clone(),
-            };
-            menu = menu.child(
-                SidebarMenuItem::new(SharedString::from(project.name.clone()))
-                    .active(active_project.as_deref() == Some(project.id.as_str()))
-                    .on_click(dispatch(action)),
-            );
-        }
-        menu
+        projects
+            .into_iter()
+            .map(|project| ProjectRow {
+                active: active_project.as_deref() == Some(project.id.as_str()),
+                color: project.color.as_deref().and_then(parse_hex_color),
+                id: SharedString::from(project.id.clone()),
+                name: SharedString::from(project.name.clone()),
+            })
+            .collect()
     }
 
     /// Footer: Send Feedback direct item (EXP-1 #10), the account/settings
@@ -353,6 +350,10 @@ impl SidebarPanel {
             .and_then(|account| account.name.clone())
             .map(SharedString::from)
             .unwrap_or_else(|| who.clone());
+        // Web parity (`sidebar.tsx:290-297`): avatar initials + email as the
+        // trigger. Initials come from the display name (up to two words),
+        // falling back to the email's first character.
+        let initials: SharedString = account_initials(&display_name, &who).into();
         let status: SharedString = format!(
             "{who} · {windows_open} {}",
             if windows_open == 1 { "window" } else { "windows" }
@@ -377,14 +378,28 @@ impl SidebarPanel {
                         h_flex()
                             .gap_2()
                             .overflow_hidden()
-                            .child(Icon::new(IconName::CircleUser).small())
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .size_6()
+                                    .flex_shrink_0()
+                                    .rounded_full()
+                                    .bg(cx.theme().muted)
+                                    .text_color(cx.theme().muted_foreground)
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(initials),
+                            )
                             .child(
                                 div()
                                     .text_sm()
                                     .whitespace_nowrap()
                                     .overflow_hidden()
                                     .text_ellipsis()
-                                    .child(display_name),
+                                    .child(who.clone()),
                             ),
                     )
                     .child(
@@ -396,8 +411,8 @@ impl SidebarPanel {
                         let mut menu = menu
                             .menu_with_icon("Settings", IconName::Settings, Box::new(OpenSettings))
                             .menu_with_icon(
-                                "Account",
-                                IconName::CircleUser,
+                                "Notifications",
+                                IconName::Bell,
                                 Box::new(crate::actions::OpenAccount),
                             );
                         if solo {
@@ -438,6 +453,25 @@ fn dispatch<A: gpui::Action + Clone>(
     move |_, window, cx| window.dispatch_action(Box::new(action.clone()), cx)
 }
 
+/// Web `userInitials`: up to two initials from the display name's words,
+/// falling back to the first character of the email. Uppercased.
+fn account_initials(display_name: &str, email: &str) -> String {
+    let from_name: String = display_name
+        .split_whitespace()
+        .filter_map(|word| word.chars().next())
+        .take(2)
+        .collect::<String>()
+        .to_uppercase();
+    if !from_name.is_empty() {
+        return from_name;
+    }
+    email
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_default()
+}
+
 /// The square initial badge of the web switcher trigger ("E" brand square in
 /// solo mode, the workspace initial with chrome).
 fn brand_badge(initial: &str, cx: &App) -> gpui::AnyElement {
@@ -464,8 +498,68 @@ fn brand_badge(initial: &str, cx: &App) -> gpui::AnyElement {
 enum SidebarSection {
     /// Plain menu block (the nav rows).
     Menu(SidebarMenu),
-    /// "Projects" group: custom header row with the `+` button (EXP-1 #2).
-    Projects(SidebarMenu),
+    /// "Projects" group: custom header row with the `+` button (EXP-1 #2) and
+    /// custom project rows carrying a `Project.color` dot (EXP-8 §8.4) — which
+    /// `SidebarMenuItem` can't express (its leading slot only takes an `Icon`).
+    Projects(Vec<ProjectRow>),
+}
+
+/// A single project row in the sidebar's Projects group. Rendered as a custom
+/// element (not a `SidebarMenuItem`) so the leading `Project.color` dot can sit
+/// where the stock menu item only allows an `Icon`.
+#[derive(Clone)]
+struct ProjectRow {
+    id: SharedString,
+    name: SharedString,
+    color: Option<gpui::Hsla>,
+    active: bool,
+}
+
+impl ProjectRow {
+    /// Mirrors `SidebarMenuItem`'s row styling (p_2 / gap_x_2 / rounded / text_sm,
+    /// hover + active states) with a leading `size_3().rounded_full()` color dot.
+    fn render(self, cx: &App) -> gpui::AnyElement {
+        let is_active = self.active;
+        let is_hoverable = !is_active;
+        let dot = div()
+            .size_3()
+            .flex_shrink_0()
+            .rounded_full()
+            .bg(self.color.unwrap_or(cx.theme().muted_foreground));
+        h_flex()
+            .id(ElementId::from(self.id.clone()))
+            .w_full()
+            .h_7()
+            .px_2()
+            .gap_x_2()
+            .items_center()
+            .overflow_x_hidden()
+            .rounded(cx.theme().radius)
+            .text_sm()
+            .cursor_pointer()
+            .when(is_hoverable, |this| {
+                this.hover(|this| {
+                    this.bg(cx.theme().sidebar_accent.opacity(0.8))
+                        .text_color(cx.theme().sidebar_accent_foreground)
+                })
+            })
+            .when(is_active, |this| {
+                this.font_medium()
+                    .bg(cx.theme().tokens.sidebar_accent)
+                    .text_color(cx.theme().sidebar_accent_foreground)
+            })
+            .child(dot)
+            .child(
+                h_flex()
+                    .flex_1()
+                    .overflow_x_hidden()
+                    .child(self.name.clone()),
+            )
+            .on_click(dispatch(OpenProject {
+                project_id: self.id.to_string(),
+            }))
+            .into_any_element()
+    }
 }
 
 impl Collapsible for SidebarSection {
@@ -490,7 +584,7 @@ impl SidebarItem for SidebarSection {
         let id = id.into();
         match self {
             Self::Menu(menu) => menu.render(id, window, cx).into_any_element(),
-            Self::Projects(menu) => v_flex()
+            Self::Projects(rows) => v_flex()
                 .child(
                     h_flex()
                         .flex_shrink_0()
@@ -517,7 +611,19 @@ impl SidebarItem for SidebarSection {
                                 }),
                         ),
                 )
-                .child(menu.render(id, window, cx).into_any_element())
+                .child(if rows.is_empty() {
+                    div()
+                        .p_2()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("No projects yet")
+                        .into_any_element()
+                } else {
+                    v_flex()
+                        .gap_2()
+                        .children(rows.into_iter().map(|row| row.render(cx)))
+                        .into_any_element()
+                })
                 .into_any_element(),
         }
     }

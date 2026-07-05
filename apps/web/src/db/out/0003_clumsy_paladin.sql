@@ -1,0 +1,3 @@
+ALTER TABLE "creem_subscriptions" ADD COLUMN "workspace_id" uuid;--> statement-breakpoint
+ALTER TABLE "creem_subscriptions" ADD COLUMN "seats" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "creem_subscriptions" ADD CONSTRAINT "creem_subscriptions_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE set null ON UPDATE no action;

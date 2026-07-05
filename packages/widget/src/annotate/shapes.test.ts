@@ -7,6 +7,7 @@ import {
   distance,
   isDegenerate,
   normalizeRect,
+  resolveCrop,
   strokeWidthFor,
 } from "./shapes"
 
@@ -129,6 +130,35 @@ describe(`isDegenerate`, () => {
         ],
       })
     ).toBe(false)
+  })
+})
+
+describe(`resolveCrop`, () => {
+  it(`returns the full image for a null crop`, () => {
+    expect(resolveCrop(null, 800, 600)).toEqual({
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+    })
+  })
+
+  it(`keeps a crop that sits inside the image`, () => {
+    expect(resolveCrop({ x: 100, y: 50, width: 300, height: 200 }, 800, 600))
+      .toEqual({ x: 100, y: 50, width: 300, height: 200 })
+  })
+
+  it(`clamps a crop that overflows the image bounds`, () => {
+    expect(resolveCrop({ x: 700, y: 500, width: 400, height: 400 }, 800, 600))
+      .toEqual({ x: 700, y: 500, width: 100, height: 100 })
+  })
+
+  it(`falls back to the full image for a degenerate crop`, () => {
+    expect(resolveCrop({ x: 10, y: 10, width: 0, height: 50 }, 800, 600))
+      .toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    // Origin already past the right edge leaves zero width → full image.
+    expect(resolveCrop({ x: 800, y: 0, width: 50, height: 50 }, 800, 600))
+      .toEqual({ x: 0, y: 0, width: 800, height: 600 })
   })
 })
 

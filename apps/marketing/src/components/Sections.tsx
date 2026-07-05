@@ -8,10 +8,10 @@ import {
   FileText,
   GitPullRequest,
   Globe,
-  MessageSquareText,
   Plug,
+  Radio,
   Repeat,
-  X,
+  Terminal,
 } from "lucide-react"
 import {
   cardReveal,
@@ -35,12 +35,12 @@ export function ValueProps() {
     {
       icon: <AtSign size={20} strokeWidth={1.8} />,
       title: `Mentions & comments`,
-      desc: `@mention a teammate and they're notified and subscribed. Comments carry full markdown — including agent plans and questions.`,
+      desc: `@mention a teammate and they're notified and subscribed. Comments carry full markdown — issue links, task lists, code blocks, and images.`,
     },
     {
       icon: <BellRing size={20} strokeWidth={1.8} />,
       title: `Inbox & push`,
-      desc: `Assignments, comments, mentions and agent events land in your inbox — and on your phone as push notifications.`,
+      desc: `Assignments, comments, mentions and PR updates land in your inbox — and on your phone as push notifications.`,
     },
     {
       icon: <Repeat size={20} strokeWidth={1.8} />,
@@ -147,50 +147,35 @@ export function CopyBlock() {
   )
 }
 
-type TimelinePhase = `idle` | `plan` | `working` | `done`
+type CodingPhase = `idle` | `plan` | `coding` | `pr`
+
+const CODING_SEQUENCE: Record<CodingPhase, [CodingPhase, number]> = {
+  idle: [`plan`, 1000],
+  plan: [`coding`, 3200],
+  coding: [`pr`, 1800],
+  pr: [`idle`, 4200],
+}
 
 export function AgentTimeline() {
-  const [phase, setPhase] = useState<TimelinePhase>(`idle`)
+  const [phase, setPhase] = useState<CodingPhase>(`idle`)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [userApproved, setUserApproved] = useState(false)
-
-  const startSequence = () => {
-    setPhase(`idle`)
-    setUserApproved(false)
-    timerRef.current = setTimeout(() => setPhase(`plan`), 600)
-  }
 
   useEffect(() => {
-    startSequence()
+    const [to, delay] = CODING_SEQUENCE[phase]
+    timerRef.current = setTimeout(() => setPhase(to), delay)
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [])
+  }, [phase])
 
-  const handleApprove = () => {
-    if (phase !== `plan`) return
-    setUserApproved(true)
-    setPhase(`working`)
-    timerRef.current = setTimeout(() => {
-      setPhase(`done`)
-      timerRef.current = setTimeout(() => startSequence(), 4000)
-    }, 2000)
+  const startNow = () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setPhase(`plan`)
   }
-
-  useEffect(() => {
-    if (phase === `plan` && !userApproved) {
-      timerRef.current = setTimeout(() => {
-        handleApprove()
-      }, 3000)
-    }
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [phase, userApproved])
 
   return (
     <div className="agent-stage-wrap">
-      <WorkspaceMembersPreview />
+      <SteerSessionPreview />
       <div className="agent-timeline">
         <div className="agent-tl-issue">
           <span className="agent-tl-issue-ident">EXP-181</span>
@@ -200,7 +185,29 @@ export function AgentTimeline() {
         </div>
 
         <AnimatePresence mode="popLayout">
-          {(phase === `plan` || phase === `working` || phase === `done`) && (
+          {phase === `idle` && (
+            <motion.div
+              key="start"
+              className="agent-tl-start"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35, ease: `easeOut` }}
+            >
+              <button
+                className="agent-tl-btn is-primary"
+                onClick={startNow}
+                type="button"
+              >
+                <Terminal size={11} strokeWidth={2.2} /> Start coding
+              </button>
+              <span className="agent-tl-start-hint">
+                Opens Claude in the desktop terminal
+              </span>
+            </motion.div>
+          )}
+
+          {(phase === `plan` || phase === `coding` || phase === `pr`) && (
             <motion.div
               key="plan"
               className="agent-tl-card is-plan"
@@ -213,57 +220,58 @@ export function AgentTimeline() {
                   <IcBot size={11} />
                 </span>
                 <span className="agent-tl-author">Claude</span>
-                <span className="agent-tl-time">just now</span>
-                <span className="agent-tl-tag">Plan</span>
+                <span className="agent-tl-time">worktree exp/EXP-181</span>
+                <span className="agent-tl-tag">Terminal</span>
               </div>
               <div className="agent-tl-card-body">
-                Add a <code>webhooks</code> table and a{` `}
-                <code>dispatchWebhook()</code> helper. Fire on issue create,
-                update, and delete. Sign payloads with HMAC-SHA256.
+                Plan: add a <code>webhooks</code> table and a{` `}
+                <code>dispatchWebhook()</code> helper, fired on issue create,
+                update, and delete. Proceeding &mdash; tell me to adjust.
               </div>
               {phase === `plan` && (
-                <div className="agent-tl-actions">
-                  <button
-                    className="agent-tl-btn is-primary"
-                    onClick={handleApprove}
-                  >
-                    <Check size={11} strokeWidth={2.4} /> Approve
-                  </button>
-                  <button className="agent-tl-btn">
-                    <MessageSquareText size={11} strokeWidth={2} /> Request
-                    changes
-                  </button>
-                  <button className="agent-tl-btn">
-                    <X size={11} strokeWidth={2.2} /> Cancel
-                  </button>
+                <div
+                  className="agent-tl-prompt"
+                  style={{
+                    marginTop: 10,
+                    display: `flex`,
+                    alignItems: `center`,
+                    gap: 8,
+                    fontFamily: `var(--font-mono)`,
+                    fontSize: 11.5,
+                    color: `rgba(255,255,255,0.72)`,
+                  }}
+                >
+                  <span style={{ color: `var(--accent)` }}>›</span>
+                  <span>go &mdash; but sign payloads with HMAC-SHA256</span>
+                  <span className="caret" aria-hidden />
                 </div>
               )}
             </motion.div>
           )}
 
-          {(phase === `working` || phase === `done`) && (
+          {(phase === `coding` || phase === `pr`) && (
             <motion.div
-              key="working"
+              key="coding"
               className="agent-tl-activity"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: `easeOut`, delay: 0.15 }}
             >
-              {phase === `working` ? (
+              {phase === `coding` ? (
                 <>
                   <span className="agent-tl-spinner" aria-hidden />
-                  <span>Agent is working &mdash; creating worktree&hellip;</span>
+                  <span>Coding &mdash; committing &amp; pushing exp/EXP-181&hellip;</span>
                 </>
               ) : (
                 <>
                   <Check size={12} strokeWidth={2.4} style={{ color: `oklch(0.78 0.15 155)` }} />
-                  <span>Worktree created, writing code&hellip;</span>
+                  <span>Pushed exp/EXP-181</span>
                 </>
               )}
             </motion.div>
           )}
 
-          {phase === `done` && (
+          {phase === `pr` && (
             <motion.div
               key="pr"
               className="agent-tl-pr"
@@ -275,7 +283,7 @@ export function AgentTimeline() {
                 <GitPullRequest size={11} strokeWidth={2.2} />
               </span>
               <span>
-                Opened PR <strong>niach/exponential#214</strong> &middot;
+                Claude opened PR <strong>niach/exponential#214</strong> &middot;
                 &ldquo;Add webhook events&rdquo;
               </span>
             </motion.div>
@@ -286,67 +294,50 @@ export function AgentTimeline() {
   )
 }
 
-function WorkspaceMembersPreview() {
-  const members = [
-    {
-      name: `Danny`,
-      email: `danny@acme.io`,
-      role: `Admin`,
-      isAgent: false,
-      online: true,
-      color: `oklch(0.62 0.18 280)`,
-    },
-    {
-      name: `Claude`,
-      email: `claude@agents`,
-      role: `Agent`,
-      isAgent: true,
-      online: true,
-      color: `oklch(0.65 0.22 280)`,
-    },
-    {
-      name: `Codex`,
-      email: `codex@agents`,
-      role: `Agent`,
-      isAgent: true,
-      online: false,
-      color: `oklch(0.72 0.15 155)`,
-    },
-  ]
-
+function SteerSessionPreview() {
   return (
     <div className="ws-members-preview">
       <div className="ws-members-head">
-        <span className="ws-members-title">Workspace members</span>
-        <span className="ws-members-count">{members.length}</span>
+        <span className="ws-members-title">Live coding session</span>
+        <span className="ws-members-count">exp/EXP-181</span>
       </div>
-      {members.map((m) => (
-        <div key={m.name} className="ws-member-row">
-          <span
-            className="ws-member-avatar"
-            style={{
-              background: m.isAgent
-                ? `color-mix(in oklch, ${m.color} 25%, transparent)`
-                : `rgba(255,255,255,0.1)`,
-              color: m.isAgent ? m.color : `#fff`,
-            }}
-          >
-            {m.isAgent ? <IcBot size={11} /> : m.name[0]}
+      <div className="ws-member-row">
+        <span
+          className="ws-member-avatar"
+          style={{ background: `rgba(255,255,255,0.1)`, color: `#fff` }}
+        >
+          D
+        </span>
+        <div className="ws-member-info">
+          <span className="ws-member-name">
+            Danny
+            <span className="ws-member-online" />
           </span>
-          <div className="ws-member-info">
-            <span className="ws-member-name">
-              {m.name}
-              {m.online && <span className="ws-member-online" />}
-            </span>
-            <span className="ws-member-email">{m.email}</span>
-          </div>
-          <span
-            className={`ws-member-badge ${m.isAgent ? `is-agent` : ``}`}
-          >
-            {m.role}
+          <span className="ws-member-email">
+            running on Danny&apos;s MacBook Pro
           </span>
         </div>
-      ))}
+        <span className="ws-member-badge">Desktop</span>
+      </div>
+      <div className="ws-member-row">
+        <span
+          className="ws-member-avatar"
+          style={{
+            background: `color-mix(in oklch, oklch(0.65 0.22 280) 25%, transparent)`,
+            color: `oklch(0.65 0.22 280)`,
+          }}
+        >
+          <Radio size={12} strokeWidth={2} />
+        </span>
+        <div className="ws-member-info">
+          <span className="ws-member-name">
+            iPhone
+            <span className="ws-member-online" />
+          </span>
+          <span className="ws-member-email">watching &amp; steering</span>
+        </div>
+        <span className="ws-member-badge is-agent">Live</span>
+      </div>
     </div>
   )
 }

@@ -104,6 +104,7 @@ function WorkspaceSettings() {
           workspaceId={workspace.id}
           proProductId={config.creemProProductId}
           businessProductId={config.creemBusinessProductId}
+          businessYearlyProductId={config.creemBusinessYearlyProductId}
         />
       )}
 

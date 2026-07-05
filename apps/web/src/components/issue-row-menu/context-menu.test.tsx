@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
 import type { Issue, Label, User } from "@/db/schema"
@@ -307,6 +307,73 @@ describe(`IssueRowContextMenu`, () => {
       issueId: `issue-1`,
       labelId: `label-2`,
     })
+  })
+
+  it(`intercepts the duplicate status: opens the picker instead of writing status`, async () => {
+    render(
+      <IssueRowContextMenu
+        issue={buildIssue()}
+        issueLabels={[]}
+        labels={labels}
+        users={users}
+        userMap={new Map(users.map((user) => [user.id, user]))}
+        onOpenIssue={vi.fn()}
+      >
+        <div>Issue row</div>
+      </IssueRowContextMenu>
+    )
+
+    // The picker is closed, so its search results are not mounted yet.
+    expect(screen.queryByText(`No issues to pick from`)).toBeNull()
+
+    fireEvent.click(screen.getByText(`Duplicate`))
+    // Picker opens on a deferred tick (past the menu's focus restore).
+    await act(async () => {
+      vi.runAllTimers()
+    })
+
+    // No status write fired — the duplicate link is set only once a canonical
+    // issue is picked.
+    expect(mockState.updateMutate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: `duplicate` })
+    )
+    // The duplicate picker is now open.
+    expect(screen.getByText(`No issues to pick from`)).not.toBeNull()
+  })
+
+  it(`shows Unmark duplicate (and no Mark as duplicate entry) for a duplicate issue`, () => {
+    const { rerender } = render(
+      <IssueRowContextMenu
+        issue={buildIssue()}
+        issueLabels={[]}
+        labels={labels}
+        users={users}
+        userMap={new Map(users.map((user) => [user.id, user]))}
+        onOpenIssue={vi.fn()}
+      >
+        <div>Issue row</div>
+      </IssueRowContextMenu>
+    )
+
+    // Standalone "Mark as duplicate…" entry is gone on every issue.
+    expect(screen.queryByText(`Mark as duplicate…`)).toBeNull()
+    expect(screen.queryByText(`Unmark duplicate`)).toBeNull()
+
+    rerender(
+      <IssueRowContextMenu
+        issue={buildIssue({ duplicateOfId: `issue-99` })}
+        issueLabels={[]}
+        labels={labels}
+        users={users}
+        userMap={new Map(users.map((user) => [user.id, user]))}
+        onOpenIssue={vi.fn()}
+      >
+        <div>Issue row</div>
+      </IssueRowContextMenu>
+    )
+
+    expect(screen.getByText(`Unmark duplicate`)).not.toBeNull()
+    expect(screen.queryByText(`Mark as duplicate…`)).toBeNull()
   })
 
   it(`deletes the issue when confirm delete is selected`, async () => {

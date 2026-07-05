@@ -1,656 +1,618 @@
-# Exponential — Masterplan (v4, consolidated)
+# Exponential — Masterplan (v5, release)
 
-*2026-07-04. This is the single plan of record. It consolidates and supersedes
-`docs/archive/masterplan-v2.md` (server/data/relay refactor — shipped),
-`docs/archive/masterplan-v3.md` (gpui desktop IDE — shipped through Phase 7), and
-`docs/archive/handoff-mac.md` (status delta). Those files are history, not spec: where this
-document is silent about an inherited system, **the code is the spec** (see §2 "Where truth
-lives"). `docs/vision.md` stays the product narrative and gets refreshed in Phase R5.*
+*2026-07-05. The single plan of record, superseding `docs/archive/masterplan-v4.md`
+(project=repo + desktop git IDE — shipped through R0–R3/R4; its §9 do-not-regress contract is
+carried forward here). Where this document is silent about an inherited system, **the code is
+the spec**. This plan takes the product from "v4 feature-complete" to **public release**: the
+EXP-1…12 fix wave (staging feedback board), the per-seat monetization rework, MCP completeness,
+the marketing site + distribution pipeline, and the release gate itself.*
 
-**What v4 adds** — the "Project = Repository" iteration: every project **must** connect exactly
-one GitHub repo; the desktop auto-clones it and becomes a real IDE around it (git top bar with
-pull/push, a full source-control panel with staging/commit/history/diff, live per-issue
-worktree diffs with Claude-driven conflict fixing, a read-only file tree + viewer, terminals
-that open *in the repo*). Issues keep spawning Claude in their own worktrees. Run configurations become actually usable because the
-working directory they need is now guaranteed to exist.
+**Inputs**: staging issues EXP-1…EXP-12 (EXP-6 was deleted; confirmed nothing lost), two
+attached screenshots (EXP-8), a seven-agent code-grounding research pass (file:line references
+below come from it), and decisions locked with Danny on 2026-07-05 (§2).
 
 ---
 
 ## Table of contents
 
-- §1 Feature inventory — what the product is today
-- §2 Locked decisions & where truth lives
-- §3 Project = Repository: data model & server contract
-- §4 Desktop IDE: clone lifecycle, git contexts, source control, files, terminals
-- §5 Web: onboarding, project creation, settings
-- §6 Mobile: iOS & Android adjustments
-- §7 Migration & rollout
-- §8 Execution plan (phases R0–R5, packetized for an Opus subagent workflow)
-- §9 Do-not-regress contract
+- §1 Vision deltas
+- §2 Locked decisions (new in v5)
+- §3 Monetization rework (EXP-9)
+- §4 Web fix wave (EXP-1 duplicates, EXP-5 web enhancements, EXP-7 public board)
+- §5 Feedback widget v2 (EXP-2)
+- §6 GitHub flow & integrations removal (EXP-3, parts of EXP-12)
+- §7 Run configs unification (EXP-4)
+- §8 Desktop IDE wave (EXP-8)
+- §9 Mobile wave (EXP-12)
+- §10 MCP completeness (EXP-10)
+- §11 Marketing site & distribution (EXP-11)
+- §12 Execution plan (phases P0–P5, packetized for the Opus subagent workflow)
+- §13 Release checklist (manual steps)
+- §14 Do-not-regress contract
 
 ---
 
-## §1 Feature inventory — what the product is today
+## §1 Vision deltas
 
-This is the featureset we wanted and (except v4 scope) have. It is the checklist any future
-"what does Exponential do?" question resolves against.
+`docs/vision.md` is updated alongside this plan (same commit). What changes:
 
-### 1.1 Platform core
-
-- **Real-time sync**: ElectricSQL, exactly **14 synced shapes** (workspaces, projects, issues,
-  labels, issue_labels, users, workspace_members, workspace_invites, comments, attachments,
-  notifications, issue_events, issue_subscribers, coding_sessions) behind auth-gated shape
-  proxies (`apps/web/src/routes/api/shapes/`, built by `createShapeRouteHandler`). Server-only
-  (tRPC, never synced): repositories, run_configs, github_installations, user_notification_prefs,
-  email_deliveries, widget tables. Proxy count == shape count == 14 on **all four clients**.
-- **Writes**: tRPC v11 mutations + `generateTxId` so clients await Electric sync.
-- **Auth**: Better Auth — email/password, Google, OIDC (`genericOAuth`); personal API keys with
-  `expu_` prefix (Better Auth apiKey plugin) power MCP + native clients; sessions for web.
-- **Clients**: web (TanStack Start), iOS (SwiftUI + GRDB, self-contained), Android
-  (Kotlin/Compose), desktop (Rust: gpui + gpui-component + alacritty_terminal). All honor
-  `isPublic`/`publicWritePolicy` via a shared `WorkspacePermissions` mirror.
-- **Theming/contract codegen**: `packages/design-tokens` (OKLCH → Compose/SwiftUI/Rust),
-  `packages/domain-contract` (`contract.json` → per-language enum constants).
-
-### 1.2 Issue tracking
-
-- Workspaces → projects → issues; identifiers `{PREFIX}-{n}` via DB trigger; fractional
-  `sortOrder`; statuses backlog/todo/in_progress/done/cancelled/duplicate (**no `in_review`** —
-  "in review" = `prState='open'`); priorities; labels; due dates; recurrence (server spawns the
-  next occurrence on completion); `duplicateOfId`; archival.
-- Filtering (status/priority/label, tab presets), board + list views, full-page issue detail,
-  My Issues, search sheet, issue timeline (`issue_events`), issue-reference `#` pills.
-- **Markdown contract**: descriptions/comment bodies are plain GFM `text` — the single
-  interchange across TipTap (web), cmark-gfm (iOS), commonmark-java (Android, byte-parity
-  tests), pulldown-cmark/comrak (desktop). Mentions are `@<email>`; images stored relative
-  `![alt](/api/attachments/{id})`; underline/tables intentionally unsupported.
-- Comments, attachments (S3/Garage, probed width/height), subscriptions (auto-subscribe on
-  mention/assignment), notifications (in-app inbox + FCM/web push via push-relay + **email** as
-  a third free channel with prefs, `email_deliveries` ledger, one-click unsubscribe).
-
-### 1.3 Coding flow (the differentiator)
-
-- **"Start coding" launcher** (desktop, `crates/coding`): resolve issue → repo, mint a
-  session-gated JIT GitHub-App installation token (~55 min, never persisted), `git` via argv
-  (never `gh`, never a git library) — ensure clone, create worktree + `exp/<IDENTIFIER>` branch
-  off `origin/<default>`, token-embedded remote re-set every launch, `.mcp.json` (expu_ key) +
-  `PROMPT.md` written into the worktree (git-excluded via `.git/info/exclude`), then spawn
-  `claude --model <model> --dangerously-skip-permissions` (model always explicit, default
-  `opus`) in an embedded terminal tab, cwd = worktree. One issue = one branch = one worktree =
-  one PR = one tab = one steer room.
-- **coding_sessions** (14th shape) drives the cross-client "coding now" badge; server enforces
-  the concurrent-session plan limit. `codingSessions.start`/`.end`, idempotent end.
-- **MCP** (`/api/mcp`): `exponential_pr_open` (server opens + links the PR through the GitHub
-  App), `exponential_issues_update_status` (in_progress|done only).
-- **GitHub App**: storage-free (App JWT → JIT installation tokens); PR↔issue linking via the
-  branch regex `/(?:^|\/)([A-Z0-9]+-\d+)$/`; webhook (cloud) + polling (`GITHUB_POLLING`,
-  self-host behind NAT); `github_installations` synced from setup redirect + webhooks +
-  empty-table self-heal.
-- **Steer**: `apps/steer-relay` (Bun WS hub; device presence + session rooms in memory, ring
-  replay, single-steerer claim), HS256 tickets (`packages/steer-ticket`; web mints, relay
-  verifies), desktop is publisher + remote-start target (`start_session` enters the same
-  `coding::launch` path), web/iOS/Android are viewers (xterm.js / native VT). Wire truth:
-  `apps/steer-relay/src/protocol.ts`. `STEER_RELAY_URL` unset ⇒ cleanly off.
-- **Run configurations**: `run_configs` table (server-only, per project — argv/cwd/env, env
-  strips PATH/LD_PRELOAD/DYLD_*), desktop run bar + per-device **Trust & Run** gate keyed on
-  the command-set hash (rusqlite trust store), argv-direct spawn (never a shell), SIGTERM→SIGKILL
-  stop, exit-code strip on the tab.
-
-### 1.4 Desktop IDE (gpui)
-
-- App shell: chrome-less sidebar (left dock), screen panel (center: board / issue detail /
-  My Issues / inbox / settings / account), terminal dock (bottom) with `TabKind::{Claude, Run,
-  Shell}`, run bar; multi-window "reparent, never recreate".
-- Terminal: upstream `alacritty_terminal` + `portable-pty` (we own the PTY master; single
-  read thread; steer tee; reply-required terminal events), login-shell PATH augmentation.
-- Read-only side-by-side **PR diff** (Tree-sitter highlight, `issues.prFiles`).
-- Auth: instance picker (Cloud vs self-hosted base URL, cloud button first), `exp://` deep links
-  (macOS Info.plist + `LSSetDefaultHandlerForURLScheme`; Linux `.desktop` + single-instance
-  socket), file-based `0600` token store (never OS keyring), per-account
-  `{data_dir}/accounts/{id}/sync.sqlite`.
-- Doctor (`claude --version`, `git --version`) gating Start coding; settings: repos root
-  (default `~/Exponential/repos`), claude path, branch prefix, model.
-- Channels: compile-time `production`/`staging` features; Linux AppImage + macOS `.app` in CI.
-
-### 1.5 Ecosystem
-
-- **Feedback widget** (`packages/widget`): embeddable Preact snippet, snapDOM screenshots +
-  annotation editor, `expw_` keys + domain allowlist, rate-limited public routes, issues created
-  by a synthetic `isAgent` user (never delete — `issues.creator_id` cascades), helpdesk reply
-  emails to reporters; dogfood config on the public feedback workspace.
-- **Billing** (web-only, Creem): plan axes members/projects/storage/repositories/
-  concurrentCodingSessions/ownedWorkspaces; push/email never paywalled; `SELF_HOSTED=true` ⇒
-  unlimited. Admin console web-only.
-- **Deploys**: Coolify (cloud web/staging/marketing/push-relay; steer-relay app still to
-  create), Gitea → Portainer self-host, GH Actions desktop pipeline (two channels × two OSes).
+1. **Per-seat reversal.** The old moat line "billed per workspace, never per seat" is dead.
+   New stance: **individuals ride free forever; teams pay per seat, at roughly half of
+   Linear's price.** Rationale: flat-workspace pricing forced per-workspace limits, which
+   forced the `ownedWorkspaces` anti-loophole cap — limits users hate and that punish the
+   wrong thing. Seats scale with the value a team gets; solo users cost us ~nothing.
+2. **The loop is the story.** Marketing and vision now lead with the full circle: **feedback
+   widget → issue → Claude codes → PR ships → reporter gets the resolution email.** Tagline:
+   **"Make your app exponential."**
+3. **What we still never monetize**: notifications (in-app/push/email) and remote
+   watch/steer. Both relays are computationally trivial and steer is the killer demo.
+4. Principles, platform roles, the NOT-list, and the killer flow are unchanged.
 
 ---
 
-## §2 Locked decisions & where truth lives
+## §2 Locked decisions (v5)
 
-Decisions carried over (still binding) plus the v4 decisions made 2026-07-04.
+v2/v3/v4 locked decisions L1–L18 stay binding except where amended below.
 
-| # | Decision | Locked |
-|---|----------|--------|
-| L1 | Exactly **14** Electric shapes; repositories/run_configs stay server-only tRPC | v2 |
-| L2 | GFM plain-text markdown contract; `@<email>` mentions; relative image URLs | v2 |
-| L3 | Personal keys `expu_`; the coder is the **real user** (no synthetic agents in the coding flow) | v2 |
-| L4 | No `in_review` status; "in review" = `prState='open'` | v2 |
-| L5 | `git` via argv only — never `gh`, never libgit2; JIT tokens never persisted/logged | v2 |
-| L6 | Steer wire truth = `protocol.ts` + `packages/steer-ticket`; input field is `data` | v2 |
-| L7 | GPL boundary: Zed terminal/editor code is study-only; ship upstream-licensed deps | v3 |
-| L8 | `run_configs` live in the **DB per project**, not in the repo; per-device Trust & Run gate | v3 |
-| L9 | Token store file-based `0600`, never OS keyring; model always passed explicitly (default `opus`) | v3 |
-| L10 | **Project ↔ repository is 1:1 and mandatory**: `projects.repository_id NOT NULL`; `project_repositories` is deleted; a repo may still back many projects | **v4** |
-| L11 | **GitHub App only** — a configured GitHub App is now a prerequisite for any instance where projects get created (cloud and self-host). Plain-git/GitLab/Gitea is out of scope for v4 (documented future work) | **v4** |
-| L12 | **Auto-clone on project open** in the desktop (background, with progress); trunk freshness = fetch on open / after transport ops / focus-debounced | **v4** |
-| L13 | **Full source-control panel** (trunk): stage/unstage, commit, commit+push, history, working diffs; top-bar Pull/Push auto-rebase (`--autostash`); conflicts → Fix with Claude | **v4** |
-| L14 | **Two git worlds**: all IDE git chrome acts on the **trunk only**; issue worktrees have no manual transport — they surface as a live **Changes** tab inside the issue | **v4** |
-| L15 | **Read-only file tree + viewer** (Tree-sitter highlight). No editable code editor in v4 | **v4** |
-| L16 | Shape count stays 14 in v4 — `projects.repository_id` rides along on the existing `projects` shape | **v4** |
-| L17 | **Claude-task primitive**: conflict fixing (trunk rebase, unmergeable PRs) spawns a one-shot interactive `claude` terminal tab with a generated prompt — visible and steerable, never hidden automation; no MCP, no `coding_sessions` row | **v4** |
-| L18 | **Web/mobile do no git operations.** Remote visibility per issue is tiered: PR diff → server-side branch compare (`repositories.branchDiff`) → watch/steer of the live session. The branch map (§4.10) is stretch-only (R6), never critical path | **v4** |
-
-**Where truth lives** (for inherited systems this doc summarizes but does not re-spec):
-
-- Steer wire protocol: `apps/steer-relay/src/protocol.ts`, `packages/steer-ticket/src/index.ts`
-- Launcher sequence: `apps/desktop/crates/coding/src/launcher.rs` (+ `git_worktree.rs`)
-- Enum values: `packages/domain-contract/contract.json` (+ generators)
-- Shape/proxy rules: `apps/web/src/lib/shape-route.ts`, `apps/web/src/lib/collections.ts`
-- Markdown contract: CLAUDE.md "Description / comment markdown contract" + Android parity tests
-- Run-config validation: `apps/web/src/lib/run-configs.ts` ↔ `crates/coding/src/run_launch.rs`
+| # | Decision | Notes |
+|---|----------|-------|
+| L19 | **Per-seat billing bound to the workspace.** A subscription belongs to one workspace (not to a user); seats = purchased quantity; members (excluding `isAgent` users) must fit in seats. The owner-fan-out plan resolution and the `ownedWorkspaces` marketing limit die. | reverses vision moat line |
+| L20 | **Tiers**: Free — 1 seat, unlimited projects/repos/coding sessions, 250 MB storage/workspace, no widget. Pro — **$5/seat/mo billed yearly only** ($60/seat/yr), 5 GB/ws, 1 widget config. Business — **$10/seat/mo, monthly or yearly**, 50 GB/ws, unlimited widgets, priority support, SSO line-item. | |
+| L21 | **Feedback widget (+ helpdesk resolution emails) is Pro+.** SSO/OIDC is a Business *pricing-page line item* this release ("coming soon") — per-workspace SSO does not exist yet (OIDC is instance-level env) and is NOT built now. | |
+| L22 | **Push and remote start/steer stay free on every tier.** The FOUNDING coupon is deleted (Creem dashboard + both UI mentions). | |
+| L23 | **One run-config system.** The `.exponential/config.json` preview-target system (WebTarget/AndroidTarget/IosTarget, `previewConfig.targets`, web "Run Targets" dialog section, desktop discovery promise) is deleted. `run_configs` (DB, per project, argv/cwd/env, Trust & Run) is the only model; **argv-direct spawn stays** (no shell — L8/L5 security posture unchanged); editors present the command as a single line via argv⇄line parsing. Run-config editing is **IDE-only** (web shows no run-config UI). | amends v3 preview-target scope |
+| L24 | **L17 amendment**: the "Create run configs with Claude" task is a `claude_task` **with a scoped `.mcp.json`** (expu_ key, same as coding sessions) so Claude can call the new run-config MCP tools. Still no `coding_sessions` row, no worktree, always visible. All *other* Claude tasks (conflict fixing) remain MCP-less. | |
+| L25 | **The Integrations menu dies everywhere** (web account page + nav links, desktop Account pane, iOS, Android). GitHub App install/manage lives solely in **workspace settings → Repositories** (UI already exists there). `github_installations` stays user-scoped in the DB — only the surface moves. | EXP-3/EXP-12 |
+| L26 | **Mobile is a pure companion**: no workspace creation, no project creation (including onboarding — replaced by a "set up on the web" screen), no integrations. Issue creation only inside a project. | EXP-12 |
+| L27 | **Duplicate = status interception.** Selecting status `duplicate` anywhere opens the duplicate-search picker; confirming sets `duplicateOfId` (server keeps status in lockstep); cancelling reverts the status control. The standalone "Mark as duplicate…" menu entries are removed. "Unmark duplicate" + the banner stay. The create-issue dialog drops `duplicate` from its status options (creating a new issue as a duplicate is nonsense). | EXP-1 |
+| L28 | **Release = cloud + desktop + submitted stores.** Release day: production greenfield DB reset (v2 commitment), new pricing live, marketing site live, desktop downloads live (signed + notarized, stable latest URLs); iOS/Android are *submitted* to the stores but approval does not gate the release. Full desktop auto-update is post-release; an in-app "update available" banner (GitHub Releases API check) IS in scope. | |
+| L29 | **Anonymous public reads reach issue detail.** Public workspaces expose the full-page issue detail (read-only) to signed-out visitors; the users shape stays members-only by design (placeholder avatars are the accepted degradation). | EXP-7 |
+| L30 | **Default branch is resolved, never assumed.** No code path may assume `main`: connect-time resolution from GitHub, launch-time healing (exists), and the desktop consuming the healed value everywhere. | EXP-8 |
 
 ---
 
-## §3 Project = Repository: data model & server contract
+## §3 Monetization rework (EXP-9)
 
-### 3.1 Schema (`packages/db-schema/src/schema.ts`)
+### 3.1 Current state (research summary)
 
-- `projects` gains `repositoryId: uuid("repository_id").notNull().references(() =>
-  repositories.id, { onDelete: "restrict" })` + index. `restrict` (not cascade): you cannot
-  delete a repo that still backs a project — retarget or delete the projects first.
-- **Delete `project_repositories`** entirely (table, indexes, zod/type exports).
-- `repositories` unchanged: it stays the workspace-level registry (`unique(workspaceId,
-  fullName)`, cached `installationId`, `sortOrder`, `archivedAt`) so one repo can back several
-  projects (monorepo) and plan limits keep counting registry rows.
-- `run_configs` unchanged.
-- Shape ride-along: `repository_id` is added to the `projects` shape columns; **no new shape**.
-  Clients see the uuid; resolving it to `fullName`/`defaultBranch` is a tRPC read
-  (`repositories.list` / `repositories.forIssue`) exactly as today.
+- `PLAN_LIMITS` in `apps/web/src/lib/billing.ts:36-69`; six axes (members, projects,
+  storageMb, repositories, concurrentCodingSessions, ownedWorkspaces).
+- Subscriptions: `@creem_io/better-auth` plugin (`lib/auth/index.ts:329-349`),
+  `creem_subscriptions.referenceId → users.id` (`packages/db-schema/src/auth-schema.ts:134-155`).
+  `getWorkspacePlan()` fans out over workspace **owners** and takes the best tier
+  (`billing.ts:93-146`) — one Pro user lights up all their owned workspaces.
+- Seat quantity is never read from Creem. Prices exist only in UI tables
+  (`components/workspace/plan-comparison.tsx:24-58`, `apps/marketing/src/lib/pricing.ts`).
+- `getWorkspaceUsage()` member count includes the widget's `isAgent` user
+  (`billing.ts:228-233`) — the EXP-7 "2 members" bug.
+- Widget creation ungated (`lib/trpc/widgets.ts:88-131`). Push deliberately free
+  (`billing.ts:18-20`) but the marketing table wrongly advertises it as paid
+  (`pricing.ts:24`).
 
-### 3.2 tRPC contract
+### 3.2 Target model
 
-`projects` router:
+| | Free | Pro | Business |
+|---|---|---|---|
+| Price | $0 | $5/seat/mo, **yearly only** | $10/seat/mo, monthly or yearly |
+| Seats | 1 | purchased quantity | purchased quantity |
+| Projects / repos / coding sessions | **unlimited** | unlimited | unlimited |
+| Storage per workspace | 250 MB | 5 GB | 50 GB |
+| Feedback widget + helpdesk emails | — | 1 config/ws | unlimited configs |
+| Push / email / steer | free | free | free |
+| SSO/OIDC | — | — | pricing-page "coming soon" |
 
-- `create` input becomes `{ workspaceId, name, prefix, color, repository:
-  { repositoryId } | { fullName } }`. With `fullName`, the server connects the repo inline
-  (same validation as `repositories.add`: owner/admin, plan cap, App-install check via
-  `resolveRepoInstallationToken` → `PRECONDITION_FAILED` if the App isn't installed on it,
-  upsert + un-archive) and links it — one transaction, so onboarding/create dialogs are a
-  single call. With `repositoryId`, validates same-workspace + not archived.
-- New `setRepository({ projectId, repositoryId })` (owner/admin) — retargeting. Fires an
-  `issue_event`-less workspace-level concern; existing worktrees for old-repo issues keep
-  working locally (they're just git), but new launches use the new repo.
-- `create` keeps enforcing the projects plan axis; the inline connect path also enforces the
-  repositories axis.
+- **Seat counting** excludes `isAgent` users everywhere. Free = the owner alone; inviting the
+  first teammate is the upgrade moment.
+- **Deleted limits**: projects, repositories, concurrentCodingSessions, and the *marketed*
+  ownedWorkspaces cap. An **invisible abuse guard** of 10 owned workspaces on Free remains
+  (storage-farming guard; not shown in any pricing UI; error copy: "contact us").
+- **Downgrade/lapse policy**: workspace over its seat count → invites blocked + upgrade nudge;
+  existing members keep working (never lock people out of their data).
+- **Self-hosted**: unchanged — `SELF_HOSTED=true` ⇒ unlimited everything. Marketing adds an
+  **Enterprise** self-host tier: contact-sales button, extended support, honor-system ">10
+  employees" language. No enforcement in code.
 
-`repositories` router:
+### 3.3 Implementation
 
-- **Delete** `linkProject`, `unlinkProject`, `setPrimary`.
-- `forIssue` simplifies to issue → project → `repositoryId` join (no primary/sole-link
-  ambiguity; never null for a valid issue — return shape keeps `| null` only for dangling
-  data safety).
-- `list` drops `projectLinks` in favor of `projects: {id, name, slug}[]` computed from
-  `projects.repositoryId` (used by settings "in use by" chips and mobile pickers).
-- `remove` maps the FK `restrict` violation to `CONFLICT` with "repository backs N projects".
-- `installationToken` unchanged (member-gated JIT mint, defaultBranch heal).
-- New `branchDiff({issueId})` (member-gated): resolves the issue's repo + `exp/<IDENTIFIER>`
-  branch, calls GitHub's **compare** API (`<default>...<branch>`, installation token,
-  ~60s in-memory cache per branch) and returns the `prFiles` shape so all clients reuse the
-  existing diff rendering. Returns null when the branch was never pushed. This is the middle
-  tier of remote Changes visibility (L18) — pushed work is visible before a PR exists.
-- New `graph({projectId})` — **stretch, R6 only**: trunk commits + active/merged `exp/*`
-  branches with fork points, feeding the web branch map (§4.10). Not built before R6.
-
-`onboarding` router: `complete` unchanged; the wizard change is client-side (§5.1).
-
-### 3.3 Bootstrap & system paths
-
-- `bootstrap-cloud`: creating the public feedback workspace's `Exponential` project now requires
-  a repositories row first — bootstrap upserts `{ workspaceId, fullName: "Niach/exponential",
-  installationId: null }` directly (no App validation on this internal path; the
-  empty-`installationId` self-heal fills it) and passes its id to project creation. The
-  pre-collapse heal path repoints widget configs as today.
-- Seed/dev scripts and tests that create projects must supply a repository (add a
-  `test-repo` factory in vitest helpers).
-- **Self-host consequence (accepted)**: instances without `GITHUB_APP_*` configured cannot
-  create projects. `.env.example` + README get a loud note; the create-project UI surfaces the
-  server's `PRECONDITION_FAILED` as "This instance has no GitHub App configured".
+1. **Spike first (P0.a gate)**: verify `@creem_io/better-auth` supports checkout `units`/
+   quantity and workspace metadata. If not, bypass the plugin's checkout for subscription
+   creation (direct Creem API: create checkout with `units: seats`, `metadata.workspaceId`)
+   while keeping the plugin's webhook persistence. The packet must prove a seat-quantity
+   checkout round-trip on Creem test mode before anything else lands.
+2. **Schema**: add `workspaceId` (nullable text→uuid FK) + `seats` (integer) to
+   `creem_subscriptions` (or a `workspace_subscriptions` mapping table if the plugin's table
+   is hands-off). Bind on webhook/success via checkout metadata.
+3. **`billing.ts` rewrite**: `PLAN_LIMITS` shrinks to `{ seats, storageMb, widgetConfigs }`
+   (+ the invisible free `ownedWorkspaces` guard). `getWorkspacePlan(workspaceId)` = workspace-
+   bound subscription lookup, no owner fan-out. Delete `assertWithinPlanLimits` call sites for
+   dead axes: `lib/trpc/projects.ts:124,131`, `repositories.ts:219`,
+   `coding-sessions.ts:29`, `steer.ts:162`. Keep invite-time gating
+   (`workspace-invites.ts:28,56`) as the **seat check** (member count excl. agents < seats).
+   Fix `getWorkspaceUsage` member count to exclude `isAgent` (`billing.ts:228-233`).
+4. **Widget gate**: `widgets.create` asserts plan ≥ Pro and config-count ≤ plan's
+   `widgetConfigs` (insert after `resolveWorkspaceAccess`, `lib/trpc/widgets.ts:~102`).
+   Bootstrap's dogfood path is exempt (internal insert).
+5. **UI**: `plan-comparison.tsx` → three per-seat columns + seat-quantity picker at checkout;
+   `billing-section.tsx` → seat usage bar (n of m seats), storage bar, widget count, Manage
+   portal. Remove the FOUNDING callout (`plan-comparison.tsx:198-201`). Respect the
+   Infinity→null tRPC convention (`use-billing.ts:76-77`).
+6. **Marketing sync**: rewrite `apps/marketing/src/lib/pricing.ts` (fix the push-notifications
+   lie at line 24, remove `FOUNDING_CODE` + `FoundingCallout`), per-seat cards, self-host
+   Enterprise contact-sales card.
+7. **Manual (release checklist §13)**: create Creem products (Pro yearly per-seat, Business
+   monthly, Business yearly), new env `CREEM_BUSINESS_YEARLY_PRODUCT_ID`, delete the FOUNDING
+   coupon in the Creem dashboard.
 
 ---
 
-## §4 Desktop IDE: clone lifecycle, git contexts, source control, files, terminals
+## §4 Web fix wave (EXP-1, EXP-5, EXP-7)
 
-### 4.1 Clone lifecycle (L12)
+### 4.1 Duplicates (EXP-1, L27)
 
-New `CloneManager` (in `crates/coding`, beside `git_worktree.rs`, reusing `run_git`,
-`ensure_clone`, `set_token_remote`, `TokenUrl` redaction):
+- Remove "Mark as duplicate…" from the row context menu
+  (`components/issue-row-menu/context-menu.tsx:181-191`) and the detail overflow menu
+  (`issue-detail-view.tsx:402-411`). Keep Unmark + `DuplicateOfBanner`.
+- Intercept `status='duplicate'` at the three status sinks and open the existing
+  `IssuePickerDialog`: (a) list-row dropdown `issue-properties/status-dropdown.tsx:44-49` +
+  context-menu `submenus.tsx` StatusSubmenu, (b) detail properties panel
+  (`issue-properties-panel.tsx:255-278` → `issue-detail-view.tsx:297-300`), (c) edit-dialog
+  chips (`issue-editor/chips.tsx:74-91`). On pick → `issues.update({duplicateOfId})` (server
+  sets status, `lib/trpc/issues.ts:287-326` already lockstep). On cancel → status reverts.
+- Create dialog: remove `duplicate` from its status options.
+- Desktop + mobile get the same interception (desktop duplicate picker already exists,
+  `issue_detail.rs:901`; Android/iOS status pickers gain the same rule) — parity packets in
+  §8/§9.
 
-- **Auto-clone on project open**: navigating to a project's board kicks a background job if
-  `<repos_root>/<owner>/<name>/.git` is missing — mint JIT token (`repositories.
-  installationToken`), `ensure_clone`, then a fetch. Progress surfaces in the top-bar git chip
-  (spinner + "Cloning <name>… 42%" from `git clone --progress` stderr). Failure → chip shows
-  an error state with retry; terminals/run configs degrade as before (cwd `$HOME`, run
-  disabled) until the clone exists.
-- **Freshness**: `git fetch` on project open, after every pull/push, and on window focus with a
-  ≥5-minute debounce. Every network op re-mints the token if the cached one is <5 min from
-  expiry and re-runs `set_token_remote` first (tokens die in ~55 min; the remote URL is
-  disposable). Ahead/behind = local `rev-list --left-right --count <branch>...origin/<branch>`
-  after fetch — no network for the counts themselves.
-- **Pull = fetch + `git pull --rebase --autostash`** (an explicit `pull.rebase=false` in the
-  user's git config is respected → merge instead). **Push = fetch → auto-rebase if behind →
-  push.** Conflicts never auto-abort: the trunk enters **conflict mode** (§4.4) with git's
-  markers left in place.
+### 4.2 Web enhancements (EXP-5)
 
-### 4.2 Two git worlds (L14)
+1. **Mobile web cleanup + the desktop empty bar (items 1+4, one root cause)**: the topbar
+   `<header>` at `components/workspace/mobile-topbar.tsx:89` renders on ALL breakpoints (only
+   its children are `md:hidden`) → 48px empty strip on desktop. Make the header itself
+   mobile-only. De-duplicate mobile nav: **topbar keeps** hamburger + workspace/project
+   context + New issue; **drawer (sidebar sheet) keeps** Search, My Issues, Inbox, projects,
+   user menu. Remove the duplicated topbar search/My-Issues/inbox/user-menu cluster
+   (`mobile-topbar.tsx:108-201`).
+2. **Right-click**: delete the leftover `contextmenu` preventDefault in
+   `components/issue-editor/markdown-editor.tsx:432-437`. Nothing else references it.
+3. **Ctrl/Cmd+F opens search**: lift `IssueSearchSheet` open state into the workspace layout
+   (today duplicated in `sidebar.tsx:80` and `mobile-topbar.tsx:75`), add a global keydown
+   (pattern: the Cmd+B handler in `components/ui/sidebar.tsx:97-110`) that preventDefaults
+   Cmd/Ctrl+F. Desktop app parity in §8.13 (new quick-search modal — it has no search today).
+4. **Widget user hygiene**: filter `isAgent` at the source — `useWorkspaceUsers`
+   (`hooks/use-workspace-data.ts:185-219`) — which fixes the assignee picker
+   (`issue-properties/assignee-picker.tsx:106`), the row-menu AssigneeSubmenu, and every other
+   consumer at once. The billing member count fix is §3.3(3). (EXP-7's "2 members" is this.)
+5. **Newlines stripped on create (item 6)**: root cause is the TipTap↔markdown round-trip
+   collapsing blank paragraphs (`markdown-editor.tsx:411-415` `tiptap-markdown` config), NOT
+   the server trim (`domain.ts:159-166` only trims edges). Packet order: reproduce (serialize
+   a doc with blank lines through the create path), fix at the failing layer (hardBreak /
+   empty-paragraph serialization config), add a round-trip unit test. Must stay inside the
+   GFM contract — cross-client byte-parity (Android tests) is the lock.
 
-The IDE chrome and the issues split git cleanly — there is no context switcher and no mode:
+### 4.3 Public feedback board (EXP-7, L29)
 
-- **Trunk** (the project clone on its default branch) is *the* IDE surface. Git bar,
-  source-control screen, file tree, `+` shell tabs, and run configs all act on the trunk,
-  always. What the top bar shows is what every panel means.
-- **Issue worktrees are Claude's.** No manual push/pull/commit UI exists for them; Claude
-  commits, pushes, and opens the PR. Humans meet a worktree inside its issue (§4.8): live
-  diff, session badge, and two escape hatches — "Open terminal in worktree" (plain shell tab,
-  cwd = worktree) and Claude tasks (§4.9).
+- Remove the hard login redirect in
+  `routes/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier.tsx:19-26`; mirror
+  the parent route's public-aware logic (`route.tsx:42-64`). Shapes are already
+  anonymous-capable (issues/projects/workspaces/comments via public where-clauses,
+  `lib/auth/membership.ts:61-112`); verify labels + issue-labels shapes are public-scoped;
+  confirm no child component subscribes a `requireAuth` shape when anonymous. Detail renders
+  read-only via existing `readOnly={!permissions.canMutateIssue(issue)}`.
+- Users shape stays members-only (by design): anonymous sees placeholder avatars.
+- Member-count fix is §3.3(3)/§4.2(4).
 
-Consistency rules binding all v4 UI work:
+---
 
-1. Trunk chrome never displays worktree state; issue surfaces never display trunk state.
-2. No hidden git: every Claude-driven git operation runs in a visible, interactive terminal tab.
-3. Git state shown in the UI is always derived from the repo on disk (`.git/rebase-merge`,
-   `MERGE_HEAD`, porcelain status) — never from session bookkeeping — so it survives app
-   restarts and out-of-band fixes.
+## §5 Feedback widget v2 (EXP-2)
 
-### 4.3 Top bar (git bar, left of the run bar)
+All in `packages/widget` (+ rebuild into `apps/web/public/widget/v1/`):
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ ⌂ Web App ▾    ⎇ main  ⟳  ↓2 ↑1  [Pull] [Push]     ▸ dev-server ▾  ⏹  │ … │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+1. **Launcher**: tiny icon-only floating button, **default bottom-LEFT**, hover effect
+   (scale/label reveal). `init({ position: 'bottom-left' | 'bottom-right' })` option, default
+   bottom-left. The in-app `FeedbackWidgetProvider` adopts the same default.
+2. **Usable above dialogs**: mount the widget container on `document.documentElement` (not
+   `body` — Radix modal sets `pointer-events:none` on body) with max z-index, so the launcher
+   and panel work while any app dialog is open.
+3. **Crop**: the annotation editor gains a crop tool (rectangle select in image-pixel space,
+   `packages/widget/src/annotate/`); crop applies at flatten time (`flattenAnnotations`
+   re-encode ladder crops the canvas first); shapes stay editable pre-submit; recrop allowed.
+4. Widget creation becomes Pro-gated server-side (§3.3(4)) — the widget bundle itself is
+   unchanged by billing.
 
-`ui/src/git_bar.rs`: static branch chip (the trunk branch — nothing to switch), sync spinner
-(clone/fetch in flight, clone progress %), behind/ahead counts, ghost Pull/Push buttons
-(disabled with tooltip while cloning). During conflict mode the counts are replaced by an
-amber `⚠ N conflicts` chip that navigates to Source Control. The run bar is unchanged and
-always runs against the trunk.
+---
 
-### 4.4 Source Control screen (L13)
+## §6 GitHub flow & integrations removal (EXP-3, L25)
 
-New `Navigation::SourceControl` center screen (`ui/src/source_control.rs`), trunk-only:
+1. **Stale repo list**: the 60s per-user server cache (`lib/trpc/integrations.ts:15-19,
+   155-164`) swallows mid-flow installs. Add `refresh: boolean` input to
+   `integrations.github.repos` that busts the cache; the picker passes it on focus-refetch
+   and the manual button (`components/github-repo-picker.tsx:67-71, 118-126`); additionally
+   invalidate the user's cache entry in the setup redirect handler
+   (`routes/api/integrations/github/setup.ts`).
+2. **Kill the Integrations surface**: delete `routes/_authenticated/account/integrations.tsx`
+   (it holds only the GitHub App card), its nav links (`sidebar.tsx:326`,
+   `mobile-topbar.tsx:172`), and the setup redirect's non-dialog fallback target (redirect to
+   workspace settings instead of `/account/integrations`). GitHub App management remains in
+   workspace settings → Repositories (`repositories-section.tsx:67-204` already has
+   install/manage/status). Desktop/iOS/Android removals in §8.9/§9.
+3. Onboarding keeps the existing popup round-trip (`/integrations/github/installed`
+   self-close + opener focus refetch) — it works once (1) lands.
 
-```
-┌─ Changes ────────────────────┬─ Diff: src/app.rs ──────────────────────────┐
-│ Staged (2)                   │  side-by-side, reuses diff.rs renderer      │
-│   M src/app.rs           ▣  │                                             │
-│   A src/new.rs           ▣  │                                             │
-│ Changes (1)                  │                                             │
-│   ? notes.md             □  │                                             │
-├──────────────────────────────┤                                             │
-│ [ commit message…          ] │                                             │
-│ [ Commit ]  [ Commit & Push ]│                                             │
-├─ History ────────────────────┤                                             │
-│ ● fix login   danny · 2h     │                                             │
-│ ● add auth    danny · 1d     │  (selecting a commit shows its diff)        │
-└──────────────────────────────┴─────────────────────────────────────────────┘
-```
+---
 
-- Changes list from `git status --porcelain=v2 --branch`; checkbox = `git add -- <path>` /
-  `git restore --staged -- <path>`; file click → working diff (`git diff [--cached] -- <path>`)
-  rendered by the existing side-by-side diff element via a new git-unified-diff →
-  diff-model adapter (the PR diff and SCM diff share one renderer).
-- Commit: message Input + Commit / Commit & Push (`git commit -m`, then push). Empty-staged ⇒
-  buttons disabled. Author identity comes from the user's global git config; if unset, a
-  one-time inline prompt writes `user.name`/`user.email` to the **clone-local** config.
-- History: `git log --format=<NUL-separated>` (hash, subject, author, relative time), paged
-  (200 at a time, "Load more"); selecting a commit shows `git show` diffs per file.
-- **Conflict mode**: while a rebase/merge sits paused, the screen leads with a banner —
+## §7 Run configs unification (EXP-4, L23/L24)
 
-  ```
-  ┌─ Rebase paused — 3 conflicted files ───────────────────────────────┐
-  │  ⚠ src/app.rs    ⚠ src/lib.rs    ⚠ Cargo.lock                      │
-  │  [⚡ Fix conflicts with Claude]   [Open terminal]   [Abort rebase] │
-  └────────────────────────────────────────────────────────────────────┘
-  ```
+1. **Delete the preview-target system**: in `packages/db-schema/src/domain.ts:201-375` remove
+   `WebTarget`/`AndroidTarget`/`IosTarget`/`CommandTarget` + `platformValues` + the targets
+   half of `ProjectPreviewConfig`/`ProjectPreviewMirror`; `previewConfig` shrinks to
+   `{ feedbackProjectId }` (still used by widget dogfood wiring — keep the column and the
+   `projects.updatePreviewConfig` proc, simplified). Web: remove the "Run Targets" section +
+   `.exponential/config.json` copy from `project-preview-settings-dialog.tsx:149-181` (dialog
+   becomes "Feedback project" only). Desktop: nothing to delete (discovery was never
+   implemented); drop any lingering mirror parsing of `targets` if present. Delete the repo
+   root `.exponential/config.json`. Contract note: `platformValues` lives in
+   `packages/domain-contract/contract.json` → update + `bun run --filter @exp/domain-contract
+   generate`.
+2. **Run configs stay DB + argv** (L23): desktop `run_configs_editor` (owner-only CRUD,
+   `crates/ui/src/run_bar.rs:735+`) presents the command as a single line (argv⇄line, mirror
+   of `apps/web/src/lib/run-configs.ts` parse/format helpers in Rust). Web keeps NO run-config
+   UI.
+3. **"Create with Claude" button** in the desktop run-configs editor: spawns
+   `coding::claude_task` at the trunk clone with a scoped `.mcp.json` (L24) and a prompt to
+   inspect the repo (README/package.json/Cargo.toml/etc.), propose run configs, and create
+   them via the new `run_configs` MCP tools (§10). Tab kind `ClaudeTask`, visible/steerable,
+   no `coding_sessions` row. Run bar refetches configs when the tab exits.
 
-  Conflicted files open their marker diff; **Fix conflicts with Claude** runs a Claude task
-  (§4.9) in the trunk; Abort = `git rebase --abort` / `git merge --abort`. Mode entry/exit is
-  detected from `.git/rebase-merge` / `.git/MERGE_HEAD`, so the banner clears itself no matter
-  who finishes the rebase (Claude, a terminal, another tool) and survives app restarts.
-- All git invocations go through a new `crates/coding/src/scm.rs` (status/log/diff/stage/
-  commit/push/pull/fetch wrappers + parsers) — argv-only per L5, parsers unit-tested against
-  fixture repos created in tests.
+---
 
-### 4.5 File tree + viewer (L15)
+## §8 Desktop IDE wave (EXP-8)
 
-- The left dock gets a two-icon rail at its top: **Navigator** (existing sidebar) ⟷ **Files**.
-  Files shows the trunk working directory as a gpui-component `tree`:
-  lazy-loaded directories, `.git` hidden, gitignored entries dimmed, git status dots
-  (M/A/?) on changed files, context-menu "Reveal in file manager" / "Open terminal here".
-- Clicking a file opens `Navigation::FileViewer { path }` (trunk-relative): read-only, Tree-sitter
-  highlighted (reuse the diff view's `highlighter`), virtualized lines, no editing (L15).
-  Binary/oversized (>2 MB) files show a placeholder with size + "Open in terminal".
+Grounded in `apps/desktop` research; items ordered by user report.
 
-### 4.6 Terminals & run configs
+1. **Always-editable issue editor**: remove the Write/Preview toggle — delete the toolbar
+   eye button (`crates/ui/src/markdown/toolbar.rs:315-325`), the `preview` field +
+   `toggle_preview`/`is_preview` (`crates/ui/src/markdown/editor.rs:305,440-442,1032-1033`),
+   collapse the render branch (`editor.rs:1219-1274`) to editable blocks always.
+2. **Image removal persists**: structural edits currently only fire `on_change` (in-memory
+   mirror) — `remove_image_at` (`editor.rs:871-900`) never triggers `on_save` (blur-only,
+   `description_editor.rs:125-129`). Add a commit hook for structural edits (image
+   insert/remove) that invokes the save path immediately.
+3. **Detail padding**: unify horizontal padding across breadcrumb (`px_4`), tabs (`px_3`),
+   title (`px_3`), description (`px_4`), fallback (`px_5`) in `issue_detail.rs` to one shared
+   edge; recheck `max_w(768).mx_auto()` centering against the properties panel.
+4. **Sidebar project color dots**: custom row in `sidebar.rs` `projects_menu` (L301-332)
+   prepending a `size_3().rounded_full()` dot from `Project.color`
+   (`parse_hex_color` precedent at `issue_detail.rs:430`). Web reference:
+   `apps/web/.../sidebar.tsx:267-270`.
+5. **Create-project dialog is BROKEN + needs repo picker**: server requires `repository`
+   (`lib/trpc/projects.ts:102-116`) but `ProjectsCreateInput`
+   (`crates/api/src/projects.rs:40-51`) doesn't send one. Add `repository: {repositoryId}` to
+   the input, a registry repo picker fed by `repositories.list` (pattern:
+   `crates/ui/src/settings/repositories.rs::fetch_repositories`), submit gated on selection,
+   empty state links to web settings ("Connect a repository in the web app"). Inline
+   GitHub-connect stays web-only.
+6. **Remove the "Personal API key" settings card**: provisioning is already fully automatic
+   (`ensure_personal_key`, `crates/api/src/users.rs:139-156`; `.mcp.json` writing
+   `crates/coding/src/mcp_json.rs:60-91`). Delete `render_key_card` + call
+   (`crates/ui/src/settings/coding.rs:418-481,536`) and the now-dead KeyStatus machinery.
+7. **Numeric identifier sort**: replace the lexicographic tie-break in
+   `crates/sync/src/collections.rs::sort_issues` (L481-488) with a (prefix, number) natural
+   comparator; apply the same in `issue_detail.rs:901` (duplicate picker),
+   `markdown/autocomplete.rs:159`, `debug_board.rs:110`.
+8. **Terminal panel**: (a) click on empty dock area starts a shell (`render_empty`
+   `terminal_dock.rs:500-519` → `new_shell_tab`); (b) on `TabClosed` with empty manager →
+   collapse the bottom dock (subscription at L193-213 currently only refocuses); (c) remove
+   the zoom control — it comes from the `DockItem::tabs` wrapper (`workspace.rs:266`); build
+   the bottom dock chrome-less like the center (`workspace.rs:249` pattern) or suppress
+   TabPanel zoom.
+9. **Account menu parity (with L25 applied)**: target menu on BOTH web+desktop:
+   Admin (web, admin-only) · Settings · Notifications · New workspace/Join workspace
+   (solo-gated) · Sign out. Desktop splits its "Account" entry accordingly and drops the
+   Integrations pane (`crates/ui/src/settings/account.rs`); trigger becomes avatar+email for
+   parity (`sidebar.rs:376-421` vs web `sidebar.tsx:286-348`).
+10. **File browser**: design pass on the Files rail (`crates/ui/src/file_tree.rs`) + multi-tab
+    file viewing — `FileViewerView` (`file_viewer.rs:73-146`) holds one path today; move to
+    an open-paths + active-index tab strip in the viewer screen (larger structural item;
+    keep read-only per L15).
+11. **Navigation**: `Navigation.back_stack` + `go_back()`/`can_go_back()` already exist but
+    are dead code (`crates/ui/src/navigation.rs:61-195`). Wire a back button into the top
+    chrome + `cmd-[`/`Alt+Left` keybinding; add breadcrumbs to non-detail screens
+    (Board/My Issues/Inbox/Settings/File viewer — only issue detail has one today).
+12. **Default branch (the EXP-8 screenshot bug, L30)** — three layers:
+    - Server: `connectRepositoryInTx` stops blind-seeding `main`
+      (`lib/trpc/repositories.ts:88-93`) — resolve via `resolveRepoDefaultBranch`
+      (`lib/integrations/github-app.ts:123-131`) when not supplied; `repositories.list`
+      heals like `installationToken` already does (`repositories.ts:319-349`); one-off
+      backfill script for rows whose stored branch disagrees with GitHub.
+    - Desktop: the trunk sync worker uses the *stale scope value* — switch
+      `git_bar.rs:585-621` pull/push to consume `token.default_branch` (already minted at
+      :593); same for `issue_changes.rs:742-744,774` and `source_control.rs:601`; kill the
+      `repo_resolver.rs:210-213` `"main"` fallback (use the healed API value).
+13. **Cmd+F quick search** (EXP-5 parity): new lightweight search modal over synced issues
+    (title substring, navigate on pick — reuse the autocomplete index), bound to cmd/ctrl+F.
+14. **Duplicate interception parity** (L27): status dropdowns intercept `duplicate` → open
+    the existing duplicate picker (`issue_detail.rs:901`); remove any standalone
+    mark-as-duplicate entry.
 
-- `+` shell tab: cwd = trunk clone root; `$HOME` only while the clone doesn't exist yet or on
-  non-project screens. Tab header shows the directory name.
-- Run configs: `run_root` = trunk clone root, always. Running something inside an issue
-  worktree is a power move done from a worktree shell tab, not from the run bar. Trust gate
-  unchanged.
-- Claude tabs unchanged (cwd = their worktree, keyed by `coding_sessions.id`); "Open terminal
-  in worktree" lives in the issue Changes tab (§4.8), never in the IDE chrome.
+---
 
-### 4.7 Local repository management
+## §9 Mobile wave (EXP-12)
 
-Settings gains a **Local repositories** section: each clone with disk usage (`du`-style scan,
-cached), worktree count, actions: "Prune merged worktrees" (worktrees whose issue's
-`prState='merged'` — `git worktree remove` + branch delete, skipped if dirty) and "Remove local
-copy" (confirm; blocked while sessions run). No auto-GC in v4.
+### 9.1 iOS sync blackout (blocker)
 
-### 4.8 Issue Changes tab (worktree diffs live in the issue)
+"No shape activity + no log entries + Resync no-op" is only producible when **no HTTP
+round-trip ever happens** — every poll logs to SyncDebug before status branching
+(`ShapeClient.swift:117-119`). Prime suspect (H1): `db.pool(forAccountId:)` throws (GRDB
+migrations `v2_offset_refetch_state` / `v3_project_repository_id`), which silently kills
+`launchPipeline` AND makes `resync()` return early (`SyncManager.swift:88,122-131`) — errors
+go only to `os.Logger`. Packet:
 
-Desktop issue detail gets a segmented header: **Details · Changes**. Changes is the *only*
-place a worktree is visible:
+1. **Diagnose on a staging device** (log filter: SyncManager/ShapeClient/AppDependencies) —
+   confirm/deny H1 before fixing; H2 fallback: token/baseUrl provider nil-spin
+   (`ShapeClient.run()` guard L50).
+2. **Fix the root cause** (likely migration hardening against existing `-v2.sqlite` DBs; add
+   migration tests against fixture DBs at each historical schema version).
+3. **Never silent again**: surface pool-open/migration failures + "pipeline launched" status
+   into `SyncDebug` and the diagnostics screen; `resync()` failure paths report instead of
+   no-op.
 
-```
-┌  Details │ Changes ────────────────────────────────────────────────────────┐
-│  ⎇ exp/EXP-42   ● Claude running    5 files  +120 −34                      │
-│  [Open terminal in worktree]                  [⋯ Update from main ·        │
-│                                                    Clean up worktree]      │
-│ ┌─ files ─────────┬─ side-by-side diff (shared renderer) ────────────────┐ │
-│ │ M src/app.rs    │  …                                                   │ │
-│ │ A src/new.rs    │                                                      │ │
-│ └─────────────────┴──────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### 9.2 Both platforms
 
-- **Source logic (capability-tiered, same tab meaning on every client)**:
-  1. local worktree exists (desktop only) → **live local diff** (`git diff
-     origin/<default>...HEAD` plus uncommitted; header: "Local — includes uncommitted");
-  2. PR exists → PR diff as today;
-  3. branch pushed, no PR → `repositories.branchDiff` (header: "Branch exp/EXP-42 — no PR
-     yet");
-  4. nothing pushed → empty state naming the live machine: "Being coded on
-     <deviceLabel> — Watch / Steer" opening the steer viewer.
-  Watch/Steer buttons sit in the tab header whenever a session is running, on all clients.
-- **Freshness**: refresh on tab focus, when the session's terminal output goes quiet
-  (debounced), and a slow poll while visible. No FS watcher in v4.
-- **PR unmergeable** (GitHub reports conflicts): the tab shows "PR conflicts with <default>"
-  + **Resolve with Claude** → Claude task (§4.9) in the worktree.
-- **Update from main**: Claude task in the worktree ("rebase onto origin/<default>…") for
-  refreshing a long-lived issue branch on demand.
-- **Clean up worktree** appears once `prState` is merged/closed: `git worktree remove` +
-  local branch delete (blocked while a session runs or the tree is dirty, with the reason).
-- The standalone PR-diff section folds into this tab — one diff surface per issue.
+- **Remove workspace creation** (L26): iOS empty-state "New workspace" button + sheet chain
+  (`HomeView.swift:40-52,78-89`, `CreateWorkspaceSheet.swift`); Android dead code
+  (`CreateWorkspaceSheet.kt`, unused `HomeViewModel.createWorkspace`).
+- **Remove Integrations** (L25): iOS `SettingsView.swift:172-175` + `AppRoute.integrations` +
+  `IntegrationsView.swift`; Android `SettingsScreen.kt:184-189` + `integrations` route +
+  `IntegrationsScreen.kt`. (Keep the repo-picker/integrations API clients used elsewhere.)
+- **Remove project creation** (L26): iOS Home toolbar + per-workspace "+" + `CreateProjectSheet`
+  (`HomeView.swift:101-165`); Android per-workspace "+" + `CreateProjectSheet.kt`
+  (`HomeScreen.kt:136-157,243-252`). **Onboarding on both becomes a single "Create your first
+  project on the web or desktop app" screen** (delete the project-creation steps in iOS
+  `OnboardingView.swift:129-255` / Android `OnboardingScreen.kt:101` +
+  `OnboardingViewModel.kt:89-98`).
+- **Feedback routing**: open `${baseUrl}/feedback` (server redirect = single source of truth)
+  instead of the hardcoded `/w/feedback/projects/feedback` (iOS `SettingsView.swift:182-200`,
+  Android `SettingsScreen.kt:197-216`).
+- **Duplicate interception parity** (L27) in both status pickers.
 
-### 4.9 Claude tasks (the reusable "let Claude handle it" primitive)
+### 9.3 Android-specific
 
-`coding::claude_task(cwd, prompt, label)` spawns a one-shot **interactive**
-`claude --model <model> --dangerously-skip-permissions` in a terminal-dock tab
-(`TabKind::ClaudeTask`), prompt passed as the positional argument. Differences from
-`coding::launch`: no `.mcp.json`, no `PROMPT.md`, **no `coding_sessions` row** (not
-issue-bound: no steer room, no plan-limit charge), no branch/worktree creation — it runs
-where it's pointed. Always visible, always steerable by typing — never a hidden background
-job. v4 users of the primitive:
+- **Swipe → long-press**: replace `SwipeableIssueRow` (Material3 SwipeToDismissBox mirroring
+  iOS) with `combinedClickable(onClick, onLongClick)` opening a bottom-sheet action list
+  (Mark done / Move to backlog / …; patterns: `IssuePickerSheet.kt`). Call sites:
+  `IssueListScreen.kt:201-213`, `MyIssuesScreen.kt:98`. iOS keeps native `.swipeActions`.
+- **Issue-detail crash**: reproduce with `adb logcat` FIRST (exact stack collapses the
+  hypotheses). Prime suspect: the new issue-ref pill `addLink` path without range coercion /
+  overlapping LinkAnnotations (`ui/markdown/MarkdownView.kt:233-248` vs the coerced mark loop
+  at 206-208; new code from commit `6549c5c`). Apply the defensive `coerceIn` + overlap-skip
+  regardless; then fix the actual cause per the stack.
+- **One add-issue button, project-only**: remove the top-right create button
+  (`IssueListScreen.kt:109-112`); FAB shows ONLY on the project route — change `showCompose`
+  to require `currentRoute == "project/{projectId}"` and drop the `fallbackProjectId` compose
+  fallback (`AppNavHost.kt:236-241,391-419`).
 
-| Trigger | cwd | Prompt sketch |
+---
+
+## §10 MCP completeness (EXP-10)
+
+23 tools exist (`apps/web/src/lib/mcp/tools.ts`; auth via `resolve-bearer.ts` — cookie,
+bearer session, `expu_` key, OAuth). Add (reusing the tRPC-caller pattern; workspace-access
+gated like existing tools):
+
+| New tool | Backs onto |
+|---|---|
+| `exponential_comments_update` / `_delete` | `comments.update/delete` |
+| `exponential_issues_subscribe` / `_unsubscribe` | `subscriptions.*` |
+| `exponential_notifications_list` / `_mark_read` (id or all) | `notifications.*` |
+| `exponential_members_list` | `users.listByWorkspaceIds` (+role; excludes `isAgent` by default — needed to resolve `assigneeId`) |
+| `exponential_repositories_list` / `_add` / `_branch_diff` | `repositories.*` |
+| `exponential_run_configs_list` / `_create` / `_update` / `_delete` | `runConfigs.*` (powers §7.3) |
+| `exponential_issues_pr_files` | `issues.prFiles` |
+| `exponential_projects_delete` / `_set_repository` | `projects.*` |
+| `exponential_workspaces_create` / `_update` | `workspaces.*` |
+| `exponential_invites_create` / `_list` / `_revoke` | `workspace-invites.*` (owner-gated) |
+| `exponential_attachments_upload` | new: base64 image → S3 + attachments row, returns the `![](/api/attachments/{id})` form (reuse `issue-attachments.ts` helpers, plan storage limit applies) |
+
+Explicitly out: steer, admin, billing, push-tokens, api-key minting, onboarding.
+`issues_update` already sets any status; `issues_update_status` stays the narrow coding-flow
+tool. Every new tool gets a vitest exercising the happy path + a permission-denial.
+
+---
+
+## §11 Marketing site & distribution (EXP-11)
+
+### 11.1 Site overhaul (`apps/marketing` — Vite/React, custom OKLCH CSS, keep the stack)
+
+- **Hero**: **"Make your app exponential."** — the loop as the centerpiece: *feedback widget →
+  issue → Claude codes → PR ships → reporter gets the resolution email*. Animated loop
+  visualization (the existing `TerminalDemo` choreography style, extended to the full circle).
+- **Live widget demo**: embed the REAL feedback widget on the marketing site (loader from
+  `app.exponential.at/widget/v1/loader.js` + a dedicated demo `expw_` key/config; the
+  submission lands on the public feedback board — visitors experience step 1 of the loop for
+  real, zed.dev-style).
+- **IDE showcase** section (screenshots/screen recordings of the desktop: Start coding,
+  terminal, source control, Changes tab) + **mobile section** with the steer-from-phone story.
+- **Downloads**: resurrect `DownloadSection.tsx` (currently dead code) with CORRECTED copy
+  (Rust/gpui — the current text says Swift/ghostty + Zig/GTK4!), wired to real GitHub
+  Releases latest URLs (`lib/links.ts` TODO(launch) placeholders).
+- **Pricing page**: per-seat model (§3), self-host free card + **Enterprise contact-sales**
+  card. Remove `FoundingCallout`.
+- Fix the drifted claims: push notifications shown as paid (`pricing.ts:24`), stale stack
+  descriptions.
+
+### 11.2 Desktop distribution
+
+- `build-desktop.yml`: on `desktop-v*` tags, **publish production-channel artifacts to GitHub
+  Releases** (today: private Actions artifacts only) with stable `latest` URLs + SHA-256
+  checksums. Staging channel stays artifacts-only.
+- **macOS**: Developer ID Application cert + `codesign --options runtime` +
+  `xcrun notarytool` in CI (secrets: cert p12, notary API key) + staple; package as `.dmg`
+  (create-dmg) — Gatekeeper-clean downloads. (Apple Developer account: release checklist.)
+- **Linux**: AppImage as-is + checksum.
+- **Update banner** (in scope, L28): the app checks the GitHub Releases API on launch
+  (debounced, e.g. daily) and shows a "new version available → download" banner. Full
+  Sparkle/zsync auto-update is post-release.
+
+### 11.3 Mobile distribution (fastlane)
+
+**fastlane is the deployment mechanism for both stores from day one** (decision revised
+2026-07-05: was "manual-first"). Lanes live in-repo and are runnable locally on the Mac; CI
+wiring is optional sugar on top, not a prerequisite.
+
+- **Android** (`apps/android/fastlane/`): release keystore + `signingConfigs` in
+  `app/build.gradle.kts` fed by env/gradle-properties (unsigned fallback keeps CI green
+  pre-keystore). Lanes: `build` (signed `.aab` + APK), `internal` (upload to the Play
+  internal track via `supply`, service-account JSON from env), `production` (promote).
+  Store listing metadata (title/descriptions/changelogs) checked into
+  `fastlane/metadata/android/` so listings are versioned.
+- **iOS** (`apps/ios/fastlane/`): lanes on top of Tuist — `build` (tuist generate + `gym`
+  archive of the `Exponential` scheme), `beta` (`pilot` → TestFlight), `release`
+  (`deliver` → App Store submission). Signing via cert + provisioning profile managed with
+  `match` (private repo or Developer-portal-managed profiles — decided at account setup);
+  App Store Connect API key (env) for non-interactive upload. Runs on the local Mac; no CI
+  Mac runner needed for launch.
+- `docs/release-android.md` / `docs/release-ios.md` document the one-time setup (accounts,
+  keys, keystore/match bootstrap) and the per-release two-liner (`bundle exec fastlane …`).
+- Store listing assets (screenshots per device size, privacy policy URLs from the marketing
+  site) ride the fastlane metadata dirs.
+
+---
+
+## §12 Execution plan — phases P0–P5
+
+Orchestration: a **dynamic Workflow of subagents**. Rules (per the standing model split):
+**default every packet agent to Opus**; use Fable ONLY for (a) the P0.a billing/Creem contract
+review, (b) the end-of-phase adversarial verify packets, (c) the final release-readiness
+review. Packets name their files (§3–§11 above carry the file:line grounding) and must leave
+their gate green: web packets `bun run typecheck` + `bun run test`; desktop `cargo build` +
+`cargo test -p <crate>`; Android `bun run android:build`; iOS `tuist generate` + simulator
+`xcodebuild build`; widget `bun run test:widget && bun run build:widget`; marketing
+`cd apps/marketing && bun run build`.
+
+Dependency shape: P0 first (server contracts); P1–P4 run **in parallel** after their P0
+dependencies; P5 last. Each phase ends with an independent **verify packet** (re-run gates,
+grep for leftovers, exercise flows per `/verify`).
+
+### P0 — Server foundation (everything client waves depend on)
+
+| Packet | Scope | Key refs |
 |---|---|---|
-| Fix conflicts (trunk conflict mode) | trunk | "A `git pull --rebase` on `<branch>` stopped on conflicts in `<files>`. Resolve them preserving both sides' intent, run `git rebase --continue` (or `git merge --continue`), verify the project still builds, and do NOT push." |
-| Resolve PR conflicts / Update from main (issue Changes tab) | issue worktree | "Rebase this branch onto `origin/<default>`, resolve any conflicts, verify the build, then push with `--force-with-lease`." |
+| P0.a | **Creem seat spike** + subscription→workspace binding schema (§3.3 1–2). Gate: seat-quantity checkout round-trip proven on Creem test mode. **Fable-reviewed.** | `auth-schema.ts:134`, `lib/auth/index.ts:329` |
+| P0.b | `billing.ts` rewrite: per-seat limits, workspace-bound plan resolution, delete dead axes + call sites, agent-excluded counts, widget Pro gate, invisible free workspace guard (§3.3 3–4) | `billing.ts`, `trpc/{projects,repositories,coding-sessions,steer,workspace-invites,widgets}.ts` |
+| P0.c | Billing UI: plan-comparison (3 per-seat columns + seat picker), billing-section (seat/storage/widget usage), FOUNDING removal, Infinity/null convention (§3.3 5) | `plan-comparison.tsx`, `billing-section.tsx`, `use-billing.ts` |
+| P0.d | Default-branch server fixes + backfill (§8.12 server half) | `trpc/repositories.ts:88-93,163-201`, `github-app.ts:123-131` |
+| P0.e | MCP expansion — all §10 tools + tests | `lib/mcp/tools.ts` |
+| P0.f | Preview-target deletion: domain types, contract.json + regen, web dialog shrink, `updatePreviewConfig` simplification, delete root `.exponential/config.json` (§7.1) | `domain.ts:201-375`, `project-preview-settings-dialog.tsx` |
+| P0.g | Anonymous issue detail (route guard + shape audit) (§4.3) | `issues/$issueIdentifier.tsx:19-26` |
+| P0.h | Repos-cache refresh input + setup-handler invalidation (§6.1) | `trpc/integrations.ts:15-19`, `setup.ts` |
+| P0.v | **Verify packet** (Fable): gates green, fresh-DB migrate, seat checkout e2e on staging Creem, grep for deleted-axis leftovers | |
 
-### 4.10 Branch map (stretch — phase R6 only)
-
-A faithful JetBrains-style log graph (arbitrary refs, general lane assignment, graph-side git
-actions) is overblown here. The **product-native** version is not: in Exponential every
-interesting branch *is* an issue (`exp/*`), so the graph collapses to a trunk spine + one lane
-per issue branch — a flight map of in-progress work, not a git log viewer.
-
-```
-│ ●  fix: partial-unique upserts …           main
-│ ●  feat: wave 2 — §4c run-targets …
-│ ├─●  ╮                                      ⎇ exp/EXP-42 · In Progress · ● coding
-│ ●  │ ●  refactor: extract scm parsers      (chip → navigates to the issue)
-│ ●──╯                                        ⎇ exp/EXP-38 · Done · merged ↩
-│ ●  docs: masterplan v4
-```
-
-- **Desktop**: the Source Control History pane gains a lane gutter — trunk commits plus
-  `exp/*` branches (local worktrees + remote-tracking after fetch): fork point, commits ahead,
-  merge-back curve once the PR merged. Branch tips carry issue chips (identifier · status ·
-  session badge). Data = local git (`log`, `merge-base`, `for-each-ref`). Only trunk +
-  issue-prefix branches — never arbitrary refs, and no git actions from the graph.
-- **Web**: a **Branches** view on the project screen, same visual model rendered as SVG, fed
-  by `repositories.graph` (§3.2; GitHub API, 60s cache). Issue chips link to issues.
-- **Mobile**: skipped this iteration.
-- Severable by construction: v4 ships whole without R6.
-
----
-
-## §5 Web: onboarding, project creation, settings
-
-### 5.1 Onboarding (`components/onboarding/`)
-
-Collapse the two steps into **one**: "Create your first project".
-
-```
-┌──────────────────────────────────────────────┐
-│  Create your first project                   │
-│  Name      [ Web App        ]  Prefix [WEB]  │
-│  Color     ● ● ● ● ●                         │
-│  ── Repository (required) ──────────────────  │
-│  [ GithubRepoPicker: installed repos list ]  │
-│  [ + Install the GitHub App… ] (if none)     │
-│                        [ Create project ]    │
-└──────────────────────────────────────────────┘
-```
-
-- One `projects.create` call with the inline `repository: { fullName }`.
-- **Remove** the per-step Skip and the global "Skip setup entirely" link — repo-less projects
-  no longer exist (invited users never hit onboarding; they land in the shared workspace).
-- The App-install CTA keeps the existing round-trip (`/integrations/github/installed` return
-  refreshes the picker).
-
-### 5.2 Create-project dialog (`create-project-dialog.tsx`)
-
-Add a repository section under the existing fields — same picker as onboarding (connected
-repos first, "Connect another repo…" expands the GithubRepoPicker install/add flow). The
-Create button stays disabled until a repo is chosen. Empty-state (no App installed) links to
-workspace settings → Repositories.
-
-### 5.3 Workspace settings
-
-- **Repositories section** becomes a pure registry: rows show `owner/name`, default branch,
-  install status, and "used by" project chips (from `repositories.list().projects`); actions:
-  connect (unchanged), archive, remove (disabled with tooltip while in use). Star/primary UI
-  and per-project link editing are **deleted**.
-- **Projects section**: each project row shows its repo (`owner/name` chip) and an owner-only
-  "Change repository…" action → dialog with the same picker calling `projects.setRepository`.
-
-### 5.4 Issue Changes tab (web)
-
-The issue detail's PR-diff section becomes a **Changes** tab, tiers 2–4 of the §4.8 source
-logic: PR diff (as today) → `repositories.branchDiff` when the branch is pushed but has no PR
-→ "Being coded on <deviceLabel> — Watch / Steer" empty state opening the existing xterm.js
-steer viewer. Watch/Steer buttons in the tab header while a session runs. No git operations
-of any kind on the web (L18).
-
----
-
-## §6 Mobile: iOS & Android adjustments
-
-Mobile stays a coordination surface (no cloning, no git). Changes are model-parity + creation
-flow:
-
-- **Both platforms**
-  - Project creation (wherever it exists) gains a required "Repository" selector listing
-    already-connected repos (`repositories.list`). Empty state: "Connect a repository in the
-    web app first" (Android; iOS may offer add-by-name below). No skip.
-  - Settings repositories section: drop primary-star / per-project link UI; show "used by"
-    project chips; remove blocked-in-use handling mirrors the web copy.
-  - Issue detail's PR-diff section is titled **Changes** to match desktop, with the §4.8
-    tiers 2–4: PR diff → `branchDiff` (pushed, no PR) → "Being coded on <device>" state
-    opening the native steer viewer. Mobile never sees local worktrees and does no git ops.
-  - Project screens (project header, issue-detail coding section) show the repo name chip —
-    the uuid comes off the synced `projects` shape, the name from the repositories API (cache
-    per workspace).
-  - Sync schema: add `repository_id` to the projects entity/DAO (GRDB migration on iOS, Room
-    on Android) — additive column on an existing shape, no shape-count change.
-- **iOS**: `RepositoriesApi` drops `linkProject`/`unlinkProject`/`setPrimary`, gains
-  `projects.setRepository`; `GithubRepoPicker` reused in create-project.
-- **Android**: connecting brand-new repos stays web-only (as today); the selector only offers
-  connected repos.
-
----
-
-## §7 Migration & rollout
-
-Production and staging still run the pre-refactor image; the v2 plan already commits to a
-**greenfield DB reset** at release, and v4 folds into that same reset. So the migration burden
-is dev/staging only:
-
-1. Drizzle migration: add `projects.repository_id` **nullable** → backfill from
-   `project_repositories` (primary link, else sole link) → *(repair)* any project still null
-   fails loudly in a listed report → set `NOT NULL` → drop `project_repositories`.
-2. Repair script for our own DBs (dev + staging): link repo-less projects to a named repo
-   (dogfood: `Niach/exponential`), or delete them. Run before the NOT NULL step.
-3. `bun run migrate:generate && bun run migrate`; custom triggers unchanged (no new trigger —
-   `repository_id` needs no denormalization, it lives on an already-workspace-scoped table).
-4. Shape ride-along: confirm the projects shape proxy has no `columns` pin excluding the new
-   column (only `issue-subscribers` pins columns today), and regenerate/extend the three native
-   clients' projects row structs.
-5. Staging reset per the documented Coolify procedure once R0–R3 are green.
-
-No `contract.json` change (no new enums). No design-token change.
-
----
-
-## §8 Execution plan — phases R0–R5
-
-Designed for a **dynamic workflow of subagents** (Workflow tool). Orchestration rules:
-
-- **Model**: default every packet agent to `opus`; reserve Fable for adversarial review/judging
-  packets only.
-- **Contract-first**: R0 lands the schema + server contract before any client work; R1
-  (web) ∥ R2 (desktop core) after R0; R3 depends on R2; R4 (mobile) ∥ R2/R3; R5 last.
-- Packets are sized for one agent: each names its files, its gate, and must leave
-  `bun run typecheck` / `cargo build` green. Agents touching `apps/desktop` run
-  `cargo test -p <crate>`; server packets run the vitest suite.
-- Every phase ends with a **verify packet** (independent agent): re-run the gate commands,
-  grep for leftovers (e.g. `project_repositories`, `linkProject`, `setPrimary`,
-  `resolveProjectRepository` old semantics), and exercise the flow per `/verify`.
-
-### R0 — Schema & server contract
-
-| Packet | Scope | Key files |
-|--------|-------|-----------|
-| R0.a | Schema: `projects.repositoryId`, delete `project_repositories`, types/zod; migration + backfill/repair per §7 | `packages/db-schema/src/schema.ts`, `apps/web/src/db/out/` |
-| R0.b | `projects.create` inline-repo + `setRepository`; `repositories` router simplification (`forIssue`, `list.projects`, delete link procs, `remove`→CONFLICT) + `branchDiff` compare proc; vitest coverage | `apps/web/src/lib/trpc/projects.ts`, `repositories.ts` |
-| R0.c | Bootstrap + seeds: feedback-workspace repo row, test factories, `.env.example`/README self-host note | `apps/web/src/lib/**bootstrap**`, test helpers |
-| R0.d | Shape ride-along audit: projects proxy/collection carry `repository_id`; web `useLiveQuery` typings | `apps/web/src/routes/api/shapes/projects.ts`, `lib/collections.ts` |
-
-**Gate**: fresh-DB migrate green; typecheck + vitest green; creating a project without a repo is
-impossible via tRPC; `repositories.remove` on an in-use repo returns CONFLICT.
-
-### R1 — Web surfaces (∥ R2)
+### P1 — Web wave (after P0.b/f/g/h)
 
 | Packet | Scope |
-|--------|-------|
-| R1.a | Onboarding single-step merge (§5.1), skip removal |
-| R1.b | Create-project dialog repo section (§5.2) |
-| R1.c | Settings: repositories registry + projects rows "Change repository…" (§5.3) |
-| R1.d | Web issue **Changes** tab: PR → branchDiff → watch/steer tiers (§5.4) |
+|---|---|
+| P1.a | Duplicates interception + menu removal + create-dialog status trim (§4.1) |
+| P1.b | Mobile-web cleanup + empty bar + topbar/drawer dedup (§4.2 1) |
+| P1.c | Right-click fix; Ctrl+F global search (state lift + shortcut) (§4.2 2-3) |
+| P1.d | `isAgent` filter at `useWorkspaceUsers` source (§4.2 4) |
+| P1.e | Newline round-trip: reproduce → fix → parity test (§4.2 5) |
+| P1.f | Integrations page + nav removal, setup-redirect retarget (§6.2) |
+| P1.v | Verify packet: e2e pass (anonymous board view, duplicate flow, mobile viewport, create-with-blank-lines) |
 
-**Gate**: e2e — fresh user onboards through project+repo; create dialog blocks without repo;
-settings retarget works; Changes tab renders each source tier.
-
-### R2 — Desktop git core (Rust, ∥ R1)
-
-| Packet | Scope | Key files |
-|--------|-------|-----------|
-| R2.a | `scm.rs`: status/log/diff/show/stage/commit/push/pull/fetch wrappers + porcelain-v2/log/unified-diff parsers, fixture-repo tests | `crates/coding/src/scm.rs` |
-| R2.b | `CloneManager`: auto-clone job + progress events, fetch policy, token re-mint/re-set, ahead/behind | `crates/coding/src/clone_manager.rs`, reuse `git_worktree.rs` |
-| R2.c | Trunk state model (ahead/behind, conflict-mode detection from `.git/rebase-merge`/`MERGE_HEAD`) + `claude_task` primitive; `run_root`/shell-cwd rewiring to trunk | `crates/coding/src/`, `crates/ui/src/state` |
-| R2.d | git-diff → diff-model adapter so `diff.rs` renders working/commit diffs | `crates/ui/src/diff.rs` (+adapter) |
-
-**Gate**: `cargo test` green incl. fixture-repo parser tests; headless: open project →
-clone appears under repos root; ahead/behind + conflict-mode detection correct against a
-fixture remote.
-
-### R3 — Desktop UI (after R2)
+### P2 — Desktop wave (after P0.d/f; parallel with P1/P3/P4)
 
 | Packet | Scope |
-|--------|-------|
-| R3.a | Git bar (trunk chip, counts, Pull/Push, clone progress, conflict chip) next to the run bar |
-| R3.b | Source Control screen (changes/stage/commit/history/diff) + conflict-mode banner + Fix-with-Claude wiring |
-| R3.c | Files rail: left-dock toggle, tree with status dots, read-only viewer screen |
-| R3.d | Terminal `+`/run-bar trunk cwd, settings "Local repositories" (§4.7) |
-| R3.e | Issue **Changes** tab: segmented header, local-diff/PR-diff source logic, Open-terminal-in-worktree, Resolve-PR-conflicts/Update-from-main + cleanup actions; fold the standalone PR-diff section in |
+|---|---|
+| P2.a | Editor: always-editable + structural-edit save commit (§8.1-2) |
+| P2.b | Detail padding + sidebar color dots (§8.3-4) |
+| P2.c | **Create-project fix** with registry repo picker (§8.5) |
+| P2.d | API-key card removal + account-menu parity (§8.6, 8.9) |
+| P2.e | Numeric sort + terminal panel (click-to-shell, collapse, no zoom) (§8.7-8) |
+| P2.f | Default-branch consumption (token value everywhere, kill `main` fallback) (§8.12 desktop half) |
+| P2.g | Run-configs editor: single-line command UX + **Create with Claude** (scoped `.mcp.json`) (§7.2-3) |
+| P2.h | File browser design pass + multi-tab viewer (§8.10) — largest item, sequenced last |
+| P2.i | Navigation: back button + keybinding + breadcrumbs; Cmd+F quick search; duplicate interception (§8.11, 8.13-14) |
+| P2.v | Verify packet: cargo tests, manual checklist (worktree launch on a `master`-default repo MUST pass — the EXP-8 screenshot repro) |
 
-**Gate**: build green both OSes; manual checklist — clone→terminal-in-repo→edit→stage→commit→
-push→pull round trip; manufactured rebase conflict → Fix with Claude resolves it and the banner
-clears; issue Changes tab shows the live worktree diff while Claude codes.
-
-### R4 — Mobile parity (∥ R3)
+### P3 — Mobile wave (after P0; §9.1 first — it blocks all iOS verification)
 
 | Packet | Scope |
-|--------|-------|
-| R4.a | iOS: entity migration, create-project repo selector, settings simplification, repo chips |
-| R4.b | Android: same, selector limited to connected repos |
+|---|---|
+| P3.a | **iOS sync**: device diagnosis → root-cause fix → diagnostics surfacing + migration fixture tests (§9.1) |
+| P3.b | iOS removals: workspace/project creation, Integrations, onboarding→"set up on web", feedback URL (§9.2) |
+| P3.c | Android removals: same set + dead code (§9.2) |
+| P3.d | Android: crash repro + fix + MarkdownView hardening (§9.3) |
+| P3.e | Android: long-press rows; single FAB project-only (§9.3) |
+| P3.f | Both: duplicate interception parity (§9.2) |
+| P3.v | Verify packet: both apps build + on-device staging smoke (iOS sync live, Android issue-detail open) |
 
-**Gate**: both build; project creation without repo impossible; settings render 1:1 model.
+### P4 — Widget + marketing + distribution (widget after P0.b; site after §3 numbers final)
 
-### R5 — Polish & release alignment
+| Packet | Scope |
+|---|---|
+| P4.a | Widget v2: launcher (bottom-left, tiny, hover), documentElement mount/z-index, crop tool (§5) |
+| P4.b | Marketing: hero + loop narrative + live widget embed (§11.1) |
+| P4.c | Marketing: IDE/mobile showcase + downloads section (corrected copy) + pricing page + enterprise contact (§11.1) |
+| P4.d | Desktop CI → GitHub Releases + checksums; macOS Developer ID sign + notarize + `.dmg`; update banner (§11.2) |
+| P4.e | Android signing (`.aab`) + release docs groundwork (§11.3) |
+| P4.f | fastlane lanes for both platforms: `apps/android/fastlane` (build/internal/production via supply) + `apps/ios/fastlane` (gym/pilot/deliver on Tuist), metadata dirs, updated release docs (§11.3) |
+| P4.v | Verify packet: widget demo on marketing preview, a real download→install→launch on both OSes from a draft release |
 
-Prune-merged-worktrees action, `vision.md` refresh (four-surface + IDE story), CLAUDE.md sync,
-staging reset + smoke, steer-relay Coolify app creation (carried over from v2 Phase 4 remains),
-then the v2 Phase-10-style release gate (greenfield reset, tags, channels).
+### P5 — Release
 
-### R6 — Branch map (optional stretch)
+1. CLAUDE.md + memory sync to v5 realities; prune stale docs.
+2. Staging reset (documented Coolify procedure) + **full four-client smoke** against staging
+   (the §13 script).
+3. Manual steps of §13 (Creem, Apple, Google, DNS).
+4. Production greenfield reset (v2 commitment) + deploy all Coolify apps + `git pushsync` tags:
+   `v1.0.0`, `desktop-v1.0.0`, `android-v1.0.0`.
+5. Store submissions (iOS via Xcode, Android via Play Console) — approval NOT gating (L28).
+6. Marketing site live with real download URLs; announce.
 
-Desktop history lane gutter + web project Branches view + `repositories.graph` (§4.10).
-Explicitly severable: v4 ships whole without it; start only when R0–R5 are green.
-
-**Carried-over open items** (pre-v4 debts that ride along in R5 unless picked earlier):
+**Carried-over debts that ride along in P5 unless picked earlier** (unchanged from v4):
 wss:// TLS in the desktop WS client + publisher auto-reconnect + relay-unreachable kill
-honoring; live relay-presence device pickers; native `#`-autocomplete; digest-batching cron;
-Android release signing; macOS notarization.
+honoring; live relay-presence device pickers; native `#`-autocomplete; digest-batching cron.
 
 ---
 
-## §9 Do-not-regress contract
+## §13 Release checklist (manual, human-only steps)
 
-Inherited invariants that every v4 packet must respect:
+- [ ] **Apple Developer Program** account ($99/yr) — needed for BOTH notarized desktop
+      downloads and iOS App Store. Create Developer ID Application cert + notary API key →
+      GitHub Actions secrets.
+- [ ] **Google Play Console** account ($25 one-time). Generate the Android release keystore
+      (store passwords in Gitea CI secrets + offline backup — losing it is fatal). Create the
+      Play **service-account JSON** for fastlane `supply` (Play Console → API access).
+- [ ] **App Store Connect API key** (Users & Access → Integrations) for fastlane
+      `pilot`/`deliver`; decide `match` storage (private git repo) vs portal-managed
+      profiles and bootstrap signing once.
+- [ ] **Creem dashboard**: create Pro-yearly (per-seat), Business-monthly, Business-yearly
+      products; set env ids on cloud + staging; **delete the FOUNDING coupon**.
+- [ ] Create the demo `expw_` widget config for the marketing-site embed.
+- [ ] Store listings: screenshots (per-device sizes), descriptions, privacy policy URLs.
+- [ ] Production greenfield reset window + Coolify redeploys (LAN-only, manual).
+- [ ] DNS/download sanity: releases URLs live before the marketing deploy flips.
 
-1. **Shape lockstep**: 14 shapes, 14 proxies, all four clients — adding a column to a synced
-   shape means updating web collections + iOS GRDB + Android Room + desktop sync structs in the
-   same phase. Never widen a proxy's pinned `columns` allowlist from the client.
-2. **Proxy hardening**: `cache-control: private, no-store` + vary; explicit 401 on bad token
-   creds; sorted-id where clauses (shape-identity stability).
-3. **JIT tokens**: never persisted beyond the remote URL, never logged (`TokenUrl` redaction);
-   session-gated mint only.
-4. **argv git only** (L5); `.mcp.json`/`PROMPT.md` stay git-excluded; worktree layout
-   `<clone>.worktrees/<branch,'/'→'-'>` is load-bearing (launcher reuse + prune logic).
-5. **One entry point**: local Start coding and relay `start_session` both go through
-   `coding::launch`. Claude tasks (§4.9) are a *separate* primitive — they must never create
-   `coding_sessions` rows, steer rooms, or `.mcp.json` files.
-6. **Terminal**: single PTY read thread, steer tee ordering (sink → processor → wake),
-   reply-required terminal events, drop-`slave` after spawn.
-7. **Run-config security**: server strips env keys; desktop mirrors validation; Trust & Run
-   re-prompts on command-set-hash change; argv-direct spawn.
-8. **Markdown byte-parity** (Android tests are the lock); mention/image forms unchanged.
-9. **Widget users**: never delete a config's `isAgent` user (`issues.creator_id` cascades).
-10. **Model explicitness**: spawned `claude` always gets `--model` (default `opus`).
-11. **Deploy realities**: Coolify is home-LAN-only (manual redeploys); staging/prod DBs are
-    not redeployed until the release-phase greenfield reset; use `git pushsync`, never bare push.
+---
+
+## §14 Do-not-regress contract
+
+Everything in v4 §9 carries forward verbatim (shape lockstep 14/14, proxy hardening, JIT
+tokens, argv git, one launch entry point, terminal invariants, run-config security, markdown
+byte-parity, widget users, model explicitness, deploy realities) **plus**:
+
+1. **Seat gating is server-side only** and always excludes `isAgent` users; never lock
+   existing members out on downgrade (invites block, access stays).
+2. **Push + steer stay free** — no plan checks may appear on notification delivery or
+   steer-ticket minting beyond existing auth (L22).
+3. **Anonymous public reads** (L29): route guards may gate on membership only for non-public
+   workspaces; the users shape stays members-only.
+4. **No `main` assumptions** (L30): new code paths must consume the healed default branch
+   (token or healed row), never a literal.
+5. **argv-direct spawn** for run configs survives the single-line editor UX — the line is
+   parsed to argv, never handed to a shell (L23).
+6. **Claude tasks stay visible**: the run-config task's scoped `.mcp.json` (L24) is the ONLY
+   MCP-enabled task; conflict-fix tasks stay MCP-less; no task ever creates `coding_sessions`
+   rows.
+7. **Markdown newline fix must not break byte-parity** — Android's parity suite is the lock;
+   any serialization change lands with cross-client fixtures.

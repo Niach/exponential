@@ -48,12 +48,13 @@ export function useWorkspacePermissions(
       return false
     }
 
+    // Seats replaced the old member cap (per-seat model, §3.2); a non-agent
+    // member can be added while usage is below the purchased seat count.
     const canAddMoreMembers = billingPlan
-      ? billingPlan.usage.members < billingPlan.limits.members
+      ? billingPlan.usage.members < billingPlan.limits.seats
       : true
-    const canAddMoreProjects = billingPlan
-      ? billingPlan.usage.projects < billingPlan.limits.projects
-      : true
+    // Projects are unlimited on every tier now — no cap to hit.
+    const canAddMoreProjects = true
     const canAddMoreStorage = billingPlan
       ? billingPlan.limits.storageMb === Infinity ||
         billingPlan.usage.storageMb < billingPlan.limits.storageMb

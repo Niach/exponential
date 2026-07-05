@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { IssuePickerDialog } from "@/components/issue-picker-dialog"
+import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import {
   MarkdownEditor,
@@ -131,8 +131,15 @@ export function IssueDetailView({
   )
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
-  const [duplicatePickerOpen, setDuplicatePickerOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<`details` | `changes`>(`details`)
+
+  const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
+    issueId: issue.id,
+    onStatusChange: async (status) => {
+      if (readOnly) return
+      await trpc.issues.update.mutate({ id: issue.id, status })
+    },
+  })
 
   // Live "coding now" dot on the Changes tab: a running session (or an open PR /
   // pushed branch) means there is something to see in Changes.
@@ -294,10 +301,7 @@ export function IssueDetailView({
     <IssuePropertiesPanel
       layout={isMobile ? `chiprow` : `sidebar`}
       status={issue.status}
-      onStatusChange={async (status) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({ id: issue.id, status })
-      }}
+      onStatusChange={handleStatusChange}
       priority={issue.priority}
       onPriorityChange={async (priority) => {
         if (readOnly) return
@@ -374,7 +378,7 @@ export function IssueDetailView({
         {currentUserId && (
           <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
         )}
-        {!readOnly && !restrictModeration && (
+        {!readOnly && !restrictModeration && issue.duplicateOfId && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -387,28 +391,17 @@ export function IssueDetailView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {issue.duplicateOfId ? (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    void trpc.issues.update.mutate({
-                      id: issue.id,
-                      duplicateOfId: null,
-                    })
-                  }}
-                >
-                  <Undo2 className="size-4" />
-                  Unmark duplicate
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setTimeout(() => setDuplicatePickerOpen(true), 0)
-                  }}
-                >
-                  <Files className="size-4" />
-                  Mark as duplicate…
-                </DropdownMenuItem>
-              )}
+              <DropdownMenuItem
+                onSelect={() => {
+                  void trpc.issues.update.mutate({
+                    id: issue.id,
+                    duplicateOfId: null,
+                  })
+                }}
+              >
+                <Undo2 className="size-4" />
+                Unmark duplicate
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -425,23 +418,6 @@ export function IssueDetailView({
       }}
     />
   ) : null
-
-  const duplicatePicker = (
-    <IssuePickerDialog
-      open={duplicatePickerOpen}
-      onOpenChange={setDuplicatePickerOpen}
-      excludeIssueIds={[issue.id]}
-      title="Mark as duplicate"
-      placeholder="Search the canonical issue…"
-      onPick={(canonical) => {
-        // The server sets status='duplicate' atomically with the link.
-        void trpc.issues.update.mutate({
-          id: issue.id,
-          duplicateOfId: canonical.id,
-        })
-      }}
-    />
-  )
 
   const titleField = (
     <Input

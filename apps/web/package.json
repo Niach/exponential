@@ -9,6 +9,7 @@
     "build": "vite build",
     "migrate": "drizzle-kit migrate",
     "migrate:generate": "drizzle-kit generate",
+    "backfill:default-branches": "bun scripts/backfill-default-branches.ts",
     "psql": "dotenvx run -- sh -c 'psql \"$DATABASE_URL\"'",
     "serve": "vite preview",
     "test": "vitest run --config vitest.config.ts",

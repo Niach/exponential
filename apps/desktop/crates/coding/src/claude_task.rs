@@ -81,6 +81,26 @@ verify the build, then push with `--force-with-lease`."
     )
 }
 
+/// Prompt for the run-configs editor's "Create with Claude" action (v5 §7.3 /
+/// L24): the ONE MCP-enabled Claude task. It runs in the project's trunk clone
+/// alongside a scoped `.mcp.json` that exposes the `exponential_run_configs_*`
+/// MCP tools, and asks Claude to inspect the repo and create run configs for
+/// `project_id`. Unlike the conflict prompts it does NOT touch git — it only
+/// reads the repo and calls the MCP tools.
+pub fn create_run_configs_prompt(project_id: &str) -> String {
+    format!(
+        "Inspect this repository — its README, package.json, Cargo.toml, Makefile, \
+justfile, docker-compose, and scripts — to learn how it is developed, built, run, \
+tested, and linted. Then create a small set of useful run configurations for the \
+Exponential project with id `{project_id}` using the `exponential_run_configs_create` \
+MCP tool (one per common task, e.g. dev server, build, test, lint). Each config's \
+argv is spawned directly with NO shell, so argv[0] must be the program and the rest \
+its arguments; set cwd (repo-relative, no \"..\") and env only when needed. Call \
+`exponential_run_configs_list` for that project first so you don't create duplicates. \
+Do not commit, push, or change any files — only call the run-config MCP tools."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +183,20 @@ Resolve them preserving both sides' intent, run `git rebase --continue` (or \
         let prompt = fix_conflicts_prompt("develop", &[]);
         assert!(prompt.contains("stopped on conflicts in the conflicted files."));
         assert!(prompt.contains("on `develop`"));
+    }
+
+    #[test]
+    fn create_run_configs_prompt_targets_the_project_and_the_mcp_tools() {
+        let prompt = create_run_configs_prompt("proj-123");
+        // Names the exact project so Claude passes the right projectId.
+        assert!(prompt.contains("proj-123"));
+        // Points at the run-config MCP tools (the scoped .mcp.json exposes them).
+        assert!(prompt.contains("exponential_run_configs_create"));
+        assert!(prompt.contains("exponential_run_configs_list"));
+        // No-shell posture is spelled out for the argv-direct spawner.
+        assert!(prompt.contains("NO shell"));
+        // Read-only w.r.t. the tree — this task must not commit or push.
+        assert!(prompt.contains("Do not commit, push"));
     }
 
     #[test]

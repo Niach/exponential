@@ -17,7 +17,7 @@ use sync::Store;
 use crate::issue_detail::{
     install_description_editor, DescriptionEditor, DescriptionEditorParams,
 };
-use crate::markdown::{store_completion_source, MarkdownEditor, RefResolver};
+use crate::markdown::{store_completion_source, MarkdownEditor};
 use crate::navigation::{navigate, Screen};
 use crate::queries;
 
@@ -60,11 +60,7 @@ pub(crate) fn build_editor(
             editor.set_transport(transport, cx);
         }
         if let Some(workspace_id) = workspace_id {
-            editor.set_completion_source(store_completion_source(workspace_id.clone()));
-            editor.set_resolver(RefResolver::from_store(workspace_id.clone()));
-            editor.set_on_open_issue(move |identifier, window, cx| {
-                open_issue_by_identifier(&workspace_id, identifier, window, cx);
-            });
+            editor.set_completion_source(store_completion_source(workspace_id));
         }
         editor
     })
@@ -122,10 +118,19 @@ impl SeamEditor {
                 *cell.borrow_mut() = markdown.to_string();
             });
             let cell = current.clone();
+            let on_blur_save = on_save.clone();
             editor.set_on_blur(move |window, cx| {
                 // Save-on-blur (web `handleDescriptionBlur`); the detail view
                 // dedupes unchanged saves against `last_saved_description`.
-                on_save(cell.borrow().clone(), window, cx);
+                on_blur_save(cell.borrow().clone(), window, cx);
+            });
+            let cell = current.clone();
+            editor.set_on_commit(move |markdown, window, cx| {
+                // Structural edits (image insert/remove) persist immediately —
+                // there is no blur to ride on (masterplan §8.2 / EXP-8). Keep
+                // the mirror current, then save through the same path.
+                *cell.borrow_mut() = markdown.to_string();
+                on_save(markdown.to_string(), window, cx);
             });
         });
 

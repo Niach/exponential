@@ -87,7 +87,10 @@ enum Load {
 struct TrunkScope {
     repository_id: String,
     full_name: String,
-    default_branch: String,
+    /// The server-reported default branch (L30: server-healed, never fabricated
+    /// as `main`). `None` when the API omitted it; used only as the labelling
+    /// fallback for the conflict-fix task when no branch is checked out.
+    default_branch: Option<String>,
     clone_dir: PathBuf,
 }
 
@@ -598,7 +601,8 @@ impl SourceControlView {
             .as_ref()
             .map(|status| status.branch.clone())
             .filter(|branch| !branch.is_empty())
-            .unwrap_or_else(|| scope.default_branch.clone());
+            .or_else(|| scope.default_branch.clone())
+            .unwrap_or_default();
         let settings = CodingHub::global(cx).read(cx).settings.clone();
         let prompt = coding::fix_conflicts_prompt(&branch, &conflict.files);
         let label = format!("Fix conflicts · {branch}");

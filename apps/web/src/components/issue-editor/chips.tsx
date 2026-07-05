@@ -7,6 +7,14 @@ import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { priorities, PriorityIcon } from "@/components/issue-properties/priority-dropdown"
 import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
+
+// Marking a brand-new issue as a duplicate is nonsense (there is nothing yet to
+// dedupe), so the create/edit chip row never offers `duplicate` — the status is
+// only ever reached via the duplicate-picker interception on an existing issue
+// (masterplan §4.1 / L27).
+const creatableStatuses = statuses.filter(
+  (option) => option.value !== `duplicate`
+)
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { TimeInput } from "@/components/time-input"
 import { Button } from "@/components/ui/button"
@@ -74,7 +82,7 @@ export function IssueEditorChips({
       <OptionDropdownMenu
         value={status}
         disabled={moderationDisabled}
-        options={statuses}
+        options={creatableStatuses}
         onSelect={onStatusChange}
         mobileTitle="Status"
         renderTrigger={(selected) => (

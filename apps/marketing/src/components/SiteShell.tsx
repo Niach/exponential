@@ -12,7 +12,7 @@ export function SiteHeader() {
         </a>
         <nav className="nav">
           <a href="/#product">Product</a>
-          <a href="/#agents">Agents</a>
+          <a href="/#agents">Coding</a>
           <a href="/pricing/">Pricing</a>
           <a href="/docs/">Docs</a>
           <a href="/docs/#desktop-apps">Download</a>

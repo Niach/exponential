@@ -8,7 +8,7 @@ import {
   assertWorkspaceMember,
   assertNotPublicWorkspace,
 } from "@/lib/workspace-membership"
-import { assertWithinPlanLimits } from "@/lib/billing"
+import { assertCanInviteMember } from "@/lib/billing"
 
 export const workspaceInvitesRouter = router({
   create: authedProcedure
@@ -25,7 +25,7 @@ export const workspaceInvitesRouter = router({
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId, [
         `owner`,
       ])
-      await assertWithinPlanLimits(input.workspaceId, `members`)
+      await assertCanInviteMember(input.workspaceId)
 
       const token = randomBytes(32).toString(`hex`)
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
@@ -53,7 +53,7 @@ export const workspaceInvitesRouter = router({
         .where(eq(workspaceInvites.token, input.token))
         .limit(1)
       if (precheck) {
-        await assertWithinPlanLimits(precheck.workspaceId, `members`)
+        await assertCanInviteMember(precheck.workspaceId)
       }
 
       return await ctx.db.transaction(async (tx) => {

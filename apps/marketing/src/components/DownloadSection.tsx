@@ -1,40 +1,52 @@
 import { motion } from "motion/react"
-import { Laptop, Smartphone, TabletSmartphone, Terminal } from "lucide-react"
+import { Apple, Smartphone, TabletSmartphone, Terminal } from "lucide-react"
 import { cardReveal, staggerContainer, viewportOnce } from "../lib/animations"
 import { LINKS } from "../lib/links"
 
-const targets = [
+type Target = {
+  platform: string
+  title: string
+  desc: string
+  cta: string
+  href: string
+  icon: React.ReactNode
+  soon?: boolean
+}
+
+const targets: Target[] = [
   {
     platform: `macOS`,
     title: `Exponential for Mac`,
-    desc: `Native Swift app with the embedded ghostty terminal — watch your agent work, live.`,
+    desc: `The Rust + gpui desktop IDE. Start coding on any issue, watch Claude work in the embedded terminal, review the diff, and ship the PR — all from one native window.`,
     cta: `download .dmg`,
     href: LINKS.downloads.macos,
-    icon: <Laptop size={20} strokeWidth={1.8} />,
+    icon: <Apple size={20} strokeWidth={1.8} />,
   },
   {
     platform: `Linux`,
     title: `Exponential for Linux`,
-    desc: `Zig + GTK4, libadwaita-native. The same local agent runtime on your distro.`,
-    cta: `download for linux`,
+    desc: `The same Rust + gpui IDE, packaged as a self-contained AppImage. Clone, code, and open pull requests on your distro — no runtime to install.`,
+    cta: `download AppImage`,
     href: LINKS.downloads.linux,
     icon: <Terminal size={20} strokeWidth={1.8} />,
   },
   {
     platform: `iOS`,
     title: `Exponential for iPhone`,
-    desc: `SwiftUI, offline-first, push notifications. Approve agent plans from anywhere.`,
-    cta: `get — App Store`,
+    desc: `SwiftUI, offline-first, real-time sync. Triage issues, get push notifications, and steer a live coding session from your phone.`,
+    cta: `App Store — coming soon`,
     href: LINKS.downloads.ios,
     icon: <Smartphone size={20} strokeWidth={1.8} />,
+    soon: true,
   },
   {
     platform: `Android`,
     title: `Exponential for Android`,
-    desc: `Jetpack Compose, real-time sync, the full markdown editor in your pocket.`,
-    cta: `get — Google Play`,
+    desc: `Jetpack Compose, real-time sync, the full markdown editor in your pocket — plus steer-from-phone for sessions running on your desktop.`,
+    cta: `Google Play — coming soon`,
     href: LINKS.downloads.android,
     icon: <TabletSmartphone size={20} strokeWidth={1.8} />,
+    soon: true,
   },
 ]
 
@@ -50,12 +62,15 @@ export function DownloadSection() {
       {targets.map((t) => (
         <motion.a
           key={t.platform}
-          className="dl-card"
+          className={`dl-card${t.soon ? ` is-soon` : ``}`}
           href={t.href}
           variants={cardReveal}
         >
           <span className="dl-card-icon">{t.icon}</span>
-          <span className="dl-card-platform">{t.platform}</span>
+          <span className="dl-card-platform">
+            {t.platform}
+            {t.soon && <span className="dl-soon">soon</span>}
+          </span>
           <h3>{t.title}</h3>
           <p>{t.desc}</p>
           <span className="dl-cta">{t.cta}</span>

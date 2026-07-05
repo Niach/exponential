@@ -38,8 +38,12 @@ pub struct ResolvedRepo {
     pub repository_id: String,
     /// `owner/name` — the clone-root key + the remote's redaction anchor.
     pub full_name: String,
-    /// The repo's default branch (never empty — defaults to `main`).
-    pub default_branch: String,
+    /// The repo's default branch as the server reported it — `repositories.list`
+    /// resolves + heals it against GitHub (L30). `None` only when the API omits
+    /// it; NEVER fabricated as `main` here, so a use site that needs a concrete
+    /// branch resolves it at use-time from a freshly-minted installation token
+    /// (whose `default_branch` is looked up live), not a stale/assumed default.
+    pub default_branch: Option<String>,
     /// The project ids this repo backs (`projects.repositoryId` == this repo).
     project_ids: Vec<String>,
 }
@@ -174,6 +178,23 @@ impl RepoResolver {
     }
 }
 
+/// One `repositories.list` row (the new `projects[]` shape).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RepoRow {
+    id: String,
+    full_name: String,
+    #[serde(default)]
+    default_branch: Option<String>,
+    #[serde(default)]
+    projects: Vec<ProjectRef>,
+}
+
+#[derive(Deserialize)]
+struct ProjectRef {
+    id: String,
+}
+
 /// `repositories.list` → resolved rows (the new `projects[]` shape). Blocking;
 /// the caller runs it off the foreground.
 fn fetch_repos(
@@ -185,35 +206,23 @@ fn fetch_repos(
     struct Input<'a> {
         workspace_id: &'a str,
     }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct RepoRow {
-        id: String,
-        full_name: String,
-        #[serde(default)]
-        default_branch: Option<String>,
-        #[serde(default)]
-        projects: Vec<ProjectRef>,
-    }
-    #[derive(Deserialize)]
-    struct ProjectRef {
-        id: String,
-    }
 
     let rows: Vec<RepoRow> =
         trpc.query_with_input("repositories.list", &Input { workspace_id })?;
-    Ok(rows
-        .into_iter()
-        .map(|row| ResolvedRepo {
-            repository_id: row.id,
-            full_name: row.full_name,
-            default_branch: row
-                .default_branch
-                .filter(|branch| !branch.is_empty())
-                .unwrap_or_else(|| "main".to_string()),
-            project_ids: row.projects.into_iter().map(|project| project.id).collect(),
-        })
-        .collect())
+    Ok(rows.into_iter().map(resolved_from_row).collect())
+}
+
+/// One `repositories.list` row → [`ResolvedRepo`]. Pure so the branch-handling
+/// (L30: keep the server value, never fabricate `main`) is unit-testable.
+fn resolved_from_row(row: RepoRow) -> ResolvedRepo {
+    ResolvedRepo {
+        repository_id: row.id,
+        full_name: row.full_name,
+        // Keep the server-healed value; an empty/absent field becomes `None` so
+        // no consumer inherits a fabricated `main` (they resolve via a token).
+        default_branch: row.default_branch.filter(|branch| !branch.is_empty()),
+        project_ids: row.projects.into_iter().map(|project| project.id).collect(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -256,5 +265,39 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
                 .by_window
                 .remove(&window_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(default_branch: Option<&str>) -> RepoRow {
+        RepoRow {
+            id: "repo-1".to_string(),
+            full_name: "acme/web".to_string(),
+            default_branch: default_branch.map(str::to_string),
+            projects: vec![ProjectRef {
+                id: "proj-1".to_string(),
+            }],
+        }
+    }
+
+    #[test]
+    fn keeps_the_server_default_branch_verbatim() {
+        // A `master`-default repo (the EXP-8 repro) must round-trip as `master`,
+        // never be rewritten to `main`.
+        let resolved = resolved_from_row(row(Some("master")));
+        assert_eq!(resolved.default_branch.as_deref(), Some("master"));
+        assert_eq!(resolved.repository_id, "repo-1");
+        assert_eq!(resolved.project_ids, vec!["proj-1".to_string()]);
+    }
+
+    #[test]
+    fn absent_or_empty_branch_is_none_never_main() {
+        // L30: an absent/empty API value must NOT become a fabricated `main` —
+        // it stays `None` so the use site resolves a live value from a token.
+        assert_eq!(resolved_from_row(row(None)).default_branch, None);
+        assert_eq!(resolved_from_row(row(Some(""))).default_branch, None);
     }
 }

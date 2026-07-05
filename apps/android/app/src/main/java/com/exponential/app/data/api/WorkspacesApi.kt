@@ -10,15 +10,6 @@ import kotlinx.serialization.Serializable
 data class EnsureDefaultResult(val workspace: WorkspaceEntity)
 
 @Serializable
-data class CreateWorkspaceInput(
-    val name: String,
-    @SerialName("iconUrl") val iconUrl: String? = null,
-)
-
-@Serializable
-data class CreateWorkspaceResult(val workspace: WorkspaceEntity)
-
-@Serializable
 data class UpdateWorkspaceInput(
     val id: String,
     val name: String? = null,
@@ -46,15 +37,6 @@ class WorkspacesApi @Inject constructor(private val trpc: TrpcClient) {
             input = EmptyInput,
             inputSerializer = EmptyInput.serializer(),
             outputSerializer = EnsureDefaultResult.serializer(),
-        ).workspace
-
-    suspend fun create(accountId: String, input: CreateWorkspaceInput): WorkspaceEntity =
-        trpc.mutation(
-            accountId,
-            path = "workspaces.create",
-            input = input,
-            inputSerializer = CreateWorkspaceInput.serializer(),
-            outputSerializer = CreateWorkspaceResult.serializer(),
         ).workspace
 
     suspend fun update(accountId: String, input: UpdateWorkspaceInput) {

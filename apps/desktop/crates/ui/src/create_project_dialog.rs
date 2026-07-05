@@ -20,9 +20,11 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
+    menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
+use serde::{Deserialize, Serialize};
 use sync::Store;
 
 use crate::actions::NewProject;
@@ -40,6 +42,40 @@ pub(crate) const SWATCH_COLORS: [&str; 20] = [
 
 /// Web default project color (`create-project-dialog.tsx`).
 const DEFAULT_COLOR: &str = "#6366f1";
+
+/// A registry repo the new project can target (v4 §3.1 — every project is
+/// backed by exactly one repository). Slim mirror of a `repositories.list`
+/// row (`apps/web/src/lib/trpc/repositories.ts`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RepoOption {
+    id: String,
+    full_name: String,
+}
+
+/// Server fetch state for the registry repo picker.
+enum RepoLoad {
+    Loading,
+    /// The connected-repo list (possibly empty → the "connect one first"
+    /// empty state).
+    Ready(Vec<RepoOption>),
+    Failed(SharedString),
+}
+
+/// `repositories.list({workspaceId})` — the workspace's connected repos.
+/// Inline GitHub connect stays web-only (§7.9), so the desktop only ever
+/// picks from an existing registry repo here.
+fn fetch_repositories(
+    trpc: &api::TrpcClient,
+    workspace_id: &str,
+) -> Result<Vec<RepoOption>, api::ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        workspace_id: &'a str,
+    }
+    trpc.query_with_input("repositories.list", &Input { workspace_id })
+}
 
 /// Register the App-global [`NewProject`] handler (call once from `ui::init`).
 pub fn init(cx: &mut App) {
@@ -80,6 +116,10 @@ pub struct CreateProjectDialogView {
     name: Entity<InputState>,
     prefix: Entity<InputState>,
     color: String,
+    /// The chosen backing repository (v4 §3.1 — required to submit).
+    repository_id: Option<String>,
+    /// Connected-repo list for the picker, fetched from `repositories.list`.
+    repos: RepoLoad,
     submitting: bool,
     error: Option<SharedString>,
     focused_once: bool,
@@ -126,11 +166,36 @@ impl CreateProjectDialogView {
             },
         ));
 
+        // Load the workspace's connected repos so the picker can offer a
+        // backing repository (required by the server, v4 §3.1).
+        if let Some(trpc) = queries::trpc_client(cx) {
+            let workspace_id_for_fetch = workspace_id.clone();
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        fetch_repositories(&trpc, &workspace_id_for_fetch)
+                            .map_err(|err| err.to_string())
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    this.repos = match result {
+                        Ok(repos) => RepoLoad::Ready(repos),
+                        Err(message) => RepoLoad::Failed(message.into()),
+                    };
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+
         Self {
             workspace_id,
             name,
             prefix,
             color: DEFAULT_COLOR.to_string(),
+            repository_id: None,
+            repos: RepoLoad::Loading,
             submitting: false,
             error: None,
             focused_once: false,
@@ -141,6 +206,9 @@ impl CreateProjectDialogView {
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let name = self.name.read(cx).value().trim().to_string();
         let prefix = self.prefix.read(cx).value().trim().to_string();
+        let Some(repository_id) = self.repository_id.clone() else {
+            return;
+        };
         if name.is_empty() || prefix.is_empty() || self.submitting {
             return;
         }
@@ -159,6 +227,7 @@ impl CreateProjectDialogView {
             name,
             prefix,
             color: Some(self.color.clone()),
+            repository: api::projects::ProjectRepositoryInput { repository_id },
         };
 
         cx.spawn_in(window, async move |this, window| {
@@ -208,6 +277,81 @@ impl CreateProjectDialogView {
     }
 }
 
+impl CreateProjectDialogView {
+    /// The "Repository" field: a dropdown that picks one connected registry
+    /// repo (inline GitHub connect stays web-only, §7.9). Empty registry →
+    /// the "connect one first" nudge; a failed fetch surfaces its error.
+    fn repository_field(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let control: gpui::AnyElement = match &self.repos {
+            RepoLoad::Loading => Button::new("project-repo-picker")
+                .outline()
+                .small()
+                .w_full()
+                .label("Loading repositories\u{2026}")
+                .disabled(true)
+                .into_any_element(),
+            RepoLoad::Failed(message) => div()
+                .text_sm()
+                .text_color(cx.theme().danger)
+                .child(message.clone())
+                .into_any_element(),
+            RepoLoad::Ready(repos) if repos.is_empty() => div()
+                .px_3()
+                .py_2()
+                .rounded(cx.theme().radius)
+                .border_1()
+                .border_dashed()
+                .border_color(cx.theme().border)
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("Connect a repository in the web app first")
+                .into_any_element(),
+            RepoLoad::Ready(repos) => {
+                let selected = self
+                    .repository_id
+                    .as_deref()
+                    .and_then(|id| repos.iter().find(|repo| repo.id == id));
+                let label: SharedString = selected
+                    .map(|repo| SharedString::from(repo.full_name.clone()))
+                    .unwrap_or_else(|| "Select a repository".into());
+                let current = self.repository_id.clone();
+                let repos = repos.clone();
+                let view = cx.entity().clone();
+                Button::new("project-repo-picker")
+                    .outline()
+                    .small()
+                    .w_full()
+                    .icon(IconName::Github)
+                    .label(label)
+                    .dropdown_menu(move |mut menu, _window, _cx| {
+                        for repo in &repos {
+                            let view = view.clone();
+                            let id = repo.id.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                                    .icon(Icon::new(IconName::Github))
+                                    .checked(current.as_deref() == Some(repo.id.as_str()))
+                                    .on_click(move |_, _, cx| {
+                                        let id = id.clone();
+                                        view.update(cx, |this, cx| {
+                                            this.repository_id = Some(id);
+                                            cx.notify();
+                                        });
+                                    }),
+                            );
+                        }
+                        menu
+                    })
+                    .into_any_element()
+            }
+        };
+        v_flex()
+            .gap_2()
+            .child(field_label(cx, "Repository"))
+            .child(control)
+    }
+}
+
 impl Render for CreateProjectDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         if !self.focused_once {
@@ -217,12 +361,16 @@ impl Render for CreateProjectDialogView {
 
         let name_empty = self.name.read(cx).value().trim().is_empty();
         let prefix_empty = self.prefix.read(cx).value().trim().is_empty();
-        let disabled = name_empty || prefix_empty || self.submitting;
+        // v4 §3.1: a project must be backed by a repository — block submit
+        // until one is picked (the server would otherwise reject the create).
+        let disabled =
+            name_empty || prefix_empty || self.repository_id.is_none() || self.submitting;
 
         let mut form = v_flex()
             .gap_4()
             .child(labeled(cx, "Name", Input::new(&self.name).small()))
             .child(labeled(cx, "Prefix", Input::new(&self.prefix).small()))
+            .child(self.repository_field(cx))
             .child(
                 v_flex()
                     .gap_2()

@@ -7,7 +7,6 @@
 //! | Claude CLI path      | `claude`              |
 //! | Repos & worktrees root | `~/Exponential/repos` |
 //! | Branch prefix        | `exp/`                |
-//! | Personal API key     | STATUS row only (§7.2) |
 //! | Tooling doctor       | "Check tools"         |
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
@@ -19,12 +18,10 @@
 //! actionable copy: "claude not found on PATH — set an absolute path" /
 //! "git not found on PATH").
 //!
-//! **EXP-2a is enforced by construction: there is NO key value field, no
-//! reveal, no copy, no manual entry.** The personal key renders as a status
-//! row ("active · `<start>`…") with **Regenerate** as the only control —
-//! mint-new-then-revoke-old, in that order (`api::users::
-//! regenerate_personal_key` owns the ordering). A device without a key shows
-//! "created automatically on your first coding session".
+//! The personal API key is provisioned and rotated **fully automatically**
+//! (`api::users::ensure_personal_key` on the first coding session; the
+//! `.mcp.json` writer picks it up), so there is no key UI here at all — no
+//! value field, no reveal, no copy, no manual entry, no status row.
 
 use gpui::{
     div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -38,61 +35,11 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
 };
 
-use api::token_store::{SecretKind, TokenStore};
 use coding::{DoctorReport, Settings, ToolCheck};
 
 use crate::coding_flow::CodingHub;
-use crate::queries;
-use crate::session::AuthContext;
 
 use super::{card, card_header, error_notice};
-
-// ---------------------------------------------------------------------------
-// Personal-key status (§7.2 — display metadata only, never the secret)
-// ---------------------------------------------------------------------------
-
-/// What the status row renders. Built off the local token store (does a key
-/// exist at all?) + `users.listPersonalApiKeys` (the non-secret `start`
-/// prefix of OUR key row, matched by the stored row id).
-#[derive(Clone, Debug)]
-struct KeyStatus {
-    present: bool,
-    /// e.g. `expu_ab` — non-secret display prefix; `None` when the list call
-    /// failed or the row is gone (still "active", just unadorned).
-    start: Option<String>,
-}
-
-enum KeyLoad {
-    Idle,
-    Loading,
-    Ready(KeyStatus),
-    Error(String),
-}
-
-/// Blocking status read (background executor): local presence + listed start.
-fn load_key_status(
-    trpc: &api::TrpcClient,
-    store: &TokenStore,
-    account_id: &str,
-) -> Result<KeyStatus, api::ApiError> {
-    let present = store.get(account_id, SecretKind::PersonalApiKey).is_some();
-    if !present {
-        return Ok(KeyStatus { present: false, start: None });
-    }
-    let row_id = store.get(account_id, SecretKind::PersonalApiKeyId);
-    // Best-effort: a failed list still renders "active" (the key itself is
-    // local truth); only the pretty prefix is lost.
-    let start = api::users::list_personal_api_keys(trpc)
-        .ok()
-        .and_then(|keys| {
-            let row = match &row_id {
-                Some(id) => keys.iter().find(|key| &key.id == id),
-                None => None,
-            };
-            row.and_then(|key| key.start.clone())
-        });
-    Ok(KeyStatus { present: true, start })
-}
 
 // ---------------------------------------------------------------------------
 // Pane
@@ -106,9 +53,6 @@ pub struct CodingPane {
     /// The hub settings the inputs were last synced from (dirty baseline).
     synced: Option<Settings>,
     save_error: Option<SharedString>,
-    key: KeyLoad,
-    key_generation: u64,
-    regenerating: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -147,9 +91,6 @@ impl CodingPane {
             prefix_input,
             synced: None,
             save_error: None,
-            key: KeyLoad::Idle,
-            key_generation: 0,
-            regenerating: false,
             _subscriptions: subscriptions,
         };
         this.resync(window, cx);
@@ -218,93 +159,6 @@ impl CodingPane {
         // too keeps the Save button honest when the observer coalesces.
         self.synced = Some(drafted);
         cx.notify();
-    }
-
-    // -- personal key -------------------------------------------------------
-
-    fn ensure_key_loaded(&mut self, cx: &mut gpui::Context<Self>) {
-        if !matches!(self.key, KeyLoad::Idle) {
-            return;
-        }
-        self.reload_key(cx);
-    }
-
-    fn reload_key(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(account) = queries::active_account(cx) else {
-            return;
-        };
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let data_dir = cx
-            .try_global::<AuthContext>()
-            .map(|auth| auth.data_dir.clone())
-            .unwrap_or_else(api::default_data_dir);
-
-        self.key = KeyLoad::Loading;
-        self.key_generation += 1;
-        let generation = self.key_generation;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let store = TokenStore::new(data_dir);
-                    load_key_status(&trpc, &store, &account.id)
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.key_generation != generation {
-                    return;
-                }
-                this.key = match result {
-                    Ok(status) => KeyLoad::Ready(status),
-                    Err(err) => KeyLoad::Error(err.to_string()),
-                };
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// §7.2 Regenerate — the ONLY key control. Mint-new-then-revoke-old
-    /// (ordering owned by `api::users::regenerate_personal_key`; a crash
-    /// mid-way must never leave the device keyless). The next launch's
-    /// `.mcp.json` picks the new key up from the token store.
-    fn regenerate(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.regenerating {
-            return;
-        }
-        let Some(account) = queries::active_account(cx) else {
-            return;
-        };
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let data_dir = cx
-            .try_global::<AuthContext>()
-            .map(|auth| auth.data_dir.clone())
-            .unwrap_or_else(api::default_data_dir);
-        self.regenerating = true;
-        cx.notify();
-
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let store = TokenStore::new(data_dir);
-                    api::users::regenerate_personal_key(&trpc, &store, &account.id, None)
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.regenerating = false;
-                match result {
-                    Ok(_) => this.reload_key(cx),
-                    Err(err) => this.key = KeyLoad::Error(format!("Regenerate failed: {err}")),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
     }
 
     // -- render pieces --------------------------------------------------------
@@ -414,71 +268,6 @@ impl CodingPane {
             ),
         )
     }
-
-    fn render_key_card(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        self.ensure_key_loaded(cx);
-        let mut body = card(cx).child(card_header(
-            "Personal API key",
-            "Authenticates the coding agent as you. Created and rotated automatically — \
-             there is never a key to copy or paste.",
-            cx,
-        ));
-
-        let status: gpui::AnyElement = match &self.key {
-            KeyLoad::Idle | KeyLoad::Loading => {
-                Skeleton::new().h_4().w_48().into_any_element()
-            }
-            KeyLoad::Error(message) => {
-                error_notice(SharedString::from(message.clone()), cx).into_any_element()
-            }
-            KeyLoad::Ready(status) if status.present => {
-                let label: SharedString = match &status.start {
-                    Some(start) => format!("active · {start}…").into(),
-                    None => "active".into(),
-                };
-                h_flex()
-                    .gap_1p5()
-                    .items_center()
-                    .text_sm()
-                    .child(
-                        div()
-                            .size_2()
-                            .rounded_full()
-                            .bg(theme::tokens::GREEN.to_hsla()),
-                    )
-                    .child(label)
-                    .into_any_element()
-            }
-            KeyLoad::Ready(_) => div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("No key yet — it's created automatically on your first coding session.")
-                .into_any_element(),
-        };
-
-        let has_key = matches!(&self.key, KeyLoad::Ready(status) if status.present);
-        body = body.child(
-            h_flex()
-                .gap_3()
-                .items_center()
-                .justify_between()
-                .child(status)
-                .child(
-                    Button::new("key-regenerate")
-                        .outline()
-                        .xsmall()
-                        .label("Regenerate")
-                        .tooltip(
-                            "Mint a fresh key, then revoke the old one. The next coding \
-                             session uses the new key automatically.",
-                        )
-                        .loading(self.regenerating)
-                        .disabled(self.regenerating || !has_key)
-                        .on_click(cx.listener(|this, _, _, cx| this.regenerate(cx))),
-                ),
-        );
-        body
-    }
 }
 
 impl Render for CodingPane {
@@ -533,6 +322,5 @@ impl Render for CodingPane {
             .gap_4()
             .child(settings_card)
             .child(self.render_doctor_card(cx))
-            .child(self.render_key_card(cx))
     }
 }

@@ -3,33 +3,30 @@ import { trpc } from "@/lib/trpc-client"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import type { PlanTier } from "@/lib/billing"
 
+// Per-seat model (masterplan v5 §3.2). The only monetized axes are seats
+// (non-agent members), attachment storage, and feedback-widget configs.
 export type BillingPlan = {
   plan: PlanTier
   limits: {
-    members: number
-    projects: number
+    seats: number
     storageMb: number
-    repositories: number
-    concurrentCodingSessions: number
+    widgetConfigs: number
   }
   usage: {
     members: number
-    projects: number
     storageMb: number
-    repositories: number
+    widgetConfigs: number
   }
 }
 
 const UNLIMITED_PLAN: BillingPlan = {
   plan: `unlimited`,
   limits: {
-    members: Infinity,
-    projects: Infinity,
+    seats: Infinity,
     storageMb: Infinity,
-    repositories: Infinity,
-    concurrentCodingSessions: Infinity,
+    widgetConfigs: Infinity,
   },
-  usage: { members: 0, projects: 0, storageMb: 0, repositories: 0 },
+  usage: { members: 0, storageMb: 0, widgetConfigs: 0 },
 }
 
 let isCloudCached: boolean | undefined
@@ -78,11 +75,9 @@ export function useBillingPlan(
       const result: BillingPlan = {
         plan: data.plan as PlanTier,
         limits: {
-          members: n(data.limits.members),
-          projects: n(data.limits.projects),
+          seats: n(data.limits.seats),
           storageMb: n(data.limits.storageMb),
-          repositories: n(data.limits.repositories),
-          concurrentCodingSessions: n(data.limits.concurrentCodingSessions),
+          widgetConfigs: n(data.limits.widgetConfigs),
         },
         usage: data.usage,
       }

@@ -45,9 +45,17 @@
     <main>
       <div class="card">
         <span class="pill">bug</span><span class="pill">feedback</span>
-        <p>Click the feedback button bottom-right. The screenshot should show
-        this page without the widget itself.</p>
+        <p>Hover the tiny feedback button (bottom-left by default — it scales up
+        and reveals its label). The screenshot should show this page without
+        the widget itself.</p>
+        <p>Add <code>?position=bottom-right</code> to flip the launcher side.
+        Open the panel → <b>Annotate</b> → pick the <b>Crop</b> tool and drag a
+        rectangle: the dimmed region is trimmed on submit, annotations stay
+        editable and offset correctly, and <b>Remove crop</b> undoes it.</p>
       </div>
+      <button id="open-above" style="position:relative;z-index:5;padding:8px 12px">
+        Simulate a modal (pointer-events:none on body) — launcher must stay clickable
+      </button>
       <div class="card">
         <canvas id="chart" width="320" height="120"></canvas>
       </div>
@@ -83,12 +91,23 @@
       })(window, document, "/widget/v1/loader.js")
 
       // ?key=expw_… lets you point the demo at a real widget config.
+      // ?position=bottom-right|bottom-left exercises the launcher side.
+      var params = new URLSearchParams(location.search)
       ExponentialWidget.init({
-        key:
-          new URLSearchParams(location.search).get("key") ||
-          "expw_demo0000000000000000000000000000",
+        key: params.get("key") || "expw_demo0000000000000000000000000000",
+        position: params.get("position") || "bottom-left",
       })
       ExponentialWidget.setCustomData({ demo: true, page: "demo.html" })
+
+      // Prove the launcher works while the host page disables body pointer
+      // events (what Radix does under an open dialog): the widget mounts on
+      // <html>, so it stays clickable.
+      document.getElementById("open-above").addEventListener("click", function () {
+        document.body.style.pointerEvents = "none"
+        setTimeout(function () {
+          document.body.style.pointerEvents = ""
+        }, 4000)
+      })
     </script>
   </body>
 </html>

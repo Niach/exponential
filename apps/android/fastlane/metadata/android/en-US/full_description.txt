@@ -1,0 +1,24 @@
+Make your app exponential.
+
+Exponential is a real-time issue tracker that closes the loop — from the moment a user reports a problem to the moment the fix ships and that user hears back.
+
+The loop:
+• A visitor hits your feedback widget and files a report — with a screenshot, annotations, and page context attached automatically.
+• The report lands as an issue on your board, in real time, on every device.
+• Claude picks it up in the desktop IDE, writes the fix on its own branch, and opens a pull request.
+• You review and merge — and the original reporter gets an email that their issue is resolved.
+
+One report, all the way to shipped.
+
+Native everywhere. The Android app syncs live with the web, desktop, and iOS clients over the same real-time engine, so your board is always current — no pull-to-refresh, no stale views.
+
+Built for the way you actually work:
+• Fast, keyboard-friendly issue tracking with statuses, priorities, labels, due dates, and recurring issues.
+• Projects backed one-to-one by a Git repository.
+• Rich Markdown descriptions and comments with @mentions, task lists, and inline images.
+• Push notifications for mentions, assignments, and PR activity.
+• Steer a coding session running on your desktop straight from your phone.
+
+Free to use on the hosted cloud, or self-host the whole stack on your own machine — it's open source.
+
+Make your app exponential.

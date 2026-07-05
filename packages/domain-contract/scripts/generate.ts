@@ -31,7 +31,6 @@ interface Contract {
   notificationType: Section
   prState: Section
   codingSessionStatus: Section
-  platform: Section
   subscriberSource: Section
   issueEventType: Section
   recurrenceIntervals: number[]
@@ -134,7 +133,6 @@ ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
-${swiftStringArray("platformValues", contract.platform.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${swiftStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
@@ -146,7 +144,6 @@ ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
 ${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
-${swiftNamedValues("platform", contract.platform.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 }
@@ -166,7 +163,6 @@ ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
-${kotlinStringArray("platformValues", contract.platform.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${kotlinStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
@@ -178,7 +174,6 @@ ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
 ${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
-${kotlinNamedValues("platform", contract.platform.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 }
@@ -200,7 +195,6 @@ ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
-${rustStrSlice("platformValues", contract.platform.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 ${rustStrSlice("moderationRestrictedFields", contract.moderationRestrictedFields)}
@@ -212,7 +206,6 @@ ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
-${rustNamedValues("platform", contract.platform.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
 `

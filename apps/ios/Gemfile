@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+
+# fastlane for the iOS release lanes (apps/ios/fastlane). Run with `bundle install`
+# then `bundle exec fastlane <lane>`. Ruby 3.x is recommended.
+gem "fastlane", "~> 2.220"

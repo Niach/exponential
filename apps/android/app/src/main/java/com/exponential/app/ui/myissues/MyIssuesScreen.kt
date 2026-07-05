@@ -38,7 +38,7 @@ import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.StatusIcon
-import com.exponential.app.ui.issue.SwipeableIssueRow
+import com.exponential.app.ui.issue.LongPressIssueRow
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -95,7 +95,7 @@ fun MyIssuesScreen(
                             // Rows span projects — the identifier's project
                             // prefix ({PREFIX}-{n}) disambiguates; the assignee
                             // avatar is omitted (it's always me).
-                            SwipeableIssueRow(
+                            LongPressIssueRow(
                                 issue = entry.issue,
                                 labels = entry.labels,
                                 assignee = null,

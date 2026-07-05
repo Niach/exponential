@@ -1,72 +1,67 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   workspaceMembers,
   workspaces,
-  projects,
   attachments,
-  codingSessions,
-  repositories,
   creem_subscriptions,
+  widgetConfigs,
+  users,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
 
 export type PlanTier = `free` | `pro` | `business` | `unlimited`
 
-// Push + email notification delivery are FREE on every tier (never plan-gated)
-// — the moat is seats/projects/repos/storage/coding capacity, never "nothing
-// gets lost". Do NOT add `push` or `email` booleans here.
+// Per-seat model (masterplan v5 §3.2, L19–L22). The ONLY monetized axes are
+// seats (team size), storage per workspace, and feedback-widget configs.
+// Projects, repositories, and coding-session capacity are unlimited on every
+// tier. Push + email notification delivery and remote steer are FREE on every
+// tier and are never plan-gated — do NOT add booleans for them here.
 type PlanLimits = {
-  members: number
-  projects: number
+  // Purchased seats a workspace may fill with non-agent members. Free = 1;
+  // paid tiers override this placeholder with the subscription's purchased
+  // quantity (see planFromSubscription).
+  seats: number
+  // Attachment storage budget per workspace, in megabytes.
   storageMb: number
-  // Connected GitHub repositories per workspace (the coding-flow value axis).
-  repositories: number
-  // How many `running` coding_sessions a workspace may have at once — the
-  // capacity axis for the desktop coding superpower.
-  concurrentCodingSessions: number
-  // Number of non-public workspaces a user may OWN. Capping this closes the
-  // hole where one free user spins up N workspaces × the per-workspace project
-  // quota. `ownedWorkspaces` is required so the compiler flags every literal.
-  ownedWorkspaces: number
+  // Feedback-widget configs a workspace may create — a Pro+ feature. Free = 0
+  // (widget gated off entirely), Pro = 1, Business = unlimited.
+  widgetConfigs: number
 }
 
+// NOTE: the `seats` value on the paid tiers is only a placeholder — the real
+// seat allowance is the subscription's purchased quantity, applied in
+// planFromSubscription. Free stays at a hard 1 (the owner alone).
 const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   free: {
-    members: 1,
-    projects: 3,
-    storageMb: 50,
-    repositories: 1,
-    concurrentCodingSessions: 1,
-    ownedWorkspaces: 1,
+    seats: 1,
+    storageMb: 250,
+    widgetConfigs: 0,
   },
   pro: {
-    members: 5,
-    projects: 10,
-    storageMb: 1024,
-    repositories: 10,
-    concurrentCodingSessions: 3,
-    ownedWorkspaces: 3,
+    seats: 1,
+    storageMb: 5120,
+    widgetConfigs: 1,
   },
   business: {
-    members: 25,
-    projects: Infinity,
-    storageMb: 10240,
-    repositories: Infinity,
-    concurrentCodingSessions: Infinity,
-    ownedWorkspaces: 10,
+    seats: 1,
+    storageMb: 51200,
+    widgetConfigs: Infinity,
   },
   unlimited: {
-    members: Infinity,
-    projects: Infinity,
+    seats: Infinity,
     storageMb: Infinity,
-    repositories: Infinity,
-    concurrentCodingSessions: Infinity,
-    ownedWorkspaces: Infinity,
+    widgetConfigs: Infinity,
   },
 }
+
+// Invisible abuse guard (§3.2): a FREE user may own at most this many
+// workspaces. Not shown in any pricing UI — it only exists to stop storage
+// farming (N free workspaces × the per-workspace storage budget). Paid users
+// have no cap.
+export const FREE_OWNED_WORKSPACES_CAP = 10
 
 // Every plan-limit throw below uses PRECONDITION_FAILED + a message starting
 // with PLAN_LIMIT_MESSAGE_PREFIX so clients can detect it and render an
@@ -83,13 +78,39 @@ export function getPlanLimits(plan: PlanTier): PlanLimits {
 }
 
 function productIdToTier(productId: string): PlanTier {
-  if (productId === process.env.CREEM_PRO_PRODUCT_ID) return `pro`
   if (productId === process.env.CREEM_BUSINESS_PRODUCT_ID) return `business`
+  if (productId === process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID) return `business`
+  if (productId === process.env.CREEM_PRO_PRODUCT_ID) return `pro`
   return `pro`
 }
 
 const ACTIVE_STATUSES = [`active`, `trialing`, `paid`]
 
+export type ActiveSubscription = { productId: string; seats: number }
+
+// Pure resolution: a workspace's plan + effective limits from its single active
+// workspace-bound subscription (or `null` → free). The subscription's purchased
+// seat quantity overrides the tier's placeholder seat count. Exported so the
+// resolution can be unit-tested without a DB.
+export function planFromSubscription(subscription: ActiveSubscription | null): {
+  plan: PlanTier
+  limits: PlanLimits
+} {
+  if (!subscription) {
+    return { plan: `free`, limits: PLAN_LIMITS.free }
+  }
+  const plan = productIdToTier(subscription.productId)
+  const seats =
+    Number.isInteger(subscription.seats) && subscription.seats > 0
+      ? subscription.seats
+      : 1
+  return { plan, limits: { ...PLAN_LIMITS[plan], seats } }
+}
+
+// Workspace-bound plan resolution (L19). A subscription belongs to ONE
+// workspace (creem_subscriptions.workspaceId) — no owner fan-out. When a
+// workspace somehow carries more than one active subscription we take the one
+// with the most seats so a team is never accidentally under-provisioned.
 export async function getWorkspacePlan(
   workspaceId: string
 ): Promise<{ plan: PlanTier; limits: PlanLimits }> {
@@ -97,57 +118,29 @@ export async function getWorkspacePlan(
     return { plan: `unlimited`, limits: PLAN_LIMITS.unlimited }
   }
 
-  const owners = await db
-    .select({ userId: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .where(
-      sql`${workspaceMembers.workspaceId} = ${workspaceId} AND ${workspaceMembers.role} = 'owner'`
-    )
-
-  if (owners.length === 0) {
-    return { plan: `free`, limits: PLAN_LIMITS.free }
-  }
-
-  const ownerIds = owners.map((o) => o.userId)
-
-  const subs = await db
+  const [sub] = await db
     .select({
       productId: creem_subscriptions.productId,
-      status: creem_subscriptions.status,
+      seats: creem_subscriptions.seats,
     })
     .from(creem_subscriptions)
     .where(
-      sql`${creem_subscriptions.referenceId} IN (${sql.join(
-        ownerIds.map((id) => sql`${id}`),
-        sql`, `
-      )}) AND ${creem_subscriptions.status} IN (${sql.join(
-        ACTIVE_STATUSES.map((s) => sql`${s}`),
-        sql`, `
-      )})`
+      and(
+        eq(creem_subscriptions.workspaceId, workspaceId),
+        inArray(creem_subscriptions.status, ACTIVE_STATUSES)
+      )
     )
+    .orderBy(desc(creem_subscriptions.seats))
+    .limit(1)
 
-  if (subs.length === 0) {
-    return { plan: `free`, limits: PLAN_LIMITS.free }
-  }
-
-  let bestPlan: PlanTier = `free`
-  for (const sub of subs) {
-    const tier = productIdToTier(sub.productId)
-    if (tier === `business`) {
-      bestPlan = `business`
-      break
-    }
-    if (tier === `pro` && bestPlan === `free`) {
-      bestPlan = `pro`
-    }
-  }
-
-  return { plan: bestPlan, limits: PLAN_LIMITS[bestPlan] }
+  return planFromSubscription(sub ?? null)
 }
 
-// User-scoped entitlement: the best plan a user is entitled to, independent of
-// any single workspace. The owned-workspace cap is a per-user limit, so it must
-// resolve from the user's own subscriptions, not a workspace's owner set.
+// User-scoped entitlement: the best plan a user has personally purchased
+// (creem_subscriptions.referenceId → the buyer), independent of any single
+// workspace. Only used by the free-tier owned-workspace abuse guard and the
+// userPlan pre-gate — seats are not meaningful cross-workspace, so this returns
+// the tier's base limits.
 export async function getUserPlan(
   userId: string
 ): Promise<{ plan: PlanTier; limits: PlanLimits }> {
@@ -156,16 +149,13 @@ export async function getUserPlan(
   }
 
   const subs = await db
-    .select({
-      productId: creem_subscriptions.productId,
-      status: creem_subscriptions.status,
-    })
+    .select({ productId: creem_subscriptions.productId })
     .from(creem_subscriptions)
     .where(
-      sql`${creem_subscriptions.referenceId} = ${userId} AND ${creem_subscriptions.status} IN (${sql.join(
-        ACTIVE_STATUSES.map((s) => sql`${s}`),
-        sql`, `
-      )})`
+      and(
+        eq(creem_subscriptions.referenceId, userId),
+        inArray(creem_subscriptions.status, ACTIVE_STATUSES)
+      )
     )
 
   let bestPlan: PlanTier = `free`
@@ -196,75 +186,86 @@ export async function countOwnedWorkspaces(userId: string): Promise<number> {
   return row?.count ?? 0
 }
 
-// Gate workspace creation by the per-plan owned-workspace cap. Never called on
-// the auto-created first workspace (ensureDefault is exempt by design), so a
-// user with zero owned workspaces always passes.
+// Invisible abuse guard: a FREE user may own at most FREE_OWNED_WORKSPACES_CAP
+// workspaces (storage-farming guard, not a marketed limit). Paid users are
+// uncapped. Never called on the auto-created first workspace (ensureDefault is
+// exempt by design).
 export async function assertCanCreateWorkspace(userId: string): Promise<void> {
   if (!isCloudInstance()) return
 
-  const { limits } = await getUserPlan(userId)
-  if (limits.ownedWorkspaces === Infinity) return
+  const { plan } = await getUserPlan(userId)
+  if (plan !== `free`) return
 
   const owned = await countOwnedWorkspaces(userId)
-  if (owned >= limits.ownedWorkspaces) {
+  if (owned >= FREE_OWNED_WORKSPACES_CAP) {
     throw planLimitError(
-      `up to ${limits.ownedWorkspaces} workspace${
-        limits.ownedWorkspaces === 1 ? `` : `s`
-      } you can own. Upgrade to create more.`
+      `up to ${FREE_OWNED_WORKSPACES_CAP} workspaces. Contact us if you need more.`
     )
   }
 }
 
 export type WorkspaceUsage = {
+  // Human members only — the widget's synthetic isAgent user is excluded so a
+  // fresh single-owner workspace reads "1 member", never "2" (EXP-7).
   members: number
-  projects: number
   storageMb: number
-  repositories: number
+  widgetConfigs: number
 }
 
 export async function getWorkspaceUsage(
   workspaceId: string
 ): Promise<WorkspaceUsage> {
-  const [[memberCount], [projectCount], [storageSum], [repoCount]] =
-    await Promise.all([
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.workspaceId, workspaceId)),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(projects)
-        .where(eq(projects.workspaceId, workspaceId)),
-      db
-        .select({
-          totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
-        })
-        .from(attachments)
-        .where(eq(attachments.workspaceId, workspaceId)),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(repositories)
-        .where(
-          and(
-            eq(repositories.workspaceId, workspaceId),
-            isNull(repositories.archivedAt)
-          )
-        ),
-    ])
+  const [[memberCount], [storageSum], [widgetCount]] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(workspaceMembers)
+      .innerJoin(users, eq(users.id, workspaceMembers.userId))
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(users.isAgent, false)
+        )
+      ),
+    db
+      .select({
+        totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
+      })
+      .from(attachments)
+      .where(eq(attachments.workspaceId, workspaceId)),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(widgetConfigs)
+      .where(eq(widgetConfigs.workspaceId, workspaceId)),
+  ])
 
   const totalBytes = Number(storageSum.totalBytes)
 
   return {
     members: memberCount.count,
-    projects: projectCount.count,
     storageMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
-    repositories: repoCount.count,
+    widgetConfigs: widgetCount.count,
   }
 }
 
-export async function assertWithinPlanLimits(
-  workspaceId: string,
-  resource: `members` | `projects` | `repositories`
+// Pure seat gate (§3.3, L19): a workspace may hold at most `seats` non-agent
+// members. Throws the plan-limit error when full. Exported for unit tests.
+export function assertSeatAvailable(
+  memberCount: number,
+  seats: number
+): void {
+  if (memberCount >= seats) {
+    throw planLimitError(
+      `up to ${seats} seat${seats === 1 ? `` : `s`}. Add seats or upgrade to invite more teammates.`
+    )
+  }
+}
+
+// Invite-time seat check (workspace-invites.create/accept). Current member
+// count EXCLUDING isAgent users must be below the purchased seat count.
+// Downgrade policy (L19/§3.2): this ONLY blocks NEW invites — it never removes
+// or locks out existing members.
+export async function assertCanInviteMember(
+  workspaceId: string
 ): Promise<void> {
   if (!isCloudInstance()) return
 
@@ -273,48 +274,43 @@ export async function assertWithinPlanLimits(
     getWorkspaceUsage(workspaceId),
   ])
 
-  const limit = limits[resource]
-  const current = usage[resource]
+  assertSeatAvailable(usage.members, limits.seats)
+}
 
-  if (current >= limit) {
-    const nouns: Record<typeof resource, [singular: string, plural: string]> = {
-      members: [`member`, `members`],
-      projects: [`project`, `projects`],
-      repositories: [`connected repository`, `connected repositories`],
-    }
-    const noun = nouns[resource][limit === 1 ? 0 : 1]
-    throw planLimitError(`up to ${limit} ${noun}. Upgrade to add more.`)
+// Pure widget gate (§3.3(4)): the feedback widget is a Pro+ feature, capped at
+// the tier's widgetConfigs allowance. Exported for unit tests.
+export function assertWidgetCreatable(
+  plan: PlanTier,
+  limits: PlanLimits,
+  currentCount: number
+): void {
+  if (plan === `free`) {
+    throw planLimitError(
+      `the feedback widget on Pro and Business plans. Upgrade to add a widget.`
+    )
+  }
+  if (currentCount >= limits.widgetConfigs) {
+    throw planLimitError(
+      `up to ${limits.widgetConfigs} widget config${
+        limits.widgetConfigs === 1 ? `` : `s`
+      }. Upgrade to add more.`
+    )
   }
 }
 
-// Concurrent coding-session capacity: how many `running` sessions a workspace
-// may have at once. Checked at codingSessions.start (and fail-fast at remote
-// steer.startSession); self-hosted is always unlimited.
-export async function assertWithinCodingSessionLimit(
+// Widget-create gate (widgets.create). Self-hosted is unlimited; the bootstrap
+// dogfood path inserts directly and is intentionally exempt.
+export async function assertCanCreateWidget(
   workspaceId: string
 ): Promise<void> {
   if (!isCloudInstance()) return
 
-  const { limits } = await getWorkspacePlan(workspaceId)
-  if (limits.concurrentCodingSessions === Infinity) return
+  const [{ plan, limits }, usage] = await Promise.all([
+    getWorkspacePlan(workspaceId),
+    getWorkspaceUsage(workspaceId),
+  ])
 
-  const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(codingSessions)
-    .where(
-      and(
-        eq(codingSessions.workspaceId, workspaceId),
-        eq(codingSessions.status, `running`)
-      )
-    )
-
-  if ((row?.count ?? 0) >= limits.concurrentCodingSessions) {
-    throw planLimitError(
-      `up to ${limits.concurrentCodingSessions} concurrent coding session${
-        limits.concurrentCodingSessions === 1 ? `` : `s`
-      }. End a running session or upgrade to run more at once.`
-    )
-  }
+  assertWidgetCreatable(plan, limits, usage.widgetConfigs)
 }
 
 export async function assertWithinStorageLimit(

@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -94,7 +93,6 @@ class SettingsViewModel @Inject constructor(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onOpenIntegrations: () -> Unit,
     onOpenServerDetail: (accountId: String) -> Unit,
     onOpenWorkspaceSettings: () -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
@@ -182,13 +180,6 @@ fun SettingsScreen(
                     SectionHeader("General")
                     Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
                         SettingsRow(
-                            icon = Icons.Filled.Extension,
-                            title = "Integrations",
-                            subtitle = "Push notifications",
-                            onClick = onOpenIntegrations,
-                        )
-                        CardDivider()
-                        SettingsRow(
                             icon = Icons.Filled.Sync,
                             title = "Sync diagnostics",
                             subtitle = "Live Electric shape status",
@@ -200,10 +191,10 @@ fun SettingsScreen(
                             SettingsRow(
                                 icon = Icons.Filled.Email,
                                 title = "Send feedback",
-                                subtitle = "Open the feedback workspace",
+                                subtitle = "Open the feedback page",
                                 trailingIcon = Icons.AutoMirrored.Filled.OpenInNew,
                                 onClick = {
-                                    val url = "$base/w/feedback/projects/feedback"
+                                    val url = "$base/feedback"
                                     runCatching {
                                         val intent = android.content.Intent(
                                             android.content.Intent.ACTION_VIEW,

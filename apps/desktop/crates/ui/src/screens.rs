@@ -12,20 +12,24 @@
 //! workspace shows a skeleton, never a wrong default or a false empty state.
 
 use gpui::{
-    div, App, AppContext as _, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render,
-    Styled, Subscription, Window,
+    div, App, AppContext as _, Entity, FocusHandle, Focusable, InteractiveElement as _,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     dock::{Panel, PanelControl, PanelEvent},
+    h_flex,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _,
+    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 use sync::Store;
 
 use crate::board::BoardView;
 use crate::issue_detail::IssueDetailView;
-use crate::issue_list::IssueQuery;
-use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
+use crate::issue_list::{parse_hex_color, IssueQuery};
+use crate::navigation::{
+    active_workspace_id, nav_for_window, navigate, resolved_screen, Navigation, Screen,
+};
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
@@ -153,6 +157,99 @@ impl ScreensPanel {
         self.board.clone().into_any_element()
     }
 
+    /// §8.11 breadcrumb chrome for the non-detail screens (issue detail owns
+    /// its own richer breadcrumb, so it opts out). A back affordance +
+    /// workspace-rooted trail following `issue_detail::render_breadcrumb`; the
+    /// file viewer's "Source Control" crumb is clickable back to that screen.
+    fn render_screen_chrome(
+        &self,
+        screen: &Screen,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let collections = Store::global(cx).collections();
+
+        // Workspace root + the screen-specific trail: (label, dot, target).
+        let mut crumbs: Vec<(SharedString, Option<gpui::Hsla>, Option<Screen>)> = Vec::new();
+        if let Some(name) = active_workspace_id(&self.nav, cx)
+            .and_then(|id| collections.workspaces.read(cx).get(&id).map(|w| w.name.clone()))
+        {
+            crumbs.push((name.into(), None, None));
+        }
+        match screen {
+            Screen::Board { project_id } => {
+                if let Some(project) = collections.projects.read(cx).get(project_id) {
+                    let dot = project.color.as_deref().and_then(parse_hex_color);
+                    crumbs.push((project.name.clone().into(), dot, None));
+                }
+            }
+            Screen::MyIssues => crumbs.push(("My Issues".into(), None, None)),
+            Screen::Inbox => crumbs.push(("Inbox".into(), None, None)),
+            Screen::Settings => crumbs.push(("Settings".into(), None, None)),
+            Screen::Account => crumbs.push(("Account".into(), None, None)),
+            Screen::SourceControl => crumbs.push(("Source Control".into(), None, None)),
+            Screen::FileViewer { path } => {
+                crumbs.push(("Source Control".into(), None, Some(Screen::SourceControl)));
+                let name = path.rsplit('/').next().unwrap_or(path.as_str());
+                crumbs.push((name.to_string().into(), None, None));
+            }
+            // Issue detail never reaches here (it renders its own breadcrumb).
+            Screen::IssueDetail { .. } => {}
+        }
+
+        let mut row = h_flex()
+            .w_full()
+            .px_4()
+            .py_2()
+            .gap_1p5()
+            .items_center()
+            .min_w_0()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .border_b_1()
+            .border_color(cx.theme().border);
+
+        if let Some(button) = crate::navigation::back_button(&self.nav, cx) {
+            row = row.child(button);
+        }
+
+        let hover_fg = cx.theme().foreground;
+        for (i, (label, dot, target)) in crumbs.into_iter().enumerate() {
+            if i > 0 {
+                row = row.child(Icon::new(IconName::ChevronRight).xsmall());
+            }
+            let mut segment = h_flex().gap_1p5().items_center().min_w_0();
+            if let Some(color) = dot {
+                segment = segment.child(div().size_2p5().rounded_full().bg(color));
+            }
+            segment = segment.child(
+                div()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(label),
+            );
+            match target {
+                Some(target) => {
+                    row = row.child(
+                        h_flex()
+                            .id(("screen-crumb", i))
+                            .gap_1p5()
+                            .items_center()
+                            .min_w_0()
+                            .cursor_pointer()
+                            .hover(move |style| style.text_color(hover_fg))
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                navigate(window, cx, target.clone());
+                            }))
+                            .child(segment),
+                    );
+                }
+                None => row = row.child(segment),
+            }
+        }
+        row.into_any_element()
+    }
+
     /// §4.1: while `resolved_screen` is `None` the workspace/projects shapes
     /// have not caught up — skeleton, never a default screen guess.
     fn render_syncing(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -223,6 +320,14 @@ impl Render for ScreensPanel {
                 }
             }
         }
+        // §8.11: the non-detail screens get a shared breadcrumb chrome (back
+        // button + trail); issue detail owns its own breadcrumb and the
+        // still-syncing skeleton has no scope to name, so both opt out.
+        let chrome = match &screen {
+            Some(Screen::IssueDetail { .. }) | None => None,
+            Some(current) => Some(self.render_screen_chrome(current, cx)),
+        };
+
         let content = match screen {
             None => self.render_syncing(cx),
             Some(Screen::Board { project_id }) => self.render_board(&project_id, cx),
@@ -235,9 +340,11 @@ impl Render for ScreensPanel {
             Some(Screen::FileViewer { .. }) => self.file_viewer.clone().into_any_element(),
         };
 
-        div()
-            .size_full()
-            .bg(cx.theme().colors.list)
-            .child(content)
+        div().size_full().bg(cx.theme().colors.list).child(
+            v_flex()
+                .size_full()
+                .children(chrome)
+                .child(div().flex_1().min_h_0().child(content)),
+        )
     }
 }

@@ -48,6 +48,17 @@ jobs:
         working-directory: apps/android
         run: ./gradlew :app:assembleRelease --no-daemon
 
+      - name: Build release AAB (Play bundle)
+        working-directory: apps/android
+        # When RELEASE_STORE_* secrets are present the .aab is signed; otherwise it is an
+        # unsigned bundle (keeps CI green pre-keystore — sign locally or via Play upload key).
+        env:
+          RELEASE_STORE_FILE: ${{ secrets.RELEASE_STORE_FILE }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:bundleProductionRelease :app:bundleStagingRelease --no-daemon
+
       - name: Publish APKs to Gitea release
         env:
           GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,6 +69,7 @@ jobs:
           REPO="${GITHUB_REPOSITORY}"
           TAG="${GITHUB_REF#refs/tags/}"
           APK_DIR="apps/android/app/build/outputs/apk"
+          AAB_DIR="apps/android/app/build/outputs/bundle"
 
           # Reuse the release if the tag has already been published; otherwise create a new one.
           RELEASE_ID=$(curl -fsS -H "Authorization: token ${GITEA_TOKEN}" \
@@ -66,7 +78,7 @@ jobs:
           if [ -z "${RELEASE_ID}" ]; then
             RELEASE_ID=$(curl -fsS -X POST -H "Authorization: token ${GITEA_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"name\":\"Android ${VERSION}\",\"body\":\"Built from ${GITHUB_SHA}.\\nProduction = app.exponential.at; Staging = next.exponential.at (co-installable, applicationId .staging).\\nDebug APKs are debuggable; release APKs are unsigned (sign locally before distributing).\",\"draft\":false,\"prerelease\":false}" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"Android ${VERSION}\",\"body\":\"Built from ${GITHUB_SHA}.\\nProduction = app.exponential.at; Staging = next.exponential.at (co-installable, applicationId .staging).\\nDebug APKs are debuggable. Release APKs + Play bundles (.aab) are signed when the RELEASE_STORE_* secrets are configured, otherwise unsigned (sign locally before distributing). Upload the production .aab to the Play Console — see docs/release-android.md.\",\"draft\":false,\"prerelease\":false}" \
               "${SERVER}/api/v1/repos/${REPO}/releases" \
               | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
           fi
@@ -80,5 +92,18 @@ jobs:
           }
           upload "${APK_DIR}/production/debug/app-production-debug.apk"                 "exponential-production-debug-${VERSION}.apk"
           upload "${APK_DIR}/staging/debug/app-staging-debug.apk"                      "exponential-staging-debug-${VERSION}.apk"
-          upload "${APK_DIR}/production/release/app-production-release-unsigned.apk"    "exponential-production-release-unsigned-${VERSION}.apk"
-          upload "${APK_DIR}/staging/release/app-staging-release-unsigned.apk"         "exponential-staging-release-unsigned-${VERSION}.apk"
+          # Release APKs are named -unsigned only when no signing config is applied; the
+          # bundle path is stable regardless of signing. Resolve each release APK by glob so
+          # the same step works signed or unsigned.
+          upload_glob() {
+            local pattern="$1" name="$2"
+            local path
+            path=$(ls ${pattern} 2>/dev/null | head -n1 || true)
+            if [ -n "${path}" ]; then upload "${path}" "${name}"; fi
+          }
+          upload_glob "${APK_DIR}/production/release/app-production-release*.apk"        "exponential-production-release-${VERSION}.apk"
+          upload_glob "${APK_DIR}/staging/release/app-staging-release*.apk"             "exponential-staging-release-${VERSION}.apk"
+
+          # Play bundles (.aab) — the upload format the Play Console requires.
+          upload "${AAB_DIR}/productionRelease/app-production-release.aab"              "exponential-production-release-${VERSION}.aab"
+          upload "${AAB_DIR}/stagingRelease/app-staging-release.aab"                    "exponential-staging-release-${VERSION}.aab"

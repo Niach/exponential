@@ -53,7 +53,6 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as AuthenticatedAdminWorkspacesRouteImport } from './routes/_authenticated/admin/workspaces'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
-import { Route as AuthenticatedAccountIntegrationsRouteImport } from './routes/_authenticated/account/integrations'
 import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
 import { Route as WWorkspaceSlugMyIssuesIndexRouteImport } from './routes/w/$workspaceSlug/my-issues/index'
 import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$workspaceSlug/inbox/index'
@@ -290,12 +289,6 @@ const AuthenticatedAccountNotificationsRoute =
     path: '/account/notifications',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedAccountIntegrationsRoute =
-  AuthenticatedAccountIntegrationsRouteImport.update({
-    id: '/account/integrations',
-    path: '/account/integrations',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const WWorkspaceSlugSettingsIndexRoute =
   WWorkspaceSlugSettingsIndexRouteImport.update({
     id: '/settings/',
@@ -362,7 +355,6 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -414,7 +406,6 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -470,7 +461,6 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/_authenticated/account/integrations': typeof AuthenticatedAccountIntegrationsRoute
   '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/workspaces': typeof AuthenticatedAdminWorkspacesRoute
@@ -526,7 +516,6 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
-    | '/account/integrations'
     | '/account/notifications'
     | '/admin/users'
     | '/admin/workspaces'
@@ -578,7 +567,6 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
-    | '/account/integrations'
     | '/account/notifications'
     | '/admin/users'
     | '/admin/workspaces'
@@ -633,7 +621,6 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/invite/$token'
-    | '/_authenticated/account/integrations'
     | '/_authenticated/account/notifications'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/workspaces'
@@ -1021,13 +1008,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/account/integrations': {
-      id: '/_authenticated/account/integrations'
-      path: '/account/integrations'
-      fullPath: '/account/integrations'
-      preLoaderRoute: typeof AuthenticatedAccountIntegrationsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/w/$workspaceSlug/settings/': {
       id: '/w/$workspaceSlug/settings/'
       path: '/settings'
@@ -1109,7 +1089,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedFeedbackRoute: typeof AuthenticatedFeedbackRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
-  AuthenticatedAccountIntegrationsRoute: typeof AuthenticatedAccountIntegrationsRoute
   AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
   AuthenticatedIntegrationsGithubInstalledRoute: typeof AuthenticatedIntegrationsGithubInstalledRoute
 }
@@ -1118,7 +1097,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
   AuthenticatedFeedbackRoute: AuthenticatedFeedbackRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
-  AuthenticatedAccountIntegrationsRoute: AuthenticatedAccountIntegrationsRoute,
   AuthenticatedAccountNotificationsRoute:
     AuthenticatedAccountNotificationsRoute,
   AuthenticatedIntegrationsGithubInstalledRoute:

@@ -213,7 +213,8 @@ function InviteControls({ workspaceId }: { workspaceId: string }) {
   const [productIds, setProductIds] = useState<{
     pro: string | null
     business: string | null
-  }>({ pro: null, business: null })
+    businessYearly: string | null
+  }>({ pro: null, business: null, businessYearly: null })
   const invites = useWorkspaceInvites(workspaceId).filter(
     (invite) => !invite.acceptedAt
   )
@@ -223,6 +224,7 @@ function InviteControls({ workspaceId }: { workspaceId: string }) {
       setProductIds({
         pro: config.creemProProductId,
         business: config.creemBusinessProductId,
+        businessYearly: config.creemBusinessYearlyProductId,
       })
     })
   }, [])
@@ -341,10 +343,12 @@ function InviteControls({ workspaceId }: { workspaceId: string }) {
       <UpgradeDialog
         open={upgradeOpen}
         onOpenChange={setUpgradeOpen}
-        title="Member limit reached"
-        description="You've reached the maximum number of members for your plan. Upgrade to invite more."
+        title="Out of seats"
+        description="Everyone on your plan's seats is already in this workspace. Add seats to invite more teammates."
         proProductId={productIds.pro}
         businessProductId={productIds.business}
+        businessYearlyProductId={productIds.businessYearly}
+        workspaceId={workspaceId}
       />
     </>
   )

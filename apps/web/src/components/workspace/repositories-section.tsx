@@ -86,8 +86,7 @@ export function WorkspaceRepositoriesSection({
 
   const openInstall = () => {
     if (!githubStatus?.installUrl) return
-    // status returns the plain install URL (account/integrations navigates to
-    // it full-page). Appending state=dialog reproduces
+    // status returns the plain install URL. Appending state=dialog reproduces
     // githubAppInstallUrl(`dialog`): the setup redirect then lands on the
     // self-closing /integrations/github/installed page, and the focus
     // listener above re-detects the install — the picker's popup convention.

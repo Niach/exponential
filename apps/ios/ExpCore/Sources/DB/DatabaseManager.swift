@@ -116,7 +116,14 @@ public final class DatabaseManager: @unchecked Sendable {
         return dbDir.appendingPathComponent("exponential-\(accountId)-v4.sqlite")
     }
 
-    private static func runMigrations(on dbPool: DatabasePool) throws {
+    static func runMigrations(on dbPool: DatabasePool) throws {
+        try makeMigrator().migrate(dbPool)
+    }
+
+    /// The canonical migrator. Extracted (and `internal`, not `private`) so the
+    /// migration test suite can build fixture DBs at each historical schema
+    /// version (v1-only, v1+v2, …) and prove a full `migrate` still runs green.
+    static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
         // Single canonical schema (collapsed into one migration — the `-v4` file
@@ -344,9 +351,21 @@ public final class DatabaseManager: @unchecked Sendable {
         // and never bump the `-v4` file suffix for this (a suffix bump wipes
         // every local snapshot; ALTER TABLE preserves rows + cursors).
         migrator.registerMigration("v2_offset_refetch_state") { db in
-            try db.alter(table: "electric_offsets") { t in
-                t.add(column: "needs_refetch", .boolean).notNull().defaults(to: false)
-                t.add(column: "is_live", .boolean).notNull().defaults(to: false)
+            // Idempotent add: a fresh install could gain these columns from a
+            // future v1 edit, so guard each ADD against an already-present
+            // column. Re-adding a column throws SQLite "duplicate column name",
+            // which would abort the whole migrator and blacklist sync (the
+            // v3/repository_id blackout — never let it recur on any ALTER).
+            let existing = Set(try db.columns(in: "electric_offsets").map(\.name))
+            if !existing.contains("needs_refetch") || !existing.contains("is_live") {
+                try db.alter(table: "electric_offsets") { t in
+                    if !existing.contains("needs_refetch") {
+                        t.add(column: "needs_refetch", .boolean).notNull().defaults(to: false)
+                    }
+                    if !existing.contains("is_live") {
+                        t.add(column: "is_live", .boolean).notNull().defaults(to: false)
+                    }
+                }
             }
         }
 
@@ -355,12 +374,24 @@ public final class DatabaseManager: @unchecked Sendable {
         // get it from the v1 create above. Strictly additive — never bump the
         // `-v4` file suffix for this (that would wipe local snapshots + cursors).
         migrator.registerMigration("v3_project_repository_id") { db in
-            try db.alter(table: "projects") { t in
-                t.add(column: "repository_id", .text)
+            // THE iOS sync blackout (masterplan §9.1): the v1 `projects` create
+            // above now already includes `repository_id`, so a FRESH `-v4`
+            // install runs v1 (column created) then this ALTER (column re-added)
+            // → SQLite "duplicate column name: repository_id" → the migrator
+            // throws → db.pool() throws → launchPipeline never starts and
+            // resync() early-returns → total sync blackout. Existing `-v4`
+            // devices sat at v2 (no column yet) so the bare ALTER worked for
+            // them but crashed every new device / reinstall. Guard the ALTER on
+            // column presence so both paths converge on the same schema.
+            let hasColumn = try db.columns(in: "projects").contains { $0.name == "repository_id" }
+            if !hasColumn {
+                try db.alter(table: "projects") { t in
+                    t.add(column: "repository_id", .text)
+                }
             }
         }
 
-        try migrator.migrate(dbPool)
+        return migrator
     }
 
     public func clearAllData(forAccountId accountId: String) throws {

@@ -1,0 +1,9 @@
+# Play service-account JSON for `supply` (upload_to_play_store). Path comes from env so
+# the credential never lands in the repo — see docs/release-android.md (Play Console →
+# API access). Falls back to the default `fastlane/api-key.json` if the env is unset.
+json_key_file(ENV["SUPPLY_JSON_KEY"] || "")
+
+# Production applicationId (apps/android/app/build.gradle.kts → defaultConfig). The
+# `staging` flavor's `.staging` suffix is never published, so the Appfile only names
+# the production package.
+package_name("at.exponential")

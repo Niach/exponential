@@ -322,7 +322,9 @@ fun CreateIssueScreen(
     if (statusMenuOpen && isModerator) {
         IssuePickerSheet(
             title = "Status",
-            items = issueStatusOrder,
+            // Duplicate = status interception (L27): a new issue can't be a
+            // duplicate (nothing to link yet), so it's not a create option.
+            items = issueStatusOrder.filter { it != IssueStatus.Duplicate },
             selected = status,
             labelOf = { it.label },
             iconOf = { statusIcon(it) },

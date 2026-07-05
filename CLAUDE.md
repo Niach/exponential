@@ -169,7 +169,7 @@ apps/web/src/
 │   ├── integrations/             # mentions, notifications, fcm, activity, github-app, github-pr, pr-sync, subscriptions
 │   └── storage/                  # S3 attachments: issue-attachments, issue-image-upload, image-dimensions, cleanup
 ├── routes/
-│   ├── _authenticated/           # account/integrations, account/notifications (email prefs), onboarding, feedback, admin/*, integrations/github/installed
+│   ├── _authenticated/           # account/notifications (email prefs), onboarding, feedback, admin/*, integrations/github/installed (account/integrations removed in v5 — GitHub App lives in workspace settings → Repositories)
 │   ├── w/$workspaceSlug/         # route.tsx (layout), index, my-issues/, inbox/, settings/, projects/$projectSlug/ (index + issues/$issueIdentifier full-page detail)
 │   ├── auth/login.tsx, auth/register.tsx, invite/$token.tsx
 │   ├── api/shapes/               # 14 Electric shape proxies (see Patterns)
@@ -297,7 +297,7 @@ OIDC_DISCOVERY_URL            # OIDC discovery endpoint URL
 OIDC_PROVIDER_ID              # Provider ID for Better Auth (default: authentik)
 GOOGLE_CLIENT_ID              # Google OAuth client ID (required for Google login)
 GOOGLE_CLIENT_SECRET          # Google OAuth client secret
-GITHUB_APP_ID                 # GitHub App numeric ID (install from /account/integrations or workspace settings → Repositories; server mints per-repo installation tokens; github_installations rows come from the setup redirect, installation webhooks, and an empty-table listAppInstallations() self-heal)
+GITHUB_APP_ID                 # GitHub App numeric ID (install from workspace settings → Repositories — the account-level /account/integrations page was removed in v5; server mints per-repo installation tokens; github_installations rows come from the setup redirect, installation webhooks, and an empty-table listAppInstallations() self-heal)
 GITHUB_APP_SLUG               # GitHub App URL slug (builds the install link)
 GITHUB_APP_PRIVATE_KEY        # GitHub App PEM private key, base64-encoded (base64 -w0 app.private-key.pem)
 GITHUB_WEBHOOK_SECRET         # GitHub App webhook HMAC secret (cloud PR-merge detection; App webhook → ${BETTER_AUTH_URL}/api/webhooks/github)
@@ -306,8 +306,9 @@ GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (de
 SELF_HOSTED                   # 'true' for self-hosted (disables billing, unlocks plan limits)
 CREEM_API_KEY                 # Creem billing API key (cloud-only)
 CREEM_WEBHOOK_SECRET          # Creem webhook signing secret (cloud-only)
-CREEM_PRO_PRODUCT_ID          # Creem product ID for the Pro plan
-CREEM_BUSINESS_PRODUCT_ID     # Creem product ID for the Business plan
+CREEM_PRO_PRODUCT_ID          # Creem product ID for Pro ($5/seat/mo, billed yearly only)
+CREEM_BUSINESS_PRODUCT_ID     # Creem product ID for Business monthly ($10/seat/mo)
+CREEM_BUSINESS_YEARLY_PRODUCT_ID # Creem product ID for Business yearly
 PUSH_RELAY_URL                # URL of the push-relay service (e.g. https://push.yourapp.com)
 PUSH_RELAY_SECRET             # Shared secret between web app and push relay
 STEER_RELAY_URL               # URL of the steer relay (unset = remote start/steer off; LAN URLs fine — all connections dial OUT)
@@ -326,7 +327,11 @@ WIDGET_RATE_LIMIT_PER_IP_HOURLY  # Widget submit limit per client IP (default 60
 
 ### Coding flow (v2 — "Start coding" launcher)
 
-The old Rust `agent-core` runtime, the companion daemon, the synthetic desktop-agent identity (`agent_registrations`, `role=agent`, `expk_` keys), the `agent_runs` plan/approval state machine, and the `assigned-issues` shape are **all deleted**. The coding flow is a thin **launcher inside the desktop IDE** (`apps/desktop`, Rust): resolve the issue's repo from the workspace `repositories` registry (tRPC) → mint a session-gated JIT GitHub-App installation token → create a git worktree + `exp/<IDENTIFIER>` branch with a token-embedded remote → write `.mcp.json` pointing at the web `/api/mcp` (authenticated with the user's personal `expu_` Better Auth apikey) → spawn `claude --dangerously-skip-permissions` in the embedded terminal (alacritty_terminal-backed), seeded with a plan-first prompt. Claude commits, pushes, and opens its own PR via the MCP `open_pr` tool (the server opens + links the PR through the GitHub App). Local deps are only `claude` + `git` — never `gh`. A slim synced `coding_sessions` row (`running`/`ended`) powers the cross-client "coding now" badge. The person coding is the **real signed-in user**. The single plan of record is `docs/masterplan.md` (v4 consolidated — §1 feature inventory, §3 project=repo contract, §4 desktop IDE/git, §8 execution plan); the superseded deep specs live in `docs/archive/` (masterplan-v2 server/relay, masterplan-v3 gpui desktop).
+The old Rust `agent-core` runtime, the companion daemon, the synthetic desktop-agent identity (`agent_registrations`, `role=agent`, `expk_` keys), the `agent_runs` plan/approval state machine, and the `assigned-issues` shape are **all deleted**. The coding flow is a thin **launcher inside the desktop IDE** (`apps/desktop`, Rust): resolve the issue's repo from the workspace `repositories` registry (tRPC) → mint a session-gated JIT GitHub-App installation token → create a git worktree + `exp/<IDENTIFIER>` branch with a token-embedded remote → write `.mcp.json` pointing at the web `/api/mcp` (authenticated with the user's personal `expu_` Better Auth apikey) → spawn `claude --dangerously-skip-permissions` in the embedded terminal (alacritty_terminal-backed), seeded with a plan-first prompt. Claude commits, pushes, and opens its own PR via the MCP `open_pr` tool (the server opens + links the PR through the GitHub App). Local deps are only `claude` + `git` — never `gh`. A slim synced `coding_sessions` row (`running`/`ended`) powers the cross-client "coding now" badge. The person coding is the **real signed-in user**. The single plan of record is `docs/masterplan.md` (v5 release — §2 locked decisions L19–L30, §3 per-seat billing, §12 execution P0–P5, §13 release checklist); superseded deep specs live in `docs/archive/` (masterplan-v2 server/relay, masterplan-v3 gpui desktop, masterplan-v4 project=repo + git IDE).
+
+**Billing (v5, per-seat)**: subscriptions bind to a WORKSPACE (`creem_subscriptions.workspace_id` + `seats`; checkout via `trpc.billing.createSeatCheckout` with Creem `units` — units is the authoritative seat count, never client metadata). Free = 1 seat, 250MB/ws; Pro = $5/seat/mo yearly-only, 5GB, 1 widget config; Business = $10/seat/mo (monthly or yearly), 50GB, unlimited widgets. Unlimited projects/repos/coding sessions on EVERY tier; push + steer never plan-gated; seat counts exclude `isAgent` users; over-seat workspaces only block new invites (never lock members out). Feedback-widget creation is Pro-gated. `SELF_HOSTED=true` ⇒ unlimited. Default-branch rows are resolved live from GitHub at connect time and healed on `repositories.list`/`installationToken` (backfill: `bun run backfill:default-branches` in apps/web) — never assume `main`.
+
+**Run configs (v5)**: the `.exponential/config.json` preview-target system is DELETED (`previewConfig` now holds only `feedbackProjectId`). `run_configs` (DB, per project, argv/cwd/env, argv-direct spawn — never a shell) is the only model, edited IDE-only via a single-line command editor; its "Create with Claude" button is the ONE claude_task variant with a scoped `.mcp.json` (conflict-fix tasks stay MCP-less). Mobile apps are pure companions: no workspace/project creation, no integrations menu; onboarding points to web/desktop. Mobile store deploys use fastlane (`apps/android/fastlane`, `apps/ios/fastlane`; docs/release-android.md, docs/release-ios.md). Desktop releases publish to GitHub Releases on `desktop-v*` tags (production channel only, SHA256SUMS; macOS notarization secret-gated) and the app shows an update banner from `releases/latest`. Do NOT run `bun run lint` — its --fix corrupts `typeof import()` sites (EXP-13).
 
 ### Embeddable Feedback Widget
 

@@ -14,6 +14,7 @@ struct SyncDebugView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    fatalSection
                     shapesSection
                     resyncSection
                     logSection
@@ -25,6 +26,32 @@ struct SyncDebugView: View {
         }
         .navigationTitle("Sync diagnostics")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+    }
+
+    // A hard DB-open / migration / resync failure. When present this is almost
+    // always the whole story behind "no shape activity" — show it loud and
+    // first, so this class of blackout (§9.1) is never silent again.
+    @ViewBuilder
+    private var fatalSection: some View {
+        if let fatal = debug.lastFatalError {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Sync stopped")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text(fatal)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+        }
     }
 
     private var shapesSection: some View {

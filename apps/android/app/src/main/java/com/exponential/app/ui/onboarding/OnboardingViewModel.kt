@@ -3,15 +3,7 @@ package com.exponential.app.ui.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AuthApi
-import com.exponential.app.data.api.CreateIssueInput
-import com.exponential.app.data.api.CreateProjectInput
-import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.OnboardingApi
-import com.exponential.app.data.api.ProjectsApi
-import com.exponential.app.data.api.RepositoriesApi
-import com.exponential.app.data.api.RepositoryRef
-import com.exponential.app.data.api.WorkspaceRepo
-import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -20,134 +12,55 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// Drives the 2-step onboarding wizard (create first project -> create first
-// issue), mirroring the web flow. ensureDefault resolves the workspace the
-// project goes into; on finish/skip it calls onboarding.complete and flips the
-// local account flag so the nav gate stops showing the wizard.
+// The mobile app is a pure companion (masterplan L26): workspaces and projects
+// are created on the web or desktop app, so onboarding is a single informational
+// screen instead of a create-project/issue wizard. `onboarding.complete` (and the
+// local needsOnboarding flag) is flipped on Continue so the nav gate stops showing
+// this screen. The server also backfills onboardingCompletedAt on session reads for
+// users who already have a project in a non-public workspace (lib/auth/onboarding.ts),
+// so a stale account self-heals via reconcile() before the user ever taps Continue.
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val authApi: AuthApi,
-    private val workspacesApi: WorkspacesApi,
-    private val projectsApi: ProjectsApi,
-    private val repositoriesApi: RepositoriesApi,
-    private val issuesApi: IssuesApi,
     private val onboardingApi: OnboardingApi,
 ) : ViewModel() {
 
-    data class State(
-        val step: Int = 0, // 0 = project, 1 = first issue
-        val workspaceId: String? = null,
-        val projectId: String? = null,
-        val busy: Boolean = false,
-        val error: String? = null,
-        // v4: a project requires an already-connected repository (connecting new
-        // repos is web-only on Android). Loaded once the workspace resolves.
-        val repos: List<WorkspaceRepo> = emptyList(),
-        val reposLoading: Boolean = false,
-    )
+    val instanceUrl: StateFlow<String?> = auth.instanceUrl
 
-    private val _state = MutableStateFlow(State())
-    val state: StateFlow<State> = _state.asStateFlow()
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
     private val _done = MutableStateFlow(false)
     val done: StateFlow<Boolean> = _done.asStateFlow()
 
     private var reconciled = false
 
-    fun ensureWorkspace() {
-        if (_state.value.workspaceId != null) return
+    /** Re-read the session on appear so an account whose onboardingCompletedAt was
+     * still null at login self-heals here instead of showing this screen again. */
+    fun reconcile() {
+        if (reconciled) return
+        reconciled = true
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            // The server backfills onboardingCompletedAt on session reads for
-            // users who already have a project in a non-public workspace (the
-            // unified rule in lib/auth/onboarding.ts). Re-read the session
-            // before walking the wizard, so an account whose flag was still
-            // null at login self-heals here instead of re-onboarding.
-            if (!reconciled) {
-                reconciled = true
-                val completedAt = authApi.fetchSession(accountId)?.onboardingCompletedAt
-                if (completedAt != null) {
-                    auth.markOnboardingCompleted(completedAt)
-                    _done.value = true
-                    return@launch
-                }
-            }
-            runCatching { workspacesApi.ensureDefault(accountId) }
-                .onSuccess {
-                    _state.value = _state.value.copy(workspaceId = it.id, reposLoading = true)
-                    // A project needs a connected repo — load the registry so the
-                    // project step can offer the required selector (or its empty state).
-                    val repos = runCatching { repositoriesApi.list(accountId, it.id) }
-                        .getOrDefault(emptyList())
-                    _state.value = _state.value.copy(repos = repos, reposLoading = false)
-                }
-                .onFailure { _state.value = _state.value.copy(error = it.message ?: "Couldn't load your workspace") }
+            val completedAt = runCatching { authApi.fetchSession(accountId)?.onboardingCompletedAt }
+                .getOrNull() ?: return@launch
+            auth.markOnboardingCompleted(completedAt)
+            _done.value = true
         }
     }
 
-    fun createProject(name: String, prefix: String, color: String, repositoryId: String) {
-        if (_state.value.busy) return
-        val workspaceId = _state.value.workspaceId ?: return
-        val accountId = auth.activeAccountId.value ?: return
+    /** Continue from the informational screen — marks onboarding complete (like web).
+     * Deliberately leaves `busy` set: the `done` flag navigates away, and re-enabling
+     * the button first would open a double-submit window. */
+    fun finish() {
+        if (_busy.value) return
         viewModelScope.launch {
-            _state.value = _state.value.copy(busy = true, error = null)
-            runCatching {
-                projectsApi.create(
-                    accountId,
-                    CreateProjectInput(
-                        workspaceId = workspaceId,
-                        name = name.trim(),
-                        prefix = prefix.trim().uppercase(),
-                        color = color,
-                        repository = RepositoryRef(repositoryId),
-                    ),
-                )
-            }.onSuccess {
-                _state.value = _state.value.copy(busy = false, projectId = it.id, step = 1)
-            }.onFailure {
-                _state.value = _state.value.copy(busy = false, error = it.message ?: "Couldn't create the project")
-            }
+            _busy.value = true
+            val accountId = auth.activeAccountId.value
+            if (accountId != null) runCatching { onboardingApi.complete(accountId) }
+            auth.markOnboardingCompleted(java.time.Instant.now().toString())
+            _done.value = true
         }
-    }
-
-    fun createIssue(title: String) {
-        if (_state.value.busy) return
-        val projectId = _state.value.projectId ?: return
-        val accountId = auth.activeAccountId.value ?: return
-        viewModelScope.launch {
-            _state.value = _state.value.copy(busy = true, error = null)
-            runCatching {
-                issuesApi.create(accountId, CreateIssueInput(projectId = projectId, title = title.trim()))
-            }.onSuccess {
-                finish()
-            }.onFailure {
-                _state.value = _state.value.copy(busy = false, error = it.message ?: "Couldn't create the issue")
-            }
-        }
-    }
-
-    fun back() {
-        if (_state.value.step > 0) _state.value = _state.value.copy(step = _state.value.step - 1)
-    }
-
-    /** Skip the rest of setup (still marks onboarding complete, like web). */
-    fun skip() {
-        if (_state.value.busy) return
-        viewModelScope.launch {
-            // Mark busy so every button (Skip included) disables while the
-            // async complete call runs — no double-tap, no racing a create.
-            _state.value = _state.value.copy(busy = true, error = null)
-            finish()
-        }
-    }
-
-    // Deliberately leaves `busy` set: the `done` flag navigates away, and
-    // re-enabling the buttons first would open a double-submit window.
-    private suspend fun finish() {
-        val accountId = auth.activeAccountId.value
-        if (accountId != null) runCatching { onboardingApi.complete(accountId) }
-        auth.markOnboardingCompleted(java.time.Instant.now().toString())
-        _done.value = true
     }
 }

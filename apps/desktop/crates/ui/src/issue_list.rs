@@ -50,7 +50,7 @@ use domain::rows::{Issue, Label, User};
 use domain::{IssueFilters, IssueStatus};
 
 use crate::icons::{option_icon, ExpIcon};
-use crate::issue_detail::{open_duplicate_picker, set_duplicate_of};
+use crate::issue_detail::{apply_status_selection, set_duplicate_of};
 use crate::navigation::{navigate, Screen};
 use crate::properties_panel::toggle_label;
 use crate::queries::{self, BoardData};
@@ -496,7 +496,7 @@ fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
                 menu = menu.item(option_item(option, option.value == current, cx, {
                     let issue_id = issue_id.clone();
                     let value = option.value;
-                    move |cx| {
+                    move |_window, cx| {
                         let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                         input.priority = Some(value);
                         spawn_issue_update(cx, input);
@@ -507,7 +507,8 @@ fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
         })
 }
 
-/// Status dropdown (web `StatusDropdown`).
+/// Status dropdown (web `StatusDropdown`). Selecting `duplicate` is intercepted
+/// into the duplicate picker (L27), never a direct status write.
 fn status_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     let config = get_issue_status_config(issue.status);
     let current = issue.status;
@@ -523,11 +524,7 @@ fn status_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
                 menu = menu.item(option_item(option, option.value == current, cx, {
                     let issue_id = issue_id.clone();
                     let value = option.value;
-                    move |cx| {
-                        let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                        input.status = Some(value);
-                        spawn_issue_update(cx, input);
-                    }
+                    move |window, cx| apply_status_selection(issue_id.clone(), value, window, cx)
                 }));
             }
             menu
@@ -719,7 +716,10 @@ fn build_row_context_menu(
         );
     }
 
-    // Mark as duplicate… / Unmark duplicate (shared IssuePicker, §4.6).
+    // Unmark duplicate only (L27 removed the standalone "Mark as duplicate…"
+    // entry — marking now happens by choosing the `duplicate` status, which the
+    // Status submenu below intercepts into the picker). The banner + this
+    // un-mark affordance stay.
     if issue.duplicate_of_id.is_some() {
         let issue_id = issue.id.clone();
         menu = menu.item(
@@ -728,15 +728,6 @@ fn build_row_context_menu(
                 .on_click(move |_, _, cx| {
                     // Server restores the prior status and clears the link.
                     set_duplicate_of(issue_id.clone(), None, cx);
-                }),
-        );
-    } else {
-        let issue_id = issue.id.clone();
-        menu = menu.item(
-            PopupMenuItem::new("Mark as duplicate…")
-                .icon(Icon::from(ExpIcon::Copy))
-                .on_click(move |_, window, cx| {
-                    open_duplicate_picker(issue_id.clone(), window, cx);
                 }),
         );
     }
@@ -753,11 +744,8 @@ fn build_row_context_menu(
                 menu = menu.item(option_item(option, option.value == current, cx, {
                     let issue_id = issue_id.clone();
                     let value = option.value;
-                    move |cx| {
-                        let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                        input.status = Some(value);
-                        spawn_issue_update(cx, input);
-                    }
+                    // L27: `duplicate` opens the picker; every other status writes.
+                    move |window, cx| apply_status_selection(issue_id.clone(), value, window, cx)
                 }));
             }
             menu
@@ -784,7 +772,7 @@ fn build_row_context_menu(
                 menu = menu.item(option_item(option, option.value == current, cx, {
                     let issue_id = issue_id.clone();
                     let value = option.value;
-                    move |cx| {
+                    move |_window, cx| {
                         let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                         input.priority = Some(value);
                         spawn_issue_update(cx, input);
@@ -964,12 +952,12 @@ fn option_item<V: Copy + 'static>(
     option: &'static IssueOption<V>,
     checked: bool,
     cx: &App,
-    on_select: impl Fn(&mut App) + 'static,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     PopupMenuItem::new(SharedString::from(option.label))
         .icon(option_icon(option, cx))
         .checked(checked)
-        .on_click(move |_, _, cx| on_select(cx))
+        .on_click(move |_, window, cx| on_select(window, cx))
 }
 
 /// §4.1 un-gated inline mutation: fire `issues.update` on a background

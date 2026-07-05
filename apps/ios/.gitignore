@@ -11,6 +11,18 @@ xcuserdata/
 DerivedData/
 build/
 
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+*.ipa
+*.xcarchive
+# App Store Connect API key (.p8) — path comes from ASC_KEY_PATH; never commit a key
+fastlane/*.p8
+.bundle/
+vendor/bundle/
+
 # macOS
 .DS_Store
 

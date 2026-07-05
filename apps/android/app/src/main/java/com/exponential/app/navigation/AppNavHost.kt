@@ -11,7 +11,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -35,7 +34,6 @@ import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.home.HomeScreen
 import com.exponential.app.ui.inbox.InboxScreen
 import com.exponential.app.ui.instance.InstanceScreen
-import com.exponential.app.ui.integrations.IntegrationsScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.CreateIssueScreen
 import com.exponential.app.ui.myissues.MyIssuesScreen
@@ -233,12 +231,12 @@ private fun AuthenticatedNav(
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
         currentRoute in setOf("home", "my-issues", "inbox", "project/{projectId}")
-    val fallbackProjectId by produceState<String?>(initialValue = null, activeAccountId) {
-        value = resolveLastProjectId()
-    }
+    // The single add-issue affordance: the FAB shows ONLY while viewing a project
+    // (masterplan §9.3), so it always targets the project in view — no last-opened
+    // fallback that would let it compose from Home / My Issues / Inbox.
     val composeProjectId =
         if (currentRoute == "project/{projectId}") backStackEntry?.arguments?.getString("projectId")
-        else fallbackProjectId
+        else null
 
     Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
@@ -276,7 +274,6 @@ private fun AuthenticatedNav(
         }
         composable("settings") {
             SettingsScreen(
-                onOpenIntegrations = { navController.navigate("integrations") },
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
                 onOpenWorkspaceSettings = { navController.navigate("workspace-settings") },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
@@ -316,9 +313,6 @@ private fun AuthenticatedNav(
         composable("workspace-settings") {
             WorkspaceSettingsScreen(onBack = { navController.popBackStack() })
         }
-        composable("integrations") {
-            IntegrationsScreen(onBack = { navController.popBackStack() })
-        }
         composable("share-pick") {
             ShareTargetPickerScreen(
                 onPicked = { projectId ->
@@ -348,7 +342,6 @@ private fun AuthenticatedNav(
                 projectId = projectId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
-                onCreateIssue = { navController.navigate("project/$projectId/new") },
             )
         }
         composable("project/{projectId}/new") {

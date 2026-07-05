@@ -9,7 +9,6 @@ import {
   Inbox,
   LogIn,
   LogOut,
-  Plug,
   Plus,
   Search,
   Settings,
@@ -27,7 +26,6 @@ import {
 } from "@/hooks/use-workspace-data"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog"
-import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackButton } from "@/components/feedback-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -66,18 +64,19 @@ interface WorkspaceSidebarProps {
   workspaceSlug: string
   workspace: Workspace | null | undefined
   projects: Project[] | undefined
+  onOpenSearch: () => void
 }
 
 export function WorkspaceSidebar({
   workspaceSlug,
   workspace,
   projects,
+  onOpenSearch,
 }: WorkspaceSidebarProps) {
   const { data: session } = useSession()
   const navigate = useNavigate()
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
   const { myWorkspaces } = useWorkspaceMemberships(session?.user?.id)
   const isAuthed = Boolean(session?.user)
   // Solo users never see the "workspace" concept: no switcher, no name. The
@@ -199,7 +198,7 @@ export function WorkspaceSidebar({
                 <SidebarMenu>
                   {workspace && (
                     <SidebarMenuItem>
-                      <SidebarMenuButton onClick={() => setSearchOpen(true)}>
+                      <SidebarMenuButton onClick={onOpenSearch}>
                         <Search className="h-4 w-4" />
                         <span>Search</span>
                       </SidebarMenuButton>
@@ -323,12 +322,6 @@ export function WorkspaceSidebar({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
-                  onClick={() => navigate({ to: `/account/integrations` })}
-                >
-                  <Plug className="mr-2 h-4 w-4" />
-                  Integrations
-                </DropdownMenuItem>
-                <DropdownMenuItem
                   onClick={() => navigate({ to: `/account/notifications` })}
                 >
                   <Bell className="mr-2 h-4 w-4" />
@@ -365,14 +358,6 @@ export function WorkspaceSidebar({
         </SidebarFooter>
       </Sidebar>
 
-      {workspace && (
-        <IssueSearchSheet
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
-          workspaceId={workspace.id}
-          workspaceSlug={workspaceSlug}
-        />
-      )}
       {workspace && isAuthed && (
         <CreateProjectDialog
           open={createProjectOpen}

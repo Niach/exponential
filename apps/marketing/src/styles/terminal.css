@@ -56,7 +56,7 @@
   .caret { animation: none; }
 }
 
-/* ── Terminal window chrome (ghostty-style) ── */
+/* ── Terminal window chrome ── */
 .term-window {
   position: relative;
   display: flex;
@@ -416,6 +416,30 @@
   color: var(--fg-dim);
 }
 
+.dl-card.is-soon {
+  opacity: 0.72;
+}
+.dl-card.is-soon:hover {
+  border-color: var(--border-strong);
+  box-shadow: none;
+  transform: none;
+}
+.dl-card.is-soon .dl-cta {
+  color: var(--fg-dim);
+}
+.dl-card.is-soon .dl-cta::before {
+  content: "";
+}
+.dl-soon {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  border: 1px solid var(--border-strong);
+  color: var(--fg-muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
 /* ── Pricing teaser ── */
 .pricing-teaser {
   border: 1px solid var(--border-strong);
@@ -469,43 +493,3 @@
   margin: 0;
 }
 .pricing-teaser-line strong { color: var(--fg); }
-
-/* ── Founding code callout (terminal styled) ── */
-.founding-callout {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid color-mix(in oklch, var(--phosphor) 30%, var(--border-strong));
-  border-radius: 10px;
-  background: var(--term-bg);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  overflow: hidden;
-  max-width: 100%;
-  box-shadow: 0 0 32px -10px var(--phosphor-glow);
-}
-.founding-callout code {
-  padding: 12px 16px;
-  color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.founding-callout code .fc-prompt { color: var(--phosphor); }
-.founding-callout code .fc-comment { color: var(--fg-dim); }
-.founding-callout .copy-btn {
-  padding: 0 16px;
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: oklch(0.13 0.005 280);
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.founding-callout .copy-btn:hover {
-  color: var(--fg);
-  background: oklch(0.17 0.005 280);
-}

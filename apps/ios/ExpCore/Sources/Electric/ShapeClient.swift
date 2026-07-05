@@ -45,11 +45,24 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
     public func run() async throws {
         var backoffMs: UInt64 = 500
+        // H2 (§9.1): a nil baseUrl/token provider silently spins here every 2s
+        // and looks identical to the migration blackout ("no shape activity, no
+        // log entries"). Log the transition into and out of the paused state
+        // (once each — not every tick — so the 50-line ring buffer stays useful).
+        var loggedMissingCreds = false
         while !Task.isCancelled {
             do {
                 guard let baseUrl = baseUrlProvider(), let token = tokenProvider() else {
+                    if !loggedMissingCreds {
+                        SyncDebug.shared.log("[\(shapeName)] paused: awaiting baseUrl/token")
+                        loggedMissingCreds = true
+                    }
                     try await Task.sleep(for: .seconds(2))
                     continue
+                }
+                if loggedMissingCreds {
+                    SyncDebug.shared.log("[\(shapeName)] resumed: credentials available")
+                    loggedMissingCreds = false
                 }
                 let shouldPause = try await pollOnce(baseUrl: baseUrl, token: token)
                 backoffMs = 500

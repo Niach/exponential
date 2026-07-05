@@ -8,6 +8,18 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
+// Release signing is fed by gradle properties or environment variables so CI can inject a
+// keystore without committing it. When RELEASE_STORE_FILE is absent (e.g. pre-keystore CI or
+// local dev) the release build stays UNSIGNED — assembleRelease keeps working, so the pipeline
+// stays green until a keystore exists. See docs/release-android.md for keystore generation.
+fun releaseProp(name: String): String? =
+    (project.findProperty(name) as String?) ?: System.getenv(name)
+
+val releaseStoreFile = releaseProp("RELEASE_STORE_FILE")
+val releaseStorePassword = releaseProp("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = releaseProp("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
+
 android {
     namespace = "com.exponential.app"
     compileSdk = 35
@@ -25,10 +37,27 @@ android {
         }
     }
 
+    signingConfigs {
+        // Only materialize a release keystore when one is provided; otherwise release
+        // builds fall through to an unsigned artifact (still installable via `adb`, and
+        // signable/uploadable later — the Play Console can accept an upload key at first push).
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (releaseStoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             // Same applicationId as release so a single google-services.json

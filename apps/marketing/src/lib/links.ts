@@ -16,13 +16,24 @@ export const LINKS = {
     releases: `${REPO}/releases`,
   },
   downloads: {
-    // TODO(launch): point at the signed .dmg release asset
-    macos: `${REPO}/releases`,
-    // TODO(launch): point at the Flatpak / AppImage release asset
-    linux: `${REPO}/releases`,
+    // GitHub Releases `latest` assets — published by build-desktop.yml on desktop-v* tags.
+    // Asset names are fixed by the release pipeline (masterplan P4.d).
+    macos: `${REPO}/releases/latest/download/Exponential-production.dmg`,
+    linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
+    // Mobile stores are placeholders until the apps are approved — see DownloadSection.
     // TODO(launch): App Store URL
     ios: `${REPO}/releases`,
     // TODO(launch): Play Store URL
     android: `${REPO}/releases`,
   },
+} as const
+
+/* The real feedback widget, embedded live on the marketing site — visitors
+   experience step 1 of the loop for real. The submission lands on the public
+   feedback board. Swap the placeholder key for the demo `expw_` config's real
+   key at launch (release checklist §13) — this const is the single source. */
+export const WIDGET = {
+  // TODO(launch §13): replace with the marketing-demo widget config's real key.
+  key: `expw_MARKETING_DEMO_KEY`,
+  loader: `${APP}/widget/v1/loader.js`,
 } as const

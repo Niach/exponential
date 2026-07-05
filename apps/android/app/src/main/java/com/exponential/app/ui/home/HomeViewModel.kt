@@ -3,13 +3,7 @@ package com.exponential.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
-import com.exponential.app.data.api.CreateProjectInput
-import com.exponential.app.data.api.CreateWorkspaceInput
-import com.exponential.app.data.api.ProjectsApi
-import com.exponential.app.data.api.RepositoriesApi
-import com.exponential.app.data.api.RepositoryRef
 import com.exponential.app.data.api.TrpcException
-import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.http.HttpStatusCode
@@ -58,8 +52,6 @@ data class HomeState(
 class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val workspacesApi: WorkspacesApi,
-    private val projectsApi: ProjectsApi,
-    private val repositoriesApi: RepositoriesApi,
     private val holder: DatabaseHolder,
     private val selection: WorkspaceSelection,
     private val multiAccountWorkspaces: MultiAccountWorkspaceRepository,
@@ -159,48 +151,4 @@ class HomeViewModel @Inject constructor(
             auth.switchAccount(accountId)
         }
     }
-
-    // Create a workspace on the given account's server. Returns an error message
-    // on failure, or null on success — Electric sync then surfaces the new row in
-    // the Home tree (no manual upsert, so this stays correct across accounts).
-    suspend fun createWorkspace(accountId: String, name: String): String? =
-        try {
-            workspacesApi.create(accountId, CreateWorkspaceInput(name.trim()))
-            null
-        } catch (error: Throwable) {
-            error.message ?: "Failed to create workspace"
-        }
-
-    // The workspace's already-connected repos, for the create-project selector
-    // (masterplan §6 — a project requires a repository; connecting NEW repos
-    // stays web-only). Returns empty on any failure so the sheet shows the
-    // "connect a repository in the web app first" empty state.
-    suspend fun reposForWorkspace(accountId: String, workspaceId: String): List<WorkspaceRepo> =
-        runCatching { repositoriesApi.list(accountId, workspaceId) }.getOrDefault(emptyList())
-
-    // Create a project in the given workspace on the given account's server. v4:
-    // a project is backed by an already-connected repository (repositoryId).
-    suspend fun createProject(
-        accountId: String,
-        workspaceId: String,
-        name: String,
-        prefix: String,
-        color: String,
-        repositoryId: String,
-    ): String? =
-        try {
-            projectsApi.create(
-                accountId,
-                CreateProjectInput(
-                    workspaceId = workspaceId,
-                    name = name.trim(),
-                    prefix = prefix.trim().uppercase(),
-                    color = color,
-                    repository = RepositoryRef(repositoryId),
-                ),
-            )
-            null
-        } catch (error: Throwable) {
-            error.message ?: "Failed to create project"
-        }
 }

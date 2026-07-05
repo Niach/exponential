@@ -1,0 +1,93 @@
+# fastlane lanes for the Exponential iOS app (apps/ios), layered on top of Tuist.
+#
+# Runs locally on a Mac with Xcode + Tuist. No CI Mac runner is required for launch —
+# see docs/release-ios.md for the full procedure.
+#
+# The Xcode project/workspace is NOT committed (Tuist-generated), so `build` regenerates
+# it first. Non-interactive uploads authenticate with an App Store Connect API key read
+# from env (ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH).
+
+default_platform(:ios)
+
+WORKSPACE = "Exponential.xcworkspace".freeze
+SCHEME = "Exponential".freeze # production target (bundle id at.exponential)
+IPA_PATH = "build/Exponential.ipa".freeze
+
+def asc_api_key
+  # App Store Connect API key (Users & Access → Integrations → App Store Connect API).
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: ENV.fetch("ASC_KEY_PATH"),
+  )
+end
+
+platform :ios do
+  desc "Regenerate the Tuist project and build a signed App Store archive (.ipa)."
+  lane :build do
+    # `sh` runs from the fastlane/ dir, so step up to apps/ios to regenerate the project.
+    sh("cd .. && tuist generate --no-open")
+
+    gym(
+      workspace: WORKSPACE,
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      clean: true,
+      output_directory: "build",
+      output_name: "Exponential.ipa",
+    )
+  end
+
+  desc "Build + upload to TestFlight (pilot)."
+  lane :beta do
+    build
+    pilot(
+      api_key: asc_api_key,
+      ipa: IPA_PATH,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+    )
+  end
+
+  desc "Build + upload to App Store Connect (deliver). Does NOT auto-submit for review."
+  lane :release do
+    build
+    deliver(
+      api_key: asc_api_key,
+      ipa: IPA_PATH,
+      submit_for_review: false,
+      force: true, # skip the interactive HTML preview
+      skip_screenshots: true,
+      skip_metadata: false,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+end
+
+# ── Signing bootstrap (match) — COMMENTED until account setup (masterplan §13) ──────
+#
+# Signing is intentionally NOT wired here yet. At Apple-account setup we decide between:
+#
+#   (a) match — Distribution cert + App Store profiles stored in a private git repo,
+#       shared across machines/CI. Seed once with `bundle exec fastlane match appstore`,
+#       then add this to `build` BEFORE the gym call:
+#
+#         match(
+#           type: "appstore",
+#           app_identifier: "at.exponential",
+#           git_url: ENV.fetch("MATCH_GIT_URL"),
+#           readonly: true,
+#         )
+#
+#   (b) Developer-portal-managed profiles — let Xcode "automatically manage signing"
+#       (team V6W7BVCSM8, already set as DEVELOPMENT_TEAM in Project.swift), or pass a
+#       manual profile to gym via export_options:
+#
+#         export_options: {
+#           signingStyle: "manual",
+#           provisioningProfiles: { "at.exponential" => "Exponential App Store" },
+#         }
+#
+# Until one is chosen, `build` relies on Xcode's automatic signing resolving the team's
+# Distribution certificate + profile (same as the manual Organizer flow).

@@ -156,7 +156,7 @@ impl CompletionSource for StoreCompletionSource {
                         || issue.identifier.to_uppercase().starts_with(&ident_needle)
                         || issue.title.to_lowercase().starts_with(&title_needle)
                 });
-                issues.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+                issues.sort_by(|a, b| sync::cmp_identifiers(&a.identifier, &b.identifier));
                 issues.truncate(MAX_ITEMS);
                 issues
                     .into_iter()

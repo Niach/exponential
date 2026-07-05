@@ -2,28 +2,66 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks"
 import {
   type AnnotationShape,
   type AnnotationTool,
+  type NormalizedRect,
   type Point,
   clampPoint,
   isDegenerate,
+  normalizeRect,
   strokeWidthFor,
 } from "../annotate/shapes"
 import { drawShape, drawShapes } from "../annotate/draw"
 
+// The editor's tool set is the persisted annotation tools plus `crop`, which
+// is NOT a drawn shape but a separate rect baked into the image at flatten.
+type EditorTool = AnnotationTool | `crop`
+
 const rectIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>`
 const penIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19c3-6 5-9 7-9s2 7 4 7 4-8 7-12"/></svg>`
 const arrowIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"/><path d="M9 5h10v10"/></svg>`
+const cropIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>`
 const undoIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 7"/></svg>`
 const trashIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`
+const cropOffIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/><path d="m2 2 20 20"/></svg>`
 
 const tools: Array<{
-  tool: AnnotationTool
+  tool: EditorTool
   label: string
   icon: string
 }> = [
   { tool: `rect`, label: `Rectangle`, icon: rectIconSvg },
   { tool: `pen`, label: `Free line`, icon: penIconSvg },
   { tool: `arrow`, label: `Arrow`, icon: arrowIconSvg },
+  { tool: `crop`, label: `Crop`, icon: cropIconSvg },
 ]
+
+// Minimum crop drag (image px) below which a click is ignored rather than
+// producing a sliver crop.
+const minCropPx = 8
+
+// Editor-only preview of what a crop keeps: dim everything outside the rect
+// and dash its outline. The exported image is physically cropped at flatten,
+// so this overlay is never baked into the screenshot.
+function drawCropOverlay(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  rect: NormalizedRect
+): void {
+  const right = rect.x + rect.width
+  const bottom = rect.y + rect.height
+  context.save()
+  context.fillStyle = `rgba(0, 0, 0, 0.55)`
+  context.fillRect(0, 0, width, rect.y)
+  context.fillRect(0, bottom, width, height - bottom)
+  context.fillRect(0, rect.y, rect.x, rect.height)
+  context.fillRect(right, rect.y, width - right, rect.height)
+  const line = Math.max(2, Math.round(Math.max(width, height) * 0.002))
+  context.strokeStyle = `#ffffff`
+  context.lineWidth = line
+  context.setLineDash([line * 3, line * 3])
+  context.strokeRect(rect.x, rect.y, rect.width, rect.height)
+  context.restore()
+}
 
 // Full-screen annotation editor over the captured screenshot. The canvas
 // backing store stays at the image's native resolution; pointer coordinates
@@ -32,13 +70,15 @@ const tools: Array<{
 export function Annotator(props: {
   imageUrl: string
   initialShapes: readonly AnnotationShape[]
+  initialCrop: NormalizedRect | null
   onCancel(): void
-  onSave(shapes: AnnotationShape[]): void
+  onSave(shapes: AnnotationShape[], crop: NormalizedRect | null): void
 }) {
-  const [tool, setTool] = useState<AnnotationTool>(`rect`)
+  const [tool, setTool] = useState<EditorTool>(`rect`)
   const [shapes, setShapes] = useState<AnnotationShape[]>([
     ...props.initialShapes,
   ])
+  const [crop, setCrop] = useState<NormalizedRect | null>(props.initialCrop)
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const [display, setDisplay] = useState<{
     width: number
@@ -49,8 +89,12 @@ export function Annotator(props: {
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const draftRef = useRef<AnnotationShape | null>(null)
+  // In-progress crop drag as a corner pair, in image px.
+  const cropDraftRef = useRef<[Point, Point] | null>(null)
   const shapesRef = useRef(shapes)
   shapesRef.current = shapes
+  const cropRef = useRef(crop)
+  cropRef.current = crop
 
   useEffect(() => {
     const element = new Image()
@@ -92,11 +136,17 @@ export function Annotator(props: {
     const strokeWidth = strokeWidthFor(canvas.width, canvas.height)
     drawShapes(context, shapesRef.current, strokeWidth)
     if (draftRef.current) drawShape(context, draftRef.current, strokeWidth)
+    // A live crop drag preempts the committed crop for the overlay.
+    const draftCrop = cropDraftRef.current
+    const cropRect = draftCrop
+      ? normalizeRect(draftCrop[0], draftCrop[1])
+      : cropRef.current
+    if (cropRect) drawCropOverlay(context, canvas.width, canvas.height, cropRect)
   }, [image])
 
   useEffect(() => {
     redraw()
-  }, [redraw, shapes, display])
+  }, [redraw, shapes, crop, display])
 
   useEffect(() => {
     rootRef.current?.focus()
@@ -123,14 +173,28 @@ export function Annotator(props: {
     if (!point) return
     event.preventDefault()
     canvasRef.current?.setPointerCapture(event.pointerId)
-    draftRef.current = { tool, points: [point] }
+    if (tool === `crop`) {
+      cropDraftRef.current = [point, point]
+    } else {
+      draftRef.current = { tool, points: [point] }
+    }
     redraw()
   }
 
   const onPointerMove = (event: PointerEvent) => {
-    const draft = draftRef.current
     const canvas = canvasRef.current
-    if (!draft || !canvas) return
+    if (!canvas) return
+    const cropDraft = cropDraftRef.current
+    if (cropDraft) {
+      const point = toImagePoint(event)
+      if (!point) return
+      event.preventDefault()
+      cropDraft[1] = point
+      redraw()
+      return
+    }
+    const draft = draftRef.current
+    if (!draft) return
     const point = toImagePoint(event)
     if (!point) return
     event.preventDefault()
@@ -148,6 +212,18 @@ export function Annotator(props: {
   }
 
   const commitDraft = () => {
+    const cropDraft = cropDraftRef.current
+    if (cropDraft) {
+      cropDraftRef.current = null
+      const rect = normalizeRect(cropDraft[0], cropDraft[1])
+      // Ignore an accidental click / sliver; keep any existing crop.
+      if (rect.width >= minCropPx && rect.height >= minCropPx) {
+        setCrop(rect)
+      } else {
+        redraw()
+      }
+      return
+    }
     const draft = draftRef.current
     draftRef.current = null
     if (draft && !isDegenerate(draft)) {
@@ -159,6 +235,7 @@ export function Annotator(props: {
 
   const onPointerCancel = () => {
     draftRef.current = null
+    cropDraftRef.current = null
     redraw()
   }
 
@@ -218,6 +295,15 @@ export function Annotator(props: {
           onClick={() => setShapes([])}
           dangerouslySetInnerHTML={{ __html: trashIconSvg }}
         />
+        <button
+          type="button"
+          className="exp-tool"
+          aria-label="Remove crop"
+          title="Remove crop"
+          disabled={!crop}
+          onClick={() => setCrop(null)}
+          dangerouslySetInnerHTML={{ __html: cropOffIconSvg }}
+        />
         <span className="exp-ann-sep" />
         <button
           type="button"
@@ -229,7 +315,7 @@ export function Annotator(props: {
         <button
           type="button"
           className="exp-ann-save"
-          onClick={() => props.onSave(shapesRef.current)}
+          onClick={() => props.onSave(shapesRef.current, cropRef.current)}
         >
           Done
         </button>

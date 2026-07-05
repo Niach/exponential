@@ -161,8 +161,9 @@ bun dev
             All native clients — iOS, Android, macOS, and Linux — work with
             self-hosted instances out of the box. On first launch, enter your
             instance URL instead of <code>app.exponential.at</code> and sign
-            in. The desktop apps register as workspace agents against your
-            server exactly as they do on the cloud.
+            in. The desktop app clones your projects&apos; repos and runs
+            coding sessions against your server exactly as it does on the
+            cloud.
           </p>
 
           <h3>Going live</h3>

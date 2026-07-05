@@ -21,9 +21,13 @@ function mount(): void {
 
   const host = document.createElement(`div`)
   host.setAttribute(`data-exponential-widget`, ``)
+  // Mounted on <html> (not <body>) with explicit pointer-events so launcher +
+  // panel work above a host-page modal that sets pointer-events:none on
+  // <body> (Radix dialogs). The 0×0 host never covers the page; its
+  // position:fixed children (button, panel, annotator) own their own boxes.
   host.style.cssText = `all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:${
     state.options.zIndex ?? defaultZIndex
-  };`
+  };pointer-events:auto;`
   const root = host.attachShadow({ mode: `open` })
 
   const style = document.createElement(`style`)
@@ -34,7 +38,7 @@ function mount(): void {
 
   const container = document.createElement(`div`)
   root.appendChild(container)
-  document.body.appendChild(host)
+  document.documentElement.appendChild(host)
 
   // The Preact app renders its own (identical) button; drop the loader's.
   state.loaderButtonHost?.remove()

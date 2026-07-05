@@ -110,6 +110,11 @@ fn main() {
         // persisted account — else the workspace boots to the login surface.
         ui::bootstrap_session(cx);
 
+        // Launch-time update check (§11.2): daily-debounced, non-blocking,
+        // offline-safe; flips a global the Workspace renders as a dismissible
+        // "Update available" banner. Staging channel skips it internally.
+        ui::check_for_updates(cx);
+
         // Foreground drain for the OAuth-callback URLs (on_open_urls has no
         // cx): `exp://oauth-return#token=…` → the §5.7 token adoption in
         // `ui::handle_open_urls` (parse locally, validate, sign in, sync).

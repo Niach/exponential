@@ -1,0 +1,7 @@
+First public release of Exponential for Android.
+
+• Real-time issue tracking that syncs live with the web, desktop, and iOS clients.
+• Feedback-to-shipped loop: reports become issues, Claude writes the fix, the PR ships.
+• Markdown descriptions and comments with @mentions, task lists, and inline images.
+• Push notifications for mentions, assignments, and PR activity.
+• Steer a desktop coding session from your phone.

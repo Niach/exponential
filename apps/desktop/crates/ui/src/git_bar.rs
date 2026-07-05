@@ -43,9 +43,11 @@ struct RepoInfo {
     repository_id: String,
     /// `owner/name` — the clone-root key + the remote's redaction anchor.
     full_name: String,
-    /// The trunk's default branch (pull/push target; the branch-chip fallback
-    /// until the on-disk status is read).
-    default_branch: String,
+    /// The trunk's server-reported default branch — used ONLY as the branch-chip
+    /// display fallback until the on-disk status is read. The actual pull/push
+    /// target is the freshly-minted token's `default_branch` (L30, EXP-8), never
+    /// this cached scope value. `None` when the server omitted it (never `main`).
+    default_branch: Option<String>,
     /// `<repos_root>` — the clone-root prefix (`clone_manager::ensure` joins
     /// `full_name` onto it).
     repos_root: PathBuf,
@@ -382,7 +384,7 @@ impl GitBar {
         } else {
             self.repo
                 .as_ref()
-                .map(|repo| repo.default_branch.clone())
+                .and_then(|repo| repo.default_branch.clone())
                 .unwrap_or_default()
         };
         h_flex()
@@ -617,8 +619,11 @@ fn run_sync_worker(
                 .map(|_| ())
         }
         SyncMode::Fetch => clone_manager::fetch(clone, &url),
-        SyncMode::Pull => clone_manager::pull(clone, &repo.default_branch, &url),
-        SyncMode::Push => clone_manager::push(clone, &repo.default_branch, &url),
+        // L30/EXP-8: pull/push target the branch the token minting resolved
+        // *live* from GitHub, not the cached scope value (which could be a stale
+        // or omitted default). The token's `default_branch` is authoritative.
+        SyncMode::Pull => clone_manager::pull(clone, &token.default_branch, &url),
+        SyncMode::Push => clone_manager::push(clone, &token.default_branch, &url),
     };
 
     // A clone failure already streamed `CloneEvent::Failed` through the

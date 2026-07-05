@@ -58,13 +58,6 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 // worktree); `running` drives the "coding now" badge + Watch/Steer button.
 export const codingSessionStatusValues = [`running`, `ended`] as const
 
-// Device/build platform for a project preview run target. Selects the embedding
-// backend in the desktop apps (web webview / android emulator / ios simulator /
-// generic host-side `command` spawned into a terminal-dock tab).
-// Mirrors packages/domain-contract/contract.json (kept in sync by the
-// domain-contract drift test in apps/web).
-export const platformValues = [`web`, `android`, `ios`, `command`] as const
-
 // Why a user is subscribed to an issue (issue_subscribers.source, varchar).
 // `manual` records an explicit (un)subscribe and suppresses auto-resubscribe.
 // `widget_reporter` rows model an external feedback-widget reporter: null
@@ -98,7 +91,6 @@ export type CommentKind = (typeof commentKindValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
 export type CodingSessionStatus = (typeof codingSessionStatusValues)[number]
-export type Platform = (typeof platformValues)[number]
 export type SubscriberSource = (typeof subscriberSourceValues)[number]
 export type IssueEventType = (typeof issueEventTypeValues)[number]
 
@@ -111,7 +103,6 @@ export const commentKindSchema = z.enum(commentKindValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
 export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)
-export const platformSchema = z.enum(platformValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
 export const recurrenceIntervalSchema = z.number().int().min(1).max(999)
@@ -198,187 +189,25 @@ export function formatDateForMutation(date: Date | null | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Project preview / run targets
+// Project preview mirror
 // ---------------------------------------------------------------------------
 //
-// A project's preview config is split across two stores with very different
-// trust levels:
-//
-//   1. The committed repo file `.exponential/config.json` (`ProjectPreviewConfig`)
-//      is the CANONICAL source for the build/run *shell commands*. It travels
-//      with the repo, is agent-editable, and is read ONLY from the cloned
-//      working tree by the desktop apps — never auto-run from a synced DB value.
-//   2. The `projects.preview_config` DB column (`ProjectPreviewMirror`) is a
-//      DISPLAY MIRROR holding only safe metadata — the list of run targets
-//      (id/name/platform) plus the feedback issue routing target. It is synced
-//      over Electric for the web settings UI + pre-clone discovery and is NEVER
-//      executed.
-//
-// `platform` is the discriminator on a run target; targets are arbitrary in
-// count/name and multiple per platform are allowed (e.g. `ios-staging`/`ios-prod`).
-
-// Fields shared by every run target regardless of platform.
-export interface PlatformCommon {
-  enabled?: boolean
-  // Working directory for this target, relative to the repo root (e.g.
-  // `apps/web`). Rejected server-side if it contains `..`.
-  rootDir?: string
-  // One-time setup command (e.g. `bun install`), run before build/run.
-  setup?: string
-  // Extra environment for the build/run commands. PATH/LD_PRELOAD/DYLD_* are
-  // stripped server-side.
-  env?: Record<string, string>
-}
-
-// Identity carried by every run target: a stable `id` (key for last-selected
-// memory + the trust hash), a display `name`, and the `platform` discriminator.
-interface RunTargetBase {
-  id: string
-  name: string
-}
-
-// web → local dev server embedded in a webview at `url + readyPath`.
-export type WebTarget = RunTargetBase &
-  PlatformCommon & {
-    platform: `web`
-    run: string
-    url?: string
-    port?: number
-    readyPath?: string
-    injectWidget?: boolean
-  }
-
-// android → local SDK emulator (no Docker); build an APK, install + launch it.
-export type AndroidTarget = RunTargetBase &
-  PlatformCommon & {
-    platform: `android`
-    build: string
-    apk?: string
-    installCommand?: string
-    avd: string
-    systemImage?: string
-    applicationId: string
-    activity?: string
-  }
-
-// ios → local Simulator (macOS only); Linux renders a "needs a Mac" state.
-export type IosTarget = RunTargetBase &
-  PlatformCommon & {
-    platform: `ios`
-    scheme: string
-    buildCommand?: string
-    workspace?: string
-    simulator: string
-    iosVersion?: string
-    bundleId: string
-  }
-
-// command → generic host-side process: the desktop spawns `argv` directly into
-// a terminal-dock tab (no embedding backend, no build/install pipeline).
-export type CommandTarget = RunTargetBase &
-  PlatformCommon & {
-    platform: `command`
-    // Program + arguments, spawned as-is (no shell). At least one element.
-    argv: string[]
-    // Working directory, relative to the repo root (e.g. `apps/web`). Rejected
-    // by consumers if it contains `..` — same rule as `rootDir`.
-    cwd?: string
-  }
-
-// A single named run target, discriminated on `platform`.
-export type RunTarget = WebTarget | AndroidTarget | IosTarget | CommandTarget
-
-// The committed `.exponential/config.json` shape — the canonical command source.
-export interface ProjectPreviewConfig {
-  version: 1
-  targets: RunTarget[]
-}
+// The `projects.preview_config` DB column (`ProjectPreviewMirror`) holds a small
+// slice of display-only metadata synced over Electric for the web settings UI.
+// It is NEVER executed. Run configs (build/run commands, argv/cwd/env) live in
+// the `run_configs` table and are edited IDE-side only — the committed
+// `.exponential/config.json` preview-target system (L23) has been removed.
 
 // The `projects.preview_config` DB mirror — display-only, never executed.
 export interface ProjectPreviewMirror {
-  targets: { id: string; name: string; platform: Platform }[]
+  // Where issues filed from a device preview are routed. Must point at a project
+  // in the same workspace (server-checked).
   feedbackProjectId?: string
 }
 
 // --- Zod schemas ---
 
-const platformCommonShape = {
-  enabled: z.boolean().optional(),
-  rootDir: z.string().optional(),
-  setup: z.string().optional(),
-  env: z.record(z.string(), z.string()).optional(),
-}
-
-export const webTargetSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  platform: z.literal(`web`),
-  run: z.string(),
-  url: z.string().optional(),
-  port: z.number().int().optional(),
-  readyPath: z.string().optional(),
-  injectWidget: z.boolean().optional(),
-  ...platformCommonShape,
-})
-
-export const androidTargetSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  platform: z.literal(`android`),
-  build: z.string(),
-  apk: z.string().optional(),
-  installCommand: z.string().optional(),
-  avd: z.string(),
-  systemImage: z.string().optional(),
-  applicationId: z.string(),
-  activity: z.string().optional(),
-  ...platformCommonShape,
-})
-
-export const iosTargetSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  platform: z.literal(`ios`),
-  scheme: z.string(),
-  buildCommand: z.string().optional(),
-  workspace: z.string().optional(),
-  simulator: z.string(),
-  iosVersion: z.string().optional(),
-  bundleId: z.string(),
-  ...platformCommonShape,
-})
-
-export const commandTargetSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  platform: z.literal(`command`),
-  argv: z.array(z.string()).min(1),
-  cwd: z.string().optional(),
-  ...platformCommonShape,
-})
-
-export const runTargetSchema = z.discriminatedUnion(`platform`, [
-  webTargetSchema,
-  androidTargetSchema,
-  iosTargetSchema,
-  commandTargetSchema,
-])
-
-export const projectPreviewConfigSchema = z.object({
-  version: z.literal(1),
-  targets: z.array(runTargetSchema),
-})
-
-// The web mutation writes only this DB mirror (display metadata, never
-// executed). `targets` is auto-populated by the desktop after it clones +
-// parses the repo file.
+// The web mutation writes only this DB mirror (display metadata, never executed).
 export const projectPreviewMirrorSchema = z.object({
-  targets: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      platform: platformSchema,
-    })
-  ),
   feedbackProjectId: z.string().optional(),
 })

@@ -3,11 +3,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  attachments,
   comments,
   issueLabels,
   issues,
   labels,
+  notifications,
   projects,
+  users,
   workspaceMembers,
   workspaces,
 } from "@/db/schema"
@@ -17,6 +20,7 @@ import {
   recurrenceUnitValues,
 } from "@/lib/domain"
 import {
+  assertWorkspaceMember,
   getAttachmentWorkspaceContext,
   getIssueWorkspaceContext,
   getProjectWorkspaceId,
@@ -24,7 +28,15 @@ import {
   getUserWorkspaceIds,
   resolveWorkspaceAccess,
 } from "@/lib/workspace-membership"
-import { getObject } from "@/lib/storage"
+import { deleteObject, getObject, uploadObject } from "@/lib/storage"
+import {
+  buildAttachmentStorageKey,
+  buildAttachmentUrl,
+  isAcceptedImageContentType,
+  maxImageUploadBytes,
+} from "@/lib/storage/issue-attachments"
+import { getImageDimensions } from "@/lib/storage/image-dimensions"
+import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
 import { createPullRequest } from "@/lib/integrations/github-pr"
@@ -922,6 +934,612 @@ export function registerExponentialTools(
         })
 
         return ok({ url: created.url, number: created.number })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Comments (edit / delete)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_comments_update`,
+    {
+      title: `Edit a comment`,
+      description: `Edit the body of an existing comment (by its UUID). Only the comment's author can edit it. Body is plain text; the edit stamps editedAt.`,
+      inputSchema: {
+        id: z.string().uuid(),
+        bodyText: z.string().min(1).max(10_000),
+      },
+    },
+    async ({ id, bodyText }) => {
+      try {
+        const result = await caller(user, request).comments.update({
+          id,
+          body: bodyText,
+        })
+        return ok(result.comment)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_comments_delete`,
+    {
+      title: `Delete a comment`,
+      description: `Permanently delete a comment (by its UUID). Only the comment's author or an admin can delete it.`,
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      try {
+        await caller(user, request).comments.delete({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Subscriptions (follow / unfollow an issue)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_issues_subscribe`,
+    {
+      title: `Subscribe to an issue`,
+      description: `Subscribe the MCP user to an issue (by UUID or human identifier, e.g. "MET-12") so they receive its notifications. Idempotent.`,
+      inputSchema: { issueId: z.string().min(1) },
+    },
+    async ({ issueId: issueIdInput }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id)
+        await caller(user, request).subscriptions.subscribe({ issueId })
+        return ok({ ok: true, issueId, subscribed: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_issues_unsubscribe`,
+    {
+      title: `Unsubscribe from an issue`,
+      description: `Unsubscribe the MCP user from an issue (by UUID or human identifier, e.g. "MET-12"). Suppresses future auto-resubscribe until they act on the issue again.`,
+      inputSchema: { issueId: z.string().min(1) },
+    },
+    async ({ issueId: issueIdInput }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id)
+        await caller(user, request).subscriptions.unsubscribe({ issueId })
+        return ok({ ok: true, issueId, subscribed: false })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Notifications (inbox)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_notifications_list`,
+    {
+      title: `List notifications`,
+      description: `List the MCP user's own notifications, newest first. Set unreadOnly to show only those not yet read.`,
+      inputSchema: {
+        unreadOnly: z.boolean().default(false),
+        limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
+      },
+    },
+    async ({ unreadOnly, limit, offset }) => {
+      try {
+        const conditions = [eq(notifications.userId, user.id)]
+        if (unreadOnly) conditions.push(isNull(notifications.readAt))
+        const rows = await db
+          .select()
+          .from(notifications)
+          .where(and(...conditions))
+          .orderBy(desc(notifications.createdAt))
+          .limit(limit)
+          .offset(offset)
+        return ok(rows)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_notifications_mark_read`,
+    {
+      title: `Mark notifications read`,
+      description: `Mark a single notification read by passing its id, or mark every unread notification read by passing all=true. Only the MCP user's own notifications are affected.`,
+      inputSchema: {
+        id: z.string().uuid().optional(),
+        all: z.boolean().default(false),
+      },
+    },
+    async ({ id, all }) => {
+      try {
+        if (all) {
+          await caller(user, request).notifications.markAllRead()
+          return ok({ ok: true, marked: `all` })
+        }
+        if (!id) {
+          throw new Error(`Pass a notification id, or all=true.`)
+        }
+        await caller(user, request).notifications.markRead({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Members (resolve assignees)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_members_list`,
+    {
+      title: `List workspace members`,
+      description: `List the members of a workspace with their id, name, email, and role — use this to resolve an assigneeId for issues. Synthetic bot users (the feedback-widget helpdesk identity) are excluded unless includeAgents is set.`,
+      inputSchema: {
+        workspaceId: z.string().uuid(),
+        includeAgents: z.boolean().default(false),
+      },
+    },
+    async ({ workspaceId, includeAgents }) => {
+      try {
+        await resolveWorkspaceAccess(user.id, workspaceId)
+        const conditions = [eq(workspaceMembers.workspaceId, workspaceId)]
+        if (!includeAgents) conditions.push(eq(users.isAgent, false))
+        const rows = await db
+          .select({
+            id: users.id,
+            name: users.name,
+            email: users.email,
+            image: users.image,
+            isAgent: users.isAgent,
+            role: workspaceMembers.role,
+          })
+          .from(workspaceMembers)
+          .innerJoin(users, eq(users.id, workspaceMembers.userId))
+          .where(and(...conditions))
+          .orderBy(asc(users.name))
+        return ok(rows)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Repositories
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_repositories_list`,
+    {
+      title: `List repositories`,
+      description: `List the repositories registered in a workspace, each with the projects it backs. The MCP user must be a member of the workspace.`,
+      inputSchema: { workspaceId: z.string().uuid() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        const result = await caller(user, request).repositories.list({
+          workspaceId,
+        })
+        return ok(result)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_repositories_add`,
+    {
+      title: `Register a repository`,
+      description: `Register a GitHub repository ("owner/name") in a workspace so projects can be backed by it. The Exponential GitHub App must already be installed on the repo. Owner/admin only.`,
+      inputSchema: {
+        workspaceId: z.string().uuid(),
+        fullName: z
+          .string()
+          .min(1)
+          .max(255)
+          .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`),
+        defaultBranch: z.string().min(1).max(255).optional(),
+        private: z.boolean().optional(),
+        installationId: z.number().int().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).repositories.add(input)
+        return ok(result.repository)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_repositories_branch_diff`,
+    {
+      title: `Diff an issue's branch`,
+      description: `Get the diff of an issue's exp/<IDENTIFIER> branch against its repository's default branch (by issue UUID or human identifier, e.g. "MET-12"). Returns null when the branch was never pushed. The MCP user must be a member of the issue's workspace.`,
+      inputSchema: { issueId: z.string().min(1) },
+    },
+    async ({ issueId: issueIdInput }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const result = await caller(user, request).repositories.branchDiff({
+          issueId,
+        })
+        return ok(result)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Run configs (per-project terminal commands)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_run_configs_list`,
+    {
+      title: `List run configs`,
+      description: `List a project's run configs (named terminal commands: argv, cwd, env). The MCP user must be a member of the project's workspace.`,
+      inputSchema: { projectId: z.string().uuid() },
+    },
+    async ({ projectId }) => {
+      try {
+        const result = await caller(user, request).runConfigs.list({
+          projectId,
+        })
+        return ok(result.configs)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_run_configs_create`,
+    {
+      title: `Create a run config`,
+      description: `Create a named run config for a project. argv is spawned directly (no shell) — argv[0] is the program, the rest are its arguments. cwd (relative to repo root, no "..") and env are optional. Workspace owner only.`,
+      inputSchema: {
+        projectId: z.string().uuid(),
+        name: z.string().min(1).max(120),
+        argv: z.array(z.string()).min(1),
+        cwd: z.string().nullable().optional(),
+        env: z.record(z.string(), z.string()).optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).runConfigs.create(input)
+        return ok(result.config)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_run_configs_update`,
+    {
+      title: `Update a run config`,
+      description: `Update a run config's name, argv, cwd, env, or sortOrder (by its UUID). Pass only the fields you want to change. Workspace owner only.`,
+      inputSchema: {
+        id: z.string().uuid(),
+        name: z.string().min(1).max(120).optional(),
+        argv: z.array(z.string()).min(1).optional(),
+        cwd: z.string().nullable().optional(),
+        env: z.record(z.string(), z.string()).optional(),
+        sortOrder: z.number().finite().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).runConfigs.update(input)
+        return ok(result.config)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_run_configs_delete`,
+    {
+      title: `Delete a run config`,
+      description: `Delete a run config by its UUID. Workspace owner only.`,
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      try {
+        await caller(user, request).runConfigs.delete({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Pull request changed files
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_issues_pr_files`,
+    {
+      title: `List an issue's PR changed files`,
+      description: `List the changed files (with patches and add/delete counts) of the pull request linked to an issue (by UUID or human identifier, e.g. "MET-12"). Returns an empty file list when the issue has no linked PR. The MCP user must be a member of the issue's workspace.`,
+      inputSchema: { issueId: z.string().min(1) },
+    },
+    async ({ issueId: issueIdInput }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const result = await caller(user, request).issues.prFiles({ issueId })
+        return ok(result)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Projects (delete / retarget repository)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_projects_delete`,
+    {
+      title: `Delete a project`,
+      description: `Permanently delete a project and all of its issues (cascades). Workspace owner only.`,
+      inputSchema: { projectId: z.string().uuid() },
+    },
+    async ({ projectId }) => {
+      try {
+        await caller(user, request).projects.delete({ projectId })
+        return ok({ ok: true, projectId })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_projects_set_repository`,
+    {
+      title: `Retarget a project's repository`,
+      description: `Point a project at a different registered repository (both must be in the same workspace). Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo.`,
+      inputSchema: {
+        projectId: z.string().uuid(),
+        repositoryId: z.string().uuid(),
+      },
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).projects.setRepository(input)
+        return ok(result.project)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Workspaces (create / update)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_workspaces_create`,
+    {
+      title: `Create a workspace`,
+      description: `Create a new workspace owned by the MCP user (a unique slug is derived from the name).`,
+      inputSchema: {
+        name: z.string().min(1).max(255),
+        iconUrl: z.string().url().max(2048).optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).workspaces.create(input)
+        return ok(result.workspace)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_workspaces_update`,
+    {
+      title: `Update a workspace`,
+      description: `Update a workspace's name, icon, or public-visibility settings (by its UUID). Workspace owner only.`,
+      inputSchema: {
+        id: z.string().uuid(),
+        name: z.string().min(1).max(255).optional(),
+        isPublic: z.boolean().optional(),
+        iconUrl: z.string().url().max(2048).nullable().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).workspaces.update(input)
+        return ok(result.workspace)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Workspace invites (owner-gated)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_invites_create`,
+    {
+      title: `Create a workspace invite`,
+      description: `Create an invite link for a workspace, returning the token to share. Owner only.`,
+      inputSchema: {
+        workspaceId: z.string().uuid(),
+        role: z.enum([`owner`, `member`]).default(`member`),
+      },
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).workspaceInvites.create(input)
+        return ok({ invite: result.invite, token: result.token })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_invites_list`,
+    {
+      title: `List pending invites`,
+      description: `List the pending (unaccepted) invites for a workspace. The MCP user must be a member of the workspace.`,
+      inputSchema: { workspaceId: z.string().uuid() },
+    },
+    async ({ workspaceId }) => {
+      try {
+        const result = await caller(user, request).workspaceInvites.list({
+          workspaceId,
+        })
+        return ok(result.invites)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_invites_revoke`,
+    {
+      title: `Revoke a workspace invite`,
+      description: `Revoke a pending invite by its UUID. Owner only.`,
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      try {
+        await caller(user, request).workspaceInvites.revoke({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Attachments upload (base64 image → S3 → attachments row)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_attachments_upload`,
+    {
+      title: `Upload an image attachment`,
+      description: `Upload a base64-encoded image and attach it to an issue (by UUID or human identifier, e.g. "MET-12"). Returns the canonical markdown form ![](/api/attachments/{id}) — embed that string in the issue's description or a comment to show the image. Images only (png/jpeg/webp/gif/avif), 10 MB max; the workspace storage plan limit applies.`,
+      inputSchema: {
+        issueId: z.string().min(1),
+        filename: z.string().min(1).max(255),
+        contentType: z.string().min(1).max(255),
+        dataBase64: z.string().min(1),
+        alt: z.string().max(500).optional(),
+      },
+    },
+    async ({ issueId: issueIdInput, filename, contentType, dataBase64, alt }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueCtx = await getIssueWorkspaceContext(issueId)
+        await assertWorkspaceMember(user.id, issueCtx.workspaceId)
+
+        if (!isAcceptedImageContentType(contentType)) {
+          throw new Error(
+            `Unsupported image type "${contentType}" — only PNG, JPEG, WebP, GIF, and AVIF images are accepted.`
+          )
+        }
+
+        const body = new Uint8Array(Buffer.from(dataBase64, `base64`))
+        if (body.byteLength === 0) {
+          throw new Error(`Decoded image is empty — check the base64 payload.`)
+        }
+        if (body.byteLength > maxImageUploadBytes) {
+          throw new Error(`Images must be 10 MB or smaller.`)
+        }
+
+        await assertWithinStorageLimit(issueCtx.workspaceId, body.byteLength)
+
+        const attachmentId = crypto.randomUUID()
+        const storageKey = buildAttachmentStorageKey(
+          issueId,
+          attachmentId,
+          filename
+        )
+        const url = buildAttachmentUrl(attachmentId)
+        const dimensions = getImageDimensions(body)
+
+        await uploadObject({
+          body,
+          contentLength: body.byteLength,
+          contentType,
+          key: storageKey,
+        })
+
+        try {
+          await db.insert(attachments).values({
+            id: attachmentId,
+            workspaceId: issueCtx.workspaceId,
+            issueId,
+            uploaderId: user.id,
+            filename,
+            contentType,
+            sizeBytes: body.byteLength,
+            storageKey,
+            url,
+            width: dimensions?.width ?? null,
+            height: dimensions?.height ?? null,
+          })
+        } catch (error) {
+          try {
+            await deleteObject(storageKey)
+          } catch (deleteError) {
+            console.error(
+              `Failed to rollback uploaded attachment object`,
+              deleteError
+            )
+          }
+          throw error
+        }
+
+        return ok({
+          id: attachmentId,
+          url,
+          markdown: `![${alt ?? ``}](${url})`,
+          filename,
+          contentType,
+          sizeBytes: body.byteLength,
+          width: dimensions?.width ?? null,
+          height: dimensions?.height ?? null,
+        })
       } catch (e) {
         return err(e)
       }

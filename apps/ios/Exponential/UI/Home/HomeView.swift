@@ -9,12 +9,6 @@ struct HomeView: View {
 
     @Environment(AppDependencies.self) private var deps
 
-    @State private var createProjectTarget: CreateProjectTarget?
-    @State private var createWorkspaceTarget: CreateWorkspaceTarget?
-    // A brand-new workspace has no projects (so Home hides it); after creating
-    // one we chain straight into first-project creation so it becomes visible.
-    @State private var pendingFirstProject: CreateProjectTarget?
-
     var body: some View {
         ZStack {
             AppBackground()
@@ -30,27 +24,7 @@ struct HomeView: View {
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                 } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "tray")
-                            .font(.title2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        Text("No projects yet")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        if let accountId = deps.auth.activeAccountId {
-                            Button {
-                                createWorkspaceTarget = CreateWorkspaceTarget(accountId: accountId)
-                            } label: {
-                                Label("New workspace", systemImage: "plus")
-                                    .font(.caption.weight(.medium))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .glassButton()
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        }
-                    }
+                    setUpOnWebHint
                 }
             } else {
                 ScrollView {
@@ -69,54 +43,42 @@ struct HomeView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                createMenu
-            }
-            ToolbarItem(placement: .topBarTrailing) {
                 settingsButton
             }
         }
-        .sheet(item: $createWorkspaceTarget, onDismiss: {
-            // Chain into first-project creation once the workspace sheet closes.
-            if let pending = pendingFirstProject {
-                pendingFirstProject = nil
-                createProjectTarget = pending
-            }
-        }) { target in
-            CreateWorkspaceSheet(accountId: target.accountId) { ws in
-                pendingFirstProject = CreateProjectTarget(accountId: target.accountId, workspaceId: ws.id)
-            }
-            .presentationBackground(.ultraThinMaterial)
-        }
-        .sheet(item: $createProjectTarget) { target in
-            CreateProjectSheet(accountId: target.accountId, workspaceId: target.workspaceId) { projectId in
-                onProjectTap(target.accountId, projectId)
-            }
-            .presentationBackground(.ultraThinMaterial)
-        }
     }
 
-    /// One obvious create entry point (the inline per-workspace "+" buttons stay,
-    /// but discoverability shouldn't depend on them). Workspace creation moved
-    /// to the web app — mobile only creates projects.
-    @ViewBuilder
-    private var createMenu: some View {
-        let groups = projectLoader?.groups ?? []
-        let blocks = groups.flatMap { group in
-            group.workspaceBlocks.map { (group.accountId, $0.workspace) }
-        }
-        if !blocks.isEmpty {
-            Menu {
-                ForEach(blocks, id: \.1.id) { accountId, workspace in
-                    Button {
-                        createProjectTarget = CreateProjectTarget(accountId: accountId, workspaceId: workspace.id)
-                    } label: {
-                        Label("New Project in \(workspace.name)", systemImage: "folder.badge.plus")
-                    }
-                }
-            } label: {
-                Image(systemName: "plus")
+    // Projects (and workspaces) are created on the web or desktop app — the
+    // mobile app is a companion. When there's nothing to show yet, point the
+    // user there instead of offering a create button.
+    private var setUpOnWebHint: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "tray")
+                .font(.title2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Text("No projects yet")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Text("Create your first project on the web or desktop app.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .multilineTextAlignment(.center)
+            if let host = instanceHost {
+                Text(host)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassRow()
             }
         }
+        .padding(.horizontal, 40)
+    }
+
+    private var instanceHost: String? {
+        guard let base = deps.auth.instanceUrl,
+              let url = URL(string: base) else { return nil }
+        return url.host ?? base
     }
 
     @ViewBuilder
@@ -155,14 +117,6 @@ struct HomeView: View {
                 Text("\(block.projects.count)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Button {
-                    createProjectTarget = CreateProjectTarget(accountId: accountId, workspaceId: block.workspace.id)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 4)
 
@@ -187,17 +141,6 @@ struct HomeView: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
         }
-    }
-
-    private struct CreateProjectTarget: Identifiable {
-        let accountId: String
-        let workspaceId: String
-        var id: String { "\(accountId)/\(workspaceId)" }
-    }
-
-    private struct CreateWorkspaceTarget: Identifiable {
-        let accountId: String
-        var id: String { accountId }
     }
 
     @ViewBuilder

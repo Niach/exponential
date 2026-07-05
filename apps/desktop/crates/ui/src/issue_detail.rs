@@ -51,7 +51,7 @@ use domain::rows::{Issue, Project};
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
 use crate::issue_changes::IssueChanges;
-use crate::navigation::{navigate, Screen};
+use crate::navigation::{back_button, nav_for_window, navigate, Screen};
 use crate::properties_panel::{parse_hex_color, spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
@@ -405,6 +405,7 @@ impl IssueDetailView {
     fn render_breadcrumb(
         &mut self,
         issue: &Issue,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let project = self.project(issue, cx);
@@ -421,6 +422,12 @@ impl IssueDetailView {
             .text_color(cx.theme().muted_foreground)
             .border_b_1()
             .border_color(cx.theme().border);
+
+        // §8.11 back affordance (present only when the back stack is non-empty).
+        let nav = nav_for_window(window, cx);
+        if let Some(button) = back_button(&nav, cx) {
+            row = row.child(button);
+        }
 
         if let Some(project) = project {
             let project_id = project.id.clone();
@@ -486,7 +493,7 @@ impl IssueDetailView {
             }
         }
         row = row.child(self.render_subscribe_toggle(issue, cx));
-        row = row.child(self.render_actions_menu(issue, cx));
+        row = row.children(self.render_actions_menu(issue, cx));
         row
     }
 
@@ -521,22 +528,26 @@ impl IssueDetailView {
             .on_click(cx.listener(|this, _, window, cx| this.toggle_subscription(window, cx)))
     }
 
-    /// The `…` actions menu (web L361-398): Mark as duplicate… / Unmark
-    /// duplicate.
+    /// The `…` actions menu (web L361-398): Unmark duplicate only, and — like
+    /// the web — the whole menu is present only for a duplicate issue (L27
+    /// removed the standalone "Mark as duplicate…" entry; the status control
+    /// now owns that path via interception).
     fn render_actions_menu(
         &mut self,
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let is_duplicate = issue.duplicate_of_id.is_some();
+    ) -> Option<impl IntoElement> {
+        if issue.duplicate_of_id.is_none() {
+            return None;
+        }
         let issue_id = issue.id.clone();
-        Button::new("issue-actions")
-            .ghost()
-            .xsmall()
-            .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
-            .dropdown_menu(move |menu, _, _| {
-                let issue_id = issue_id.clone();
-                if is_duplicate {
+        Some(
+            Button::new("issue-actions")
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(IconName::Ellipsis).text_color(cx.theme().muted_foreground))
+                .dropdown_menu(move |menu, _, _| {
+                    let issue_id = issue_id.clone();
                     menu.item(
                         PopupMenuItem::new("Unmark duplicate")
                             .icon(Icon::new(IconName::Undo2))
@@ -544,16 +555,8 @@ impl IssueDetailView {
                                 set_duplicate_of(issue_id.clone(), None, cx);
                             }),
                     )
-                } else {
-                    menu.item(
-                        PopupMenuItem::new("Mark as duplicate…")
-                            .icon(Icon::from(ExpIcon::Copy))
-                            .on_click(move |_, window, cx| {
-                                open_duplicate_picker(issue_id.clone(), window, cx);
-                            }),
-                    )
-                }
-            })
+                }),
+        )
     }
 
     /// Web `DuplicateOfBanner`: "Duplicate of #IDENT — title" with Unmark.
@@ -648,7 +651,7 @@ impl IssueDetailView {
         let source = issue.description.clone().unwrap_or_default();
         if source.trim().is_empty() {
             return div()
-                .px_5()
+                .px_4()
                 .py_2()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground.opacity(0.6))
@@ -656,7 +659,7 @@ impl IssueDetailView {
                 .into_any_element();
         }
         div()
-            .px_5()
+            .px_4()
             .py_2()
             .text_sm()
             .child(TextView::markdown("issue-description", SharedString::from(source)).selectable(true))
@@ -669,9 +672,11 @@ impl IssueDetailView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        // Borderless 2xl title (web `titleField`).
+        // Borderless 2xl title (web `titleField`). px_4 = the one shared left
+        // edge for the detail body (breadcrumb / tabs / title / description all
+        // align on it — EXP-8 §8.3).
         let title = div()
-            .px_3()
+            .px_4()
             .pt_3()
             .pb_1()
             .text_xl()
@@ -713,7 +718,7 @@ impl IssueDetailView {
 
         h_flex()
             .w_full()
-            .px_3()
+            .px_4()
             .py_1()
             .gap_1()
             .items_center()
@@ -777,7 +782,7 @@ impl Render for IssueDetailView {
                 .into_any_element();
         };
 
-        let mut view = base.child(self.render_breadcrumb(&issue, cx));
+        let mut view = base.child(self.render_breadcrumb(&issue, window, cx));
         if let Some(duplicate_of_id) = issue.duplicate_of_id.clone() {
             if let Some(banner) = self.render_duplicate_banner(&duplicate_of_id, cx) {
                 view = view.child(banner);
@@ -832,6 +837,28 @@ pub(crate) fn set_duplicate_of(issue_id: String, canonical_id: Option<String>, c
         Some(id) => api::Patch::Set(id),
         None => api::Patch::Null,
     };
+    spawn_issue_update(cx, input);
+}
+
+/// L27 status interception: selecting `duplicate` from ANY status control
+/// opens the duplicate picker (the server links `duplicate_of_id` and sets
+/// `status='duplicate'` atomically) instead of writing the status directly;
+/// every other status flows straight through to `issues.update`. Cancelling
+/// the picker writes nothing, so the control reverts to the live status. The
+/// single interception point shared by the detail properties panel, the row
+/// status dropdown and the row context menu (web `useDuplicateInterception`).
+pub(crate) fn apply_status_selection(
+    issue_id: String,
+    status: domain::IssueStatus,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if status == domain::IssueStatus::Duplicate {
+        open_duplicate_picker(issue_id, window, cx);
+        return;
+    }
+    let mut input = api::issues::IssuesUpdateInput::new(issue_id);
+    input.status = Some(status);
     spawn_issue_update(cx, input);
 }
 
@@ -898,7 +925,7 @@ impl DuplicatePicker {
             })
             .cloned()
             .collect();
-        issues.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+        issues.sort_by(|a, b| sync::cmp_identifiers(&a.identifier, &b.identifier));
         issues.truncate(50);
         issues
     }

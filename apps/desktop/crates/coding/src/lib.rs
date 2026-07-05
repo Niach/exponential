@@ -42,7 +42,9 @@ pub mod scm;
 pub mod settings;
 pub mod trunk_state;
 
-pub use claude_task::{claude_task, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask};
+pub use claude_task::{
+    claude_task, create_run_configs_prompt, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask,
+};
 pub use clone_manager::CloneEvent;
 pub use doctor::{run_doctor, DoctorReport, Tool, ToolCheck};
 pub use scm::{

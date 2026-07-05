@@ -14,7 +14,6 @@ object DomainContract {
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "pr_opened", "pr_merged")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "ended")
-    val platformValues: List<String> = listOf("web", "android", "ios", "command")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged")
     val moderationRestrictedFields: List<String> = listOf("status", "priority", "assigneeId", "dueDate", "dueTime", "endTime", "recurrenceInterval", "recurrenceUnit", "archivedAt")
@@ -37,10 +36,6 @@ object DomainContract {
     const val prStateDraft: String = "draft"
     const val codingSessionStatusRunning: String = "running"
     const val codingSessionStatusEnded: String = "ended"
-    const val platformWeb: String = "web"
-    const val platformAndroid: String = "android"
-    const val platformIos: String = "ios"
-    const val platformCommand: String = "command"
     const val subscriberSourceCreator: String = "creator"
     const val subscriberSourceAssignee: String = "assignee"
     const val subscriberSourceCommenter: String = "commenter"

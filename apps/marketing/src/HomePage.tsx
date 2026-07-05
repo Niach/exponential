@@ -1,8 +1,13 @@
 import { motion } from "motion/react"
+import { Radio } from "lucide-react"
+import { DownloadSection } from "./components/DownloadSection"
+import { IdeShowcase } from "./components/IdeShowcase"
+import { LoopSection } from "./components/LoopSection"
 import { ProductBoard } from "./components/ProductBoard"
 import { ProductMobile } from "./components/ProductMobile"
 import { AgentTimeline } from "./components/Sections"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
+import { WidgetEmbed } from "./components/WidgetEmbed"
 import { IcArrow, IcBot, IcGithub, IcZap } from "./components/icons"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { LINKS } from "./lib/links"
@@ -10,6 +15,7 @@ import { LINKS } from "./lib/links"
 export function HomePage() {
   return (
     <>
+      <WidgetEmbed />
       <SiteHeader />
 
       {/* ── Hero ─────────────────────────────── */}
@@ -22,11 +28,12 @@ export function HomePage() {
           animate="visible"
         >
           <motion.h1 className="hero-title" variants={heroChild}>
-            Go Exponential.
+            Make your app exponential.
           </motion.h1>
           <motion.p className="hero-sub" variants={heroChild}>
-            The issue tracker for teams that ship. Real-time, native on every
-            device, AI agents that open PRs &mdash; running on your machine.
+            Feedback becomes an issue, Claude writes the fix, the PR ships, and
+            the reporter gets the email &mdash; a real-time tracker that closes
+            the loop, native on every device and running on your machine.
           </motion.p>
           <motion.div className="hero-cta" variants={heroChild}>
             <a className="btn btn-primary" href={LINKS.app.register}>
@@ -62,20 +69,27 @@ export function HomePage() {
         </motion.div>
       </section>
 
-      {/* ── Agents ───────────────────────────── */}
+      {/* ── The loop (centerpiece) ───────────── */}
+      <LoopSection />
+
+      {/* ── Desktop IDE showcase ─────────────── */}
+      <IdeShowcase />
+
+      {/* ── Start coding ─────────────────────── */}
       <section id="agents">
         <div className="shell">
           <div className="agents-grid">
             <motion.div className="agents-copy" {...sectionReveal}>
-              <span className="section-eyebrow">AI Agents</span>
+              <span className="section-eyebrow">Start coding</span>
               <h2 className="section-title">
-                Agents that join your workspace.
+                Click Start coding. Get a PR.
               </h2>
               <p className="section-sub">
-                Assign an issue to Claude or Codex. The agent plans in the
-                comments, waits for your approval, then opens a real GitHub
-                PR &mdash; running locally on your machine, in a terminal you
-                can watch.
+                Hit <strong>Start coding</strong> on any issue in the desktop
+                IDE and Claude opens in an embedded terminal, in a dedicated
+                git worktree &mdash; plan-first and fully interactive. It
+                commits, pushes an <code>exp/&lt;ID&gt;</code> branch, and opens
+                the pull request itself.
               </p>
               <ul className="mobile-bullets">
                 <li>
@@ -83,10 +97,11 @@ export function HomePage() {
                     <IcBot size={14} />
                   </span>
                   <div>
-                    <strong>Plan, then code.</strong>
+                    <strong>Plan-first, never on autopilot.</strong>
                     <p>
-                      Agents post their plan as a comment. Approve, request
-                      changes, or cancel &mdash; from any device.
+                      Claude proposes a plan, then codes with permissions
+                      bypassed &mdash; no accept prompts to babysit. Watch the
+                      live terminal and type to steer it any time.
                     </p>
                   </div>
                 </li>
@@ -97,9 +112,9 @@ export function HomePage() {
                   <div>
                     <strong>Your hardware, your subscription.</strong>
                     <p>
-                      The desktop app runs the claude or codex CLI you already
-                      pay for, in an embedded terminal. Nothing leaves your
-                      machine.
+                      The <code>claude</code> CLI you already pay for runs on
+                      your machine, in a real terminal. One issue = one PR = one
+                      worktree. Nothing leaves your desk.
                     </p>
                   </div>
                 </li>
@@ -150,13 +165,14 @@ export function HomePage() {
                 </li>
                 <li>
                   <span className="mobile-bullet-icon">
-                    <IcZap size={14} />
+                    <Radio size={14} strokeWidth={1.8} />
                   </span>
                   <div>
-                    <strong>Approve agent plans on the go.</strong>
+                    <strong>Steer a session from your phone.</strong>
                     <p>
-                      A push lands the moment your agent&apos;s plan is ready.
-                      Review it from anywhere.
+                      A coding session running on your desktop streams to your
+                      pocket &mdash; watch the terminal and type a nudge from
+                      anywhere.
                     </p>
                   </div>
                 </li>
@@ -172,6 +188,21 @@ export function HomePage() {
               <ProductMobile animate />
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ── Downloads ────────────────────────── */}
+      <section id="download">
+        <div className="shell">
+          <motion.div {...sectionReveal}>
+            <span className="section-eyebrow">Get the apps</span>
+            <h2 className="section-title">One instance, every device.</h2>
+            <p className="section-sub">
+              The desktop IDE for macOS and Linux, native apps for iOS and
+              Android &mdash; all syncing the same real-time data.
+            </p>
+          </motion.div>
+          <DownloadSection />
         </div>
       </section>
 

@@ -37,9 +37,6 @@
   "codingSessionStatus": {
     "values": ["running", "ended"]
   },
-  "platform": {
-    "values": ["web", "android", "ios", "command"]
-  },
   "subscriberSource": {
     "values": ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
   },

@@ -1,4 +1,5 @@
 import { eq, isNull, or } from "drizzle-orm"
+import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { githubInstallations } from "@/db/schema"
@@ -17,6 +18,13 @@ const repoCache = new Map<
   string,
   { repos: InstallationRepo[]; hasMore: boolean; expiresAt: number }
 >()
+
+// Drop a user's cached repo list so the next `repos` query re-hits GitHub.
+// Called after a mid-flow install lands (setup redirect) or when the UI asks
+// for a forced refresh, both of which mean the installable set just changed.
+export function invalidateRepoCache(userId: string): void {
+  repoCache.delete(userId)
+}
 
 interface ResolvedInstallation {
   installationId: number
@@ -86,7 +94,10 @@ async function resolveInstallations(
     installationId: inst.id,
     accountLogin: inst.account || null,
   }))
-  fallbackCache = { installs: resolved, expiresAt: Date.now() + FALLBACK_TTL_MS }
+  fallbackCache = {
+    installs: resolved,
+    expiresAt: Date.now() + FALLBACK_TTL_MS,
+  }
   for (const inst of installs) {
     await db
       .insert(githubInstallations)
@@ -128,73 +139,78 @@ export const integrationsRouter = router({
     // Repos the user can connect, aggregated across all their installations and
     // deduped. Backs the repo-first project create flow. `hasMore` signals the
     // result was truncated so the UI can point at "manage repos on GitHub".
-    repos: authedProcedure.query(async ({ ctx }) => {
-      const userId = ctx.session.user.id
-      if (!githubAppConfigured()) {
-        return {
-          configured: false as const,
-          installed: false,
-          installUrl: null as string | null,
-          repos: [] as InstallationRepo[],
-          hasMore: false,
+    // `refresh` bypasses the per-user cache so returning from a GitHub App
+    // install (new repos granted) reflects immediately.
+    repos: authedProcedure
+      .input(z.object({ refresh: z.boolean().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const userId = ctx.session.user.id
+        if (input?.refresh) invalidateRepoCache(userId)
+        if (!githubAppConfigured()) {
+          return {
+            configured: false as const,
+            installed: false,
+            installUrl: null as string | null,
+            repos: [] as InstallationRepo[],
+            hasMore: false,
+          }
         }
-      }
 
-      const installs = await resolveInstallations(userId)
+        const installs = await resolveInstallations(userId)
 
-      if (installs.length === 0) {
-        return {
-          configured: true as const,
-          installed: false,
-          installUrl: githubAppInstallUrl(`dialog`),
-          repos: [] as InstallationRepo[],
-          hasMore: false,
+        if (installs.length === 0) {
+          return {
+            configured: true as const,
+            installed: false,
+            installUrl: githubAppInstallUrl(`dialog`),
+            repos: [] as InstallationRepo[],
+            hasMore: false,
+          }
         }
-      }
 
-      const cached = repoCache.get(userId)
-      if (cached && cached.expiresAt > Date.now()) {
+        const cached = repoCache.get(userId)
+        if (cached && cached.expiresAt > Date.now()) {
+          return {
+            configured: true as const,
+            installed: true,
+            installUrl: githubAppInstallUrl(`dialog`),
+            repos: cached.repos,
+            hasMore: cached.hasMore,
+          }
+        }
+
+        const seen = new Set<string>()
+        const merged: InstallationRepo[] = []
+        let hasMore = false
+        for (const inst of installs) {
+          try {
+            const { repos, hasMore: more } = await listInstallationRepos(
+              inst.installationId
+            )
+            if (more) hasMore = true
+            for (const repo of repos) {
+              if (seen.has(repo.fullName)) continue
+              seen.add(repo.fullName)
+              merged.push(repo)
+            }
+          } catch {
+            // A single revoked/404 installation must not fail the whole list.
+          }
+        }
+        merged.sort((a, b) => a.fullName.localeCompare(b.fullName))
+        repoCache.set(userId, {
+          repos: merged,
+          hasMore,
+          expiresAt: Date.now() + REPOS_TTL_MS,
+        })
+
         return {
           configured: true as const,
           installed: true,
           installUrl: githubAppInstallUrl(`dialog`),
-          repos: cached.repos,
-          hasMore: cached.hasMore,
+          repos: merged,
+          hasMore,
         }
-      }
-
-      const seen = new Set<string>()
-      const merged: InstallationRepo[] = []
-      let hasMore = false
-      for (const inst of installs) {
-        try {
-          const { repos, hasMore: more } = await listInstallationRepos(
-            inst.installationId
-          )
-          if (more) hasMore = true
-          for (const repo of repos) {
-            if (seen.has(repo.fullName)) continue
-            seen.add(repo.fullName)
-            merged.push(repo)
-          }
-        } catch {
-          // A single revoked/404 installation must not fail the whole list.
-        }
-      }
-      merged.sort((a, b) => a.fullName.localeCompare(b.fullName))
-      repoCache.set(userId, {
-        repos: merged,
-        hasMore,
-        expiresAt: Date.now() + REPOS_TTL_MS,
-      })
-
-      return {
-        configured: true as const,
-        installed: true,
-        installUrl: githubAppInstallUrl(`dialog`),
-        repos: merged,
-        hasMore,
-      }
-    }),
+      }),
   }),
 })

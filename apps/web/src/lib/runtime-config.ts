@@ -11,6 +11,7 @@ export type RuntimeConfig = {
   isCloud: boolean
   creemProProductId: string | null
   creemBusinessProductId: string | null
+  creemBusinessYearlyProductId: string | null
   feedbackWidget: FeedbackWidgetConfig | null
 }
 
@@ -32,6 +33,9 @@ export function buildRuntimeConfig(): RuntimeConfig {
       : null,
     creemBusinessProductId: isCloud
       ? (process.env.CREEM_BUSINESS_PRODUCT_ID ?? null)
+      : null,
+    creemBusinessYearlyProductId: isCloud
+      ? (process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID ?? null)
       : null,
     feedbackWidget:
       scriptUrl && widgetKey ? { scriptUrl, widgetKey } : null,

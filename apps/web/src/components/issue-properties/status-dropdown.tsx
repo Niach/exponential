@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { trpc } from "@/lib/trpc-client"
+import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import {
   getIssueStatusConfig,
   issueStatusOptions,
@@ -35,32 +36,37 @@ export function StatusDropdown({
   status: IssueStatus
   disabled?: boolean
 }) {
-  return (
-    <OptionDropdownMenu
-      value={status}
-      disabled={disabled}
-      options={statuses}
-      mobileTitle="Status"
-      onSelect={async (nextStatus) => {
-        await trpc.issues.update.mutate({
-          id: issueId,
-          status: nextStatus,
-        })
-      }}
-      renderTrigger={(selected) => {
-        const Icon = selected.icon
+  const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
+    issueId,
+    onStatusChange: async (nextStatus) => {
+      await trpc.issues.update.mutate({ id: issueId, status: nextStatus })
+    },
+  })
 
-        return (
-          <Button
-            variant="ghost"
-            className="h-8 w-8 md:h-5 md:w-5 p-0"
-            disabled={disabled}
-            aria-label={`Change status (current: ${selected.label})`}
-          >
-            <Icon className={`h-3.5 w-3.5 ${selected.color}`} />
-          </Button>
-        )
-      }}
-    />
+  return (
+    <>
+      <OptionDropdownMenu
+        value={status}
+        disabled={disabled}
+        options={statuses}
+        mobileTitle="Status"
+        onSelect={handleStatusChange}
+        renderTrigger={(selected) => {
+          const Icon = selected.icon
+
+          return (
+            <Button
+              variant="ghost"
+              className="h-8 w-8 md:h-5 md:w-5 p-0"
+              disabled={disabled}
+              aria-label={`Change status (current: ${selected.label})`}
+            >
+              <Icon className={`h-3.5 w-3.5 ${selected.color}`} />
+            </Button>
+          )
+        }}
+      />
+      {duplicatePicker}
+    </>
   )
 }

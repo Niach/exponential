@@ -47,10 +47,20 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &OpenSearch, cx| {
         crate::navigation::on_active_window(cx, |window, cx| open_search(window, cx));
     });
+    // ⌘K (command-palette) and ⌘F (§8.13 quick-find parity) both open the same
+    // issue quick-search over the synced collection — a substring match on
+    // title/identifier that navigates to the pick, exactly what §8.13 asks for,
+    // so ⌘F reuses this modal rather than standing up a second one.
     #[cfg(target_os = "macos")]
-    cx.bind_keys([KeyBinding::new("cmd-k", OpenSearch, None)]);
+    cx.bind_keys([
+        KeyBinding::new("cmd-k", OpenSearch, None),
+        KeyBinding::new("cmd-f", OpenSearch, None),
+    ]);
     #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("ctrl-k", OpenSearch, None)]);
+    cx.bind_keys([
+        KeyBinding::new("ctrl-k", OpenSearch, None),
+        KeyBinding::new("ctrl-f", OpenSearch, None),
+    ]);
 }
 
 /// Open the search dialog on `window` (no-op unless the session is `Synced`

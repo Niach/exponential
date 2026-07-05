@@ -88,7 +88,7 @@ const PROJECTS: Record<string, { name: string; color: string; prefix: string; is
     prefix: `EXP`,
     issues: [
       { id: `exp2`, ident: `EXP-2`, title: `Fix duplicate push notifications on mention`, status: `in_progress`, priority: `urgent`, labels: [BUG], due: `Jun 11`, assignee: `D` },
-      { id: `exp1`, ident: `EXP-1`, title: `Stream agent output to the plan panel`, status: `in_progress`, priority: `high`, labels: [FEATURE], assignee: `D` },
+      { id: `exp1`, ident: `EXP-1`, title: `Steer a live coding session from the phone`, status: `in_progress`, priority: `high`, labels: [FEATURE], assignee: `D` },
       { id: `exp3`, ident: `EXP-3`, title: `Attachment previews lose aspect ratio on Android`, status: `todo`, priority: `medium`, labels: [BUG], due: `Jun 16` },
       { id: `exp5`, ident: `EXP-5`, title: `Polish empty states for the notifications inbox`, status: `todo`, priority: `medium`, labels: [DESIGN], assignee: `D` },
       { id: `exp4`, ident: `EXP-4`, title: `Add keyboard shortcut for cycling issue status`, status: `todo`, priority: `low`, labels: [FEATURE] },

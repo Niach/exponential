@@ -182,7 +182,16 @@ export function useWorkspaceMemberships(userId?: string) {
   }
 }
 
-export function useWorkspaceUsers(workspaceId?: string) {
+// Human workspace users, keyed for pickers + display. Bot users
+// (users.isAgent — the widget helpdesk bot, only ever an issue *creator*,
+// never an assignee/comment author/rendered name) are excluded at the source
+// so every consumer (assignee pickers, row-menu, mentions, member lists) hides
+// them at once. Pass `includeAgents` for the rare consumer that needs the bot
+// rows (none today).
+export function useWorkspaceUsers(
+  workspaceId?: string,
+  includeAgents = false
+) {
   const { data: members } = useLiveQuery(
     (query) =>
       workspaceId
@@ -203,16 +212,31 @@ export function useWorkspaceUsers(workspaceId?: string) {
     }
 
     const userIds = new Set(members.map((member) => member.userId))
-    return allUsers.filter((user) => userIds.has(user.id))
-  }, [allUsers, members])
+    return allUsers.filter(
+      (user) =>
+        userIds.has(user.id) && (includeAgents || !user.isAgent)
+    )
+  }, [allUsers, members, includeAgents])
 
   const userMap = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
 
+  // Drop the bot's member row too so the members list + count (EXP-7's
+  // "2 members") match the human user set. A member whose user hasn't synced
+  // yet is kept (can't be proven a bot). Skipped when includeAgents.
+  const filteredMembers = useMemo(() => {
+    const rows = (members ?? []) as WorkspaceMember[]
+    if (includeAgents || !allUsers) return rows
+    const agentUserIds = new Set(
+      allUsers.filter((user) => user.isAgent).map((user) => user.id)
+    )
+    return rows.filter((member) => !agentUserIds.has(member.userId))
+  }, [members, allUsers, includeAgents])
+
   return {
-    members: (members ?? []) as WorkspaceMember[],
+    members: filteredMembers,
     userMap: userMap as Map<string, User>,
     users: users as User[],
   }

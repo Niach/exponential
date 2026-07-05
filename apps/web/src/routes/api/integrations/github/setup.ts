@@ -3,23 +3,24 @@ import { db } from "@/db/connection"
 import { githubInstallations } from "@/db/schema"
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import { getInstallation } from "@/lib/integrations/github-app"
+import { invalidateRepoCache } from "@/lib/trpc/integrations"
 
 // GitHub App install "Setup URL": GitHub redirects the user's browser here after
 // they install (or update) the App, with `?installation_id=…&setup_action=…`.
 // We capture the installation (for the UI "installed" state) plus the
 // installation → user mapping when the browser carries a session, then bounce
-// back to Integrations. Token minting itself doesn't need this — the App JWT
+// back into the app. Token minting itself doesn't need this — the App JWT
 // finds a repo's installation on demand.
 async function handleSetup(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const installationId = Number(url.searchParams.get(`installation_id`))
   // When the install was launched from the in-app project/agent dialog
   // (state=dialog), land on a small client page that lets the original tab
-  // re-detect the connection; otherwise keep the standalone Integrations flow.
+  // re-detect the connection; otherwise land on the app root — the standalone
+  // /account/integrations page is gone (L25: GitHub App management lives in
+  // workspace settings → Repositories, which self-detects on focus).
   const fromDialog = url.searchParams.get(`state`) === `dialog`
-  const okLocation = fromDialog
-    ? `/integrations/github/installed`
-    : `/account/integrations?github=installed`
+  const okLocation = fromDialog ? `/integrations/github/installed` : `/`
   const ok = new Response(null, {
     status: 302,
     headers: { location: okLocation },
@@ -51,13 +52,17 @@ async function handleSetup(request: Request): Promise<Response> {
             updatedAt: new Date(),
           },
         })
+      // The user's installable-repo set just changed; drop their cached list so
+      // the next `repos` query (the re-detect fired when they return) re-hits
+      // GitHub instead of serving a stale pre-install snapshot.
+      if (userId) invalidateRepoCache(userId)
     }
     return ok
   } catch (err) {
     console.error(`[github-setup] failed:`, err)
     return new Response(null, {
       status: 302,
-      headers: { location: `/account/integrations?github=error` },
+      headers: { location: `/` },
     })
   }
 }

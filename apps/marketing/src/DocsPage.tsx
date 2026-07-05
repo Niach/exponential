@@ -6,13 +6,14 @@ import {
   type DocsSection as DocsSectionType,
 } from "./components/DocsLayout"
 import {
-  DocsMockupAgentSettings,
-  DocsMockupDesktopAgent,
+  DocsMockupDesktopCoding,
   DocsMockupIssueList,
   DocsMockupPhoneConnect,
-  DocsMockupPlanComment,
+  DocsMockupRepositories,
   DocsMockupSidebar,
+  DocsMockupSteerPhone,
 } from "./components/DocsMockups"
+import { DownloadSection } from "./components/DownloadSection"
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
 import { IcArrow } from "./components/icons"
 import { LINKS } from "./lib/links"
@@ -22,7 +23,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `issues`, num: `02`, label: `Issues` },
   { id: `desktop-apps`, num: `03`, label: `Desktop apps` },
   { id: `mobile`, num: `04`, label: `Mobile apps` },
-  { id: `agents`, num: `05`, label: `AI agents` },
+  { id: `agents`, num: `05`, label: `Start coding` },
   { id: `feedback`, num: `06`, label: `Public feedback` },
   { id: `integrations`, num: `07`, label: `Integrations` },
 ]
@@ -39,8 +40,8 @@ export function DocsPage() {
             How to use Exponential.
           </h1>
           <p>
-            Everything you need to know — issues, desktop and mobile apps,
-            local AI agents, and integrations.
+            Everything you need to know — issues, the desktop git IDE, mobile
+            apps, coding sessions, and integrations.
           </p>
           <div className="docs-hero-cta">
             <a className="btn btn-primary" href="#getting-started">
@@ -156,7 +157,7 @@ export function DocsPage() {
 
           <h3>Notifications &amp; inbox</h3>
           <p>
-            Assignments, comments, mentions, status changes, and agent events
+            Assignments, comments, mentions, status changes, and PR updates
             land in your <strong>Inbox</strong> (in the sidebar) — and as push
             notifications on your phone. You're auto-subscribed to issues you
             create, get assigned, comment on, or are mentioned in; a subscribe
@@ -176,69 +177,71 @@ export function DocsPage() {
         <DocsSection id="desktop-apps" num="03" label="Desktop apps">
           <h2>Desktop apps</h2>
           <p>
-            Native desktop apps for <strong>macOS</strong> (Swift) and{` `}
-            <strong>Linux</strong> (GTK4) — full trackers with one superpower:
-            they turn your machine into a workspace agent that runs Claude or
-            Codex locally, in a real terminal, against your repos.
+            The native desktop app for <strong>macOS</strong> and{` `}
+            <strong>Linux</strong> is a full git IDE, built in{` `}
+            <strong>Rust</strong> with <strong>gpui</strong>. It is the one
+            client that runs Claude coding sessions: clone a repo, start
+            coding on an issue, watch the embedded terminal, and open the pull
+            request — all in one window.
           </p>
 
           <h3>Download &amp; sign in</h3>
           <p>
             Grab the app for{` `}
-            <a href={LINKS.downloads.macos}>macOS</a> or{` `}
-            <a href={LINKS.downloads.linux}>Linux</a>. On first launch, enter
-            your server URL — <code>app.exponential.at</code> for the cloud,
-            or your own domain if you self-host — and sign in with your usual
-            account.
+            <a href={LINKS.downloads.macos}>macOS</a> (<code>.dmg</code>) or{` `}
+            <a href={LINKS.downloads.linux}>Linux</a> (<code>AppImage</code>).
+            On first launch, enter your server URL —{` `}
+            <code>app.exponential.at</code> for the cloud, or your own domain
+            if you self-host — and sign in with your usual account.
           </p>
 
-          <h3>Automatic agent registration</h3>
+          <DownloadSection />
+
+          <h3>One project, one repo — auto-cloned</h3>
           <p>
-            When you sign in, the app registers your device as an{` `}
-            <strong>agent member</strong>: one agent user per physical machine,
-            joined to every workspace you belong to with the{` `}
-            <code>Agent</code> role. No tokens to copy, no daemon to install —
-            it shows up in <strong>Workspace Settings → Agents</strong>{` `}
-            immediately, and teammates can assign issues to it like to any
-            member.
+            Every project is backed by exactly one GitHub repository. When you
+            open a project, the desktop app <strong>clones it automatically</strong>{` `}
+            and becomes a real git IDE around it: a git top bar (pull/push with
+            auto-rebase), a full source-control panel (stage, commit, history,
+            diffs), and a read-only file tree and viewer. Manage the mapping in{` `}
+            <strong>Workspace Settings → Repositories</strong>.
           </p>
 
-          <DocsMockupAgentSettings />
+          <DocsMockupRepositories />
 
-          <h3>What the agent needs</h3>
+          <h3>What you need</h3>
           <ul>
             <li>
-              The repo cloned locally — the agent works in git worktrees next
-              to your checkout and never touches your working tree.
-            </li>
-            <li>
-              The <code>claude</code> or <code>codex</code> CLI installed and
-              authenticated — the agent runs <em>your</em> subscription on{` `}
-              <em>your</em> hardware. Nothing is delegated to a third-party
-              cloud.
+              The <code>claude</code> CLI installed and authenticated — coding
+              runs <em>your</em> subscription on <em>your</em> hardware.
+              Nothing is delegated to a third-party cloud. Local dependencies
+              are only <code>claude</code> and <code>git</code>.
             </li>
             <li>
               GitHub connected (see{` `}
-              <a href="#integrations">Integrations</a>) so the agent can open
-              pull requests.
+              <a href="#integrations">Integrations</a>) — the app mints a
+              short-lived installation token per session so Claude can push and
+              open the pull request. No personal tokens, no <code>gh</code>.
             </li>
           </ul>
 
-          <h3>The embedded terminal</h3>
+          <h3>Start coding &amp; the embedded terminal</h3>
           <p>
-            Agent sessions run inside an embedded{` `}
-            <strong>ghostty</strong> terminal in the app — a real terminal
-            emulator, not a log view. Watch the agent think, scroll back
-            through its output, and take over the session with your keyboard
-            at any time.
+            Hit <strong>Start coding</strong> on any issue and Claude opens
+            inside an embedded <strong>alacritty</strong>-backed terminal — a
+            real terminal emulator, not a log view — in a dedicated git
+            worktree on an <code>exp/&lt;IDENTIFIER&gt;</code> branch. It plans
+            first, then codes with permissions bypassed. Watch it think, scroll
+            back through its output, and type to steer it at any time. When
+            it's done, it commits, pushes, and opens the pull request itself.
           </p>
 
-          <DocsMockupDesktopAgent />
+          <DocsMockupDesktopCoding />
 
           <DocsCallout kind="note" title="While the app is open">
-            Agents run while the desktop app is open. Close the app and the
-            device shows as offline; assigned issues simply wait until it's
-            back.
+            Coding sessions run while the desktop app is open. A slim synced
+            record powers a &ldquo;coding now&rdquo; badge on every client;
+            close the app and the session simply ends.
           </DocsCallout>
         </DocsSection>
 
@@ -269,13 +272,17 @@ export function DocsPage() {
 
           <DocsMockupPhoneConnect />
 
-          <h3>Approve agent plans on the go</h3>
+          <h3>Watch &amp; steer a session from your phone</h3>
           <p>
-            When a desktop agent finishes a plan, a push notification lands on
-            your phone. Open it, read the plan, and approve, request changes,
-            or cancel — the agent on your desk picks up your decision in
-            real time.
+            A coding session running on your desktop streams live to your
+            pocket. Open the issue&apos;s <strong>Changes</strong> tab and you
+            can <strong>watch the terminal and type into it</strong> — approve
+            the plan, redirect it, or answer a question — with the keystrokes
+            carried back to your desk in real time. Full bidirectional
+            steering, not read-only status.
           </p>
+
+          <DocsMockupSteerPhone />
 
           <h3>Multi-server</h3>
           <p>
@@ -300,67 +307,67 @@ export function DocsPage() {
           </DocsCallout>
         </DocsSection>
 
-        {/* ── 05 AI agents ── */}
-        <DocsSection id="agents" num="05" label="AI agents">
-          <h2>AI agents</h2>
+        {/* ── 05 Start coding ── */}
+        <DocsSection id="agents" num="05" label="Start coding">
+          <h2>Start coding</h2>
           <p>
-            Exponential has first-class support for AI coding agents — and
-            they run on <strong>your</strong> hardware, not in someone else's
-            cloud. Assign an issue, review the plan, get a pull request.
+            Exponential doesn&apos;t just track the issue — it fixes it. Coding
+            runs on <strong>your</strong> hardware in the{` `}
+            <a href="#desktop-apps">desktop IDE</a>, never in someone else&apos;s
+            cloud. Click <strong>Start coding</strong>, watch Claude work, get a
+            pull request.
           </p>
 
-          <h3>Adding an agent to your workspace</h3>
-          <p>
-            Install the <a href="#desktop-apps">desktop app</a> on the machine
-            that should do the work and sign in. The device registers itself
-            as an agent member and joins every workspace you belong to — no
-            install command, no API keys to paste. You'll see it under{` `}
-            <strong>Workspace Settings → Agents</strong> with a live
-            online/offline status.
-          </p>
-
-          <h3>How agents work</h3>
+          <h3>How a coding session works</h3>
           <ol>
             <li>
-              <strong>Assign an issue</strong> to the device's agent user —
-              just like you'd assign it to a teammate.
+              <strong>Click Start coding</strong> on any issue in the desktop
+              app — no agent to assign, no daemon to install.
             </li>
             <li>
-              <strong>The agent reads the issue</strong>, drafts a plan with
-              the claude or codex CLI, and posts it as a comment.
+              <strong>The app sets up a worktree</strong>: it resolves the
+              project&apos;s repository, mints a session-scoped GitHub token,
+              and creates a git worktree on an{` `}
+              <code>exp/&lt;IDENTIFIER&gt;</code> branch — one issue, one
+              worktree, one branch.
             </li>
             <li>
-              <strong>You get a push notification</strong> — review the plan on
-              your phone, the web, or any client.
+              <strong>Claude opens in the embedded terminal</strong>, seeded
+              with a plan-first prompt (title, description, relevant comments).
+              It proposes a concise plan, then implements with permissions
+              bypassed — fully interactive, never on autopilot.
             </li>
             <li>
-              <strong>Approve, request changes, or cancel.</strong> If you
-              request changes the agent revises the plan and posts a new
-              revision.
+              <strong>You watch and steer</strong> — from the desktop, or the
+              live <strong>Changes</strong> tab on your phone. Type to approve,
+              redirect, or answer a question at any point.
             </li>
             <li>
-              <strong>On approval</strong>, the agent creates a git worktree
-              and codes in the embedded ghostty terminal — watch it live or
-              take over any time — then opens a GitHub pull request linked
-              back to the issue.
+              <strong>Claude opens the PR itself.</strong> It commits, pushes
+              the branch, and opens a GitHub pull request linked back to the
+              issue.
             </li>
           </ol>
 
-          <DocsMockupPlanComment />
+          <DocsMockupDesktopCoding />
 
-          <h3>Questions welcome</h3>
+          <h3>Steer from anywhere</h3>
           <p>
-            If the agent gets stuck it posts a <strong>question</strong>{` `}
-            comment and pauses. Answer from any device and it resumes with
-            your guidance.
+            Because the desktop owns the terminal, it tees the live session out
+            to your phone. Open the issue on mobile or web and you can watch the
+            same terminal and <strong>type into it</strong> — the moat nobody
+            else has: an issue reported while you were out can go all the way to
+            a merged PR, steered from your pocket.
           </p>
+
+          <DocsMockupSteerPhone />
 
           <h3>MCP for Claude Code / Cursor</h3>
           <p>
             Point any MCP-aware tool at your instance's endpoint and it can
             list, create, edit, and comment on issues directly from your IDE.
             Use OAuth to authenticate interactively, or set up a bearer token
-            for headless agents.
+            for headless scripts.
           </p>
           <DocsCode language="json">{`
 {
@@ -425,7 +432,7 @@ export function DocsPage() {
             demand; no personal access tokens are ever stored.
           </p>
           <p>
-            Each agent-driven issue maps to <strong>one branch and one pull
+            Each coding session maps to <strong>one branch and one pull
             request</strong>. When the PR merges, Exponential notices —
             instantly via webhook on the cloud, or via polling for
             self-hosted instances behind NAT — and records it on the issue

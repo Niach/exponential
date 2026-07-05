@@ -1,13 +1,12 @@
-import { useState } from "react"
 import {
   AlertTriangle,
   CalendarDays,
-  Check,
   ChevronRight,
   Circle,
   CircleCheck,
   CircleDashed,
   CircleX,
+  GitPullRequest,
   Minus,
   SignalHigh,
   SignalLow,
@@ -55,13 +54,6 @@ export function IssueDetailPanel({
   projectColor: string
   onClose: () => void
 }) {
-  const [approved, setApproved] = useState(false)
-
-  const handleApprove = () => {
-    setApproved(true)
-    setTimeout(() => setApproved(false), 1500)
-  }
-
   const statusCfg = STATUS[issue.status]
   const StatusIcon = statusCfg.icon
   const prioCfg = PRIORITY[issue.priority]
@@ -126,29 +118,20 @@ export function IssueDetailPanel({
                 <div className="ex-detail-comment-meta">
                   <strong>Claude</strong>
                   <span className="ex-detail-plan-tag">
-                    Plan &middot; rev 1
+                    Coding session &middot; live
                   </span>
                   <span>&middot; just now</span>
                 </div>
                 <div className="ex-detail-plan-card">
                   <div className="ex-detail-comment-text">
-                    {`1. Add the core module with input validation\n2. Wire up the API endpoint\n3. Add integration tests for edge cases`}
+                    {`⎇ exp/${issue.ident} · worktree ready\n$ claude — planning the fix, then implementing\n✓ commits, pushes, and opens the PR itself`}
                   </div>
                   <div className="ex-detail-plan-actions">
-                    {approved ? (
-                      <button className="ex-detail-plan-btn is-approved">
-                        <Check size={12} strokeWidth={2} /> Approved
-                      </button>
-                    ) : (
-                      <button
-                        className="ex-detail-plan-btn is-primary"
-                        onClick={handleApprove}
-                      >
-                        Approve
-                      </button>
-                    )}
+                    <button className="ex-detail-plan-btn is-primary">
+                      Watch &amp; steer
+                    </button>
                     <button className="ex-detail-plan-btn">
-                      Request changes
+                      <GitPullRequest size={12} strokeWidth={2} /> PR opens here
                     </button>
                   </div>
                 </div>

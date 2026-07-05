@@ -31,6 +31,11 @@ async function importLoader(): Promise<void> {
 beforeEach(() => {
   document.head.innerHTML = ``
   document.body.innerHTML = ``
+  // The loader mounts its host on <html>, so it outlives clearing body — drop
+  // any host from a previous test to keep assertions isolated.
+  document
+    .querySelectorAll(`[data-exponential-widget]`)
+    .forEach((element) => element.remove())
   delete (window as { ExponentialWidget?: unknown }).ExponentialWidget
   delete (window as { __expWidget?: unknown }).__expWidget
   vi.restoreAllMocks()

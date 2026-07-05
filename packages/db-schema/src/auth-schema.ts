@@ -129,30 +129,12 @@ export const oauthConsents = pgTable(`oauth_consents`, {
   updatedAt: timestamp(`updated_at`).notNull(),
 })
 
-// Better Auth's Drizzle adapter resolves models by snake_case key, so this
-// must be exported as `creem_subscriptions` (not camelCase).
-export const creem_subscriptions = pgTable(`creem_subscriptions`, {
-  id: text(`id`).primaryKey(),
-  productId: text(`product_id`).notNull(),
-  referenceId: text(`reference_id`)
-    .notNull()
-    .references(() => users.id, { onDelete: `cascade` }),
-  creemCustomerId: text(`creem_customer_id`),
-  creemSubscriptionId: text(`creem_subscription_id`),
-  creemOrderId: text(`creem_order_id`),
-  status: text(`status`).$defaultFn(() => `pending`).notNull(),
-  periodStart: timestamp(`period_start`),
-  periodEnd: timestamp(`period_end`),
-  cancelAtPeriodEnd: boolean(`cancel_at_period_end`)
-    .$defaultFn(() => false)
-    .notNull(),
-  createdAt: timestamp(`created_at`)
-    .$defaultFn(() => /* @__PURE__ */ new Date())
-    .notNull(),
-  updatedAt: timestamp(`updated_at`)
-    .$defaultFn(() => /* @__PURE__ */ new Date())
-    .notNull(),
-})
+// NOTE: `creem_subscriptions` lives in `schema.ts` (not here) so its
+// `workspace_id` FK can reference `workspaces` without auth-schema.ts taking a
+// static import on schema.ts — that edge would form an eval-time circular
+// import (schema.ts re-exports auth-schema.ts) and crash `createSelectSchema`.
+// The Better Auth adapter still receives it via the `@/db/auth-schema`
+// re-export in the web app.
 
 // Table for the better-auth `@better-auth/api-key` plugin. With
 // `usePlural: true` on the drizzle adapter, Better Auth looks up

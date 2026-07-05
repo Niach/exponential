@@ -17,6 +17,11 @@ import {
 } from "@/lib/email"
 import { isAdminUser } from "./app-user"
 import { resolveOnboardingCompletedAt } from "./onboarding"
+import {
+  bindSubscriptionToWorkspace,
+  bindingInputFromCheckout,
+  bindingInputFromSubscription,
+} from "@/lib/billing/creem-binding"
 
 export { parseOidcProviders, type OidcProviderConfig }
 
@@ -334,9 +339,30 @@ export const auth = betterAuth({
             testMode: process.env.CREEM_API_KEY?.startsWith(`creem_test_`) ?? false,
             defaultSuccessUrl: `/settings/billing`,
             persistSubscriptions: true,
-            onGrantAccess: async ({ reason, customer }) => {
+            // Bind the persisted subscription row to its workspace + seat count
+            // from checkout metadata. The plugin's own persistence runs first
+            // (creating the row keyed by creemSubscriptionId), then invokes this
+            // callback with the flattened checkout entity, so the row exists by
+            // the time we bind. See lib/billing/creem-binding.ts.
+            onCheckoutCompleted: async (event) => {
+              const bound = await bindSubscriptionToWorkspace(
+                bindingInputFromCheckout(event)
+              )
+              if (bound) {
+                process.stderr.write(
+                  `[creem] bound subscription ${bound.creemSubscriptionId} → workspace ${bound.workspaceId} (${bound.seats} seats)\n`
+                )
+              }
+            },
+            onGrantAccess: async (event) => {
               process.stderr.write(
-                `[creem] access granted: ${customer.email}, reason: ${reason}\n`
+                `[creem] access granted: ${event.customer.email}, reason: ${event.reason}\n`
+              )
+              // Idempotent re-bind: heals the workspace/seats binding on the
+              // subscription lifecycle events (active/trialing/paid), covering
+              // the rare case where subscription.* lands before checkout.completed.
+              await bindSubscriptionToWorkspace(
+                bindingInputFromSubscription(event)
               )
             },
             onRevokeAccess: async ({ reason, customer }) => {

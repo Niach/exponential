@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react"
+import { ChevronDown, ChevronUp, ExternalLink, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -67,10 +67,12 @@ export function WorkspaceBillingSection({
   workspaceId,
   proProductId,
   businessProductId,
+  businessYearlyProductId,
 }: {
   workspaceId: string
   proProductId: string | null
   businessProductId: string | null
+  businessYearlyProductId?: string | null
 }) {
   const billingPlan = useBillingPlan(workspaceId)
   const [portalLoading, setPortalLoading] = useState(false)
@@ -80,6 +82,11 @@ export function WorkspaceBillingSection({
 
   const { plan, limits, usage } = billingPlan
   const isPaid = plan === `pro` || plan === `business`
+  // Seats are counted from non-agent members (usage.members already excludes
+  // the widget's synthetic isAgent user). A full or over-provisioned workspace
+  // blocks new invites (downgrade policy: existing members keep working).
+  const seatsFull =
+    limits.seats !== Infinity && usage.members >= limits.seats
 
   const handlePortal = async () => {
     setPortalLoading(true)
@@ -131,19 +138,9 @@ export function WorkspaceBillingSection({
         </CardHeader>
         <CardContent className="space-y-3">
           <UsageBar
-            label="Members"
+            label="Seats"
             current={usage.members}
-            max={limits.members}
-          />
-          <UsageBar
-            label="Projects"
-            current={usage.projects}
-            max={limits.projects}
-          />
-          <UsageBar
-            label="Repositories"
-            current={usage.repositories}
-            max={limits.repositories}
+            max={limits.seats}
           />
           <UsageBar
             label="Storage"
@@ -151,14 +148,52 @@ export function WorkspaceBillingSection({
             max={limits.storageMb}
             formatValue={formatStorage}
           />
+          <UsageBar
+            label="Feedback widgets"
+            current={usage.widgetConfigs}
+            max={limits.widgetConfigs}
+          />
+
+          {seatsFull && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+              <div className="space-y-1.5">
+                <p className="text-muted-foreground">
+                  {usage.members > limits.seats
+                    ? `This workspace has ${usage.members} members but only ${limits.seats} seat${
+                        limits.seats === 1 ? `` : `s`
+                      }. New invites are blocked until you add seats.`
+                    : `All ${limits.seats} seat${
+                        limits.seats === 1 ? `` : `s`
+                      } are in use. Add seats or upgrade to invite more teammates.`}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    isPaid ? handlePortal() : setShowPlans(true)
+                  }
+                  disabled={isPaid && portalLoading}
+                >
+                  {isPaid
+                    ? portalLoading
+                      ? `Loading...`
+                      : `Add seats`
+                    : `Upgrade`}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       {plan === `free` ? (
         <PlanComparison
           currentPlan={plan}
+          workspaceId={workspaceId}
           proProductId={proProductId}
           businessProductId={businessProductId}
+          businessYearlyProductId={businessYearlyProductId}
         />
       ) : (
         <div>
@@ -179,8 +214,10 @@ export function WorkspaceBillingSection({
             <div className="mt-3">
               <PlanComparison
                 currentPlan={plan}
+                workspaceId={workspaceId}
                 proProductId={proProductId}
                 businessProductId={businessProductId}
+                businessYearlyProductId={businessYearlyProductId}
               />
             </div>
           )}

@@ -48,19 +48,15 @@ struct IssueDetailView: View {
                                     )
                             }
                             Menu {
-                                if vm.permissions.isModerator {
-                                    if issue.duplicateOfId == nil {
-                                        Button {
-                                            showDuplicatePicker = true
-                                        } label: {
-                                            Label("Mark as duplicate…", systemImage: "doc.on.doc")
-                                        }
-                                    } else {
-                                        Button {
-                                            Task { await vm.unmarkDuplicate() }
-                                        } label: {
-                                            Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
-                                        }
+                                // Duplicate = status interception (L27): marking a
+                                // duplicate happens by picking the `duplicate` status,
+                                // which opens the canonical-issue picker. Only the
+                                // unmark action lives here.
+                                if vm.permissions.isModerator, issue.duplicateOfId != nil {
+                                    Button {
+                                        Task { await vm.unmarkDuplicate() }
+                                    } label: {
+                                        Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
                                     }
                                 }
                                 Button("Delete issue", role: .destructive) {
@@ -329,7 +325,19 @@ struct IssueDetailView: View {
                         selectedID: IssueStatus.from(issue.status).id,
                         idFor: { $0.id },
                         onSelect: { selected in
-                            Task { await vm.setStatus(selected) }
+                            // Duplicate = status interception (L27): picking
+                            // `duplicate` opens the canonical-issue picker instead
+                            // of writing the status directly; markDuplicate sets
+                            // duplicateOfId + status='duplicate' atomically.
+                            // Cancelling the picker leaves the status untouched.
+                            // Defer so this sheet finishes dismissing first.
+                            if selected == .duplicate {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    showDuplicatePicker = true
+                                }
+                            } else {
+                                Task { await vm.setStatus(selected) }
+                            }
                         }
                     ) { status in
                         Label {

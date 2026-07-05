@@ -16,7 +16,6 @@ export interface DomainContract {
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
   codingSessionStatus: { values: readonly string[] }
-  platform: { values: readonly string[] }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
   recurrenceIntervals: readonly number[]

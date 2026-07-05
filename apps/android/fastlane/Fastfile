@@ -1,0 +1,73 @@
+# fastlane lanes for the Exponential Android app (apps/android).
+#
+# Runs locally on a Mac (or any machine with the Android SDK + JDK 17). CI wiring is
+# optional sugar on top — see docs/release-android.md for the full procedure.
+#
+# Signing is driven by the RELEASE_* gradle properties / env vars that
+# app/build.gradle.kts reads via releaseProp(). When RELEASE_STORE_FILE is unset the
+# release build stays UNSIGNED (fallback) so `build` still produces artifacts before a
+# keystore exists — you just cannot upload an unsigned .aab to Play.
+
+default_platform(:android)
+
+# Matches the `production` product flavor (flavorDimensions "env") — the only flavor
+# that ships to the public Play listing. gradle() concatenates flavor + build_type into
+# task names like `bundleProductionRelease` / `assembleProductionRelease`.
+PRODUCTION_FLAVOR = "Production".freeze
+
+platform :android do
+  desc "Build a release App Bundle (.aab) + APK for the production flavor. " \
+       "Signed when RELEASE_STORE_FILE is set; UNSIGNED fallback otherwise."
+  lane :build do
+    unless ENV["RELEASE_STORE_FILE"]
+      UI.important("RELEASE_STORE_FILE is unset — producing an UNSIGNED release build.")
+      UI.important("Set RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / " \
+                   "RELEASE_KEY_PASSWORD to sign (see docs/release-android.md).")
+    end
+
+    # App Bundle (.aab) — the Play upload artifact.
+    gradle(
+      task: "bundle",
+      flavor: PRODUCTION_FLAVOR,
+      build_type: "Release",
+    )
+    UI.success("AAB: #{lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]}")
+
+    # APK — for sideload / direct-download distribution.
+    gradle(
+      task: "assemble",
+      flavor: PRODUCTION_FLAVOR,
+      build_type: "Release",
+    )
+    UI.success("APK: #{lane_context[SharedValues::GRADLE_APK_OUTPUT_PATH]}")
+  end
+
+  desc "Build + upload the production .aab to the Play internal testing track."
+  lane :internal do
+    build
+    upload_to_play_store(
+      track: "internal",
+      aab: lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
+      json_key: ENV.fetch("SUPPLY_JSON_KEY"),
+      release_status: "draft",
+      skip_upload_apk: true,
+      skip_upload_metadata: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Promote the current internal build to the production track (no new binary)."
+  lane :production do
+    upload_to_play_store(
+      track: "internal",
+      track_promote_to: "production",
+      json_key: ENV.fetch("SUPPLY_JSON_KEY"),
+      skip_upload_aab: true,
+      skip_upload_apk: true,
+      skip_upload_metadata: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+end

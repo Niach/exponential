@@ -192,7 +192,7 @@ private fun ListItemView(
 
 // --- Annotated-string builder with natively-tappable links (read-only). ---
 
-private fun annotate(
+internal fun annotate(
     text: String,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
@@ -202,6 +202,22 @@ private fun annotate(
     if (marks.isEmpty() && refPills.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
         append(text)
+        // Compose crashes if two `LinkAnnotation`s overlap (issue-detail crash,
+        // masterplan §9.3). Every `addLink` must be range-coerced into the
+        // appended text AND rejected if it overlaps an already-added link, so
+        // no combination of markdown links + `#IDENTIFIER` pills can throw.
+        val linkRanges = ArrayList<Pair<Int, Int>>() // half-open [start, end)
+        fun addLinkGuarded(annotation: LinkAnnotation, rawStart: Int, rawEnd: Int) {
+            val start = rawStart.coerceIn(0, text.length)
+            val end = rawEnd.coerceIn(start, text.length)
+            if (end <= start) return
+            if (linkRanges.any { it.first < end && start < it.second }) return
+            when (annotation) {
+                is LinkAnnotation.Url -> addLink(annotation, start, end)
+                is LinkAnnotation.Clickable -> addLink(annotation, start, end)
+            }
+            linkRanges.add(start to end)
+        }
         for (m in marks) {
             val start = m.start.coerceIn(0, text.length)
             val end = m.end.coerceIn(start, text.length)
@@ -217,7 +233,7 @@ private fun annotate(
                 )
                 InlineKind.Link -> {
                     val href = m.href ?: continue
-                    addLink(
+                    addLinkGuarded(
                         LinkAnnotation.Url(
                             url = href,
                             styles = TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
@@ -229,9 +245,10 @@ private fun annotate(
         }
         // Resolved `#IDENTIFIER` tokens become tappable pills (masterplan §5e),
         // mirroring how the web renderer decorates them and how `@email`
-        // mentions pill: display-only, navigation on tap.
+        // mentions pill: display-only, navigation on tap. Guarded so a pill
+        // that lands on an existing link span is dropped instead of crashing.
         for ((match, target) in refPills) {
-            addLink(
+            addLinkGuarded(
                 LinkAnnotation.Clickable(
                     tag = target.identifier,
                     styles = TextLinkStyles(

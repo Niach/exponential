@@ -20,19 +20,20 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
-    div, px, AppContext as _, Edges, Entity, IntoElement, ParentElement, Pixels, Render, Styled,
-    Task, WeakEntity, Window,
+    div, px, AnyElement, AppContext as _, ClickEvent, Edges, Entity, IntoElement, ParentElement,
+    Pixels, Render, SharedString, Styled, Task, WeakEntity, Window,
 };
 use gpui_component::{
+    button::{Button, ButtonVariants as _},
     dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
-    h_flex, v_flex, ActiveTheme as _, Root,
+    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
 use crate::{
     debug_board::DebugBoardPanel, git_bar::GitBar, login::LoginView, navigation,
     run_bar::RunBar, screens::ScreensPanel, sidebar::SidebarPanel,
-    terminal_dock::TerminalDockPanel,
+    terminal_dock::TerminalDockPanel, update::UpdateState,
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -106,6 +107,12 @@ impl Workspace {
         // changes.
         let shared = Store::global(cx).state();
         cx.observe(&shared, |_, _, cx| cx.notify()).detach();
+
+        // Re-render when the launch-time update check flips the "update
+        // available" flag (§11.2) so the dismissible banner appears without a
+        // navigation.
+        let update_state = UpdateState::global(cx);
+        cx.observe(&update_state, |_, _, cx| cx.notify()).detach();
         shared.update(cx, |state, cx| {
             state.windows_open += 1;
             cx.notify();
@@ -263,7 +270,11 @@ impl Workspace {
             if dock_area.bottom_dock().is_none() {
                 let terminal: Arc<dyn PanelView> =
                     Arc::new(cx.new(|cx| TerminalDockPanel::new(weak.clone(), window, cx)));
-                let bottom = DockItem::tabs(vec![terminal], &weak, window, cx);
+                // Chrome-less like the center (§8.8c): a single `DockItem::Panel`
+                // renders raw with no `TabPanel` wrapper, so there is no zoom
+                // control over the terminal — the panel's own tab strip is the
+                // only chrome, and the Dock toggle handles collapse.
+                let bottom = DockItem::panel(terminal);
                 // Collapsed by default — the Dock keeps a 29px toggle strip.
                 dock_area.set_bottom_dock(bottom, Some(TERMINAL_DOCK_HEIGHT), false, window, cx);
             }
@@ -363,15 +374,79 @@ impl Render for Workspace {
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
 
+        // The update banner (§11.2) rides above the whole shell (login OR
+        // board) as a fixed-height strip; the content fills the rest. A column
+        // wrapper keeps the `size_full` content from overlapping the banner.
+        let body = v_flex()
+            .size_full()
+            .children(self.render_update_banner(cx))
+            .child(div().flex_1().min_h_0().child(content));
+
         div()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(content)
+            .child(body)
             .children(sheet_layer)
             .children(dialog_layer)
             .children(notification_layer)
             .into_any_element()
+    }
+}
+
+impl Workspace {
+    /// The §11.2 "Update available — download" banner: a thin dismissible strip
+    /// above everything else, shown once the launch-time check found a newer
+    /// `desktop-v*` release. "Download" opens the release page in the browser;
+    /// the × dismisses it for the session (a fresh launch that still sees a
+    /// newer release shows it again).
+    fn render_update_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let model = UpdateState::global_ref(cx)?;
+        let info = model.read(cx).banner()?.clone();
+        let label: SharedString =
+            format!("Update available — Exponential {} is out.", info.version).into();
+        let url = info.url.clone();
+
+        Some(
+            h_flex()
+                .h(px(34.))
+                .w_full()
+                .flex_shrink_0()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().info.opacity(0.14))
+                .child(Icon::new(IconName::Info).size_4().text_color(cx.theme().info))
+                .child(div().flex_1().text_sm().child(label))
+                .child(
+                    Button::new("update-download")
+                        .primary()
+                        .small()
+                        .label("Download")
+                        .on_click(move |_: &ClickEvent, _, _| {
+                            if let Err(err) = api::opener::open_in_browser(&url) {
+                                log::warn!("[ui] update: open release page failed: {err}");
+                            }
+                        }),
+                )
+                .child(
+                    Button::new("update-dismiss")
+                        .ghost()
+                        .small()
+                        .icon(IconName::Close)
+                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                            if let Some(model) = UpdateState::global_ref(cx) {
+                                model.update(cx, |state, cx| {
+                                    state.dismiss();
+                                    cx.notify();
+                                });
+                            }
+                        })),
+                )
+                .into_any_element(),
+        )
     }
 }
 

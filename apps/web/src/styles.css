@@ -177,8 +177,13 @@ html {
   overflow-wrap: anywhere;
 }
 
+/* A paragraph break (Enter) must read as a real gap once rendered — GFM
+   collapses consecutive blank lines to a single break, so the surviving
+   break is the only spacing signal we can round-trip (EXP-5 #6). 0.125rem
+   rendered it near-invisible ("newlines stripped"); 0.5rem matches the
+   heading rhythm. */
 .tiptap-content p {
-  margin: 0.125rem 0;
+  margin: 0.5rem 0;
 }
 
 .tiptap-content h1 {

@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import {
   issueCollection,
@@ -16,14 +16,14 @@ import { IssueDetailView } from "@/components/issue-detail-view"
 export const Route = createFileRoute(
   `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`
 )({
-  beforeLoad: async ({ context }) => {
-    if (!context.session) {
-      throw redirect({
-        to: `/auth/login`,
-        search: { redirect: undefined },
-      })
-    }
-  },
+  // No route-level auth guard: the parent `/w/$workspaceSlug` layout route
+  // (route.tsx) already gates access with public-workspace-aware logic —
+  // anonymous visitors of a PUBLIC workspace pass through, while non-public /
+  // inaccessible workspaces are redirected to login or 404'd there. Mirroring
+  // the sibling project-board route, which likewise carries no beforeLoad, this
+  // lets signed-out visitors open the read-only detail page (masterplan §4.3,
+  // L29). The view renders read-only via `permissions.canMutateIssue` (false
+  // when unauthenticated) and the comment/timeline UI is hidden for anonymous.
   component: IssueDetailPage,
 })
 

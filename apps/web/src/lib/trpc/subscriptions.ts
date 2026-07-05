@@ -11,6 +11,7 @@ import {
 // what suppresses future auto-resubscribe (ensureSubscribed onConflictDoNothing
 // leaves a manual row untouched).
 async function setSubscription(
+  // eslint-disable-next-line quotes -- `typeof import()` requires a string literal; the backtick autofix breaks it
   ctx: { db: typeof import("@/db/connection").db; session: { user: { id: string } } },
   issueId: string,
   unsubscribed: boolean

@@ -34,6 +34,12 @@ public final class SyncDebug: @unchecked Sendable {
     public var lastSuccessAt: Date?
     public var lastErrorAt: Date?
     public var lastErrorWasUnauthorized = false
+    // A hard, non-transient failure that stops sync from ever starting for an
+    // account: DB pool open / GRDB migration failure, or a resync that can't
+    // relaunch (no token, pool throws). Surfaced prominently in SyncDebugView
+    // so the "no shape activity + no log entries + resync no-op" blackout can
+    // never again be diagnosed only from os.Logger. Cleared on a good launch.
+    public var lastFatalError: String?
 
     /// What the sync banner should say, if anything. Degraded only after the
     /// errors persist a moment (a single failed long-poll mustn't flash a
@@ -51,6 +57,23 @@ public final class SyncDebug: @unchecked Sendable {
         guard Date().timeIntervalSince(err) < 300 else { return .ok }
         if let ok = lastSuccessAt, Date().timeIntervalSince(ok) < 8 { return .ok }
         return lastErrorWasUnauthorized ? .unauthorized : .offline
+    }
+
+    /// Record a hard failure that prevents sync from starting for an account.
+    /// Also mirrored into the log ring so the timeline shows it in context.
+    public func reportFatal(_ message: String) {
+        Task { @MainActor in
+            self.lastFatalError = message
+        }
+        log("FATAL: \(message)")
+    }
+
+    /// Clear the fatal banner — called once a pipeline successfully launches,
+    /// which supersedes any earlier open/migration failure for that account.
+    public func clearFatal() {
+        Task { @MainActor in
+            self.lastFatalError = nil
+        }
     }
 
     public func log(_ message: String) {

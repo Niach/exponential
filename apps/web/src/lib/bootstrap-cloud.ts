@@ -8,7 +8,6 @@ import {
   workspaceMembers,
   workspaces,
 } from "@/db/schema"
-import type { ProjectPreviewMirror } from "@exp/db-schema/domain"
 import { users } from "@/db/auth-schema"
 import { invalidatePublicWorkspaceCache } from "@/lib/workspace-membership"
 import { emailEnabled } from "@/lib/email"
@@ -207,25 +206,12 @@ async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
   })
 }
 
-// Display mirror seeded for the dogfood project. The canonical build/run shell
-// commands live in the repo's committed `.exponential/config.json` (read only
-// from the cloned working tree by the desktop apps) — this mirror is the safe
-// metadata the web settings UI + pre-clone discovery read, and matches the
-// targets that file declares. Feedback routes back into this same project.
-const DOGFOOD_TARGETS: ProjectPreviewMirror[`targets`] = [
-  { id: `web`, name: `Web`, platform: `web` },
-  { id: `android`, name: `Android`, platform: `android` },
-  { id: `ios-staging`, name: `iOS Staging`, platform: `ios` },
-  { id: `ios-prod`, name: `iOS Prod`, platform: `ios` },
-]
-
 // Dogfood: seed the public workspace's single Exponential project preview
-// mirror, so the team previews + tests Exponential inside Exponential. The repo
-// BINDING is no longer set here — v4 collapses project↔repository to a single
-// mandatory `projects.repository_id`, wired at project creation
-// (ensurePublicProject → ensurePublicRepository). This path is now purely the
-// preview mirror, cloud-only + gated behind DOGFOOD_REPO (self-hosters never
-// inherit the preview targets). The project always exists by now
+// mirror, so feedback routes back into this same project. The repo BINDING is
+// no longer set here — v4 collapses project↔repository to a single mandatory
+// `projects.repository_id`, wired at project creation (ensurePublicProject →
+// ensurePublicRepository). This path is now purely the preview mirror, cloud-
+// only + gated behind DOGFOOD_REPO. The project always exists by now
 // (ensurePublicProject runs first, unconditionally). Idempotent: seeds the
 // mirror once and never clobbers a hand-edited previewConfig later.
 async function ensureDogfoodProject(publicProjectId: string) {
@@ -245,7 +231,6 @@ async function ensureDogfoodProject(publicProjectId: string) {
       .update(projects)
       .set({
         previewConfig: {
-          targets: DOGFOOD_TARGETS,
           feedbackProjectId: publicProjectId,
         },
       })

@@ -169,11 +169,6 @@ struct SettingsView: View {
     private var generalSection: some View {
         sectionStack(title: "General") {
             VStack(spacing: 6) {
-                NavigationLink(value: AppRoute.integrations) {
-                    settingsRow(icon: "puzzlepiece.extension", title: "Integrations")
-                }
-                .buttonStyle(.plain)
-
                 NavigationLink(value: AppRoute.syncDebug) {
                     settingsRow(icon: "arrow.triangle.2.circlepath", title: "Sync diagnostics")
                 }
@@ -191,12 +186,12 @@ struct SettingsView: View {
         }
     }
 
-    // The web `/feedback` route redirects to the workspace+project both
-    // slugged "feedback". Mobile opens that URL on the configured instance
-    // so feedback lands in the same shared workspace the web app uses.
+    // The web `/feedback` route is the single source of truth — the server
+    // redirects it to the shared feedback workspace+project. Mobile opens that
+    // URL on the configured instance rather than hardcoding the destination.
     private func feedbackUrl() -> URL? {
         guard let baseUrl = deps.auth.instanceUrl else { return nil }
-        return URL(string: "\(baseUrl)/w/feedback/projects/feedback")
+        return URL(string: "\(baseUrl)/feedback")
     }
 
     @ViewBuilder

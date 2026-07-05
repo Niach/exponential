@@ -12,18 +12,6 @@ export type Tier = {
   cta: { label: string; href: string }
 }
 
-export const FOUNDING_CODE = `FOUNDING`
-
-export const exponentialRows = [
-  { label: `Price`, free: `$0`, pro: `$18 / year`, business: `$60 / year` },
-  { label: `Members per workspace`, free: `1`, pro: `5`, business: `25` },
-  { label: `Projects`, free: `3`, pro: `10`, business: `Unlimited` },
-  { label: `Attachment storage`, free: `50 MB`, pro: `1 GB`, business: `10 GB` },
-  { label: `Owned workspaces`, free: `1`, pro: `3`, business: `10` },
-  { label: `Local AI agents`, free: `✓`, pro: `✓`, business: `✓` },
-  { label: `Push notifications`, free: `—`, pro: `✓`, business: `✓` },
-] as const
-
 export type CompareCell = {
   value: string
   detail?: string
@@ -41,8 +29,8 @@ export const linearComparison: CompareRow[] = [
   {
     label: `pricing model`,
     exponential: {
-      value: `Flat per workspace, per year`,
-      detail: `The bill doesn't grow with your team.`,
+      value: `Per seat, agents free`,
+      detail: `You never pay for a coding agent — only for people.`,
       good: true,
     },
     linear: { value: `Per user, per month` },
@@ -50,25 +38,25 @@ export const linearComparison: CompareRow[] = [
   {
     label: `paid entry`,
     exponential: {
-      value: `$18 / workspace / year`,
-      detail: `Pro — 5 members, 10 projects, push.`,
+      value: `$5 / seat / month`,
+      detail: `Pro, billed yearly — widget, unlimited projects & repos.`,
       good: true,
     },
     linear: { value: `$10 / user / month`, detail: `Basic, billed yearly.` },
   },
   {
     label: `team of 5, one year`,
-    exponential: { value: `$18 total`, good: true },
+    exponential: { value: `$300`, detail: `5 seats × $5 × 12 (Pro).`, good: true },
     linear: { value: `$600`, detail: `5 users × $10 × 12 months (Basic).` },
   },
   {
-    label: `business tier`,
+    label: `coding sessions`,
     exponential: {
-      value: `$60 / workspace / year`,
-      detail: `25 members, unlimited projects.`,
+      value: `Unlimited on every tier`,
+      detail: `Projects, repos and Claude sessions are never capped.`,
       good: true,
     },
-    linear: { value: `$16 / user / month` },
+    linear: { value: `Cloud agents, metered` },
   },
   {
     label: `self-hosting`,
@@ -83,15 +71,15 @@ export const linearComparison: CompareRow[] = [
     label: `ai agents`,
     exponential: {
       value: `Run locally on your machine`,
-      detail: `Your claude/codex subscription, in a visible terminal, on every tier.`,
+      detail: `Your Claude subscription, in a visible terminal, on every tier.`,
       good: true,
     },
     linear: { value: `Cloud-delegated agents` },
   },
   {
-    label: `native linux app`,
-    exponential: { value: `Yes — Zig + GTK4`, good: true },
-    linear: { value: `No` },
+    label: `native desktop app`,
+    exponential: { value: `Yes — Rust + gpui`, detail: `A real git IDE — clone, code, PR.`, good: true },
+    linear: { value: `Electron wrapper` },
   },
   {
     label: `native apps`,

@@ -37,6 +37,18 @@ pub struct ProjectOut {
     pub repository_id: Option<String>,
 }
 
+/// The backing repository for a new project (v4 §3.1 — `projects.repositoryId`
+/// is NOT NULL, so `projects.create` requires one). The server's
+/// `repositoryInputSchema` is a union of `{repositoryId}` (an existing registry
+/// repo) or `{fullName, …}` (inline GitHub-App connect). The desktop only ever
+/// targets an already-connected registry repo — inline connect is a web-only
+/// hand-off (§7.9) — so this mirrors just the `{repositoryId}` arm.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRepositoryInput {
+    pub repository_id: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectsCreateInput {
@@ -48,6 +60,8 @@ pub struct ProjectsCreateInput {
     /// `#rrggbb`; server defaults to `#6366f1` when omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// The project's one repository — required by the server (v4 §3.1).
+    pub repository: ProjectRepositoryInput,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -172,6 +186,9 @@ mod tests {
                 name: "Gate".to_string(),
                 prefix: "gate".to_string(),
                 color: None,
+                repository: ProjectRepositoryInput {
+                    repository_id: "repo-1".to_string(),
+                },
             },
         )
         .unwrap();
@@ -179,8 +196,11 @@ mod tests {
         assert_eq!(out.tx_id, Some(9));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/projects.create HTTP/1.1"));
-        // No slug in the input (server-derived, §4.2) and no null color noise.
-        assert!(request.ends_with(r#"{"workspaceId":"w-1","name":"Gate","prefix":"gate"}"#));
+        // No slug in the input (server-derived, §4.2) and no null color noise;
+        // the required repository is sent as the `{repositoryId}` registry arm.
+        assert!(request.ends_with(
+            r#"{"workspaceId":"w-1","name":"Gate","prefix":"gate","repository":{"repositoryId":"repo-1"}}"#
+        ));
     }
 
     #[test]

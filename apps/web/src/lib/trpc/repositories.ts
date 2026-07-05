@@ -9,11 +9,11 @@ import {
   getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
-import { assertWithinPlanLimits } from "@/lib/billing"
 import {
   fetchBranchDiff,
   peekBranchDiff,
   resolveRepoDefaultBranch,
+  resolveRepoDefaultBranchCached,
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
 
@@ -83,12 +83,34 @@ export async function connectRepositoryInTx(
     })
   }
 
+  // Never blind-seed `main` (L30): when the caller didn't supply a branch, ask
+  // GitHub for the authoritative default. Only fall back to `main` when the live
+  // lookup yields nothing (App unconfigured / repo gone / transient failure), and
+  // log so a wrong-fallback row is traceable.
+  let defaultBranch = input.defaultBranch
+  if (!defaultBranch) {
+    try {
+      defaultBranch = (await resolveRepoDefaultBranch(input.fullName)) ?? undefined
+    } catch (err) {
+      console.warn(
+        `[repositories] default-branch lookup threw for ${input.fullName}; falling back to main`,
+        err
+      )
+    }
+    if (!defaultBranch) {
+      console.warn(
+        `[repositories] could not resolve default branch for ${input.fullName}; falling back to main`
+      )
+      defaultBranch = `main`
+    }
+  }
+
   const [inserted] = await tx
     .insert(repositories)
     .values({
       workspaceId: input.workspaceId,
       fullName: input.fullName,
-      defaultBranch: input.defaultBranch ?? `main`,
+      defaultBranch,
       private: input.private ?? false,
       installationId: input.installationId ?? null,
     })
@@ -119,6 +141,43 @@ export async function connectRepositoryInTx(
     })
   }
   return existing.id
+}
+
+// Heal a batch of repo rows against GitHub's authoritative default branch (L30):
+// return each row carrying the live value when it's known and disagrees, and
+// persist the fix best-effort (`persist` failures never fail the read). The
+// `resolve` lookup defaults to the short-cached resolver so a fan-out read can't
+// hammer GitHub; both `resolve` and `persist` are injectable for tests.
+export async function healRepoDefaultBranches<
+  R extends { id: string; fullName: string; defaultBranch: string }
+>(
+  repos: R[],
+  persist: (id: string, defaultBranch: string) => Promise<void>,
+  resolve: (fullName: string) => Promise<string | null> = resolveRepoDefaultBranchCached
+): Promise<R[]> {
+  return Promise.all(
+    repos.map(async (repo) => {
+      let live: string | null = null
+      try {
+        live = await resolve(repo.fullName)
+      } catch (err) {
+        console.warn(
+          `[repositories] default-branch heal lookup failed for ${repo.fullName}`,
+          err
+        )
+      }
+      if (!live || live === repo.defaultBranch) return repo
+      try {
+        await persist(repo.id, live)
+      } catch (err) {
+        console.warn(
+          `[repositories] default-branch heal write failed for ${repo.fullName}`,
+          err
+        )
+      }
+      return { ...repo, defaultBranch: live }
+    })
+  )
 }
 
 // Project → repo resolution (v4): a project is backed by exactly one repo via
@@ -165,7 +224,7 @@ export const repositoriesRouter = router({
     .query(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
 
-      const repos = await ctx.db
+      const rawRepos = await ctx.db
         .select()
         .from(repositories)
         .where(
@@ -175,6 +234,18 @@ export const repositoriesRouter = router({
           )
         )
         .orderBy(asc(repositories.sortOrder), asc(repositories.fullName))
+
+      // Heal a stale/misseeded `defaultBranch` the same way `installationToken`
+      // does — GitHub is authoritative (L30). Bounded by a short in-process
+      // cache so a fan-out read can't hammer GitHub; the write is best-effort but
+      // the returned rows always carry the live value when known.
+      const repos = await healRepoDefaultBranches(rawRepos, (id, defaultBranch) =>
+        ctx.db
+          .update(repositories)
+          .set({ defaultBranch })
+          .where(eq(repositories.id, id))
+          .then(() => {})
+      )
 
       // Projects that point at these repos, computed from projects.repositoryId.
       const projectRows = await ctx.db
@@ -214,9 +285,6 @@ export const repositoriesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
-      // Plan cap on connected (non-archived) repos — throws PRECONDITION_FAILED
-      // with an upgrade-nudge message; self-hosted is unlimited.
-      await assertWithinPlanLimits(input.workspaceId, `repositories`)
 
       // The install-check + upsert + un-archive sequence is connectRepositoryInTx
       // (shared with projects.create's inline connect) — call it, then load the

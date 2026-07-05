@@ -18,11 +18,14 @@ export const theme = {
   font: `ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`,
 } as const
 
-export const defaultZIndex = 2147483600
+// Maximal 32-bit z-index so the launcher + panel sit above any host-page
+// overlay (Radix dialogs top out far below this).
+export const defaultZIndex = 2147483647
 
 // Shared by the loader's standalone button and the bundle's Preact button so
 // the hand-off is pixel-identical (the bundle removes the loader button and
-// renders its own).
+// renders its own). The launcher is a tiny icon-only circle by default; on
+// hover it scales up and reveals its label (`.exp-fab-label`).
 export function buttonCss(accent: string): string {
   return `
 button.exp-fab {
@@ -33,8 +36,10 @@ button.exp-fab {
   line-height: 1;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
+  justify-content: center;
+  gap: 0;
+  height: 44px;
+  padding: 0 14px;
   border-radius: 999px;
   border: 1px solid ${theme.border};
   background: ${accent};
@@ -42,10 +47,25 @@ button.exp-fab {
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   user-select: none;
+  transform-origin: center;
+  transition: transform 0.16s ease, gap 0.16s ease, box-shadow 0.16s ease;
 }
-button.exp-fab:hover { filter: brightness(1.08); }
+button.exp-fab:hover {
+  transform: scale(1.08);
+  gap: 7px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+}
 button.exp-fab:focus-visible { outline: 2px solid ${theme.foreground}; outline-offset: 2px; }
-button.exp-fab svg { width: 14px; height: 14px; display: block; }
+button.exp-fab svg { width: 16px; height: 16px; display: block; }
+button.exp-fab .exp-fab-label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition: max-width 0.16s ease, opacity 0.16s ease;
+}
+button.exp-fab:hover .exp-fab-label,
+button.exp-fab:focus-visible .exp-fab-label { max-width: 180px; opacity: 1; }
 `
 }
 

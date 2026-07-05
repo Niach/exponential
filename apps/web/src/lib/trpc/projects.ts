@@ -8,16 +8,12 @@ import {
   resolveWorkspaceAccess,
   assertWorkspaceOwner,
 } from "@/lib/workspace-membership"
-import { assertWithinPlanLimits } from "@/lib/billing"
 import type { db } from "@/db/connection"
 import {
   assertCanManageRepos,
   connectRepositoryInTx,
 } from "@/lib/trpc/repositories"
-import {
-  platformValues,
-  type ProjectPreviewMirror,
-} from "@exp/db-schema/domain"
+import type { ProjectPreviewMirror } from "@exp/db-schema/domain"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -66,24 +62,11 @@ async function assertRepositoryInWorkspace(
   return repo.id
 }
 
-// The DB mirror is display-only metadata — it is never executed. Even so we
-// clamp the strings the desktop syncs up (defence in depth) so a hostile or
-// buggy client can't bloat the row or smuggle a giant payload through Electric.
-const MAX_TARGET_ID = 128
-const MAX_TARGET_NAME = 256
-const MAX_TARGETS = 64
-
+// The DB mirror is display-only metadata — it is never executed. It now holds a
+// single field: the feedback routing target. Run configs (build/run commands)
+// live in the `run_configs` table and are edited IDE-side only (L23).
 const previewMirrorInputSchema = z
   .object({
-    targets: z
-      .array(
-        z.object({
-          id: z.string().min(1).max(MAX_TARGET_ID),
-          name: z.string().min(1).max(MAX_TARGET_NAME),
-          platform: z.enum(platformValues),
-        })
-      )
-      .max(MAX_TARGETS),
     feedbackProjectId: z.string().uuid().optional(),
   })
   .nullable()
@@ -121,14 +104,12 @@ export const projectsRouter = router({
         input.workspaceId,
         `mutate_resources`
       )
-      await assertWithinPlanLimits(input.workspaceId, `projects`)
-
       const inlineConnect = `fullName` in input.repository
       if (inlineConnect) {
-        // The inline connect path also enforces the repositories axis and needs
-        // owner/admin (repo management), beyond the member-level project create.
+        // The inline connect path needs owner/admin (repo management), beyond
+        // the member-level project create. Projects & repos are unlimited on
+        // every tier now (v5 per-seat model), so there is no plan cap here.
         await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
-        await assertWithinPlanLimits(input.workspaceId, `repositories`)
       }
 
       const repositoryInput = input.repository
@@ -263,12 +244,9 @@ export const projectsRouter = router({
       })
     }),
 
-  // Writes ONLY the display mirror (`projects.preview_config`). The canonical
-  // build/run shell commands live in the committed `.exponential/config.json`
-  // and are read solely from the cloned working tree by the desktop apps — they
-  // are never stored here and never executed from this synced value. We accept
-  // the run-target metadata the desktop discovers (so the web settings UI shows
-  // the targets the repo actually declares) plus the feedback-routing target.
+  // Writes ONLY the display mirror (`projects.preview_config`) — now just the
+  // feedback-routing target. Build/run commands live in the `run_configs` table
+  // and are edited IDE-side only (L23); nothing here is ever executed.
   updatePreviewConfig: authedProcedure
     .input(
       z.object({
@@ -308,12 +286,9 @@ export const projectsRouter = router({
             })
           }
         }
-        mirror = {
-          targets: mirror.targets,
-          ...(mirror.feedbackProjectId
-            ? { feedbackProjectId: mirror.feedbackProjectId }
-            : {}),
-        }
+        mirror = mirror.feedbackProjectId
+          ? { feedbackProjectId: mirror.feedbackProjectId }
+          : {}
       }
 
       return await ctx.db.transaction(async (tx) => {

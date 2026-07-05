@@ -200,16 +200,11 @@ fun IssueDetailScreen(
                             Icon(Icons.Filled.MoreVert, contentDescription = "Issue actions")
                         }
                         DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
-                            if (issue.duplicateOfId == null) {
-                                DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
-                                    text = { Text("Mark as duplicate…") },
-                                    onClick = {
-                                        overflowOpen = false
-                                        duplicatePickerOpen = true
-                                    },
-                                )
-                            } else {
+                            // Duplicate = status interception (L27): marking a
+                            // duplicate happens by picking the `duplicate` status,
+                            // which opens the canonical-issue picker. Only the
+                            // unmark action lives here.
+                            if (issue.duplicateOfId != null) {
                                 DropdownMenuItem(
                                     leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
                                     text = { Text("Unmark duplicate") },
@@ -416,7 +411,17 @@ fun IssueDetailScreen(
             selected = currentStatus,
             labelOf = { it.label },
             iconOf = { statusIcon(it) },
-            onSelect = { viewModel.updateStatus(it) },
+            onSelect = {
+                // Duplicate = status interception (L27): picking `duplicate`
+                // opens the canonical-issue picker instead of writing the status
+                // directly; markDuplicate sets duplicateOfId + status='duplicate'
+                // atomically. Cancelling the picker leaves the status untouched.
+                if (it == IssueStatus.Duplicate) {
+                    duplicatePickerOpen = true
+                } else {
+                    viewModel.updateStatus(it)
+                }
+            },
             onDismiss = { statusMenuOpen = false },
         )
     }

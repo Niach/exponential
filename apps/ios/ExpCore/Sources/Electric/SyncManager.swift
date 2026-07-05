@@ -83,9 +83,23 @@ public final class SyncManager: @unchecked Sendable {
             try db.clearAllData(forAccountId: accountId)
         } catch {
             logger.error("Resync: clearAllData failed for \(accountId, privacy: .public): \(error.localizedDescription)")
+            SyncDebug.shared.log("[resync] clearAllData failed: \(error.localizedDescription)")
         }
-        guard auth.accounts.first(where: { $0.id == accountId })?.token != nil,
-              let pool = try? db.pool(forAccountId: accountId) else { return }
+        // Report instead of no-op: a missing token or a pool-open/migration
+        // failure here is exactly the silent blackout §9.1 chased — surface it
+        // so "Resync now" tells the user (and us) why nothing happened.
+        guard auth.accounts.first(where: { $0.id == accountId })?.token != nil else {
+            SyncDebug.shared.reportFatal("Resync couldn't relaunch: no auth token for this account")
+            return
+        }
+        let pool: DatabasePool
+        do {
+            pool = try db.pool(forAccountId: accountId)
+        } catch {
+            logger.error("Resync: pool open failed for \(accountId, privacy: .public): \(error.localizedDescription)")
+            SyncDebug.shared.reportFatal("Resync couldn't open the local database: \(error.localizedDescription)")
+            return
+        }
         SyncDebug.shared.log("[resync] wiped local data, relaunching pipeline")
         launchPipeline(accountId: accountId, pool: pool)
     }
@@ -125,9 +139,14 @@ public final class SyncManager: @unchecked Sendable {
                 launchPipeline(accountId: accountId, pool: pool)
                 running.insert(accountId)
             } catch {
+                // Pool open == running GRDB migrations. A throw here (the §9.1
+                // duplicate-column blackout) previously vanished into os.Logger
+                // and left the diagnostics screen showing "no shape activity".
+                // Surface it as a fatal so it's never silent again.
                 logger.error(
                     "Failed to open DB pool for account \(accountId, privacy: .public): \(error.localizedDescription)"
                 )
+                SyncDebug.shared.reportFatal("Local database open/migration failed: \(error.localizedDescription)")
             }
         }
     }
@@ -151,6 +170,11 @@ public final class SyncManager: @unchecked Sendable {
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
         logger.info("Launching live shape sync (14 shapes) for account \(accountId, privacy: .public)")
+        // A visible "we got past pool open + migrations and started polling"
+        // marker in the diagnostics log — the positive counterpart to the
+        // fatal path above (§9.1: pipeline launched must never be ambiguous).
+        SyncDebug.shared.log("[pipeline] launched 14 shapes")
+        SyncDebug.shared.clearFatal()
 
         let auth = self.auth
         // Per-account credential providers: read the specific account's URL +

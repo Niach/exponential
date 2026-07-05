@@ -3,7 +3,6 @@ import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
 import { codingSessions } from "@/db/schema"
-import { assertWithinCodingSessionLimit } from "@/lib/billing"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
@@ -24,9 +23,6 @@ export const codingSessionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const issueCtx = await getIssueWorkspaceContext(input.issueId)
       await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
-      // Plan capacity: concurrent running sessions per workspace — throws
-      // PRECONDITION_FAILED with an upgrade nudge; self-hosted is unlimited.
-      await assertWithinCodingSessionLimit(issueCtx.workspaceId)
 
       const [session] = await ctx.db
         .insert(codingSessions)

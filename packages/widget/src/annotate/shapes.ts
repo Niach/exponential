@@ -33,6 +33,30 @@ export function normalizeRect(a: Point, b: Point): NormalizedRect {
   }
 }
 
+// A crop is a rect in the ORIGINAL image's pixel space, or null for "keep the
+// whole image". Resolving clamps it inside the real image bounds and treats a
+// null / degenerate (<1px) crop as the full image, so flatten always has a
+// valid box regardless of how the editor produced it.
+export function resolveCrop(
+  crop: NormalizedRect | null,
+  imageWidth: number,
+  imageHeight: number
+): NormalizedRect {
+  const full: NormalizedRect = {
+    x: 0,
+    y: 0,
+    width: imageWidth,
+    height: imageHeight,
+  }
+  if (!crop) return full
+  const x = Math.min(Math.max(crop.x, 0), imageWidth)
+  const y = Math.min(Math.max(crop.y, 0), imageHeight)
+  const width = Math.min(crop.width, imageWidth - x)
+  const height = Math.min(crop.height, imageHeight - y)
+  if (width < 1 || height < 1) return full
+  return { x, y, width, height }
+}
+
 // One stroke width per image (~0.35% of the long edge, min 3px) so all
 // shapes on a screenshot read consistently at both full and thumbnail size.
 export function strokeWidthFor(

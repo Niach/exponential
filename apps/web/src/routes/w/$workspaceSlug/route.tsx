@@ -5,11 +5,13 @@ import {
   redirect,
 } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
+import { useEffect, useState } from "react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceMobileTopbar } from "@/components/workspace/mobile-topbar"
 import { WorkspaceSidebar } from "@/components/workspace/sidebar"
+import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
 import {
@@ -70,6 +72,21 @@ function WorkspaceLayout() {
   const { workspaceSlug } = Route.useParams()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const projects = useWorkspaceProjects(workspace?.id)
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
+  // search, unconditionally (mirrors the Cmd+B sidebar-toggle handler in
+  // `components/ui/sidebar.tsx`).
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === `f` && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener(`keydown`, handleKeyDown)
+    return () => window.removeEventListener(`keydown`, handleKeyDown)
+  }, [])
 
   return (
     <SidebarProvider>
@@ -84,6 +101,7 @@ function WorkspaceLayout() {
           workspaceSlug={workspaceSlug}
           workspace={workspace}
           projects={projects}
+          onOpenSearch={() => setSearchOpen(true)}
         />
 
         <main className="flex-1 flex flex-col min-h-screen">
@@ -96,6 +114,15 @@ function WorkspaceLayout() {
             <Outlet />
           </div>
         </main>
+
+        {workspace && (
+          <IssueSearchSheet
+            open={searchOpen}
+            onOpenChange={setSearchOpen}
+            workspaceId={workspace.id}
+            workspaceSlug={workspaceSlug}
+          />
+        )}
       </IssueRefProvider>
     </SidebarProvider>
   )

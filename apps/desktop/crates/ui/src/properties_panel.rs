@@ -325,10 +325,14 @@ impl PropertiesPanel {
                     menu = menu.item(option_item(option, option.value == current, cx, {
                         let issue_id = issue_id.clone();
                         let value = option.value;
-                        move |cx| {
-                            let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                            input.status = Some(value);
-                            spawn_issue_update(cx, input);
+                        // L27: `duplicate` opens the picker; every other status writes.
+                        move |window, cx| {
+                            crate::issue_detail::apply_status_selection(
+                                issue_id.clone(),
+                                value,
+                                window,
+                                cx,
+                            );
                         }
                     }));
                 }
@@ -351,7 +355,7 @@ impl PropertiesPanel {
                     menu = menu.item(option_item(option, option.value == current, cx, {
                         let issue_id = issue_id.clone();
                         let value = option.value;
-                        move |cx| {
+                        move |_window, cx| {
                             let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                             input.priority = Some(value);
                             spawn_issue_update(cx, input);
@@ -698,12 +702,12 @@ fn option_item<V: Copy + 'static>(
     option: &'static IssueOption<V>,
     checked: bool,
     cx: &App,
-    on_select: impl Fn(&mut App) + 'static,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     PopupMenuItem::new(SharedString::from(option.label))
         .icon(option_icon(option, cx))
         .checked(checked)
-        .on_click(move |_, _, cx| on_select(cx))
+        .on_click(move |_, window, cx| on_select(window, cx))
 }
 
 /// Interval dropdown (contract `recurrenceIntervals`).

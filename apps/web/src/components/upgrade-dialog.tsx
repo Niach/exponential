@@ -15,6 +15,8 @@ export function UpgradeDialog({
   description,
   proProductId,
   businessProductId,
+  businessYearlyProductId,
+  workspaceId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -22,6 +24,10 @@ export function UpgradeDialog({
   description: string
   proProductId: string | null
   businessProductId: string | null
+  businessYearlyProductId?: string | null
+  // Checkout binds purchased seats to this workspace (the per-seat path —
+  // billing.createSeatCheckout is the only checkout).
+  workspaceId: string
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -37,6 +43,8 @@ export function UpgradeDialog({
           currentPlan="free"
           proProductId={proProductId}
           businessProductId={businessProductId}
+          businessYearlyProductId={businessYearlyProductId}
+          workspaceId={workspaceId}
         />
       </DialogContent>
     </Dialog>

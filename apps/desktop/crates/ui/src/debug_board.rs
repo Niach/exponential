@@ -107,7 +107,7 @@ impl DebugBoardPanel {
                     .sort_order
                     .unwrap_or(f64::MAX)
                     .total_cmp(&b.sort_order.unwrap_or(f64::MAX));
-                ord.then_with(|| a.identifier.cmp(&b.identifier))
+                ord.then_with(|| sync::cmp_identifiers(&a.identifier, &b.identifier))
             });
 
             let header: SharedString = format!("{} ({})", status.label(), rows.len()).into();

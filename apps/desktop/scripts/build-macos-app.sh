@@ -92,12 +92,29 @@ else
   echo "note: no SVG rasterizer (rsvg-convert/ImageMagick) — bundling without a custom icon"
 fi
 
-# --- Ad-hoc codesign ------------------------------------------------------
-# `-s -` (ad-hoc) gives the bundle a stable identity so Launch Services treats
-# it as one app and it launches without a "damaged" prompt. NOT a Developer ID
-# signature — notarization for download distribution stays a manual step.
-codesign --force --sign - "$APP_DIR/Contents/MacOS/exp-desktop" 2>/dev/null || true
-codesign --force --sign - "$APP_DIR" 2>/dev/null \
-  || echo "warn: ad-hoc codesign failed (bundle still usable locally)"
+# --- Codesign -------------------------------------------------------------
+# Two modes, chosen by whether a real signing identity is configured:
+#
+#   MACOS_SIGN_IDENTITY set  → Developer ID Application, HARDENED RUNTIME +
+#     secure timestamp (the notarization prerequisite). Release CI imports the
+#     cert into a keychain and passes the identity hash; scripts/build-macos-dmg.sh
+#     then notarizes + staples the .dmg.
+#   unset                    → ad-hoc `-s -`. Gives the bundle a stable identity
+#     so Launch Services treats it as one app and it launches locally without a
+#     "damaged" prompt, but it is NOT Gatekeeper-clean for download (pre-account
+#     fallback + local dev builds).
+if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+  echo "signing with Developer ID: ${MACOS_SIGN_IDENTITY}"
+  # Inner Mach-O first, then the bundle (outside-in signing is invalid).
+  codesign --force --options runtime --timestamp \
+    --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/exp-desktop"
+  codesign --force --options runtime --timestamp \
+    --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR"
+  codesign --verify --strict --verbose=2 "$APP_DIR"
+else
+  codesign --force --sign - "$APP_DIR/Contents/MacOS/exp-desktop" 2>/dev/null || true
+  codesign --force --sign - "$APP_DIR" 2>/dev/null \
+    || echo "warn: ad-hoc codesign failed (bundle still usable locally)"
+fi
 
 echo "built: $APP_DIR  (id=${BUNDLE_ID}, exp:// handler)"

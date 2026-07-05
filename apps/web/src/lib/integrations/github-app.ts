@@ -15,8 +15,8 @@ export function githubAppConfigured(): boolean {
 }
 
 // `state` is echoed back to the App's Setup URL (our /api/integrations/github/
-// setup route), letting the callback distinguish an in-dialog install from the
-// standalone /account/integrations flow.
+// setup route), letting the callback distinguish an in-dialog install (popup,
+// self-closing landing page) from a plain full-page install.
 export function githubAppInstallUrl(state?: string): string | null {
   if (!APP_SLUG) return null
   const base = `https://github.com/apps/${APP_SLUG}/installations/new`
@@ -128,6 +128,26 @@ export async function resolveRepoDefaultBranch(
   if (!res.ok) return null
   const data = (await res.json()) as { default_branch?: string }
   return data.default_branch ?? null
+}
+
+// A short in-process cache over `resolveRepoDefaultBranch`, keyed by repo. Fan-out
+// callers (`repositories.list` heals every row on every read) must not hammer
+// GitHub — a ~5 min TTL absorbs the churn while still healing shortly after an
+// install/rename. Both hits and misses are cached so a repo the App can't reach
+// doesn't cost a round-trip per list. `now` is injectable for tests. Mirrors the
+// branch-diff cache's in-process-map style.
+const DEFAULT_BRANCH_TTL_MS = 5 * 60_000
+const defaultBranchCache = new Map<string, { at: number; value: string | null }>()
+
+export async function resolveRepoDefaultBranchCached(
+  repo: string,
+  now: number = Date.now()
+): Promise<string | null> {
+  const cached = defaultBranchCache.get(repo)
+  if (cached && now - cached.at < DEFAULT_BRANCH_TTL_MS) return cached.value
+  const value = await resolveRepoDefaultBranch(repo)
+  defaultBranchCache.set(repo, { at: now, value })
+  return value
 }
 
 // A changed file in a branch/PR diff reuses github-pr.ts's `PullFile` so every

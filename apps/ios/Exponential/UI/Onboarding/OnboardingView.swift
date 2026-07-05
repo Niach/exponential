@@ -2,31 +2,18 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// First-run wizard (web + Android onboarding parity): create your first
-/// project, then your first issue, gated once by onboardingCompletedAt.
-/// `workspaces.ensureDefault` resolves the workspace the project goes into —
-/// server-side it never picks a public workspace (e.g. the cloud feedback
-/// workspace), creating a personal one instead. On finish/skip it calls
-/// onboarding.complete and flips the local account flag so the nav gate in
-/// AppNavigator stops showing the wizard.
+/// First-run screen. The mobile app is a companion — workspaces and projects
+/// are created on the web or desktop app, so onboarding is a single informational
+/// screen instead of a create-project/issue wizard. `onboarding.complete` (and the
+/// local `needsOnboarding` flag) is flipped on Continue so the nav gate in
+/// AppNavigator stops showing this screen. The server also backfills
+/// onboardingCompletedAt on session reads for users who already have a project in a
+/// non-public workspace (lib/auth/onboarding.ts), so a stale account self-heals via
+/// reconcileWithServer before the user ever taps Continue.
 struct OnboardingView: View {
     @Environment(AppDependencies.self) private var deps
 
-    @State private var step = 0 // 0 = project, 1 = first issue
-    @State private var workspaceId: String?
-    @State private var projectId: String?
     @State private var busy = false
-    @State private var error: String?
-
-    // Project step
-    @State private var projectName = ""
-    @State private var prefix = ""
-    @State private var prefixEdited = false
-    @State private var color = DEFAULT_LABEL_COLOR
-    @State private var repository: ProjectRepositoryChoice?
-
-    // Issue step
-    @State private var issueTitle = ""
 
     var body: some View {
         ZStack {
@@ -39,160 +26,54 @@ struct OnboardingView: View {
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
 
-                    Spacer().frame(height: 8)
+                    Spacer().frame(height: 24)
 
-                    Text("Let's set up your workspace.")
-                        .font(.body)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .multilineTextAlignment(.center)
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "laptopcomputer.and.iphone")
+                                .font(.title2)
+                                .foregroundStyle(.white)
+                            Text("Create your first project on the web or desktop app")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                        }
 
-                    Spacer().frame(height: 20)
+                        Text("This app is your companion for tracking and updating issues on the go. Set up workspaces and projects — and start coding — from the web or desktop app, then everything syncs here.")
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-                    progressDots
+                        if let host = instanceHost {
+                            Text(host)
+                                .font(.body.monospaced())
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.white.opacity(0.06))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                    .padding(24)
+                    .glassCard()
 
                     Spacer().frame(height: 24)
 
-                    if step == 0 {
-                        projectStep
-                    } else {
-                        issueStep
+                    primaryButton(busy ? "Finishing…" : "Continue", enabled: !busy) {
+                        Task { await finish() }
                     }
-
-                    if let error {
-                        Spacer().frame(height: 12)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    Spacer().frame(height: 16)
-
-                    Button {
-                        Task { await skip() }
-                    } label: {
-                        Text("Skip setup entirely")
-                            .font(.body)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(busy)
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 48)
                 .frame(maxWidth: .infinity)
             }
         }
-        .task {
-            await reconcileWithServer()
-            if deps.auth.needsOnboarding { await ensureWorkspace() }
-        }
+        .task { await reconcileWithServer() }
     }
 
-    // MARK: - Steps
-
-    private var projectStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Create your first project")
-                .font(.headline)
-                .foregroundStyle(.white)
-
-            field("Project name", text: $projectName)
-                .onChange(of: projectName) { _, newValue in
-                    // Auto-suggest a prefix from the name until edited.
-                    if !prefixEdited {
-                        prefix = String(newValue.filter(\.isLetter).prefix(3)).uppercased()
-                    }
-                }
-
-            field("Issue prefix (e.g. ENG)", text: $prefix, monospaced: true)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .onChange(of: prefix) { _, _ in prefixEdited = true }
-
-            Text("Color")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            ColorSwatchGrid(selection: $color)
-
-            // v4: a project is a repo — required before the project can be created.
-            if let workspaceId {
-                Divider().background(Color.white.opacity(0.08))
-                RepositorySelector(
-                    accountId: deps.auth.activeAccountId ?? "",
-                    workspaceId: workspaceId,
-                    selection: $repository
-                )
-            }
-
-            primaryButton(busy ? "Creating…" : "Continue", enabled: canCreateProject) {
-                Task { await createProject() }
-            }
-        }
-        .padding(24)
-        .glassCard()
-    }
-
-    private var issueStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Create your first issue")
-                .font(.headline)
-                .foregroundStyle(.white)
-
-            field("Issue title", text: $issueTitle)
-
-            HStack(spacing: 12) {
-                Button {
-                    Task { await skip() }
-                } label: {
-                    Text("Skip")
-                        .font(.body)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(.plain)
-                .disabled(busy)
-
-                primaryButton(busy ? "Creating…" : "Create issue", enabled: canCreateIssue) {
-                    Task { await createIssue() }
-                }
-            }
-        }
-        .padding(24)
-        .glassCard()
-    }
-
-    private var progressDots: some View {
-        HStack(spacing: 8) {
-            ForEach(0..<2, id: \.self) { i in
-                Circle()
-                    .fill(i <= step ? Color.white : Color.white.opacity(0.2))
-                    .frame(width: i == step ? 10 : 8, height: i == step ? 10 : 8)
-                if i < 1 {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.2))
-                        .frame(width: 20, height: 2)
-                }
-            }
-        }
-    }
-
-    // MARK: - Building blocks
-
-    private func field(_ placeholder: String, text: Binding<String>, monospaced: Bool = false) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(monospaced ? .body.monospaced() : .body)
-            .foregroundStyle(.white)
-            .padding(12)
-            .background(Color.white.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-            )
+    private var instanceHost: String? {
+        guard let base = deps.auth.instanceUrl,
+              let url = URL(string: base) else { return nil }
+        return url.host ?? base
     }
 
     private func primaryButton(_ title: String, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -212,23 +93,13 @@ struct OnboardingView: View {
         )
     }
 
-    private var canCreateProject: Bool {
-        !busy && workspaceId != nil && repository != nil
-            && !projectName.trimmingCharacters(in: .whitespaces).isEmpty
-            && !prefix.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    private var canCreateIssue: Bool {
-        !busy && !issueTitle.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
     // MARK: - Actions
 
     /// The server backfills onboardingCompletedAt on session reads for users
     /// who already have a project in a non-public workspace (the unified rule
-    /// in lib/auth/onboarding.ts). Re-read the session before making the user
-    /// walk the wizard, so an account whose flag was still null at login
-    /// self-heals here instead of re-onboarding.
+    /// in lib/auth/onboarding.ts). Re-read the session on appear so an account
+    /// whose flag was still null at login self-heals here instead of showing
+    /// this screen again.
     private func reconcileWithServer() async {
         guard let accountId = deps.auth.activeAccountId,
               let user = await deps.authApi.fetchSession(accountId: accountId),
@@ -237,62 +108,11 @@ struct OnboardingView: View {
         deps.auth.markOnboardingCompleted(completedAt)
     }
 
-    private func ensureWorkspace() async {
-        guard workspaceId == nil, let accountId = deps.auth.activeAccountId else { return }
-        do {
-            workspaceId = try await deps.workspacesApi.ensureDefault(accountId: accountId).id
-        } catch {
-            self.error = "Couldn't load your workspace: \(error.localizedDescription)"
-        }
-    }
-
-    private func createProject() async {
-        guard !busy, let workspaceId, let repository,
-              let accountId = deps.auth.activeAccountId else { return }
-        busy = true
-        error = nil
-        do {
-            projectId = try await deps.projectsApi.create(accountId: accountId, CreateProjectInput(
-                workspaceId: workspaceId,
-                name: projectName.trimmingCharacters(in: .whitespaces),
-                prefix: prefix.trimmingCharacters(in: .whitespaces).uppercased(),
-                color: color,
-                repository: repository
-            ))
-            step = 1
-        } catch {
-            self.error = error.localizedDescription
-        }
-        busy = false
-    }
-
-    private func createIssue() async {
-        guard !busy, let projectId, let accountId = deps.auth.activeAccountId else { return }
-        busy = true
-        error = nil
-        do {
-            _ = try await deps.issuesApi.create(
-                accountId: accountId,
-                CreateIssueInput(projectId: projectId, title: issueTitle.trimmingCharacters(in: .whitespaces))
-            )
-            await finish()
-        } catch {
-            self.error = error.localizedDescription
-            busy = false
-        }
-    }
-
-    /// Skip the rest of setup (still marks onboarding complete, like web).
-    private func skip() async {
+    // Deliberately leaves `busy` set: flipping needsOnboarding swaps this view
+    // out, and re-enabling the button first would open a double-submit window.
+    private func finish() async {
         guard !busy else { return }
         busy = true
-        error = nil
-        await finish()
-    }
-
-    // Deliberately leaves `busy` set: flipping needsOnboarding swaps this view
-    // out, and re-enabling the buttons first would open a double-submit window.
-    private func finish() async {
         if let accountId = deps.auth.activeAccountId {
             try? await deps.onboardingApi.complete(accountId: accountId)
         }

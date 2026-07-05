@@ -1,0 +1,10 @@
+# Production bundle id (apps/ios/Project.swift → the `Exponential` app target). The
+# `Exponential-Staging` target's at.exponential.staging id is never published, so the
+# Appfile only names the production identifier.
+app_identifier("at.exponential")
+
+# Apple Developer team (DEVELOPMENT_TEAM in Project.swift) — used for the Developer
+# portal / signing. App Store Connect uploads authenticate with the API key passed
+# per-lane from env (ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH), so apple_id and
+# itc_team_id are not needed here.
+team_id("V6W7BVCSM8")
