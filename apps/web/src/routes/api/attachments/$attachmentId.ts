@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { createFileRoute } from "@tanstack/react-router"
-import { auth } from "@/lib/auth"
+import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { errorToResponse } from "@/lib/http-errors"
 import { getObject, toResponseBody } from "@/lib/storage"
 import {
@@ -15,9 +15,12 @@ async function getAttachment({
   params: { attachmentId: string }
   request: Request
 }) {
-  const session = await auth.api.getSession({
-    headers: request.headers,
-  })
+  // Attachment URLs appear in issue/comment markdown that MCP clients read, so
+  // this route must accept every credential the MCP endpoint accepts (OAuth2
+  // access tokens, expu_ api keys, session cookie/bearer) — resolveSession is
+  // the shared chokepoint and also downgrades auth-plugin throws to null
+  // instead of leaking them as 500s.
+  const session = await resolveSession(request)
 
   if (!session?.user) {
     throw new TRPCError({

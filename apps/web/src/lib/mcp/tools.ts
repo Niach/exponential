@@ -17,12 +17,14 @@ import {
   recurrenceUnitValues,
 } from "@/lib/domain"
 import {
+  getAttachmentWorkspaceContext,
   getIssueWorkspaceContext,
   getProjectWorkspaceId,
   getPublicWorkspaceIds,
   getUserWorkspaceIds,
   resolveWorkspaceAccess,
 } from "@/lib/workspace-membership"
+import { getObject } from "@/lib/storage"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
 import { createPullRequest } from "@/lib/integrations/github-pr"
@@ -541,6 +543,47 @@ export function registerExponentialTools(
       try {
         await caller(user, request).issues.delete(input)
         return ok({ ok: true, id: input.id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Attachments
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_attachments_get`,
+    {
+      title: `Get attachment (image)`,
+      description: `Fetch an issue attachment by id and return it as image content so MCP clients can view it. Issue descriptions and comments embed attachments as markdown image links of the form ![alt](/api/attachments/{id}) — pass that {id} here. Only image attachments are returned inline; other content types are rejected.`,
+      inputSchema: { id: z.string().uuid() },
+    },
+    async ({ id }) => {
+      try {
+        const attachment = await getAttachmentWorkspaceContext(id)
+        await resolveWorkspaceAccess(user.id, attachment.workspaceId)
+
+        if (!attachment.contentType.startsWith(`image/`)) {
+          throw new Error(
+            `Attachment ${id} is ${attachment.contentType}, not an image — only images can be returned inline.`
+          )
+        }
+
+        const object = await getObject(attachment.storageKey)
+        if (!object?.Body) throw new Error(`Attachment object not found`)
+        const bytes = await object.Body.transformToByteArray()
+
+        return {
+          content: [
+            {
+              type: `image` as const,
+              data: Buffer.from(bytes).toString(`base64`),
+              mimeType: attachment.contentType,
+            },
+          ],
+        }
       } catch (e) {
         return err(e)
       }

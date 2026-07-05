@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server"
 import { createFileRoute } from "@tanstack/react-router"
 import { db } from "@/db/connection"
 import { attachments } from "@/db/schema"
-import { auth } from "@/lib/auth"
+import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { errorToResponse } from "@/lib/http-errors"
 import {
   buildAttachmentStorageKey,
@@ -25,9 +25,10 @@ async function uploadIssueImage({
   params: { issueId: string }
   request: Request
 }) {
-  const session = await auth.api.getSession({
-    headers: request.headers,
-  })
+  // Same credential surface as /api/mcp and /api/attachments: MCP clients and
+  // api-key holders can upload images too, and auth-plugin throws must become
+  // a clean 401 rather than a 500.
+  const session = await resolveSession(request)
 
   if (!session?.user) {
     throw new TRPCError({
