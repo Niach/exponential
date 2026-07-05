@@ -120,14 +120,25 @@ export async function resolveRepoInstallationToken(
 // stale/misseeded `repositories.defaultBranch` at token-mint time so the
 // launcher's `git worktree add … origin/<default>` can't fail on a wrong ref
 // (e.g. a row seeded `main` for a `master` repo).
+// NOTE: must authenticate with an **installation token**, not the App JWT —
+// GitHub only accepts the JWT on app-management endpoints, so a JWT-authed
+// `GET /repos/{repo}` always 401s and the heal silently no-ops (EXP-2).
 export async function resolveRepoDefaultBranch(
   repo: string
 ): Promise<string | null> {
   if (!githubAppConfigured()) return null
-  const res = await ghApp(`/repos/${repo}`)
-  if (!res.ok) return null
-  const data = (await res.json()) as { default_branch?: string }
-  return data.default_branch ?? null
+  try {
+    const token = await resolveRepoInstallationToken(repo)
+    if (!token) return null
+    const res = await fetch(`https://api.github.com/repos/${repo}`, {
+      headers: githubApiHeaders(token),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { default_branch?: string }
+    return data.default_branch ?? null
+  } catch {
+    return null
+  }
 }
 
 // A short in-process cache over `resolveRepoDefaultBranch`, keyed by repo. Fan-out

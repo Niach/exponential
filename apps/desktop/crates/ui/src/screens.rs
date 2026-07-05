@@ -208,10 +208,6 @@ impl ScreensPanel {
             .border_b_1()
             .border_color(cx.theme().border);
 
-        if let Some(button) = crate::navigation::back_button(&self.nav, cx) {
-            row = row.child(button);
-        }
-
         let hover_fg = cx.theme().foreground;
         for (i, (label, dot, target)) in crumbs.into_iter().enumerate() {
             if i > 0 {

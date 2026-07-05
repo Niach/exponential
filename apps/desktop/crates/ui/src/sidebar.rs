@@ -20,7 +20,7 @@
 //! live shared-`Store` window count — the §3.10 multi-window proof.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, ElementId, FocusHandle,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, ElementId, FocusHandle,
     Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
@@ -34,7 +34,7 @@ use gpui_component::{
         SidebarMenuItem,
     },
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Collapsible, Icon, IconName, Selectable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Collapsible, Icon, IconName, Sizable as _,
     StyledExt as _,
 };
 use sync::Store;
@@ -50,24 +50,18 @@ use crate::properties_panel::parse_hex_color;
 /// must not be changed").
 pub const PANEL_NAME: &str = "Sidebar";
 
-/// Which rail fills the left dock (masterplan v4 §4.5): the existing Navigator
-/// (workspace chrome) or the trunk file tree.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Rail {
-    Navigator,
-    Files,
-}
-
 /// The left-dock sidebar panel. Implements [`Panel`] because everything
 /// dockable must (§3.3), but renders chrome-less via `DockItem::Panel`.
 ///
-/// v4 §4.5: a two-icon rail at the top toggles the dock body between the
-/// Navigator (the sidebar sections below) and the [`FileTreeView`] of the
-/// active project's trunk clone.
+/// v4 §4.5 (reworked for EXP-2): the Navigator (workspace chrome) is always
+/// visible — it never gets hidden behind a mode toggle, since the projects it
+/// lists are the way OUT of the current project. The trunk [`FileTreeView`]
+/// lives in a JetBrains-style collapsible "Files" tool-window section pinned
+/// to the bottom of the sidebar; expanding it splits the dock vertically.
 pub struct SidebarPanel {
     focus_handle: FocusHandle,
     nav: gpui::Entity<Navigation>,
-    active_rail: Rail,
+    files_expanded: bool,
     file_tree: gpui::Entity<crate::file_tree::FileTreeView>,
     _subscriptions: Vec<Subscription>,
 }
@@ -94,48 +88,47 @@ impl SidebarPanel {
         Self {
             focus_handle: cx.focus_handle(),
             nav,
-            active_rail: Rail::Navigator,
+            files_expanded: false,
             file_tree,
             _subscriptions: subscriptions,
         }
     }
 
-    /// The v4 §4.5 two-icon rail: Navigator ⟷ Files. Switching to Files kicks a
-    /// git-status refresh so the tree's dots reflect the trunk as of now.
-    fn render_rail(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    /// The "Files" tool-window header (EXP-2): a compact JetBrains-style strip
+    /// pinned under the Navigator that expands/collapses the trunk file tree.
+    /// Expanding kicks a git-status refresh so the tree's dots reflect the
+    /// trunk as of now.
+    fn render_files_header(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         h_flex()
+            .id("sidebar-files-header")
             .flex_shrink_0()
             .w_full()
-            .gap_1()
+            .h(px(28.))
             .px_2()
-            .py_1()
-            .border_b_1()
+            .gap_1p5()
+            .items_center()
+            .border_t_1()
             .border_color(cx.theme().border)
+            .text_color(cx.theme().muted_foreground)
+            .cursor_pointer()
+            .hover(|style| style.bg(cx.theme().colors.list_hover))
+            .on_click(cx.listener(|this, _, _window, cx| {
+                this.files_expanded = !this.files_expanded;
+                if this.files_expanded {
+                    this.file_tree.update(cx, |tree, cx| tree.refresh(cx));
+                }
+                cx.notify();
+            }))
             .child(
-                Button::new("rail-navigator")
-                    .icon(IconName::PanelLeft)
-                    .tooltip("Navigator")
-                    .ghost()
-                    .small()
-                    .selected(self.active_rail == Rail::Navigator)
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.active_rail = Rail::Navigator;
-                        cx.notify();
-                    })),
+                Icon::new(if self.files_expanded {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                })
+                .xsmall(),
             )
-            .child(
-                Button::new("rail-files")
-                    .icon(IconName::Folder)
-                    .tooltip("Files")
-                    .ghost()
-                    .small()
-                    .selected(self.active_rail == Rail::Files)
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.active_rail = Rail::Files;
-                        this.file_tree.update(cx, |tree, cx| tree.refresh(cx));
-                        cx.notify();
-                    })),
-            )
+            .child(Icon::new(IconName::Folder).xsmall())
+            .child(div().text_xs().child("Files"))
     }
 
     /// The Navigator body (the existing workspace chrome: picker, nav rows,
@@ -658,14 +651,27 @@ impl Focusable for SidebarPanel {
 
 impl Render for SidebarPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let body = match self.active_rail {
-            Rail::Navigator => self.render_navigator(cx).into_any_element(),
-            Rail::Files => self.file_tree.clone().into_any_element(),
-        };
+        // EXP-2: Navigator always visible; the Files tree is a collapsible
+        // JetBrains-style tool-window section pinned to the bottom.
         v_flex()
             .size_full()
-            .child(self.render_rail(cx))
-            .child(div().flex_1().min_h_0().child(body))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.render_navigator(cx)),
+            )
+            .child(self.render_files_header(cx))
+            .when(self.files_expanded, |this| {
+                this.child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .border_t_1()
+                        .border_color(cx.theme().border)
+                        .child(self.file_tree.clone()),
+                )
+            })
     }
 }
 

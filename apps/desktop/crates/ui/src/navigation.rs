@@ -24,12 +24,7 @@
 use std::collections::HashMap;
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Entity, Global, IntoElement, KeyBinding, Styled as _,
-    Window, WindowId,
-};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    ActiveTheme as _, Icon, IconName, Sizable as _,
+    AnyWindowHandle, App, AppContext as _, Entity, Global, KeyBinding, Window, WindowId,
 };
 use sync::Store;
 
@@ -97,6 +92,7 @@ impl Navigation {
     }
 
     /// Whether [`go_back`] has anywhere to go.
+    #[allow(dead_code)]
     pub fn can_go_back(&self) -> bool {
         !self.back_stack.is_empty()
     }
@@ -189,25 +185,6 @@ pub fn go_back(window: &Window, cx: &mut App) {
             cx.notify();
         }
     });
-}
-
-/// A ghost "back" affordance for the window chrome / breadcrumb strips
-/// (§8.11). Rendered only when [`Navigation::can_go_back`]; clicking pops the
-/// stack via [`go_back`] (window resolved from the click event). Shared by the
-/// screens-panel chrome and the issue-detail breadcrumb so the affordance is
-/// identical everywhere.
-pub fn back_button(nav: &Entity<Navigation>, cx: &App) -> Option<impl IntoElement> {
-    if !nav.read(cx).can_go_back() {
-        return None;
-    }
-    Some(
-        Button::new("nav-back")
-            .ghost()
-            .xsmall()
-            .icon(Icon::new(IconName::ArrowLeft).text_color(cx.theme().muted_foreground))
-            .tooltip("Back")
-            .on_click(|_, window, cx| go_back(window, cx)),
-    )
 }
 
 /// Switch the window's active workspace. Resets the screen + back stack —

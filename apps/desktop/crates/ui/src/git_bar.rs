@@ -17,16 +17,17 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, ClickEvent, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, spinner::Spinner, ActiveTheme as _, Disableable as _, Sizable as _,
+    h_flex, spinner::Spinner, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
+
+use crate::icons::ExpIcon;
 
 use coding::{clone_manager, clone_path, trunk_state, CloneEvent, Settings, TokenUrl, TrunkState};
 
@@ -509,18 +510,21 @@ impl GitBar {
         row
     }
 
-    /// The ghost Pull/Push buttons (v4 §4.3): disabled with a tooltip while a
-    /// clone/sync is in flight or the trunk clone does not exist yet.
+    /// The ghost Pull/Push buttons (v4 §4.3) — JetBrains-style ↙/↗ arrow
+    /// icons (EXP-2): disabled with a tooltip while a clone/sync is in flight
+    /// or the trunk clone does not exist yet.
     fn render_transport(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let clone_exists = self.repo.as_ref().is_some_and(|repo| repo.clone_exists);
         let disabled = self.syncing || !clone_exists;
-        let tooltip: SharedString = if self.syncing {
-            "Syncing…".into()
+        let blocked: Option<SharedString> = if self.syncing {
+            Some("Syncing…".into())
         } else if !clone_exists {
-            "Trunk not cloned yet".into()
+            Some("Trunk not cloned yet".into())
         } else {
-            "".into()
+            None
         };
+        let pull_tooltip: SharedString = blocked.clone().unwrap_or_else(|| "Pull".into());
+        let push_tooltip: SharedString = blocked.unwrap_or_else(|| "Push".into());
 
         h_flex()
             .gap_1()
@@ -529,9 +533,9 @@ impl GitBar {
                 Button::new("git-pull")
                     .ghost()
                     .xsmall()
-                    .label("Pull")
+                    .icon(Icon::from(ExpIcon::ArrowDownLeft))
                     .disabled(disabled)
-                    .when(!tooltip.is_empty(), |button| button.tooltip(tooltip.clone()))
+                    .tooltip(pull_tooltip)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.start_sync(SyncMode::Pull, cx);
                     })),
@@ -540,9 +544,9 @@ impl GitBar {
                 Button::new("git-push")
                     .ghost()
                     .xsmall()
-                    .label("Push")
+                    .icon(Icon::from(ExpIcon::ArrowUpRight))
                     .disabled(disabled)
-                    .when(!tooltip.is_empty(), |button| button.tooltip(tooltip.clone()))
+                    .tooltip(push_tooltip)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.start_sync(SyncMode::Push, cx);
                     })),

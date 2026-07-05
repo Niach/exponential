@@ -51,7 +51,7 @@ use domain::rows::{Issue, Project};
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
 use crate::issue_changes::IssueChanges;
-use crate::navigation::{back_button, nav_for_window, navigate, Screen};
+use crate::navigation::{navigate, Screen};
 use crate::properties_panel::{parse_hex_color, spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
@@ -405,7 +405,7 @@ impl IssueDetailView {
     fn render_breadcrumb(
         &mut self,
         issue: &Issue,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let project = self.project(issue, cx);
@@ -422,12 +422,6 @@ impl IssueDetailView {
             .text_color(cx.theme().muted_foreground)
             .border_b_1()
             .border_color(cx.theme().border);
-
-        // §8.11 back affordance (present only when the back stack is non-empty).
-        let nav = nav_for_window(window, cx);
-        if let Some(button) = back_button(&nav, cx) {
-            row = row.child(button);
-        }
 
         if let Some(project) = project {
             let project_id = project.id.clone();

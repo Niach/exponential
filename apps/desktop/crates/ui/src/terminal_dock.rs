@@ -249,6 +249,17 @@ impl TerminalDockPanel {
         }
     }
 
+    /// Whether the bottom dock is collapsed to its 29px strip. A chrome-less
+    /// `DockItem::Panel` keeps rendering its full content inside that strip
+    /// (the Dock only shrinks the container), so the panel must render the
+    /// compact strip itself when collapsed (EXP-2 "bottom bar cut off").
+    fn dock_collapsed(&self, cx: &App) -> bool {
+        self.dock_area
+            .upgrade()
+            .and_then(|dock_area| dock_area.read(cx).bottom_dock().cloned())
+            .is_some_and(|dock| !dock.read(cx).is_open())
+    }
+
     /// Open the bottom dock if it is collapsed (§4 dock open/close).
     fn expand_dock(&self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(dock_area) = self.dock_area.upgrade() else {
@@ -438,17 +449,67 @@ impl TerminalDockPanel {
                 )
             }))
             .suffix(
-                h_flex().px_1().child(
-                    Button::new("new-terminal-tab")
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Plus)
-                        .tooltip("New shell")
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            this.new_shell_tab(window, cx);
-                        })),
-                ),
+                h_flex()
+                    .px_1()
+                    .gap_0p5()
+                    .child(
+                        Button::new("new-terminal-tab")
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Plus)
+                            .tooltip("New shell")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.new_shell_tab(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("collapse-terminal-dock")
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::ChevronDown)
+                            .tooltip("Hide terminal")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.collapse_dock(window, cx);
+                            })),
+                    ),
             )
+    }
+
+    /// The collapsed-dock strip (EXP-2): the bottom dock keeps a 29px band
+    /// when closed, and a chrome-less panel renders its full content clipped
+    /// into it — instead render this compact one-line strip. Clicking it (or
+    /// the chevron) re-opens the dock.
+    fn render_collapsed_strip(
+        &self,
+        tab_count: usize,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let label: SharedString = if tab_count > 0 {
+            format!("Terminal ({tab_count})").into()
+        } else {
+            "Terminal".into()
+        };
+        h_flex()
+            .id("terminal-collapsed-strip")
+            .w_full()
+            .h(px(29.))
+            .px_3()
+            .gap_2()
+            .items_center()
+            .flex_shrink_0()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().title_bar)
+            .text_color(cx.theme().muted_foreground)
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.expand_dock(window, cx);
+                this.focus_active_terminal(window, cx);
+            }))
+            .child(Icon::new(IconName::SquareTerminal).xsmall())
+            .child(div().text_xs().child(label))
+            .child(div().flex_1())
+            .child(Icon::new(IconName::ChevronUp).xsmall())
     }
 
     /// The §8.5 "Remote steering" banner: shown while a REMOTE viewer holds the
@@ -577,11 +638,15 @@ impl Panel for TerminalDockPanel {
     }
 
     /// Focus the active terminal when the dock panel becomes active (tab
-    /// click on the outer `TabPanel` / dock re-open).
+    /// click on the outer `TabPanel` / dock re-open). Always notify: the Dock
+    /// caches this panel's element, and collapse/expand arrives here (via
+    /// `DockItem::set_collapsed`) — without the notify the collapsed strip /
+    /// full content swap (EXP-2) would not repaint.
     fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if active {
             self.focus_active_terminal(window, cx);
         }
+        cx.notify();
     }
 
     /// §6.13 persistence: `{ kind, cwd, run_config_id }` per tab + the active
@@ -674,6 +739,12 @@ impl Render for TerminalDockPanel {
             .on_action(cx.listener(Self::on_prev_tab))
             .size_full()
             .overflow_hidden();
+
+        // Collapsed dock (EXP-2): only the compact strip — never the full
+        // content squeezed/clipped into the 29px band.
+        if self.dock_collapsed(cx) {
+            return root.child(self.render_collapsed_strip(metas.len(), cx));
+        }
 
         let Some(active_view) = active_view else {
             return root.child(self.render_empty(cx));

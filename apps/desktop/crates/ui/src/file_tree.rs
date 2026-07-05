@@ -27,6 +27,7 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
+    h_flex,
     list::ListItem,
     menu::PopupMenu,
     tree::{tree, TreeEntry, TreeEvent, TreeItem, TreeState},
@@ -557,9 +558,13 @@ impl Render for FileTreeView {
 // Row + context-menu builders (free fns — captured by the tree closures)
 // ---------------------------------------------------------------------------
 
-/// One tree row: leading folder/file icon, name, gitignore dimming, and a
-/// trailing git-status dot. File rows navigate to the read-only viewer on
-/// click (directory rows toggle expand, handled by the tree).
+/// One tree row, JetBrains-style (EXP-2): a single compact line — expand
+/// chevron (dirs only; files get an equal-width spacer so names align), then
+/// the folder/file icon, then the name — with gitignore dimming and a
+/// trailing git-status dot. `ListItem` lays its children out in a plain block
+/// `div`, so the whole row body must be ONE `h_flex` child (separate children
+/// stack vertically). File rows navigate to the read-only viewer on click
+/// (directory rows toggle expand, handled by the tree).
 fn render_tree_item(
     meta: &Rc<RefCell<HashMap<SharedString, NodeMeta>>>,
     trunk: &Path,
@@ -575,6 +580,7 @@ fn render_tree_item(
     if id.ends_with(LOADING_SUFFIX) {
         return ListItem::new(ix)
             .pl(indent(entry.depth()))
+            .py_0()
             .child(
                 div()
                     .text_xs()
@@ -605,26 +611,50 @@ fn render_tree_item(
         theme.foreground
     };
 
+    // Dirs get the expand chevron; files an equal-width spacer (alignment).
+    let chevron: gpui::AnyElement = if node.is_dir {
+        Icon::new(if entry.is_expanded() {
+            IconName::ChevronDown
+        } else {
+            IconName::ChevronRight
+        })
+        .xsmall()
+        .text_color(theme.muted_foreground)
+        .into_any_element()
+    } else {
+        div().w(px(14.)).flex_shrink_0().into_any_element()
+    };
+
     // The open file (viewer's active tab) is highlighted; folders never are.
     let is_active_file = !node.is_dir && active_file == Some(id.as_ref());
 
     let mut row = ListItem::new(ix)
         .pl(indent(entry.depth()))
+        .py_0()
         .when(is_active_file, |row| row.bg(theme.list_active))
         .child(
-            Icon::new(icon)
-                .xsmall()
-                .text_color(theme.muted_foreground),
-        )
-        .child(
-            div()
-                .flex_1()
+            h_flex()
+                .h(px(24.))
+                .items_center()
+                .gap_1()
                 .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_sm()
-                .text_color(label_color)
-                .child(entry.item().label.clone()),
+                .child(chevron)
+                .child(
+                    Icon::new(icon)
+                        .xsmall()
+                        .flex_shrink_0()
+                        .text_color(theme.muted_foreground),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_sm()
+                        .text_color(label_color)
+                        .child(entry.item().label.clone()),
+                ),
         );
 
     // Trailing status dot (files only).
