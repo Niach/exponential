@@ -9,7 +9,7 @@
 //! (account-scoped, not window-scoped).
 //!
 //! Lifecycle (§8.3):
-//! 1. gate on `steer.config()` — `{enabled:false}` is a NORMAL state (EXP-4):
+//! 1. gate on `steer.config()` — `{enabled:false}` is a NORMAL state:
 //!    do nothing except a slow **15-minute** recheck. The enabled verdict is
 //!    then cached for the life of the loop — reconnects go straight to
 //!    `mintTicket`, whose own `{disabled}` result re-routes to the slow poll

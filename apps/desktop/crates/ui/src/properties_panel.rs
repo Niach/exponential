@@ -10,7 +10,7 @@
 //!
 //! Due-date control (§4.2, web `DueDateControl` sidebar layout): a ghost
 //! trigger labeled **"Due date" when empty**, icon + short date once set
-//! (the EXP-3 icon-only-when-empty rule applies to the board ROW's
+//! (the icon-only-when-empty rule applies to the board ROW's
 //! `due-date-dropdown.tsx`, not this panel); the popover hosts the
 //! gpui-component `Calendar` plus a Clear action. Clearing the date
 //! cascade-nulls `due_time`/`end_time` (web `onDueDateSelect`). The synced
@@ -697,7 +697,7 @@ fn property_group(label: &'static str, control: impl IntoElement, cx: &App) -> i
 }
 
 /// One option row (same as the board's): table icon + label + right-side
-/// check (EXP-1 #5).
+/// check.
 fn option_item<V: Copy + 'static>(
     option: &'static IssueOption<V>,
     checked: bool,

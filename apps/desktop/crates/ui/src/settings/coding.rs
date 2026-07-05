@@ -1,4 +1,4 @@
-//! Settings → Coding (masterplan-v3 §7.7 DC-3, §7.2, EXP-2a/b/f).
+//! Settings → Coding (masterplan-v3 §7.7 DC-3, §7.2).
 //!
 //! The JetBrains-SDK-settings-style pane for the Start-coding launcher:
 //!

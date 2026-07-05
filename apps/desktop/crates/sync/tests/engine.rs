@@ -547,7 +547,7 @@ fn conflict_409_refetches_atomically_with_no_empty_state() {
 /// messages AND carries no `snapshot-end` (empty or malformed body) must NOT
 /// wipe the table or clear the refetch marker. An unguarded apply would run
 /// the synthetic DELETE head with no re-inserts and adopt the cursor: a
-/// durable empty board (the EXP-1 #13 symptom).
+/// durable empty board (the vanished-issues symptom).
 #[test]
 fn empty_refetch_response_keeps_stale_rows_and_marker() {
     // Fallback: the pathological refetch answer — 200, valid electric

@@ -1,6 +1,6 @@
 //! The project-board screen — web parity target
 //! `apps/web/src/routes/w/$workspaceSlug/projects/$projectSlug/index.tsx`
-//! (masterplan-v3 §4.2 "Project board", EXP-1 #4/#12).
+//! (masterplan-v3 §4.2 "Project board").
 //!
 //! Composition mirrors the web route: [`IssueFilterBar`] (title row + tabs +
 //! filter popover + active pills) on top, the virtualized [`IssueListView`]
@@ -104,16 +104,16 @@ impl BoardView {
         cx.notify();
     }
 
-    /// Bar title (web: the project route renders the default `"Issues"`;
-    /// my-issues passes `"My Issues"`).
+    /// Bar title: the project scope is the sidebar's "All Issues" tool
+    /// window; My Issues names itself.
     fn title(&self) -> SharedString {
         match &self.query {
             IssueQuery::MyIssues { .. } => "My Issues".into(),
-            _ => "Issues".into(),
+            _ => "All Issues".into(),
         }
     }
 
-    /// Web `canCreate`: the New Issue button shows on project boards, never
+    /// Web `canCreate`: the New Issue button shows on project scopes, never
     /// on My Issues (web passes `canCreate={false}` there).
     fn can_create(&self) -> bool {
         matches!(self.query, IssueQuery::Project { .. })

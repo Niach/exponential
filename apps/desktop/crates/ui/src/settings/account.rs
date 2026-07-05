@@ -2,10 +2,10 @@
 //!
 //! Web parity: `routes/_authenticated/account/notifications.tsx` (email prefs
 //! — see [`super::notifications_prefs`]). The old Integrations pane is gone
-//! (L25 / EXP-3 #9): GitHub App install/manage lives solely in **workspace
+//! (L25): GitHub App install/manage lives solely in **workspace
 //! settings → Repositories**, and there is no calendar UI anywhere on the
 //! desktop. What remains is a single Notifications screen reached from the
-//! sidebar footer account dropdown (EXP-1 #11).
+//! sidebar footer account dropdown.
 
 use gpui::{
     div, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,

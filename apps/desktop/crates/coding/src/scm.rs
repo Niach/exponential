@@ -161,20 +161,30 @@ pub fn status(repo: &Path) -> Result<StatusSummary, GitError> {
 /// time, Load more"). Records are NUL-separated (`-z`); fields inside a record
 /// are unit-separated (`%x1f`) so a subject can hold any punctuation.
 pub fn log(repo: &Path, skip: usize, limit: usize) -> Result<Vec<CommitInfo>, GitError> {
+    log_branch(repo, None, skip, limit)
+}
+
+/// [`log`] for an arbitrary rev — the Source Control sidebar's "view another
+/// branch's history without checking it out" path. `None` = HEAD.
+pub fn log_branch(
+    repo: &Path,
+    branch: Option<&str>,
+    skip: usize,
+    limit: usize,
+) -> Result<Vec<CommitInfo>, GitError> {
     let skip_arg = format!("--skip={skip}");
     let max_arg = format!("--max-count={limit}");
-    let raw = run_git(
-        Some(repo),
-        &[
-            "log",
-            "-z",
-            "--format=%H%x1f%s%x1f%an%x1f%cr",
-            &skip_arg,
-            &max_arg,
-        ],
-        None,
-        "git log",
-    )?;
+    let mut args = vec![
+        "log",
+        "-z",
+        "--format=%H%x1f%s%x1f%an%x1f%cr",
+        &skip_arg,
+        &max_arg,
+    ];
+    if let Some(branch) = branch {
+        args.push(branch);
+    }
+    let raw = run_git(Some(repo), &args, None, "git log")?;
     Ok(parse_log(&raw))
 }
 
@@ -300,6 +310,42 @@ pub fn abort_conflict(repo: &Path, kind: ConflictKind) -> Result<(), GitError> {
     Ok(())
 }
 
+/// One local branch (the sidebar's Source Control branch list).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchInfo {
+    pub name: String,
+    /// Checked out right now in THIS clone (`git branch`'s `*` marker).
+    pub current: bool,
+    /// Checked out in ANOTHER worktree (session worktrees) — git refuses a
+    /// second checkout, so the branch switcher must not offer it.
+    pub worktree: bool,
+}
+
+/// Check out a local branch: `git checkout <name>`. A dirty tree that would
+/// be clobbered fails with git's own message — surfaced verbatim, never
+/// forced.
+pub fn checkout(repo: &Path, branch: &str) -> Result<(), GitError> {
+    run_git(Some(repo), &["checkout", branch], None, "git checkout")?;
+    Ok(())
+}
+
+/// Local branches, current first then most-recently-committed first:
+/// `git branch --sort=-committerdate --format=…`.
+pub fn branches(repo: &Path) -> Result<Vec<BranchInfo>, GitError> {
+    let raw = run_git(
+        Some(repo),
+        &[
+            "branch",
+            "--list",
+            "--sort=-committerdate",
+            "--format=%(HEAD)%09%(refname:short)%09%(worktreepath)",
+        ],
+        None,
+        "git branch",
+    )?;
+    Ok(parse_branches(&raw))
+}
+
 // ---------------------------------------------------------------------------
 // Internal git plumbing (testable against local remotes without the token
 // reset the public network wrappers layer on top).
@@ -371,6 +417,34 @@ fn unmerged_files(repo: &Path) -> Vec<String> {
 // ---------------------------------------------------------------------------
 // Pure parsers (unit-tested against fixture output — R2.a)
 // ---------------------------------------------------------------------------
+
+/// Parse `git branch --format=%(HEAD)%09%(refname:short)%09%(worktreepath)`
+/// output: a `*` in the HEAD column marks the checked-out branch; a non-empty
+/// worktree path on a NON-current branch means it lives in another worktree
+/// (unswitchable here). The current branch is hoisted to the front regardless
+/// of the sort the caller asked git for.
+pub fn parse_branches(raw: &str) -> Vec<BranchInfo> {
+    let mut out: Vec<BranchInfo> = raw
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(3, '\t');
+            let head = fields.next()?.trim();
+            let name = fields.next()?.trim();
+            let worktree_path = fields.next().unwrap_or("").trim();
+            if name.is_empty() {
+                return None;
+            }
+            let current = head == "*";
+            Some(BranchInfo {
+                name: name.to_string(),
+                current,
+                worktree: !current && !worktree_path.is_empty(),
+            })
+        })
+        .collect();
+    out.sort_by_key(|branch| !branch.current);
+    out
+}
 
 /// Parse `git status --porcelain=v2 --branch` output. A path with both an index
 /// (`X`) and a worktree (`Y`) change emits TWO [`FileChange`]s — one `staged`,
@@ -811,6 +885,39 @@ u UU N... 100644 100644 100644 100644 hh ii jj conflict.rs
         let s = status(r).unwrap();
         let renamed = find(&s, "new.txt", true);
         assert_eq!(renamed.status, FileStatus::Renamed);
+    }
+
+    // ---- parse_branches ----
+
+    #[test]
+    fn parse_branches_marks_current_worktrees_and_hoists_current_first() {
+        let raw = " \tfeature/x\t\n*\tmain\t/repo\n \texp/EXP-42\t/repo/.worktrees/exp-EXP-42\n";
+        let branches = parse_branches(raw);
+        assert_eq!(branches.len(), 3);
+        assert_eq!(branches[0].name, "main");
+        assert!(branches[0].current);
+        // The current branch's own worktree path never marks it unswitchable.
+        assert!(!branches[0].worktree);
+        assert_eq!(branches[1].name, "feature/x");
+        assert!(!branches[1].current);
+        assert!(!branches[1].worktree);
+        // A session-worktree branch cannot be checked out here.
+        assert_eq!(branches[2].name, "exp/EXP-42");
+        assert!(branches[2].worktree);
+    }
+
+    #[test]
+    fn branches_wrapper_reads_a_real_repo() {
+        let d = temp_dir("branches");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "f.txt", "x");
+        commit_all(r, "init");
+        run_git(Some(r), &["branch", "other"], None, "git branch other").unwrap();
+        let list = branches(r).unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list[0].current);
+        assert!(list.iter().any(|b| b.name == "other" && !b.current));
     }
 
     // ---- parse_log ----

@@ -1,34 +1,35 @@
-//! The center screens panel (masterplan-v3 §4.2) — the desktop analog of the
-//! web's routed center content: sidebar selection swaps this panel between
-//! the project board, issue detail, My Issues, Inbox, Settings and Account.
+//! The center panel (masterplan-v3 §4.2, reworked): a TAB-BASED editor area,
+//! the desktop analog of an IDE's editor tabs. Every opened issue and file
+//! gets its own tab (deduped — re-opening focuses); Source Control, Settings
+//! and Account are singleton tabs. Issue LISTS are not tabs: they live in
+//! the sidebar tool windows and their rows open tabs here.
 //!
-//! One panel, content swapped on the per-window [`Navigation`] state — the
-//! §3.3 dock layout stays stable (one center `TabPanel` child) while the
-//! screen inside changes, exactly like the web's `<Outlet/>`.
-//!
-//! Phase-3 state: every §4.2 surface renders real — board, full issue detail
-//! (markdown editor + timeline + properties), My Issues, Inbox, Settings and
-//! Account. Default-screen resolution honors §4.1 `is_ready` — an unsynced
-//! workspace shows a skeleton, never a wrong default or a false empty state.
+//! One panel: a compact `TabBar` strip over content swapped on the per-window
+//! [`Navigation`] state. The heavyweight views (issue detail, file viewer,
+//! …) stay single instances re-pointed on tab switch — tabs remember *what*
+//! is open, not per-tab view state. Closing the active tab activates its
+//! neighbor; closing the last shows the empty state. A workspace switch
+//! drops all tabs (they are workspace-scoped).
 
 use gpui::{
-    div, App, AppContext as _, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
-    Subscription, Window,
+    div, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable, FontWeight,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
+    button::{Button, ButtonVariants as _},
     dock::{Panel, PanelControl, PanelEvent},
     h_flex,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
+    tab::{Tab, TabBar},
+    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, Size,
 };
 use sync::Store;
 
-use crate::board::BoardView;
+use crate::actions::NewProject;
 use crate::issue_detail::IssueDetailView;
-use crate::issue_list::{parse_hex_color, IssueQuery};
 use crate::navigation::{
-    active_workspace_id, nav_for_window, navigate, resolved_screen, Navigation, Screen,
+    active_workspace_id, nav_for_window, resolved_screen, set_screen, shapes_ready, Navigation,
+    Screen,
 };
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
@@ -37,73 +38,54 @@ pub const PANEL_NAME: &str = "Screens";
 pub struct ScreensPanel {
     focus_handle: FocusHandle,
     nav: Entity<Navigation>,
-    board: Entity<BoardView>,
     issue_detail: Entity<IssueDetailView>,
-    my_issues: Entity<crate::my_issues::MyIssuesView>,
-    inbox: Entity<crate::inbox::InboxView>,
     settings: Entity<crate::settings::SettingsView>,
     account: Entity<crate::settings::AccountView>,
-    /// Trunk Source Control screen (v4 §4.4) — skeleton; R3.b fills it.
     source_control: Entity<crate::source_control::SourceControlView>,
-    /// Read-only trunk file viewer (v4 §4.5) — one instance, re-pointed on
-    /// `Screen::FileViewer` navigation. Skeleton; R3.c fills it.
     file_viewer: Entity<crate::file_viewer::FileViewerView>,
+    /// Open tabs in strip order — every [`Screen`] value is one tab identity
+    /// (several issues / files at once; SC/settings/account dedupe).
+    tabs: Vec<Screen>,
+    /// The workspace the tabs belong to — a switch drops them.
+    tabs_workspace: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl ScreensPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let nav = nav_for_window(window, cx);
-        let board = cx.new(|cx| BoardView::new(window, cx));
         // Full-page issue detail (§4.2): one instance, re-pointed on
         // navigation (its local edit state resets per issue, web parity).
         let issue_detail = cx.new(|cx| IssueDetailView::new(window, cx));
-        // My Issues + Inbox (§4.2): self-contained views that track the
-        // active workspace/account themselves.
-        let my_issues = cx.new(|cx| crate::my_issues::MyIssuesView::new(window, cx));
-        let inbox = cx.new(|cx| crate::inbox::InboxView::new(window, cx));
-        // Settings + Account (§4.2): constructed with the panel (cheap —
-        // their server-only reads fetch lazily on first render).
         let settings = cx.new(|cx| crate::settings::SettingsView::new(window, cx));
         let account = cx.new(|cx| crate::settings::AccountView::new(window, cx));
-        // Trunk Source Control + read-only file viewer (v4 §4.4/§4.5):
-        // skeleton screens, one instance each (the file viewer re-points on
-        // navigation, like the issue detail).
         let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
+        let nav = nav_for_window(window, cx);
 
         let mut subscriptions = Vec::new();
-        // Navigation changes swap the center content (and retarget the
-        // board list / detail view — needs `window` for the detail's input
-        // state resets, hence `observe_in`).
+        // Navigation changes open/focus tabs and retarget the shared views
+        // (needs `window` for the detail's input resets, hence `observe_in`).
         subscriptions.push(cx.observe_in(&nav, window, |this, _, window, cx| {
-            this.sync_screen_targets(window, cx);
+            this.sync_tabs(window, cx);
             cx.notify();
         }));
-        // Default-screen resolution depends on workspaces + projects; the
-        // session switch on the shared state re-resolves after (re-)login.
         let collections = Store::global(cx).collections().clone();
         subscriptions.push(cx.observe_in(
             &collections.workspaces,
             window,
             |this, _, window, cx| {
-                this.sync_screen_targets(window, cx);
+                this.sync_tabs(window, cx);
                 cx.notify();
             },
         ));
-        subscriptions.push(cx.observe_in(
-            &collections.projects,
-            window,
-            |this, _, window, cx| {
-                this.sync_screen_targets(window, cx);
-                cx.notify();
-            },
-        ));
+        // Tab titles join issue identifiers live.
+        subscriptions.push(cx.observe(&collections.issues, |_, _, cx| cx.notify()));
+        subscriptions.push(cx.observe(&collections.projects, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe_in(
             &Store::global(cx).state(),
             window,
             |this, _, window, cx| {
-                this.sync_screen_targets(window, cx);
+                this.sync_tabs(window, cx);
                 cx.notify();
             },
         ));
@@ -111,143 +93,113 @@ impl ScreensPanel {
         let mut this = Self {
             focus_handle: cx.focus_handle(),
             nav,
-            board,
             issue_detail,
-            my_issues,
-            inbox,
             settings,
             account,
             source_control,
             file_viewer,
+            tabs: Vec::new(),
+            tabs_workspace: None,
             _subscriptions: subscriptions,
         };
-        this.sync_screen_targets(window, cx);
+        this.sync_tabs(window, cx);
         this
     }
 
-    /// Keep the board's issue list and the detail view pointed at the
-    /// resolved screen's scope. Runs in observers (never mid-render) so
-    /// entity updates are clean. (My Issues owns its own list and tracks its
-    /// scope itself.)
-    fn sync_screen_targets(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        match resolved_screen(&self.nav, cx) {
-            Some(Screen::Board { project_id }) => {
-                self.board.update(cx, |board, cx| {
-                    board.set_query(IssueQuery::Project { project_id }, cx)
-                });
-            }
-            Some(Screen::IssueDetail { issue_id }) => {
+    /// Reconcile tabs with the navigation state: drop tabs on a workspace
+    /// switch, open (or keep) a tab for the active screen, and re-point the
+    /// shared views at it. Runs in observers (never mid-render).
+    fn sync_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let workspace = active_workspace_id(&self.nav, cx);
+        if workspace != self.tabs_workspace {
+            self.tabs_workspace = workspace;
+            self.tabs.clear();
+        }
+        let Some(screen) = resolved_screen(&self.nav, cx) else {
+            return;
+        };
+        if !self.tabs.contains(&screen) {
+            self.tabs.push(screen.clone());
+        }
+        match screen {
+            Screen::IssueDetail { issue_id } => {
                 self.issue_detail
                     .update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
             }
-            Some(Screen::FileViewer { path }) => {
+            Screen::FileViewer { path } => {
                 self.file_viewer
                     .update(cx, |viewer, cx| viewer.set_path(path, cx));
             }
-            _ => {} // other screens do not use these; keep them parked
+            _ => {}
         }
     }
 
-    // -- screen bodies -------------------------------------------------------
-
-    /// The §4.2 board (filter bar + pills + virtualized list). Web parity:
-    /// the bar IS the top of the page — no extra screen header (the web
-    /// route's `h1` lives inside `IssueFilterBar`).
-    fn render_board(&self, _project_id: &str, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        self.board.clone().into_any_element()
+    /// Close the tab at `ix`. Closing the active tab activates its right
+    /// neighbor (else the new last); closing the last clears the center.
+    /// Direct tab management never touches the back stack.
+    fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if ix >= self.tabs.len() {
+            return;
+        }
+        let closed = self.tabs.remove(ix);
+        let active = resolved_screen(&self.nav, cx);
+        if active.as_ref() == Some(&closed) {
+            let next = self
+                .tabs
+                .get(ix)
+                .or_else(|| self.tabs.last())
+                .cloned();
+            set_screen(window, cx, next);
+        }
+        cx.notify();
     }
 
-    /// §8.11 breadcrumb chrome for the non-detail screens (issue detail owns
-    /// its own richer breadcrumb, so it opts out). A back affordance +
-    /// workspace-rooted trail following `issue_detail::render_breadcrumb`; the
-    /// file viewer's "Source Control" crumb is clickable back to that screen.
-    fn render_screen_chrome(
-        &self,
-        screen: &Screen,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let collections = Store::global(cx).collections();
-
-        // Workspace root + the screen-specific trail: (label, dot, target).
-        let mut crumbs: Vec<(SharedString, Option<gpui::Hsla>, Option<Screen>)> = Vec::new();
-        if let Some(name) = active_workspace_id(&self.nav, cx)
-            .and_then(|id| collections.workspaces.read(cx).get(&id).map(|w| w.name.clone()))
-        {
-            crumbs.push((name.into(), None, None));
-        }
+    fn tab_title(&self, screen: &Screen, cx: &App) -> SharedString {
         match screen {
-            Screen::Board { project_id } => {
-                if let Some(project) = collections.projects.read(cx).get(project_id) {
-                    let dot = project.color.as_deref().and_then(parse_hex_color);
-                    crumbs.push((project.name.clone().into(), dot, None));
-                }
-            }
-            Screen::MyIssues => crumbs.push(("My Issues".into(), None, None)),
-            Screen::Inbox => crumbs.push(("Inbox".into(), None, None)),
-            Screen::Settings => crumbs.push(("Settings".into(), None, None)),
-            Screen::Account => crumbs.push(("Account".into(), None, None)),
-            Screen::SourceControl => crumbs.push(("Source Control".into(), None, None)),
+            Screen::IssueDetail { issue_id } => Store::global(cx)
+                .collections()
+                .issues
+                .read(cx)
+                .get(issue_id)
+                .map(|issue| SharedString::from(issue.identifier.clone()))
+                .unwrap_or_else(|| "Issue".into()),
             Screen::FileViewer { path } => {
-                crumbs.push(("Source Control".into(), None, Some(Screen::SourceControl)));
-                let name = path.rsplit('/').next().unwrap_or(path.as_str());
-                crumbs.push((name.to_string().into(), None, None));
+                SharedString::from(path.rsplit('/').next().unwrap_or(path).to_string())
             }
-            // Issue detail never reaches here (it renders its own breadcrumb).
-            Screen::IssueDetail { .. } => {}
+            Screen::SourceControl => "Source Control".into(),
+            Screen::Settings => "Settings".into(),
+            Screen::Account => "Account".into(),
         }
-
-        let mut row = h_flex()
-            .w_full()
-            .px_4()
-            .py_2()
-            .gap_1p5()
-            .items_center()
-            .min_w_0()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .border_b_1()
-            .border_color(cx.theme().border);
-
-        let hover_fg = cx.theme().foreground;
-        for (i, (label, dot, target)) in crumbs.into_iter().enumerate() {
-            if i > 0 {
-                row = row.child(Icon::new(IconName::ChevronRight).xsmall());
-            }
-            let mut segment = h_flex().gap_1p5().items_center().min_w_0();
-            if let Some(color) = dot {
-                segment = segment.child(div().size_2p5().rounded_full().bg(color));
-            }
-            segment = segment.child(
-                div()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(label),
-            );
-            match target {
-                Some(target) => {
-                    row = row.child(
-                        h_flex()
-                            .id(("screen-crumb", i))
-                            .gap_1p5()
-                            .items_center()
-                            .min_w_0()
-                            .cursor_pointer()
-                            .hover(move |style| style.text_color(hover_fg))
-                            .on_click(cx.listener(move |_, _, window, cx| {
-                                navigate(window, cx, target.clone());
-                            }))
-                            .child(segment),
-                    );
-                }
-                None => row = row.child(segment),
-            }
-        }
-        row.into_any_element()
     }
 
-    /// §4.1: while `resolved_screen` is `None` the workspace/projects shapes
-    /// have not caught up — skeleton, never a default screen guess.
+    fn render_tab_bar(&self, active_ix: usize, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        TabBar::new("center-tabs")
+            .with_size(Size::Small)
+            .selected_index(active_ix)
+            .on_click(cx.listener(|this, ix: &usize, window, cx| {
+                if let Some(screen) = this.tabs.get(*ix).cloned() {
+                    // Direct tab activation — no back-stack push.
+                    set_screen(window, cx, Some(screen));
+                }
+            }))
+            .children(self.tabs.iter().enumerate().map(|(ix, screen)| {
+                Tab::new().label(self.tab_title(screen, cx)).suffix(
+                    h_flex().pr_1().child(
+                        Button::new(("close-center-tab", ix))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Close)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.close_tab(ix, window, cx);
+                            })),
+                    ),
+                )
+            }))
+    }
+
+    /// §4.1: while the workspace/projects shapes have not caught up, render a
+    /// skeleton — never a wrong empty state.
     fn render_syncing(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         v_flex()
             .size_full()
@@ -256,6 +208,76 @@ impl ScreensPanel {
             .child(Skeleton::new().h_4().w_48())
             .child(Skeleton::new().h_4().w_64())
             .child(Skeleton::new().h_4().w_56())
+            .into_any_element()
+    }
+
+    /// Nothing open: point at the sidebar (or at project creation when the
+    /// workspace has none — every project is repo-backed, v4).
+    fn render_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let has_projects = active_workspace_id(&self.nav, cx)
+            .map(|id| {
+                !Store::global(cx)
+                    .collections()
+                    .projects_in_workspace(&id, cx)
+                    .is_empty()
+            })
+            .unwrap_or(false);
+        if has_projects {
+            return v_flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .child(
+                    Icon::new(IconName::Inbox)
+                        .size_6()
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child("Nothing open"),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Pick an issue from the sidebar — it opens as a tab here."),
+                )
+                .into_any_element();
+        }
+        v_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .gap_2()
+            .child(
+                Icon::new(IconName::Folder)
+                    .size_6()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child("No projects yet"),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Create a project to connect a repository and start tracking issues."),
+            )
+            .child(
+                Button::new("screens-new-project")
+                    .primary()
+                    .small()
+                    .label("New project…")
+                    .on_click(|_, window, cx| {
+                        window.dispatch_action(Box::new(NewProject), cx);
+                    }),
+            )
             .into_any_element()
     }
 }
@@ -292,17 +314,15 @@ impl Render for ScreensPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
 
-        // DEV-ONLY (§11.4 headless verification, EXP_DEV_* family): once the
-        // board resolves, `EXP_DEV_CREATE_DIALOG=1` opens the create-issue
-        // dialog exactly once so gate screenshots can capture it without
-        // synthetic input. Delayed a beat so the dock/window chrome finishes
-        // settling first. Unset in normal runs.
-        if let Some(Screen::Board { ref project_id }) = screen {
-            if std::env::var("EXP_DEV_CREATE_DIALOG").as_deref() == Ok("1") {
+        // DEV-ONLY (§11.4 headless verification, EXP_DEV_* family): once a
+        // project scope resolves, `EXP_DEV_CREATE_DIALOG=1` opens the
+        // create-issue dialog exactly once so gate screenshots can capture it
+        // without synthetic input. Unset in normal runs.
+        if std::env::var("EXP_DEV_CREATE_DIALOG").as_deref() == Ok("1") {
+            if let Some(project_id) = crate::navigation::active_project_id(&self.nav, cx) {
                 use std::sync::atomic::{AtomicBool, Ordering};
                 static FIRED: AtomicBool = AtomicBool::new(false);
                 if !FIRED.swap(true, Ordering::SeqCst) {
-                    let project_id = project_id.clone();
                     cx.spawn_in(_window, async move |_this, cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(1500))
@@ -316,30 +336,27 @@ impl Render for ScreensPanel {
                 }
             }
         }
-        // §8.11: the non-detail screens get a shared breadcrumb chrome (back
-        // button + trail); issue detail owns its own breadcrumb and the
-        // still-syncing skeleton has no scope to name, so both opt out.
-        let chrome = match &screen {
-            Some(Screen::IssueDetail { .. }) | None => None,
-            Some(current) => Some(self.render_screen_chrome(current, cx)),
-        };
 
-        let content = match screen {
-            None => self.render_syncing(cx),
-            Some(Screen::Board { project_id }) => self.render_board(&project_id, cx),
-            Some(Screen::MyIssues) => self.my_issues.clone().into_any_element(),
+        let content = match &screen {
+            None if !shapes_ready(cx) => self.render_syncing(cx),
+            None => self.render_empty(cx),
             Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),
-            Some(Screen::Inbox) => self.inbox.clone().into_any_element(),
             Some(Screen::Settings) => self.settings.clone().into_any_element(),
             Some(Screen::Account) => self.account.clone().into_any_element(),
             Some(Screen::SourceControl) => self.source_control.clone().into_any_element(),
             Some(Screen::FileViewer { .. }) => self.file_viewer.clone().into_any_element(),
         };
 
+        let active_ix = screen
+            .as_ref()
+            .and_then(|screen| self.tabs.iter().position(|tab| tab == screen))
+            .unwrap_or(0);
+        let tab_bar = (!self.tabs.is_empty()).then(|| self.render_tab_bar(active_ix, cx));
+
         div().size_full().bg(cx.theme().colors.list).child(
             v_flex()
                 .size_full()
-                .children(chrome)
+                .children(tab_bar)
                 .child(div().flex_1().min_h_0().child(content)),
         )
     }

@@ -99,7 +99,7 @@ pub const FONT_SIZE_PX: f32 = 13.0;
 /// generated `CARD` token (web's `#171717` card surface) maps onto the desktop
 /// chrome surfaces that play that role (`tab_bar`, `title_bar`, `status_bar`,
 /// `tiles`). The `list`/`list_head` fields that tokens.json lacks map from the
-/// real web issue-list surfaces (see inline notes / EXP-1 #4).
+/// real web issue-list surfaces (see inline notes).
 pub fn exponential_dark() -> ThemeColor {
     // ThemeColor::dark() returns Arc<Self>; ThemeColor is Copy, so deref-copy it.
     let mut c = *ThemeColor::dark();
@@ -213,7 +213,7 @@ pub fn exponential_dark() -> ThemeColor {
     c.button_warning_hover = yellow.mix_oklab(transparent, 0.3);
     c.button_warning_active = yellow.mix_oklab(transparent, 0.4);
 
-    // ---- Lists — web issue-list parity (EXP-1 #4: the list background must be
+    // ---- Lists — web issue-list parity (the list background must be
     //      the REAL surfaces, not a wrong card color). tokens.json has no
     //      list/list_head — mapped from apps/web/src/components/issue-list.tsx:
     //      rows sit on the page background; group header = `bg-accent/20`;
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn list_surfaces_mirror_web_issue_list() {
-        // EXP-1 #4: rows on page background, header accent/20, hover accent/30.
+        // Rows on page background, header accent/20, hover accent/30.
         let c = exponential_dark();
         assert_hsla_eq(c.list, tokens::BACKGROUND.to_hsla(), "list");
         assert_hsla_eq(c.list_head, tokens::ACCENT.to_hsla().opacity(0.2), "list_head");

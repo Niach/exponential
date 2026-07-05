@@ -9,7 +9,7 @@
 //! byte-parity pair). This is the spec's sanctioned v1 shape ("source is the
 //! markdown — correct-by-construction round-trip") organized around the block
 //! model so images are first-class: paste/drop/picker insert real image
-//! blocks with staging + upload (EXP-1 #7), never ad-hoc text.
+//! blocks with staging + upload, never ad-hoc text.
 //!
 //! [`MarkdownView`] is the read-only rendered view (issue description
 //! preview, comments): headings/lists/quotes/code, toggleable task
@@ -118,8 +118,15 @@ impl RefResolver {
 enum ImageSlot {
     Loading,
     Ready(Arc<gpui::Image>),
-    Failed,
+    /// A fetch failure is NEVER permanent: the timestamp gates a re-fetch on
+    /// the next render after [`RETRY_AFTER`] — a transient network hiccup
+    /// (stale keep-alive socket, brief offline) must not brick every image
+    /// for the rest of the session.
+    Failed(std::time::Instant),
 }
+
+/// How long a failed fetch is displayed before the next render retries it.
+const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Caches decoded attachment images per URL. `/api/attachments/{id}` is
 /// auth-gated, so bytes go through the [`AttachmentTransport`] (bearer
@@ -157,14 +164,19 @@ impl ImageCache {
 
     fn slot(&mut self, url: &str, cx: &mut Context<Self>) -> ImageSlot {
         if let Some(slot) = self.slots.get(url) {
-            return slot.clone();
+            // Ready/Loading are terminal-ish; a failure older than the
+            // backoff falls through and re-fetches.
+            match slot {
+                ImageSlot::Failed(at) if at.elapsed() >= RETRY_AFTER => {}
+                _ => return slot.clone(),
+            }
         }
         if url.starts_with(super::image_paste::DRAFT_SCHEME) {
             // Draft bytes are inserted eagerly; a miss means they're gone.
-            return ImageSlot::Failed;
+            return ImageSlot::Failed(std::time::Instant::now());
         }
         let Some(transport) = self.transport.clone() else {
-            return ImageSlot::Failed;
+            return ImageSlot::Failed(std::time::Instant::now());
         };
         self.slots.insert(url.to_string(), ImageSlot::Loading);
         let url_owned = url.to_string();
@@ -182,7 +194,7 @@ impl ImageCache {
                     }
                     Err(error) => {
                         log::warn!("attachment fetch failed for {url_owned}: {error}");
-                        ImageSlot::Failed
+                        ImageSlot::Failed(std::time::Instant::now())
                     }
                 };
                 cache.slots.insert(url_owned.clone(), slot);
@@ -221,7 +233,7 @@ fn render_image_slot(
 ) -> gpui::AnyElement {
     let slot = images
         .map(|images| images.update(cx, |cache, cx| cache.slot(url, cx)))
-        .unwrap_or(ImageSlot::Failed);
+        .unwrap_or_else(|| ImageSlot::Failed(std::time::Instant::now()));
     match slot {
         ImageSlot::Ready(image) => img(image)
             .max_w_full()
@@ -230,7 +242,7 @@ fn render_image_slot(
             .rounded(px(4.))
             .into_any_element(),
         ImageSlot::Loading => placeholder_box("Loading image…", cx),
-        ImageSlot::Failed => placeholder_box(
+        ImageSlot::Failed(_) => placeholder_box(
             &if alt.is_empty() {
                 "Image unavailable".to_string()
             } else {
@@ -694,7 +706,7 @@ impl MarkdownEditor {
         }
     }
 
-    // -- Clipboard image paste (EXP-1 #7) -------------------------------------
+    // -- Clipboard image paste -------------------------------------
 
     fn on_paste(&mut self, _: &input::Paste, window: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else {
@@ -900,7 +912,7 @@ impl MarkdownEditor {
             }
         }
         // Structural edit — persist immediately (image removal must survive
-        // without a subsequent blur; masterplan §8.2 / EXP-8).
+        // without a subsequent blur; masterplan §8.2).
         self.emit_commit(window, cx);
         cx.notify();
     }

@@ -1,14 +1,15 @@
-//! The git bar (masterplan v4 §4.3) — trunk git chrome left of the run bar:
-//! static branch chip, sync spinner / clone progress %, behind/ahead counts,
-//! ghost Pull/Push buttons, and (in conflict mode) an amber `⚠ N conflicts`
-//! chip that navigates to Source Control. Always trunk-only (v4 §4.2 rule 1):
-//! everything here derives from the active project's trunk clone on disk
-//! ([`coding::TrunkState`], read after each clone/fetch/pull/push), so the
-//! chrome survives restarts and out-of-band fixes (v4 §4.2 rule 3).
+//! The git cluster (masterplan v4 §4.3) — trunk git chrome on the board
+//! screen's top-right toolbar: branch chip (click → Source Control), sync
+//! spinner / clone progress %, behind/ahead counts, ghost Pull/Push buttons,
+//! and (in conflict mode) an amber `⚠ N conflicts` chip. Always trunk-only
+//! (v4 §4.2 rule 1): everything here derives from the active project's trunk
+//! clone on disk ([`coding::TrunkState`], read after each
+//! clone/fetch/pull/push), so the chrome survives restarts and out-of-band
+//! fixes (v4 §4.2 rule 3).
 //!
-//! Scope follows the window's navigation, exactly like the run bar: a project
-//! board or an issue detail resolves to that project's primary repo; other
-//! screens render no git bar. On first resolve the bar kicks the §4.1
+//! Scope follows the window's navigation, exactly like the run widget: a
+//! project board or an issue detail resolves to that project's primary repo;
+//! other screens render nothing. On first resolve the bar kicks the §4.1
 //! lifecycle — auto-clone when `<clone>/.git` is missing (progress streams into
 //! the chip), else a freshness fetch — then reads the trunk state. Pull/Push
 //! re-mint a JIT installation token and drive [`coding::clone_manager`]; a
@@ -18,20 +19,23 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    div, px, App, ClickEvent, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    div, App, ClickEvent, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, spinner::Spinner, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex,
+    menu::DropdownMenu as _,
+    spinner::Spinner, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
 use crate::icons::ExpIcon;
 
+use coding::scm::{self, BranchInfo};
 use coding::{clone_manager, clone_path, trunk_state, CloneEvent, Settings, TokenUrl, TrunkState};
 
-use crate::navigation::{self, Navigation, Screen};
+use crate::navigation::{self, Navigation};
 use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::session::AuthContext;
@@ -46,7 +50,7 @@ struct RepoInfo {
     full_name: String,
     /// The trunk's server-reported default branch — used ONLY as the branch-chip
     /// display fallback until the on-disk status is read. The actual pull/push
-    /// target is the freshly-minted token's `default_branch` (L30, EXP-8), never
+    /// target is the freshly-minted token's `default_branch` (L30), never
     /// this cached scope value. `None` when the server omitted it (never `main`).
     default_branch: Option<String>,
     /// `<repos_root>` — the clone-root prefix (`clone_manager::ensure` joins
@@ -84,6 +88,9 @@ enum SyncMsg {
     /// The terminal on-disk trunk read (always sent last; `Err` keeps the
     /// prior state). A conflict engaged by a failed rebase surfaces HERE.
     Trunk(Result<TrunkState, String>),
+    /// The local branch list (read alongside every trunk read — feeds the
+    /// branch-chip menu and the Source Control tool window).
+    Branches(Vec<BranchInfo>),
 }
 
 /// Render/load gate — mirrors the run bar's scope-follows-navigation state
@@ -111,6 +118,8 @@ pub struct GitBar {
     repo_error: Option<SharedString>,
     /// The on-disk trunk state (branch + ahead/behind + conflict).
     trunk: TrunkState,
+    /// Local branches (current first) — refreshed with every trunk read.
+    branches: Vec<BranchInfo>,
     /// A clone/fetch/pull/push is in flight (spinner; disables Pull/Push).
     syncing: bool,
     /// `git clone --progress` percentage while cloning (`None` otherwise).
@@ -145,6 +154,7 @@ impl GitBar {
             repo: None,
             repo_error: None,
             trunk: TrunkState::empty(),
+            branches: Vec::new(),
             syncing: false,
             clone_progress: None,
             op_error: None,
@@ -153,25 +163,94 @@ impl GitBar {
         }
     }
 
-    /// The §4.2 scope: the active window's project (board directly, issue
-    /// detail via the issue's project). Other screens have no git bar.
+    /// The §4.2 scope: the window's active project (screen scope with the
+    /// last-board fallback) — populated on EVERY screen so the sidebar's
+    /// Source Control tool window and the rail's conflict badge stay live.
     fn scope_project_id(&self, cx: &App) -> Option<String> {
-        match navigation::resolved_screen(&self.nav, cx)? {
-            Screen::Board { project_id } => Some(project_id),
-            Screen::IssueDetail { issue_id } => Store::global(cx)
-                .collections()
-                .issues
-                .read(cx)
-                .get(&issue_id)
-                .map(|issue| issue.project_id.clone()),
-            _ => None,
+        navigation::active_project_id(&self.nav, cx)
+    }
+
+    /// Whether the trunk sits in conflict mode — the sidebar rail paints an
+    /// amber badge on the Source Control icon off this.
+    pub(crate) fn has_conflict(&self) -> bool {
+        self.trunk.conflict.is_some()
+    }
+
+    /// The checked-out branch as of the last on-disk read (empty until read).
+    pub(crate) fn branch(&self) -> &str {
+        &self.trunk.branch
+    }
+
+    /// Local branches (current first) — the sidebar's Source Control tool
+    /// window renders these.
+    pub(crate) fn branches(&self) -> &[BranchInfo] {
+        &self.branches
+    }
+
+    /// Whether a branch read has happened yet (`false` = show a skeleton, not
+    /// a false "no branches").
+    pub(crate) fn branches_ready(&self) -> bool {
+        !self.branches.is_empty() || matches!(self.load, Load::Ready if !self.syncing)
+    }
+
+    /// Freshness fetch + trunk/branch re-read (the sidebar's refresh button).
+    pub(crate) fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
+        self.start_sync(SyncMode::Fetch, cx);
+    }
+
+    /// Check out `branch` on the trunk clone, then re-read trunk state +
+    /// branches from disk. Purely local (no token, no network); a dirty tree
+    /// surfaces git's own error in the status segment.
+    pub(crate) fn checkout(&mut self, branch: String, cx: &mut gpui::Context<Self>) {
+        if self.syncing {
+            return;
         }
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        if !repo.clone_exists || self.trunk.branch == branch {
+            return;
+        }
+        self.syncing = true;
+        self.op_error = None;
+        cx.notify();
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let clone = repo.clone.clone();
+            let (result, trunk, branches) = cx
+                .background_executor()
+                .spawn(async move {
+                    let result = scm::checkout(&clone, &branch).map_err(|err| err.to_string());
+                    // Always re-derive from disk, even after a failed checkout.
+                    let trunk = trunk_state::read(&clone).ok();
+                    let branches = scm::branches(&clone).unwrap_or_default();
+                    (result, trunk, branches)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return; // superseded by a scope change
+                }
+                this.syncing = false;
+                if let Err(err) = result {
+                    this.op_error = Some(err.into());
+                }
+                if let Some(trunk) = trunk {
+                    this.trunk = trunk;
+                }
+                this.branches = branches;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Render-time load gate: a scope change resets, `Idle` kicks one
     /// background resolve of the project's trunk repo + its on-disk state, then
-    /// the §4.1 lifecycle (auto-clone / freshness fetch).
-    fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+    /// the §4.1 lifecycle (auto-clone / freshness fetch). `pub(crate)` so the
+    /// sidebar rail can keep the auto-clone lifecycle + conflict badge live
+    /// even while the Source Control tool window is closed.
+    pub(crate) fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
         // Drive the shared window resolver (idempotent — one fetch per
         // workspace, shared by all five trunk/IDE surfaces).
         self.repo_resolver
@@ -184,6 +263,7 @@ impl GitBar {
             self.repo = None;
             self.repo_error = None;
             self.trunk = TrunkState::empty();
+            self.branches = Vec::new();
             self.syncing = false;
             self.clone_progress = None;
             self.op_error = None;
@@ -225,12 +305,15 @@ impl GitBar {
                 .spawn(async move {
                     let clone = clone_path(&repos_root, &meta.full_name);
                     let clone_exists = clone.join(".git").exists();
-                    // Read the on-disk trunk up front so an existing clone
-                    // paints its branch/counts before the fetch.
-                    let trunk = if clone_exists {
-                        trunk_state::read(&clone).ok()
+                    // Read the on-disk trunk + branch list up front so an
+                    // existing clone paints before the fetch.
+                    let (trunk, branches) = if clone_exists {
+                        (
+                            trunk_state::read(&clone).ok(),
+                            scm::branches(&clone).unwrap_or_default(),
+                        )
                     } else {
-                        None
+                        (None, Vec::new())
                     };
                     (
                         RepoInfo {
@@ -242,6 +325,7 @@ impl GitBar {
                             clone_exists,
                         },
                         trunk,
+                        branches,
                     )
                 })
                 .await;
@@ -252,10 +336,11 @@ impl GitBar {
                     return; // superseded by a scope change
                 }
                 this.load = Load::Ready;
-                let (repo, trunk) = resolved;
+                let (repo, trunk, branches) = resolved;
                 if let Some(trunk) = trunk {
                     this.trunk = trunk;
                 }
+                this.branches = branches;
                 let clone_exists = repo.clone_exists;
                 this.repo = Some(repo);
                 this.repo_error = None;
@@ -364,22 +449,27 @@ impl GitBar {
                 self.syncing = false;
                 self.clone_progress = None;
             }
+            SyncMsg::Branches(branches) => {
+                self.branches = branches;
+            }
         }
         cx.notify();
     }
 
-    /// Navigate this window to the trunk Source Control screen (the amber
-    /// conflict chip's target, v4 §4.3/§4.4).
+    /// Open Source Control (branch chip / Commit / conflict chip target):
+    /// selects the rail tool (branches in the sidebar) AND navigates to the
+    /// changes screen.
     fn open_source_control(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        navigation::navigate(window, cx, Screen::SourceControl);
+        crate::sidebar::activate_tool(window, cx, crate::sidebar::ToolWindow::SourceControl);
     }
 
     // ------------------------------ render --------------------------------
 
-    /// The static branch chip (v4 §4.3): `⎇ <branch>` — the trunk's branch,
-    /// nothing to switch. Falls back to the default branch until the on-disk
-    /// status is read.
-    fn render_branch_chip(&self, cx: &App) -> impl IntoElement {
+    /// The branch chip (v4 §4.3): `⎇ <branch>` — a dropdown that SWITCHES
+    /// branches (checkout on the trunk clone) plus the entry to the changes
+    /// view. Falls back to the default branch label until the on-disk status
+    /// is read.
+    fn render_branch_chip(&self, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let branch = if !self.trunk.branch.is_empty() {
             self.trunk.branch.clone()
         } else {
@@ -388,21 +478,37 @@ impl GitBar {
                 .and_then(|repo| repo.default_branch.clone())
                 .unwrap_or_default()
         };
-        h_flex()
-            .gap_1()
-            .items_center()
-            .px_1p5()
-            .py_0p5()
-            .rounded(px(4.))
-            .bg(cx.theme().secondary)
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(div().child("\u{2387}")) // ⎇ branch glyph
-            .child(
-                div()
-                    .text_color(cx.theme().foreground)
-                    .child(SharedString::from(branch)),
-            )
+        // Snapshot for the lazy menu builder (menus must not read `self`).
+        // Branches living in session worktrees are excluded — git refuses a
+        // second checkout, so offering them would only ever error.
+        let picker: Vec<(String, bool)> = self
+            .branches
+            .iter()
+            .filter(|b| !b.worktree)
+            .map(|b| (b.name.clone(), b.current))
+            .collect();
+        Button::new("git-branch-chip")
+            .ghost()
+            .xsmall()
+            .label(SharedString::from(format!("\u{2387} {branch}")))
+            .tooltip("Switch branch")
+            .dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu.label("Branches");
+                for (name, current) in &picker {
+                    menu = menu.menu_with_check(
+                        SharedString::from(name.clone()),
+                        *current,
+                        Box::new(crate::actions::SwitchBranch {
+                            branch: name.clone(),
+                        }),
+                    );
+                }
+                menu.separator().menu_with_icon(
+                    "Open changes view",
+                    Icon::from(ExpIcon::GitMerge),
+                    Box::new(crate::actions::OpenSourceControl),
+                )
+            })
     }
 
     /// The middle segment: sync spinner + clone %, OR the amber `⚠ N conflicts`
@@ -443,11 +549,17 @@ impl GitBar {
                 );
         }
 
-        // A clone/fetch/pull/push error (chip → error + Retry).
+        // A clone/fetch/pull/push/checkout error (chip → error + Retry).
+        // Truncated hard — git errors can be full sentences and must not
+        // flood the top bar.
         if let Some(error) = &self.op_error {
             return row
                 .child(
                     div()
+                        .max_w(gpui::px(320.))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
                         .text_xs()
                         .text_color(cx.theme().danger)
                         .child(error.clone()),
@@ -458,6 +570,7 @@ impl GitBar {
                         .xsmall()
                         .label("Retry")
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
                             let mode = if this
                                 .repo
                                 .as_ref()
@@ -484,6 +597,7 @@ impl GitBar {
                     .text_color(cx.theme().warning)
                     .tooltip("Resolve in Source Control")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
                         this.open_source_control(window, cx);
                     })),
             );
@@ -511,7 +625,7 @@ impl GitBar {
     }
 
     /// The ghost Pull/Push buttons (v4 §4.3) — JetBrains-style ↙/↗ arrow
-    /// icons (EXP-2): disabled with a tooltip while a clone/sync is in flight
+    /// icons: disabled with a tooltip while a clone/sync is in flight
     /// or the trunk clone does not exist yet.
     fn render_transport(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let clone_exists = self.repo.as_ref().is_some_and(|repo| repo.clone_exists);
@@ -529,6 +643,24 @@ impl GitBar {
         h_flex()
             .gap_1()
             .items_center()
+            // JetBrains-style Commit entry: opens the Source Control screen
+            // (commit box + changes) with branches in the sidebar.
+            .child(
+                Button::new("git-commit")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::from(ExpIcon::Check))
+                    .disabled(!clone_exists)
+                    .tooltip(if clone_exists {
+                        "Commit…"
+                    } else {
+                        "Trunk not cloned yet"
+                    })
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.open_source_control(window, cx);
+                    })),
+            )
             .child(
                 Button::new("git-pull")
                     .ghost()
@@ -537,6 +669,7 @@ impl GitBar {
                     .disabled(disabled)
                     .tooltip(pull_tooltip)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
                         this.start_sync(SyncMode::Pull, cx);
                     })),
             )
@@ -548,6 +681,7 @@ impl GitBar {
                     .disabled(disabled)
                     .tooltip(push_tooltip)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
                         this.start_sync(SyncMode::Push, cx);
                     })),
             )
@@ -558,14 +692,16 @@ impl Render for GitBar {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
 
-        // Trunk chrome only on a project scope (mirrors the run bar's
-        // self-hide); the workspace strip keeps a constant height regardless.
+        // Trunk chrome only on a project scope (mirrors the Run section's
+        // self-hide) — the sidebar's project panel collapses to nothing on
+        // other screens.
         if self.project_id.is_none() {
             return div().into_any_element();
         }
 
+        // Compact horizontal cluster for the board's top-right toolbar:
+        // branch chip (click → Source Control), status, Pull/Push.
         h_flex()
-            .pl_2()
             .gap_2()
             .items_center()
             .child(self.render_branch_chip(cx))
@@ -623,7 +759,7 @@ fn run_sync_worker(
                 .map(|_| ())
         }
         SyncMode::Fetch => clone_manager::fetch(clone, &url),
-        // L30/EXP-8: pull/push target the branch the token minting resolved
+        // L30: pull/push target the branch the token minting resolved
         // *live* from GitHub, not the cached scope value (which could be a stale
         // or omitted default). The token's `default_branch` is authoritative.
         SyncMode::Pull => clone_manager::pull(clone, &token.default_branch, &url),
@@ -642,4 +778,5 @@ fn run_sync_worker(
     // engages conflict mode even though the op returned an error.
     let trunk = trunk_state::read(clone).map_err(|err| err.to_string());
     let _ = tx.send(SyncMsg::Trunk(trunk));
+    let _ = tx.send(SyncMsg::Branches(scm::branches(clone).unwrap_or_default()));
 }

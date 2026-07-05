@@ -572,8 +572,8 @@ export const repositories = pgTable(
 
 // Per-project terminal run commands (SERVER-ONLY, tRPC-managed — never an
 // Electric shape; the proxy count stays 14). A run config is just a named
-// argv the desktop apps spawn into a terminal tab (EXP-2d: run configs live
-// in the DATABASE, not the repo). SECURITY: because this is DB-stored argv
+// argv the desktop apps spawn into a terminal tab (run configs live in the
+// DATABASE, not the repo). SECURITY: because this is DB-stored argv
 // executed locally, desktops MUST keep the per-device Trust & Run
 // commandSetHash prompt and re-hash whenever the fetched config set changes —
 // never auto-run synced values. `workspace_id` is denormalized from the

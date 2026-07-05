@@ -79,8 +79,8 @@ export async function proxyElectricRequest(
   // with no auth-aware vary. Shape data is per-user (the where clause is
   // derived from the caller's credentials), so any HTTP cache that stores it
   // can serve one user's snapshot to another — macOS URLCache did exactly
-  // that, replaying an anonymous snapshot to an authed client (EXP-1 #13).
-  // Force never-cache on every proxied shape response; keep vary as a second
+  // that, replaying an anonymous snapshot to an authed client. Force
+  // never-cache on every proxied shape response; keep vary as a second
   // line of defense for caches that ignore no-store. It must list every
   // credential the shape route accepts: cookie, authorization, AND x-api-key.
   headers.set(`cache-control`, `private, no-store`)

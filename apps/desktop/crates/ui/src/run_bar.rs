@@ -1,13 +1,12 @@
-//! The JetBrains-style top-right run bar (masterplan-v3 §7.5, EXP-2d/e).
+//! The JetBrains-style run widget (masterplan-v3 §7.5) — a run-config
+//! select + play button on the board screen's top-right toolbar.
 //!
-//! Rendered in the top strip of the workspace (§7.5 "title bar / top strip of
-//! the center panel"): a compact run-config dropdown (the active project's
-//! `runConfigs.list`, last selection persisted per project in the per-account
-//! [`api::TrustStore`]) + a play button that launches the selected config as
-//! a `TabKind::Run` tab in the bottom terminal dock and **becomes a stop
-//! button** while that tab's child is alive (stop = SIGTERM → §7.5 grace →
-//! SIGKILL; the §6.7 exit edge flips the button back and the dock shows the
-//! exit-code strip).
+//! The select lists the active project's `runConfigs.list` (last selection
+//! persisted per project in the per-account [`api::TrustStore`]); the play
+//! button launches the selected config as a `TabKind::Run` tab in the bottom
+//! terminal dock and **becomes a stop button** while that tab's child is
+//! alive (stop = SIGTERM → §7.5 grace → SIGKILL; the §6.7 exit edge flips
+//! the button back and the dock shows the exit-code strip).
 //!
 //! **Trust & Run (§7.3.5) — the security boundary, not a nicety.** Run
 //! configs are DB-stored argv executed locally; before ANY launch the bar
@@ -19,16 +18,17 @@
 //! trust store fails CLOSED (treated as untrusted). Spawns are argv-direct
 //! via [`coding::run_spawn_spec`] — never a shell.
 //!
-//! The dropdown's trailing "Edit configurations…" opens the owner-only CRUD
+//! The select's trailing "Edit configurations…" opens the owner-only CRUD
 //! dialog (§7.3.4 desktop parity: name + one monospace command line backed by
 //! `parse_argv_line`/`format_argv_line` + cwd + env rows + reorder), driving
 //! the `runConfigs` router. Members see the list read-only (server enforces;
 //! the UI hides the write affordances).
 //!
-//! Scope rule (§7.5): the run bar follows the window's navigation — a
-//! project board or an issue detail resolves to that project; other screens
-//! render no run bar. The clone-root rule is §7.4's: launches resolve cwd
-//! against `<repos_root>/<owner>/<name>` of the project's primary repo.
+//! Scope rule (§7.5): the widget follows the window's navigation — a project
+//! board or an issue detail resolves to that project; other screens render
+//! nothing (the screens chrome additionally only mounts it on the board).
+//! The clone-root rule is §7.4's: launches resolve cwd against
+//! `<repos_root>/<owner>/<name>` of the project's primary repo.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -59,14 +59,11 @@ use coding::run_launch::{
 use terminal::{ExitHook, TabKind, TerminalManager, TerminalManagerEvent};
 
 use crate::icons::ExpIcon;
-use crate::navigation::{self, Navigation, Screen};
+use crate::navigation::{self, Navigation};
 use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::session::AuthContext;
 use crate::terminal_dock::TerminalDockPanel;
-
-/// Height of the top strip (compact density, EXP-2f).
-const BAR_HEIGHT: f32 = 30.;
 
 enum Load {
     Idle,
@@ -92,7 +89,7 @@ pub struct RunBar {
     configs: Vec<RunConfig>,
     error: Option<SharedString>,
     /// Primary (or sole) linked repo of the scope project — the §7.4 clone
-    /// root. `None` = no repo linked (launch surfaces the EXP-4 helper).
+    /// root. `None` = no repo linked (launch surfaces the link-a-repo helper).
     repo_full_name: Option<String>,
     /// Selected run-config id (persisted per project, §7.5).
     selected: Option<String>,
@@ -141,19 +138,10 @@ impl RunBar {
         }
     }
 
-    /// The §7.5 scope: the active window's project (board directly, issue
-    /// detail via the issue's project). Other screens have no run bar.
+    /// The §7.5 scope: the window's active project (screen scope with the
+    /// last-board fallback).
     fn scope_project_id(&self, cx: &App) -> Option<String> {
-        match navigation::resolved_screen(&self.nav, cx)? {
-            Screen::Board { project_id } => Some(project_id),
-            Screen::IssueDetail { issue_id } => Store::global(cx)
-                .collections()
-                .issues
-                .read(cx)
-                .get(&issue_id)
-                .map(|issue| issue.project_id.clone()),
-            _ => None,
-        }
+        navigation::active_project_id(&self.nav, cx)
     }
 
     /// Render-time load gate (mirror of the settings panes): scope change
@@ -182,7 +170,7 @@ impl RunBar {
         };
         // The §7.4 clone-root repo comes from the shared resolver; wait until it
         // has resolved (its observer re-renders us), then a missing/failed repo
-        // is simply `None` (the play button surfaces the EXP-4 helper).
+        // is simply `None` (the play button surfaces the link-a-repo helper).
         let repo_full_name = match self.repo_resolver.read(cx).lookup_project(&project_id) {
             RepoLookup::Loading => return,
             RepoLookup::Found(repo) => Some(repo.full_name),
@@ -610,18 +598,52 @@ impl RunBar {
                         cx,
                     )
                 });
-                if let Err(err) = result {
-                    // The tab never opened, so its exit hook won't run — clean
-                    // up the just-written key file here.
-                    if created_marker {
-                        let _ = std::fs::remove_file(root.join(coding::MCP_JSON_FILE));
+                match result {
+                    Ok(tab_id) => {
+                        // Claude creates configs through the server while its
+                        // interactive session stays open — the exit hook alone
+                        // would only refresh after the tab dies. Poll the list
+                        // every few seconds while the task is alive so new
+                        // configs appear in the select immediately.
+                        let manager = manager.downgrade();
+                        let this = cx.entity().downgrade();
+                        cx.spawn(async move |_, cx| {
+                            loop {
+                                cx.background_executor()
+                                    .timer(std::time::Duration::from_secs(3))
+                                    .await;
+                                let alive = cx.update(|cx| {
+                                    let Some(this) = this.upgrade() else {
+                                        return false;
+                                    };
+                                    this.update(cx, |this, cx| this.mark_stale(cx));
+                                    manager.upgrade().is_some_and(|manager| {
+                                        manager
+                                            .read(cx)
+                                            .tab(tab_id)
+                                            .is_some_and(|tab| tab.is_running())
+                                    })
+                                });
+                                if !alive {
+                                    break;
+                                }
+                            }
+                        })
+                        .detach();
                     }
-                    window.push_notification(
-                        Notification::error(SharedString::from(format!(
-                            "Could not start Claude: {err}"
-                        ))),
-                        cx,
-                    );
+                    Err(err) => {
+                        // The tab never opened, so its exit hook won't run —
+                        // clean up the just-written key file here.
+                        if created_marker {
+                            let _ = std::fs::remove_file(root.join(coding::MCP_JSON_FILE));
+                        }
+                        window.push_notification(
+                            Notification::error(SharedString::from(format!(
+                                "Could not start Claude: {err}"
+                            ))),
+                            cx,
+                        );
+                    }
                 }
             });
         })
@@ -637,6 +659,8 @@ impl RunBar {
         run_configs_editor::open(project_id, cx.entity().downgrade(), window, cx);
     }
 
+    /// The JetBrains-style run-config select: current selection as the label,
+    /// the config list + trailing "Edit configurations…" in the dropdown.
     fn render_dropdown(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let selected_name: Option<SharedString> = self
             .selected
@@ -728,29 +752,17 @@ impl Render for RunBar {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
 
-        // The bar is the window's single top strip (it replaced the dock's
-        // redundant "Workspace" TabPanel title bar). It keeps a CONSTANT height
-        // on every screen — off a project scope (my-issues/inbox/settings/
-        // account) it renders the empty frame rather than collapsing to 0px, so
-        // navigation never shifts the sidebar/center below it (EXP-2f jump fix).
-        let bar = h_flex()
-            .h(px(BAR_HEIGHT))
-            .flex_shrink_0()
-            .px_2()
-            .gap_1()
-            .items_center()
-            .justify_end()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().title_bar);
-
-        // Run-config controls only when a project scope resolves.
+        // Run controls only when a project scope resolves (the screens chrome
+        // additionally mounts this widget on the board only).
         if self.project_id.is_none() {
-            return bar.into_any_element();
+            return div().into_any_element();
         }
         let snapshot = self.run_tab_snapshot(cx);
         let state = play_state(self.selected.as_deref(), &snapshot);
-        bar.child(self.render_dropdown(cx))
+        h_flex()
+            .gap_1()
+            .items_center()
+            .child(self.render_dropdown(cx))
             .child(self.render_play_button(state, cx))
             .into_any_element()
     }
@@ -1347,7 +1359,7 @@ mod run_configs_editor {
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(if self.is_owner {
-                                "No run configurations yet — add one to launch it from the run bar."
+                                "No run configurations yet — add one to launch it from the board's run widget."
                             } else {
                                 "No run configurations yet. Workspace owners can add them."
                             }),

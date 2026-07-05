@@ -5,7 +5,7 @@
 //! - `repositories.forIssue({issueId})` — **query** — resolves issue →
 //!   project → the primary repo link (else the sole link, else `null`).
 //!   `null` means "no repository linked" and the launcher must not proceed
-//!   (EXP-4: the disabled Start-coding button with the "Link a repository…"
+//!   (the disabled Start-coding button with the "Link a repository…"
 //!   helper — never a crash, never a false block).
 //! - `repositories.installationToken({repositoryId})` — **mutation** — mints
 //!   the session-gated JIT GitHub-App installation token (~55 min TTL,
@@ -74,7 +74,7 @@ struct InstallationTokenInput<'a> {
     repository_id: &'a str,
 }
 
-/// `repositories.forIssue` — query. `Ok(None)` = no repo linked (the EXP-4
+/// `repositories.forIssue` — query. `Ok(None)` = no repo linked (the
 /// disabled-button state, not an error).
 pub fn for_issue(
     trpc: &TrpcClient,
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn for_issue_null_is_no_repo_linked() {
-        // The EXP-4 gate: null ⇒ Ok(None), NOT an error.
+        // The no-repo-linked gate: null ⇒ Ok(None), NOT an error.
         let (base, _captured) = one_shot_server(200, r#"{"result":{"data":null}}"#);
         let repo = for_issue(&client(&base), "issue-1").unwrap();
         assert_eq!(repo, None);

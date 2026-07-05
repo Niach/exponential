@@ -18,7 +18,7 @@
 //! Every request reads the bearer through the [`TokenProvider`] **at call
 //! time** (§5.7) so a re-login is picked up by the very next request. A 401
 //! maps to [`ApiError::Unauthorized`] — the caller feeds that into
-//! [`crate::AuthStore::handle_unauthorized`] (EXP-1 #13(b): route to login,
+//! [`crate::AuthStore::handle_unauthorized`] (route to login,
 //! never silently degrade).
 //!
 //! Later phases extend this with the typed routers they need; the `awaitTxId`
@@ -288,7 +288,7 @@ pub(crate) mod tests {
 
     #[test]
     fn http_401_maps_to_unauthorized() {
-        // EXP-1 #13(b): the reauth signal, never an anonymous retry.
+        // The reauth signal, never an anonymous retry.
         let (base, _captured) = one_shot_server(
             401,
             r#"{"error":{"message":"UNAUTHORIZED","code":-32001,"data":{"code":"UNAUTHORIZED","httpStatus":401}}}"#,

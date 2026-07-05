@@ -35,14 +35,18 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use std::cell::RefCell;
+
 use gpui::{
-    div, px, size, AnyElement, App, FocusHandle, Focusable, HighlightStyle,
-    InteractiveElement as _, IntoElement, ParentElement, Pixels, Render, ScrollStrategy,
-    SharedString, Size, Styled, StyledText, Window,
+    div, point, px, size, AnyElement, App, FocusHandle, Focusable, HighlightStyle,
+    InteractiveElement as _, IntoElement, ParentElement, Pixels, Point, Render, ScrollStrategy,
+    ScrollWheelEvent, SharedString, Size, Styled, StyledText, Window,
 };
 use gpui_component::{
-    h_flex, scroll::ScrollableElement as _, scroll::ScrollbarAxis, theme::Colorize as _,
-    v_flex, v_virtual_list, ActiveTheme as _, VirtualListScrollHandle,
+    h_flex,
+    scroll::{ScrollableElement as _, ScrollbarAxis, ScrollbarHandle},
+    theme::Colorize as _,
+    v_flex, v_virtual_list, ActiveTheme as _, ElementExt as _, VirtualListScrollHandle,
 };
 
 use api::issues::PullFile;
@@ -63,6 +67,9 @@ const NOTE_ROW_H: f32 = 24.0;
 const FILE_GAP_H: f32 = 8.0;
 /// Line-number gutter width — 4 digits + padding at 11px mono.
 const GUTTER_W: f32 = 40.0;
+/// Estimated mono advance at 11px — sizes rows for horizontal scrolling
+/// (slightly generous so the longest line never clips at the right edge).
+const CHAR_W: f32 = 6.8;
 
 /// One populated cell of a line row, highlight spans precomputed. The
 /// [`Anchor`] is carried on every cell (§7.8 read-only-but-anchored mandate).
@@ -157,7 +164,82 @@ pub struct DiffView {
     rows: Vec<RenderRow>,
     sizes: Rc<Vec<Size<Pixels>>>,
     files: Vec<FileSummary>,
+    /// Widest cell text (px) — sizes each side's inner (scrolled) content.
+    cell_text_w: f32,
+    /// The SHARED horizontal offset both columns scroll by (JetBrains-style
+    /// synced split): one draggable bar + wheel input, the 50/50 split stays
+    /// pinned to the pane.
+    h_scroll: SharedHScroll,
     scroll: VirtualListScrollHandle,
+}
+
+// ---------------------------------------------------------------------------
+// SharedHScroll — one offset, two synced columns
+// ---------------------------------------------------------------------------
+
+/// A [`ScrollbarHandle`] over a plain shared offset: the horizontal scrollbar
+/// drags it, the wheel handler nudges it, and both diff columns translate
+/// their inner content by HALF of it (the bar's range spans both columns, so
+/// full drag = full per-column scroll). Offsets are ≤ 0, matching the
+/// convention every gpui scroll handle uses.
+#[derive(Clone, Default)]
+struct SharedHScroll {
+    inner: Rc<RefCell<SharedHScrollState>>,
+}
+
+#[derive(Default)]
+struct SharedHScrollState {
+    x: Pixels,
+    /// Full two-column content width (both cell contents + gutters + divider).
+    content_w: Pixels,
+    /// The pane width as of the last prepaint (clamp input).
+    viewport_w: Pixels,
+}
+
+impl SharedHScroll {
+    /// The per-COLUMN translation for the current offset.
+    fn column_shift(&self) -> Pixels {
+        self.inner.borrow().x * 0.5
+    }
+
+    fn set_content_width(&self, width: Pixels) {
+        let mut state = self.inner.borrow_mut();
+        if state.content_w != width {
+            state.content_w = width;
+            state.x = px(0.);
+        }
+    }
+
+    fn set_viewport_width(&self, width: Pixels) {
+        self.inner.borrow_mut().viewport_w = width;
+        self.clamp();
+    }
+
+    fn scroll_by(&self, dx: Pixels) {
+        self.inner.borrow_mut().x += dx;
+        self.clamp();
+    }
+
+    fn clamp(&self) {
+        let mut state = self.inner.borrow_mut();
+        let min = (state.viewport_w - state.content_w).min(px(0.));
+        state.x = state.x.clamp(min, px(0.));
+    }
+}
+
+impl ScrollbarHandle for SharedHScroll {
+    fn offset(&self) -> Point<Pixels> {
+        point(self.inner.borrow().x, px(0.))
+    }
+
+    fn set_offset(&self, offset: Point<Pixels>) {
+        self.inner.borrow_mut().x = offset.x;
+        self.clamp();
+    }
+
+    fn content_size(&self) -> Size<Pixels> {
+        size(self.inner.borrow().content_w, px(0.))
+    }
 }
 
 impl DiffView {
@@ -169,6 +251,8 @@ impl DiffView {
             rows: Vec::new(),
             sizes: Rc::new(Vec::new()),
             files: Vec::new(),
+            cell_text_w: 0.,
+            h_scroll: SharedHScroll::default(),
             scroll: VirtualListScrollHandle::new(),
         }
     }
@@ -211,6 +295,9 @@ impl DiffView {
         cx: &mut gpui::Context<Self>,
     ) {
         self.sizes = Rc::new(rows.iter().map(|r| size(px(100.), r.height())).collect());
+        self.cell_text_w = required_cell_text_width(&rows);
+        self.h_scroll
+            .set_content_width(px(2. * (GUTTER_W + self.cell_text_w) + 1.));
         self.rows = rows;
         self.files = summaries;
         self.phase = Phase::Ready;
@@ -268,6 +355,9 @@ impl DiffView {
         };
         let theme = cx.theme();
         let mono = theme.mono_font_family.clone();
+        // The 50/50 split stays pinned to the pane width; each column's INNER
+        // content translates by the shared horizontal offset (synced sides).
+        let shift = self.h_scroll.column_shift();
         match row {
             RenderRow::FileGap => div()
                 .w_full()
@@ -281,6 +371,7 @@ impl DiffView {
                 deletions,
             } => {
                 // Web FilePatch header: muted/30 bar, mono path, +N -N right.
+                // Pinned — never scrolls horizontally.
                 let mut header = h_flex()
                     .w_full()
                     .h(px(FILE_HEADER_H))
@@ -350,34 +441,41 @@ impl DiffView {
                 .into_any_element(),
             RenderRow::HunkHeader { header } => {
                 // Web: `text-indigo-300/80 bg-indigo-500/5` → token-locked
-                // BLUE tints (§4 tokens; no indigo token exists).
+                // BLUE tints (§4 tokens; no indigo token exists). Scrolls
+                // with the columns (same shift) inside its clip.
                 h_flex()
                     .w_full()
                     .h(px(LINE_ROW_H))
                     .items_center()
-                    .px_2()
                     .bg(theme.blue.opacity(0.05))
                     .text_color(theme.blue.lighten(0.4).opacity(0.8))
                     .font_family(mono)
                     .text_size(px(CODE_TEXT_SIZE))
                     .overflow_hidden()
-                    .whitespace_nowrap()
-                    .child(header.clone())
+                    .child(
+                        div()
+                            .ml(shift)
+                            .px_2()
+                            .whitespace_nowrap()
+                            .child(header.clone()),
+                    )
                     .into_any_element()
             }
             RenderRow::Line { left, right } => h_flex()
                 .w_full()
                 .h(px(LINE_ROW_H))
-                .child(self.render_cell(left.as_ref(), cx))
+                .child(self.render_cell(left.as_ref(), shift, cx))
                 .child(div().w(px(1.)).h_full().flex_shrink_0().bg(theme.border))
-                .child(self.render_cell(right.as_ref(), cx))
+                .child(self.render_cell(right.as_ref(), shift, cx))
                 .into_any_element(),
         }
     }
 
-    /// One side of a line row: gutter (the anchor's line number) + code.
-    /// `None` renders the blank filler that keeps both columns aligned.
-    fn render_cell(&self, cell: Option<&RenderCell>, cx: &App) -> AnyElement {
+    /// One side of a line row: pinned gutter (the anchor's line number) + a
+    /// clipped code viewport whose inner content translates by the shared
+    /// horizontal offset (`shift` — both sides move in lockstep). `None`
+    /// renders the blank filler that keeps both columns aligned.
+    fn render_cell(&self, cell: Option<&RenderCell>, shift: Pixels, cx: &App) -> AnyElement {
         let theme = cx.theme();
         let Some(cell) = cell else {
             return div()
@@ -409,7 +507,7 @@ impl DiffView {
             .text_size(px(CODE_TEXT_SIZE))
             .child(
                 // Gutter — renders `cell.anchor.line`, so the visible number
-                // IS the write-back anchor (they cannot drift).
+                // IS the write-back anchor (they cannot drift). Pinned.
                 h_flex()
                     .w(px(GUTTER_W))
                     .h_full()
@@ -421,16 +519,25 @@ impl DiffView {
                     .child(SharedString::from(cell.anchor.line.to_string())),
             )
             .child(
+                // The clipped viewport: fixed-width inner content shifted by
+                // the shared offset.
                 div()
                     .flex_1()
                     .h_full()
                     .min_w(px(0.))
                     .overflow_hidden()
-                    .whitespace_nowrap()
-                    .px_1()
-                    .text_color(theme.foreground)
                     .child(
-                        StyledText::new(text).with_highlights(cell.highlights.iter().cloned()),
+                        div()
+                            .w(px(self.cell_text_w))
+                            .flex_shrink_0()
+                            .ml(shift)
+                            .whitespace_nowrap()
+                            .px_1()
+                            .text_color(theme.foreground)
+                            .child(
+                                StyledText::new(text)
+                                    .with_highlights(cell.highlights.iter().cloned()),
+                            ),
                     ),
             )
             .into_any_element()
@@ -468,26 +575,45 @@ impl Render for DiffView {
                 .text_color(theme.muted_foreground)
                 .child("No changed files.")
                 .into_any_element(),
-            Phase::Ready => v_flex()
-                .id("diff-view-list")
-                .relative()
-                .size_full()
-                .child(
-                    v_virtual_list(
-                        cx.entity().clone(),
-                        "diff-rows",
-                        self.sizes.clone(),
-                        |this, visible_range, _window, cx| {
-                            visible_range
-                                .map(|ix| this.render_row(ix, cx))
-                                .collect::<Vec<_>>()
-                        },
+            Phase::Ready => {
+                let h_scroll = self.h_scroll.clone();
+                let wheel_scroll = self.h_scroll.clone();
+                let prepaint_scroll = self.h_scroll.clone();
+                v_flex()
+                    .id("diff-view-list")
+                    .relative()
+                    .size_full()
+                    // Track the pane width so the shared offset clamps right.
+                    .on_prepaint(move |bounds, _, _| {
+                        prepaint_scroll.set_viewport_width(bounds.size.width);
+                    })
+                    // Horizontal wheel / shift-wheel drives the shared offset
+                    // (vertical deltas fall through to the virtual list).
+                    .on_scroll_wheel(cx.listener(move |_, event: &ScrollWheelEvent, window, cx| {
+                        let delta = event.delta.pixel_delta(window.line_height());
+                        if delta.x != px(0.) {
+                            wheel_scroll.scroll_by(delta.x);
+                            cx.notify();
+                        }
+                    }))
+                    .child(
+                        v_virtual_list(
+                            cx.entity().clone(),
+                            "diff-rows",
+                            self.sizes.clone(),
+                            |this, visible_range, _window, cx| {
+                                visible_range
+                                    .map(|ix| this.render_row(ix, cx))
+                                    .collect::<Vec<_>>()
+                            },
+                        )
+                        .track_scroll(&self.scroll)
+                        .p_2(),
                     )
-                    .track_scroll(&self.scroll)
-                    .p_2(),
-                )
-                .scrollbar(&self.scroll, ScrollbarAxis::Vertical)
-                .into_any_element(),
+                    .scrollbar(&self.scroll, ScrollbarAxis::Vertical)
+                    .scrollbar(&h_scroll, ScrollbarAxis::Horizontal)
+                    .into_any_element()
+            }
         };
         v_flex()
             .size_full()
@@ -732,6 +858,28 @@ fn build_rows_from_models(
     }
 
     (rows, summaries)
+}
+
+/// The inner content width one COLUMN needs for its longest line (hunk
+/// headers scroll inside the same clip, so they count too). Character widths
+/// are estimated (`CHAR_W`) — generous enough that nothing clips, exact
+/// enough that the scroll range stays sane.
+fn required_cell_text_width(rows: &[RenderRow]) -> f32 {
+    let mut max_chars = 0usize;
+    for row in rows {
+        match row {
+            RenderRow::Line { left, right } => {
+                for cell in [left, right].into_iter().flatten() {
+                    max_chars = max_chars.max(cell.text.chars().count());
+                }
+            }
+            RenderRow::HunkHeader { header } => {
+                max_chars = max_chars.max(header.chars().count());
+            }
+            _ => {}
+        }
+    }
+    max_chars as f32 * CHAR_W + 16.
 }
 
 fn render_cell_from(

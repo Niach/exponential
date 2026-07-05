@@ -1,4 +1,4 @@
-//! The auth screen (masterplan-v3 §4.2 "Auth" / §5.7 / EXP-5 — pixel parity
+//! The auth screen (masterplan-v3 §4.2 "Auth" / §5.7 — pixel parity
 //! with `apps/web/src/routes/auth/login.tsx` + `auth-form-shell.tsx` +
 //! `oauth-provider-buttons.tsx` at compact density).
 //!
@@ -9,7 +9,7 @@
 //!   (web `AuthFormShell`: `ExponentialLogo size=32` + text-xl semibold),
 //! - a centered `Card`: title "Sign in" + description,
 //! - the **native instance picker the web does not need** — the
-//!   **Exponential Cloud choice comes FIRST** (EXP-5: the Linux login was
+//! **Exponential Cloud choice comes FIRST** (the Linux login was
 //!   missing the leading cloud button), then Self-hosted with a base-URL
 //!   `Input`,
 //! - `OAuthProviderButtons`: the configured OIDC providers then Google
@@ -23,11 +23,11 @@
 //!
 //! OAuth opens the system browser through the `api::opener` chain (§5.7 —
 //! never a raw `xdg-open`); when the ENTIRE chain fails the URL surfaces in
-//! a **copyable row** (EXP-5: degrade to copy-paste, never a dead end). The
+//! a **copyable row** (degrade to copy-paste, never a dead end). The
 //! callback lands via `on_open_urls` → [`crate::oauth::handle_open_urls`].
 //!
 //! The workspace renders this view whenever the session machine is not
-//! `Synced` — including `AuthExpired`, the EXP-1 #13(b) dead-token routing
+//! `Synced` — including `AuthExpired`, the dead-token routing
 //! (never an empty board).
 
 use gpui::{
@@ -66,7 +66,7 @@ fn cloud_instance() -> String {
     }
 }
 
-/// Which instance the user is signing in to (cloud FIRST — EXP-5).
+/// Which instance the user is signing in to (cloud FIRST).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum InstanceChoice {
     Cloud,
@@ -87,7 +87,7 @@ pub struct LoginView {
     /// "Redirecting…"). Buttons stay enabled so an abandoned browser tab
     /// never wedges the login.
     pending_provider: Option<String>,
-    /// EXP-5 degradation: the OAuth URL to copy when the opener chain failed.
+    /// Opener degradation: the OAuth URL to copy when the opener chain failed.
     copy_url: Option<SharedString>,
     error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
@@ -233,7 +233,7 @@ impl LoginView {
         .detach();
     }
 
-    // -- OAuth (§5.7 / EXP-5) -------------------------------------------------
+    // -- OAuth (§5.7) -------------------------------------------------
 
     fn sign_in_with_google(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(instance) = self.effective_instance(cx) else {
@@ -268,7 +268,7 @@ impl LoginView {
         match crate::oauth::start(instance, url, cx) {
             Ok(()) => {}
             Err(url) => {
-                // EXP-5: the whole opener chain failed — degrade to a
+                // The whole opener chain failed — degrade to a
                 // copyable URL, never a dead end.
                 self.pending_provider = None;
                 self.copy_url = Some(url.into());
@@ -381,7 +381,7 @@ impl LoginView {
 
     // -- render pieces ----------------------------------------------------------
 
-    /// The native instance picker (§4.2): **cloud first** (EXP-5), then
+    /// The native instance picker (§4.2): **cloud first**, then
     /// self-hosted with the URL input.
     fn render_instance_picker(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let cloud = self.choice == InstanceChoice::Cloud;
@@ -389,7 +389,7 @@ impl LoginView {
             h_flex()
                 .gap_2()
                 .child(
-                    // The CLOUD button comes FIRST (EXP-5).
+                    // The CLOUD button comes FIRST.
                     Button::new("login-instance-cloud")
                         .small()
                         .flex_1()
@@ -480,7 +480,7 @@ impl LoginView {
         Some(section)
     }
 
-    /// EXP-5 degradation row: the OAuth URL with a Copy button.
+    /// Opener-degradation row: the OAuth URL with a Copy button.
     fn render_copy_url(&self, url: &SharedString, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let url_for_copy = url.clone();
         h_flex()
@@ -565,7 +565,7 @@ impl Render for LoginView {
             );
 
         if expired {
-            // The EXP-1 #13(b) surface: the dead token routed HERE, with the
+            // The dead-token surface: it routed HERE, with the
             // reason visible — not to an empty board.
             form = form.child(
                 div()
@@ -579,7 +579,7 @@ impl Render for LoginView {
             );
         }
 
-        // -- instance picker (cloud FIRST — EXP-5) ---------------------------
+        // -- instance picker (cloud FIRST) ---------------------------
         form = form.child(self.render_instance_picker(cx));
 
         // -- OAuth provider buttons (per auth-config) ------------------------
@@ -587,7 +587,7 @@ impl Render for LoginView {
             form = form.child(oauth);
         }
 
-        // -- copyable-URL degradation (EXP-5) --------------------------------
+        // -- copyable-URL degradation --------------------------------
         if let Some(error) = &self.error {
             form = form.child(
                 div()

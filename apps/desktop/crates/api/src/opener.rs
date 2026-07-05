@@ -1,6 +1,6 @@
-//! Browser-open robustness (masterplan-v3 §5.7, the EXP-5 fix). OAuth and
+//! Browser-open robustness (masterplan-v3 §5.7). OAuth and
 //! every "open in browser" go through here. On Linux a misconfigured
-//! `xdg-open` (EXP-5: it opened a *text editor* on fresh Ubuntu, hard-blocking
+//! `xdg-open` (it opened a *text editor* on fresh Ubuntu, hard-blocking
 //! login) must never block auth, so we run an explicit fallback chain:
 //! `$BROWSER` → `open::that` (xdg-open et al.) → `gio open` →
 //! `x-www-browser` → `sensible-browser` → `firefox` →
@@ -73,7 +73,7 @@ fn open_linux(url: &str) -> Result<(), OpenError> {
         ok
     };
 
-    // 1. $BROWSER — the user's explicit choice always wins (EXP-5 ordering).
+    // 1. $BROWSER — the user's explicit choice always wins.
     //    Convention: colon-separated candidates, each optionally with a %s
     //    URL placeholder.
     if let Ok(browser) = std::env::var("BROWSER") {
@@ -104,7 +104,7 @@ fn open_linux(url: &str) -> Result<(), OpenError> {
     }
     attempts.push("open::that_detached".to_string());
 
-    // 3. The explicit EXP-5 chain.
+    // 3. The explicit fallback chain.
     for (program, pre_args) in [
         ("xdg-open", &[][..]),
         ("gio", &["open"][..]),

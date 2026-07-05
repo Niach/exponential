@@ -1,5 +1,5 @@
 //! OAuth browser round-trip (masterplan-v3 §5.7, wired by the §4.2 login
-//! view — EXP-5).
+//! view).
 //!
 //! Flow: [`start`] records the pending instance URL and opens the system
 //! browser (through the `api::opener` chain — never a raw `xdg-open`) at
@@ -35,7 +35,7 @@ struct PendingOAuth {
 impl Global for PendingOAuth {}
 
 /// Open the browser for an OAuth start URL. `Err(url)` = the ENTIRE opener
-/// chain failed (EXP-5): the caller must surface the URL copyably — a broken
+/// chain failed: the caller must surface the URL copyably — a broken
 /// opener degrades to copy-paste, never a dead end.
 pub(crate) fn start(instance_url: String, start_url: String, cx: &mut App) -> Result<(), String> {
     cx.default_global::<PendingOAuth>().instance_url = Some(instance_url);

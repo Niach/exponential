@@ -46,13 +46,13 @@ use gpui_component::{
 use serde::Serialize;
 use sync::Store;
 
-use domain::rows::{Issue, Project};
+use domain::rows::Issue;
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
 use crate::issue_changes::IssueChanges;
 use crate::navigation::{navigate, Screen};
-use crate::properties_panel::{parse_hex_color, spawn_issue_update, PropertiesPanel};
+use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
 use crate::{attachments_row, comments};
@@ -132,7 +132,7 @@ pub struct IssueDetailView {
     /// Subscribe-toggle in-flight flag (web `busy`).
     subscribe_busy: bool,
     /// §7.1/§4.2 header affordance: the Start-coding button (play↔stop),
-    /// driven by live `repositories.forIssue` + doctor state (EXP-4).
+    /// driven by live `repositories.forIssue` + doctor state.
     start_coding: Entity<StartCodingControl>,
     properties: Entity<PropertiesPanel>,
     timeline: Entity<IssueTimeline>,
@@ -245,15 +245,6 @@ impl IssueDetailView {
             .issues
             .read(cx)
             .get(issue_id)
-            .cloned()
-    }
-
-    fn project(&self, issue: &Issue, cx: &App) -> Option<Project> {
-        Store::global(cx)
-            .collections()
-            .projects
-            .read(cx)
-            .get(&issue.project_id)
             .cloned()
     }
 
@@ -400,17 +391,16 @@ impl IssueDetailView {
 
     // -- header pieces -----------------------------------------------------------
 
-    /// Web breadcrumb strip: project dot+name → identifier → live title, with
-    /// subscribe + actions on the right.
+    /// The detail's slim action header. The breadcrumb trail lives in the
+    /// TOP BAR now (project picker › identifier › title) — this row keeps
+    /// only the identifier anchor left and the actions right, so there is a
+    /// single breadcrumb in the app.
     fn render_breadcrumb(
         &mut self,
         issue: &Issue,
         _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let project = self.project(issue, cx);
-        let title = self.title_input.read(cx).value().to_string();
-
         let mut row = h_flex()
             .w_full()
             .px_4()
@@ -423,36 +413,6 @@ impl IssueDetailView {
             .border_b_1()
             .border_color(cx.theme().border);
 
-        if let Some(project) = project {
-            let project_id = project.id.clone();
-            let dot_color = project
-                .color
-                .as_deref()
-                .and_then(parse_hex_color)
-                .unwrap_or(cx.theme().muted_foreground);
-            row = row
-                .child(
-                    h_flex()
-                        .id("breadcrumb-project")
-                        .gap_1p5()
-                        .items_center()
-                        .cursor_pointer()
-                        .hover(|style| style.text_color(cx.theme().foreground))
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            navigate(
-                                window,
-                                cx,
-                                Screen::Board {
-                                    project_id: project_id.clone(),
-                                },
-                            );
-                        }))
-                        .child(div().size_2p5().rounded_full().bg(dot_color))
-                        .child(SharedString::from(project.name.clone())),
-                )
-                .child(Icon::new(IconName::ChevronRight).xsmall());
-        }
-
         row = row
             .child(
                 div()
@@ -460,16 +420,7 @@ impl IssueDetailView {
                     .whitespace_nowrap()
                     .child(SharedString::from(issue.identifier.clone())),
             )
-            .child(Icon::new(IconName::ChevronRight).xsmall())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(SharedString::from(title)),
-            );
+            .child(div().flex_1().min_w_0());
 
         // Right cluster: Start-coding affordance (§7.1 — play, or
         // "Coding…"+stop while OUR session runs), coding-now pill, subscribe
@@ -668,7 +619,7 @@ impl IssueDetailView {
     ) -> impl IntoElement {
         // Borderless 2xl title (web `titleField`). px_4 = the one shared left
         // edge for the detail body (breadcrumb / tabs / title / description all
-        // align on it — EXP-8 §8.3).
+        // align on it — §8.3).
         let title = div()
             .px_4()
             .pt_3()

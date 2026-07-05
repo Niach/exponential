@@ -28,7 +28,7 @@ use crate::filter_popover::OnFiltersChange;
 use crate::icons::option_icon;
 use crate::issue_list::parse_hex_color;
 
-/// Compact pill height (web `h-6` = 24px, EXP-2f density).
+/// Compact pill height (web `h-6` = 24px, compact density).
 const PILL_HEIGHT: f32 = 20.;
 
 #[derive(IntoElement)]

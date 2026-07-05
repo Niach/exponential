@@ -1,14 +1,14 @@
-//! Create-issue dialog (masterplan-v3 §4.2 / EXP-1 #6 — layout matches
+//! Create-issue dialog (masterplan-v3 §4.2 — layout matches
 //! `apps/web/src/components/create-issue-dialog.tsx` +
 //! `issue-editor/dialog-shell.tsx` field-for-field).
 //!
-//! Structure (the web desktop branch, EXP-3 shape: pinned header/footer,
+//! Structure (the web desktop branch shape: pinned header/footer,
 //! scrollable body — never the old all-scrolling dialog):
 //!
 //! - header row: project pill (color dot + prefix) · `›` · "New issue" · ✕
 //! - borderless title `Input` (text-lg, web `border-none focus-visible:ring-0`)
 //! - the §4.5 [`crate::markdown::MarkdownEditor`] in a `flex_1` scroll region
-//!   — clipboard-image paste stages `draft://` blocks (EXP-1 #7); submit
+//!   — clipboard-image paste stages `draft://` blocks; submit
 //!   mirrors the web flow: create with the drafts **stripped**, upload each
 //!   staged image, rewrite the URLs and `issues.update` the final description
 //! - chip row: status / priority / assignee / labels / due-date (with
@@ -52,19 +52,19 @@ use crate::actions::NewIssue;
 use crate::attachments_row;
 use crate::icons::{option_icon, ExpIcon};
 use crate::markdown::{self, MarkdownEditor};
-use crate::navigation::{nav_for_window, navigate, resolved_screen, Screen};
+use crate::navigation::{active_project_id, nav_for_window, navigate, Screen};
 use crate::queries;
 
 /// Register the App-global [`NewIssue`] handler (call once from `ui::init`).
 /// The action is the §3.6 unit action the filter bar dispatches; the target
-/// project is the active window's current board (the button only renders on
-/// project boards — web `canCreate`).
+/// project is the window's active project (the top-bar picker scope — the
+/// All Issues tool window's list).
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &NewIssue, cx| {
         crate::navigation::on_active_window(cx, |window, cx| {
             let nav = nav_for_window(window, cx);
-            let Some(Screen::Board { project_id }) = resolved_screen(&nav, cx) else {
-                return; // no board in the center — nothing to create into
+            let Some(project_id) = active_project_id(&nav, cx) else {
+                return; // no project in scope — nothing to create into
             };
             open(window, cx, project_id);
         });
@@ -96,7 +96,7 @@ pub fn open(window: &mut Window, cx: &mut App, project_id: String) {
         let busy = view.read(cx).submitting;
         // Web: sm:max-w-[40rem] p-0 max-h-[85vh] — the dialog HUGS its
         // content (no fixed empty band); only past the cap does the editor
-        // region scroll, with header/chips/footer pinned (EXP-3 shape).
+        // region scroll, with header/chips/footer pinned.
         let max_height = window.viewport_size().height * 0.85;
         dialog
             .w(px(640.))
@@ -134,7 +134,7 @@ pub struct CreateIssueDialogView {
 
     title: Entity<InputState>,
     /// The §4.5 block editor in create-dialog (staging) mode: pasted images
-    /// stay `draft://` blocks until submit resolves them (EXP-1 #7).
+    /// stay `draft://` blocks until submit resolves them.
     description: Entity<MarkdownEditor>,
     status: IssueStatus,
     default_status: IssueStatus,
@@ -1129,7 +1129,7 @@ impl Render for CreateIssueDialogView {
                 ),
             )
             .child(
-                // EXP-3: only this region scrolls; header/chips/footer
+                // Only this region scrolls; header/chips/footer
                 // pinned. The 56px floor mirrors web's `.tiptap-content
                 // { min-height: 3.5rem }` so an empty dialog still shows a
                 // description area (content-hugging above that).

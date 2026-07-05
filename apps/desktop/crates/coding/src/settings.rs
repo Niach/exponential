@@ -12,7 +12,7 @@
 //! (unknown top-level keys from other subsystems are preserved), so this file
 //! can be shared with future ui/steer settings without clobbering them.
 //!
-//! **There is deliberately NO personal-API-key field here** (EXP-2a): the
+//! **There is deliberately NO personal-API-key field here**: the
 //! `expu_` key is hidden state in the api crate's file token store; settings
 //! render a status row + Regenerate, never a value (§7.2).
 

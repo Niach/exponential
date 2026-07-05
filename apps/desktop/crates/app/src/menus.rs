@@ -1,6 +1,6 @@
 //! macOS menubar (masterplan-v3 §3.6: `cx.set_menus(vec![Menu { … }])`).
 //!
-//! Phase-1 scope: app + window lifecycle. Per EXP-1 #11 the menubar is the
+//! Phase-1 scope: app + window lifecycle. By design the menubar is the
 //! *secondary* affordance — Settings et al. live in the sidebar footer
 //! dropdown; menu entries for them may be added alongside their Phase-3
 //! handlers.

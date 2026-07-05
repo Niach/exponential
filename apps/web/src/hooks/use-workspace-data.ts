@@ -223,9 +223,10 @@ export function useWorkspaceUsers(
     [users]
   )
 
-  // Drop the bot's member row too so the members list + count (EXP-7's
-  // "2 members") match the human user set. A member whose user hasn't synced
-  // yet is kept (can't be proven a bot). Skipped when includeAgents.
+  // Drop the bot's member row too so the members list + count match the human
+  // user set (no phantom "2 members" on a fresh solo workspace). A member
+  // whose user hasn't synced yet is kept (can't be proven a bot). Skipped
+  // when includeAgents.
   const filteredMembers = useMemo(() => {
     const rows = (members ?? []) as WorkspaceMember[]
     if (includeAgents || !allUsers) return rows

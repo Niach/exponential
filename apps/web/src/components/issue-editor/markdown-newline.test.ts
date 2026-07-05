@@ -48,8 +48,8 @@ function throughCreate(content: unknown) {
 describe(`markdown newline round-trip`, () => {
   // The core contract: a paragraph break (single Enter) MUST survive the
   // create path and stay a distinct paragraph on reparse — this is the
-  // "visible paragraph gap that round-trips" (EXP-5 #6). Canonical form is a
-  // single blank line, byte-identical to the Android/iOS lock
+  // "visible paragraph gap that round-trips". Canonical form is a single
+  // blank line, byte-identical to the Android/iOS lock
   // (MarkdownRoundTripTest.multipleParagraphs).
   it(`preserves a paragraph break through create → render`, () => {
     const { serialized, stored, reserialized } = throughCreate(

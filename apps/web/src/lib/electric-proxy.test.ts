@@ -8,8 +8,8 @@ describe(`proxyElectricRequest`, () => {
 
   it(`overrides upstream caching headers so shape responses are never cached`, async () => {
     // Electric snapshot responses ship long-lived public cache-control with
-    // no auth-aware vary — cached authed snapshots poisoned macOS URLCache
-    // (EXP-1 #13). The proxy must force never-cache on every response.
+    // no auth-aware vary — cached authed snapshots poisoned macOS URLCache.
+    // The proxy must force never-cache on every response.
     vi.stubGlobal(
       `fetch`,
       vi.fn().mockResolvedValue(

@@ -7,7 +7,7 @@
 //! analog of the web's navigate-to-new-slug). Plan-cap FORBIDDEN → the
 //! neutral "Upgrade on the web" notification (§4.9).
 //!
-//! Opened from the workspace picker's "Create workspace…" item (EXP-1 #1)
+//! Opened from the workspace picker's "Create workspace…" item
 //! via the [`CreateWorkspace`] action; [`init`] owns the handler.
 
 use gpui::{

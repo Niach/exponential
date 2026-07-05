@@ -27,7 +27,7 @@ use crate::session::AuthContext;
 pub struct BoardData {
     /// Ready = every shape the query reads has seen its first `up-to-date`
     /// (§4.1 `is_ready`: skeleton while false, real empty-state only when
-    /// true — the EXP-1 #13 rule).
+    /// true — the never-flash-empty rule).
     pub is_ready: bool,
     /// Whether the unfiltered scope has ANY issue (distinguishes "no issues
     /// yet" from "filters hide everything", web `hasAnyIssues`).

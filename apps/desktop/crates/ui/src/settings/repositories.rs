@@ -1,8 +1,8 @@
-//! Settings → Repositories (masterplan-v3 §4.2 + §7.9, EXP-4).
+//! Settings → Repositories (masterplan-v3 §4.2 + §7.9).
 //!
 //! Web parity: `components/workspace/repositories-section.tsx`. This pane
 //! shows the **live server truth** for GitHub connect state — never a local
-//! guess (EXP-4: the old native app falsely said "not connected"):
+//! guess (the old native app falsely said "not connected"):
 //!
 //! - the GitHub-App install banner off `integrations.github.status`
 //!   (`{configured, installed, installUrl, accounts[]}`) — "Installed as
@@ -11,7 +11,7 @@
 //!   `repositories.list` (server-only tables — read via tRPC, never synced).
 //!
 //! The GitHub-App **install** is a web-only hand-off (§7.9): the buttons
-//! open the install/manage URL in the system browser through the EXP-5
+//! open the install/manage URL in the system browser through the robust
 //! opener chain. Repo add/link/unlink/set-primary mutations are the §7
 //! IDE-track's step on top of this pane; v1 here is the read-only state
 //! surface + the browser hand-off.
@@ -229,7 +229,7 @@ impl Render for RepositoriesPane {
                 );
             }
             Load::Ready(loaded) => {
-                // GitHub-App banner: live server truth (EXP-4).
+                // GitHub-App banner: live server truth.
                 match &loaded.status {
                     Some(status) if !status.configured => {
                         body = body.child(
@@ -308,7 +308,7 @@ impl Render for RepositoriesPane {
                     None => {
                         // Status probe failed — banner is best-effort; say
                         // nothing definite rather than a false "not
-                        // connected" (EXP-4).
+                        // connected".
                         body = body.child(
                             div()
                                 .text_xs()

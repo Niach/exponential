@@ -1,5 +1,5 @@
-//! UI-side Start-coding orchestration (masterplan-v3 §7.1/§7.2/§7.7, EXP-4,
-//! EXP-2a/b) — everything between the issue-detail header's **Start coding**
+//! UI-side Start-coding orchestration (masterplan-v3 §7.1/§7.2/§7.7) —
+//! everything between the issue-detail header's **Start coding**
 //! affordance and the `coding` crate's one launch entry point.
 //!
 //! Three shared pieces live here:
@@ -20,7 +20,7 @@
 //! - [`StartCodingControl`] — the header affordance itself. Enabled iff
 //!   `repositories.forIssue` resolves non-null AND the doctor is green
 //!   (BOTH `claude` and `git`, §7.1 step 1); disabled states carry the EXACT
-//!   §7 reasons (EXP-4: never a false "not connected", never an unexplained
+//!   §7 reasons (never a false "not connected", never an unexplained
 //!   block). Click → [`launch`]: `prepare_launch` on the background executor
 //!   → `spawn_prepared_with` into THIS window's bottom terminal dock.
 //!
@@ -440,9 +440,9 @@ pub fn spawn_into_window(
 enum RepoProbe {
     Idle,
     Loading,
-    /// `Ready(None)` = no repository linked (the EXP-4 disabled state).
+    /// `Ready(None)` = no repository linked (the disabled state).
     Ready(Option<api::repositories::IssueRepository>),
-    /// Transport failure — the button stays CLICKABLE (EXP-4: a transient
+    /// Transport failure — the button stays CLICKABLE (a transient
     /// network error must never falsely block; the launch re-checks anyway).
     Error(String),
 }
@@ -495,7 +495,7 @@ impl StartCodingControl {
 
     /// Kick the `repositories.forIssue` probe when idle (render-time, like
     /// the repositories pane — a hidden control never fetches). The button is
-    /// driven by LIVE server state, never a cached local flag (EXP-4).
+    /// driven by LIVE server state, never a cached local flag.
     fn ensure_probe(&mut self, cx: &mut gpui::Context<Self>) {
         if !matches!(self.probe, RepoProbe::Idle) {
             return;
@@ -573,7 +573,7 @@ impl StartCodingControl {
                         }
                     }
                     Ok(Prepared::Disabled(reason)) => {
-                        // EXP-4: explain, never crash — exact §7 copy.
+                        // Explain, never crash — exact §7 copy.
                         window.push_notification(
                             Notification::warning(reason.message()),
                             cx,
@@ -648,7 +648,7 @@ impl StartCodingControl {
                 Some("Link a repository to this project in workspace settings.".into())
             }
             RepoProbe::Ready(Some(_)) => None,
-            // EXP-4: a probe transport error never falsely blocks — the
+            // A probe transport error never falsely blocks — the
             // launch re-resolves the repo server-side anyway.
             RepoProbe::Error(_) => None,
         }
@@ -731,7 +731,7 @@ impl Render for StartCodingControl {
             .label("Start coding");
         match disabled {
             Some(reason) => {
-                // EXP-4: the disabled state ALWAYS explains itself — the
+                // The disabled state ALWAYS explains itself — the
                 // exact §7 copy rides the tooltip; retry re-probes.
                 row = row.child(button.disabled(true).tooltip(reason));
                 if self.runtime_disabled.is_some()
@@ -751,7 +751,7 @@ impl Render for StartCodingControl {
                 }
             }
             None => {
-                // A probe transport error stays clickable (EXP-4: never
+                // A probe transport error stays clickable (never
                 // falsely block) but says so — the launch re-resolves the
                 // repo server-side and surfaces the real failure.
                 let tooltip: SharedString = match &self.probe {

@@ -1,4 +1,4 @@
-//! In-app update check (masterplan v5 §11.2, EXP-11).
+//! In-app update check (masterplan v5 §11.2).
 //!
 //! On launch the app hits the GitHub Releases API once (daily-debounced,
 //! non-blocking, offline-safe) and — when the latest published `desktop-v*`

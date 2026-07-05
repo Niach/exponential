@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 
 pub const PROMPT_FILE: &str = "PROMPT.md";
 
-/// The line the launcher types into the fresh Claude tab (§7.1 step 7).
+/// The launcher's seed instruction (§7.1 step 7) — passed to `claude` as the
+/// positional argv prompt (input written to the PTY before the TUI enters
+/// raw mode is swallowed, so the prompt must never ride stdin).
 pub const SEED_LINE: &str = "Read PROMPT.md in this directory, then follow it.";
 
 /// Render `PROMPT.md`: the §7.1 step-5 instruction paragraph verbatim, then

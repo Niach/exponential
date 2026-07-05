@@ -18,7 +18,7 @@ export function buildWhereClause(column: string, ids: string[]): string {
   // Sort so the same id SET always yields byte-identical SQL. Membership
   // queries return rows in heap order, which can flip between requests — and
   // the where clause is part of Electric's shape identity, so an order flip
-  // rotates the shape handle and 409-loops every syncing client (EXP-1 #13).
+  // rotates the shape handle and 409-loops every syncing client.
   const escapedIds = [...ids].sort().map(sqlStringLiteral).join(`,`)
   return `"${column}" IN (${escapedIds})`
 }

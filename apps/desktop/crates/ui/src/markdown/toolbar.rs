@@ -1,6 +1,6 @@
 //! The static formatting toolbar pinned above the editor (masterplan-v3
 //! §4.5: bold/italic/strike/code, H1–H3, bullet/ordered/task, quote, link,
-//! image — **no selection-bubble / floating popover**, the EXP-3 decision the
+//! image — **no selection-bubble / floating popover**, a locked decision the
 //! desktop inherits). Button layout mirrors the web `StaticToolbar`
 //! (`apps/web/src/components/issue-editor/markdown-editor.tsx`).
 //!

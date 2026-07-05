@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn keeps_the_server_default_branch_verbatim() {
-        // A `master`-default repo (the EXP-8 repro) must round-trip as `master`,
+        // A `master`-default repo must round-trip as `master`,
         // never be rewritten to `main`.
         let resolved = resolved_from_row(row(Some("master")));
         assert_eq!(resolved.default_branch.as_deref(), Some("master"));

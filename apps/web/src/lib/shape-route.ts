@@ -44,9 +44,9 @@ export function createShapeRouteHandler({
     // A request that PRESENTED token credentials but failed to resolve a
     // session (revoked api key, expired mobile session token, dead MCP token)
     // must NOT fall back to the anonymous where clause: that silently swaps
-    // the shape identity with HTTP 200 and 409-loops native sync engines
-    // (EXP-1 #13). Explicit 401 so the client re-authenticates. Requests with
-    // no token credentials at all keep the anonymous/public-only fallback.
+    // the shape identity with HTTP 200 and 409-loops native sync engines.
+    // Explicit 401 so the client re-authenticates. Requests with no token
+    // credentials at all keep the anonymous/public-only fallback.
     if (!session && (requireAuth || hasTokenCredentials(request))) {
       return new Response(`Unauthorized`, { status: 401 })
     }

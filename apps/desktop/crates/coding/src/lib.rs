@@ -3,9 +3,9 @@
 //! Phase 5 lands: git worktree creation via argv `git` (never `gh`, never a
 //! git library), the `exp/<IDENTIFIER>` branch, the token-embedded remote
 //! (never logged — [`git_worktree::TokenUrl`] redacts, git output is
-//! scrubbed), `.mcp.json` + `PROMPT.md`, the tooling doctor (EXP-2b), the
-//! coding settings (EXP-2f: repos root / branch prefix / claude path — never
-//! a manual API-key field, EXP-2a), and the
+//! scrubbed), `.mcp.json` + `PROMPT.md`, the tooling doctor, the
+//! coding settings (repos root / branch prefix / claude path — never
+//! a manual API-key field), and the
 //! `claude --dangerously-skip-permissions` spawn into the embedded terminal.
 //!
 //! ## The one entry point (§7.1)
@@ -26,7 +26,7 @@
 //! session id + PTY tee to the steer publisher (§08) — `coding` deliberately
 //! does not depend on `steer` (§3.1 dependency direction).
 //!
-//! The eight steps, their failure surfaces (`DisabledReason` — EXP-4: never
+//! The eight steps, their failure surfaces (`DisabledReason` — never
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 

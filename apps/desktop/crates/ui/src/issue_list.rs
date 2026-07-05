@@ -1,5 +1,5 @@
 //! The virtualized issue list — the §4.2/§4.6 board core (web parity target:
-//! `apps/web/src/components/issue-list.tsx` at compact density, EXP-2f).
+//! `apps/web/src/components/issue-list.tsx` at compact density).
 //!
 //! Structure: the board query (`queries::project_board` / `my_issues`, §4.1)
 //! yields status groups; groups + rows flatten into ONE row vector backing a
@@ -14,7 +14,7 @@
 //! due`, ~28px row height (web ~40px). Fixed-width flex cells express the
 //! grid template.
 //!
-//! Inline dropdowns (EXP-1 #5): priority + status are shadcn-style
+//! Inline dropdowns: priority + status are shadcn-style
 //! `DropdownMenu`s whose option rows carry the `domain` table icon + color;
 //! selecting one fires the §4.1 **un-gated** tRPC mutation (`issues.update`)
 //! on a background thread — the UI updates only via the Electric echo. The
@@ -357,7 +357,7 @@ impl Render for IssueListView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let data = self.board_data(cx);
 
-        // Base surface: EXP-1 #4 — the REAL list token (web page background),
+        // Base surface: the REAL list token (web page background),
         // never a card color.
         let base = v_flex().size_full().bg(cx.theme().colors.list);
 
@@ -463,7 +463,7 @@ impl Render for IssueListView {
 }
 
 // ---------------------------------------------------------------------------
-// Inline dropdowns (EXP-1 #5) + cells
+// Inline dropdowns + cells
 // ---------------------------------------------------------------------------
 
 /// A fixed control cell that swallows clicks so opening the control never
@@ -480,7 +480,7 @@ fn control_cell(id: ElementId) -> gpui::Stateful<gpui::Div> {
 
 /// Priority dropdown (web `PriorityDropdown`): xsmall ghost trigger with the
 /// colored priority glyph; options carry icon + label + check (right side —
-/// left-side checks would replace our icons, §4.6/EXP-1 #5).
+/// left-side checks would replace our icons, §4.6).
 fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     let config = get_issue_priority_config(issue.priority);
     let current = issue.priority;
@@ -734,7 +734,7 @@ fn build_row_context_menu(
 
     menu = menu.separator();
 
-    // Status submenu (option icons + right-side check, EXP-1 #5).
+    // Status submenu (option icons + right-side check).
     {
         let issue_id = issue.id.clone();
         let current = issue.status;
@@ -947,7 +947,7 @@ fn spawn_issue_delete(cx: &mut App, issue_id: String) {
 }
 
 /// One option row: `domain`-table icon (colored) + label + check when
-/// current (EXP-1 #5 — never an iconless native menu).
+/// current (never an iconless native menu).
 fn option_item<V: Copy + 'static>(
     option: &'static IssueOption<V>,
     checked: bool,

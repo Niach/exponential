@@ -292,20 +292,11 @@ impl FileTreeView {
         .detach();
     }
 
-    /// The active project scope (sticky): board/issue-detail resolve a project;
-    /// other screens (incl. the file viewer) return `None` so the caller keeps
-    /// the previous project.
+    /// The window's active project (screen scope with the last-board
+    /// fallback) — populated on every screen so the Files tool window never
+    /// empties on navigation.
     fn scope_project_id(&self, cx: &App) -> Option<String> {
-        match navigation::resolved_screen(&self.nav, cx)? {
-            Screen::Board { project_id } => Some(project_id),
-            Screen::IssueDetail { issue_id } => Store::global(cx)
-                .collections()
-                .issues
-                .read(cx)
-                .get(&issue_id)
-                .map(|issue| issue.project_id.clone()),
-            _ => None,
-        }
+        navigation::active_project_id(&self.nav, cx)
     }
 
     /// Render-time load gate: a new project scope resets and kicks one
@@ -558,7 +549,7 @@ impl Render for FileTreeView {
 // Row + context-menu builders (free fns — captured by the tree closures)
 // ---------------------------------------------------------------------------
 
-/// One tree row, JetBrains-style (EXP-2): a single compact line — expand
+/// One tree row, JetBrains-style: a single compact line — expand
 /// chevron (dirs only; files get an equal-width spacer so names align), then
 /// the folder/file icon, then the name — with gitignore dimming and a
 /// trailing git-status dot. `ListItem` lays its children out in a plain block

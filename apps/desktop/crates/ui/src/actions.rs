@@ -14,25 +14,25 @@ use serde::Deserialize;
 actions!(
     exp,
     [
-        /// Sidebar nav: open the My Issues view (EXP-1 #3).
+        /// Sidebar nav: open the My Issues view.
         OpenMyIssues,
-        /// Sidebar nav: open the Inbox view (EXP-1 #3).
+        /// Sidebar nav: open the Inbox view.
         OpenInbox,
-        /// Sidebar nav: open the search sheet (EXP-1 #3, ⌘K in Phase 3).
+        /// Sidebar nav: open the search sheet (⌘K in Phase 3).
         OpenSearch,
         /// Window chrome / keymap: pop the per-window back stack (§8.11 —
         /// `cmd-[` / `Alt+Left`; the back button dispatches this too).
         GoBack,
-        /// Sidebar "Projects" group header `+` (EXP-1 #2): create project.
+        /// Sidebar "Projects" group header `+`: create project.
         NewProject,
         /// Board filter bar "New Issue" (§4.2): open the create-issue dialog
         /// (handler lands with the dialog).
         NewIssue,
-        /// Sidebar footer: send feedback (EXP-1 #10).
+        /// Sidebar footer: send feedback.
         SendFeedback,
         /// Workspace picker: create a new workspace.
         CreateWorkspace,
-        /// Footer account dropdown: open settings (EXP-1 #11).
+        /// Footer account dropdown: open settings.
         OpenSettings,
         /// Footer account dropdown: open the Account screen (§4.2
         /// integrations + notification prefs).
@@ -43,8 +43,19 @@ actions!(
         JoinWorkspace,
         /// Footer account dropdown: sign out (Phase 2 auth).
         SignOut,
+        /// Open the Source Control tool + changes screen (branch chip menu,
+        /// commit button).
+        OpenSourceControl,
     ]
 );
+
+/// Top-bar branch chip menu: check out a local branch on the active
+/// project's trunk clone.
+#[derive(Clone, Action, PartialEq, Eq, Deserialize)]
+#[action(namespace = exp, no_json)]
+pub struct SwitchBranch {
+    pub branch: String,
+}
 
 /// Sidebar project row / anywhere that opens a project board (§4.2).
 #[derive(Clone, Action, PartialEq, Eq, Deserialize)]
@@ -60,7 +71,7 @@ pub struct OpenIssue {
     pub issue_id: String,
 }
 
-/// Workspace picker: switch the window's active workspace (EXP-1 #1).
+/// Workspace picker: switch the window's active workspace.
 #[derive(Clone, Action, PartialEq, Eq, Deserialize)]
 #[action(namespace = exp, no_json)]
 pub struct SwitchWorkspace {

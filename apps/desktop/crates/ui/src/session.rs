@@ -49,7 +49,7 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
     match store.connect(config, cx) {
         Ok(_) => {
             // §08 device presence: dial the steer control socket for this
-            // account (no-op when steer is disabled/unconfigured, EXP-4).
+            // account (no-op when steer is disabled/unconfigured).
             crate::steer_wiring::start_control_channel(account, cx);
             true
         }
@@ -103,8 +103,8 @@ pub fn sign_out_active(cx: &mut App) {
 ///    for headless verification: the token is validated against
 ///    `/api/auth/get-session` on a background thread, then signed in and
 ///    connected exactly like a real login. **Dev-only** — never document for
-///    users; a dead dev token lands on the login screen (the same EXP-1
-///    #13(b) routing the runtime gate checks).
+///    users; a dead dev token lands on the login screen (the same
+///    dead-token routing the runtime gate checks).
 /// 2. Otherwise resume the first persisted signed-in account (warm start —
 ///    the pipeline resumes from the persisted cursor, §5.11 gate 3).
 pub fn bootstrap(cx: &mut App) {

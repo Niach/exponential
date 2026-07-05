@@ -87,7 +87,7 @@ fn main() {
         // The AuthStore hydrates remembered accounts + tokens (0600-file
         // store); its unauthorized handler is wired into the sync manager so a
         // hard 401 deletes the dead token BEFORE the store's delta drain
-        // routes the UI to login (EXP-1 #13b).
+        // routes the UI to login.
         let data_dir = api::default_data_dir();
         let auth = api::AuthStore::load(data_dir.clone());
         let store = sync::Store::open(cx, Some(auth.unauthorized_handler_fn()));

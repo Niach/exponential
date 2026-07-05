@@ -9,12 +9,13 @@
 //!    `.mcp.json` → `PROMPT.md` → `codingSessions.start`). **Blocking
 //!    network and git I/O, gpui-free** — run it on the background executor.
 //!    Returns either a [`PreparedLaunch`] (the spawn spec for
-//!    `claude --dangerously-skip-permissions`) or a [`DisabledReason`] (EXP-4:
-//!    never falsely block, always explain — none of these are errors/panics).
+//!    `claude --dangerously-skip-permissions`) or a [`DisabledReason`] (never
+//!    falsely block, always explain — none of these are errors/panics).
 //! 2. [`spawn_prepared`] — steps 7–8 on the foreground: opens the Claude tab
-//!    through the §06 `TerminalManager` (keyed by the `coding_sessions` id),
-//!    types the seed line, and installs the one-shot exit hook that ends the
-//!    session row (idempotent server-side) when the child dies.
+//!    through the §06 `TerminalManager` (keyed by the `coding_sessions` id)
+//!    and installs the one-shot exit hook that ends the session row
+//!    (idempotent server-side) when the child dies. The seed line rides the
+//!    spawn spec as claude's positional prompt (never PTY stdin).
 //!
 //! The launcher never touches PTYs (§06 owns them) and never talks to the
 //! steer relay (§3.1: `coding` does not depend on `steer`) — the app/ui layer
@@ -159,7 +160,7 @@ pub struct CodingDeps {
 }
 
 /// §7.1's non-fatal "why Start coding can't run" set — each renders as a
-/// small inline error with a remediation link (EXP-4: never falsely block,
+/// small inline error with a remediation link (never falsely block,
 /// always explain). None of these panic and none are transport errors.
 #[derive(Clone, Debug)]
 pub enum DisabledReason {
@@ -270,7 +271,7 @@ pub enum LaunchOutcome {
 
 /// Steps 1–6 of §7.1 (blocking; run on the background executor):
 ///
-/// 0. doctor — both `claude` AND `git` must resolve (§7.7/EXP-2b: a machine
+/// 0. doctor — both `claude` AND `git` must resolve (§7.7: a machine
 ///    with git missing is blocked here, not allowed to crash at clone);
 /// 1. `repositories.forIssue` — null ⇒ [`DisabledReason::NoRepositoryLinked`];
 /// 2. `repositories.installationToken` — JIT, session-gated, never persisted;
@@ -280,7 +281,7 @@ pub enum LaunchOutcome {
 /// 5. `PROMPT.md` (plan-first seed, templated from the sync store);
 /// 6. `codingSessions.start` — BEFORE spawn; its id keys tab + steer room.
 pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    // Step 0/1a — the doctor gate (EXP-2b). Cheap relative to clone/mint and
+    // Step 0/1a — the doctor gate. Cheap relative to clone/mint and
     // structural: the relay origin has no button whose disabled state could
     // have gated this.
     let report = run_doctor(&deps.settings);
@@ -290,7 +291,7 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
         )));
     }
 
-    // Step 1 — resolve the repository (the coding-first gate; EXP-4).
+    // Step 1 — resolve the repository (the coding-first gate).
     let Some(repo) = repositories::for_issue(&deps.trpc, &req.issue_id)? else {
         return Ok(Prepared::Disabled(DisabledReason::NoRepositoryLinked));
     };
@@ -364,11 +365,15 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     // model is passed explicitly-ALWAYS (never the user's `claude` CLI default,
     // which may be a scarcer model like Fable) so coding sessions never silently
     // consume it (§7.7, locked 2026-07-03).
+    // The seed line rides argv as the positional prompt: bytes typed into
+    // the PTY before claude's TUI enters raw mode get swallowed during
+    // startup, so the prompt must never be delivered via stdin.
     let spawn = SpawnSpec::new(&deps.settings.claude_path)
         .args([
             "--model",
             deps.settings.claude_model.as_str(),
             "--dangerously-skip-permissions",
+            SEED_LINE,
         ])
         .cwd(&worktree);
 
@@ -393,8 +398,9 @@ pub type ExitNotify = Box<dyn FnOnce(&mut App) + 'static>;
 /// Steps 7–8 of §7.1 (foreground; needs `&mut App`):
 ///
 /// 7. open a Claude tab keyed by the `coding_sessions` id via the §06
-///    `TerminalManager`, then type the seed line ("Read PROMPT.md in this
-///    directory, then follow it." + Enter) through the one shared PTY writer;
+///    `TerminalManager` — the seed line ("Read PROMPT.md in this directory,
+///    then follow it.") already rides the spawn spec as claude's positional
+///    prompt (stdin written before the TUI's raw mode is swallowed);
 /// 8. install the one-shot exit hook: when the child dies,
 ///    `codingSessions.end` fires from a plain thread (idempotent server-side,
 ///    so a relay-side kill that already ended the row is safe). The tab
@@ -441,14 +447,6 @@ pub fn spawn_prepared_with(
             let tab_id = manager
                 .open_tab(TabKind::Claude, tab_title, &spawn, Some(on_exit), cx)
                 .map_err(|e| CodingError::Terminal(format!("spawn claude tab: {e}")))?;
-            // Seed line + Enter through the ONE shared writer (§6.3) — sits in
-            // the PTY buffer until claude's TUI reads it.
-            if let Some(tab) = manager.tab(tab_id) {
-                let session = tab.view.read(cx).session().clone();
-                let session = session.borrow();
-                session.write(SEED_LINE.as_bytes());
-                session.write(b"\r");
-            }
             Ok(tab_id)
         })
         .inspect_err(|_| {
@@ -627,7 +625,7 @@ mod tests {
     const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_secret123","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#;
     const START_OK: &str = r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"}}}}"#;
 
-    // ---- the disabled surfaces (EXP-4: explain, never crash) ----
+    // ---- the disabled surfaces (explain, never crash) ----
 
     #[test]
     fn doctor_failure_disables_without_any_network_call() {
@@ -769,11 +767,17 @@ mod tests {
         assert_eq!(prepared.tab_title, "claude · EXP-42");
 
         // Step 7's spawn spec: configured program, explicit --model, the skip
-        // flag, worktree cwd. Model is ALWAYS passed (§7.7).
+        // flag, the seed line as the positional prompt (never typed into the
+        // PTY), worktree cwd. Model is ALWAYS passed (§7.7).
         assert_eq!(prepared.spawn.program, "git"); // test claude_path
         assert_eq!(
             prepared.spawn.args,
-            vec!["--model", "opus", "--dangerously-skip-permissions"]
+            vec![
+                "--model",
+                "opus",
+                "--dangerously-skip-permissions",
+                "Read PROMPT.md in this directory, then follow it.",
+            ]
         );
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
 
@@ -800,7 +804,7 @@ mod tests {
         assert!(prompt.contains("`exponential_pr_open`"));
     }
 
-    // ---- EXP-2a: the hidden key auto-mints on the FIRST coding session ----
+    // ---- The hidden key auto-mints on the FIRST coding session ----
 
     const MINT_OK: &str = r#"{"result":{"data":{"key":"expu_minted_runtime","id":"key-9","name":"Device: box","start":"expu_mi","prefix":"expu_","createdAt":"2026-07-03T10:00:00.000Z"}}}"#;
 

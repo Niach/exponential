@@ -1,11 +1,14 @@
 //! The per-window Workspace — a gpui-component `DockArea` (masterplan-v3
 //! §3.3 / §3.6 / §3.10).
 //!
-//! Layout: **left dock** = the non-collapsible sidebar (EXP-1 #8, a
-//! chrome-less `DockItem::Panel` so no tab/title bar renders over it),
-//! **center** = an empty `TabPanel` area (Phase 3 fills it with issue
-//! list/detail/diff tabs), **bottom dock** = the terminal dock, collapsed by
-//! default (Phase 4 fills it with real terminal tabs).
+//! Shell layout (JetBrains new UI): a full-width **top bar** (project picker
+//! + breadcrumbs + run/git widgets) above everything, the 44px **icon rail**
+//! left of the dock area, and the dock area filling the rest. The dock
+//! area's **center** is [`CenterPanel`] — a resizable split of the tool
+//! window column (sidebar) and the screens panel — and its **bottom dock**
+//! is the terminal dock. Because the sidebar lives inside the center (not a
+//! left dock), the bottom terminal dock spans the full width right of the
+//! rail, running beneath the sidebar.
 //!
 //! Every window gets its own `Root → Workspace → DockArea`, but they all read
 //! the same global `Store` (§3.6 multi-window) — the sidebar's window counter
@@ -20,20 +23,22 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
-    div, px, AnyElement, AppContext as _, ClickEvent, Edges, Entity, IntoElement, ParentElement,
-    Pixels, Render, SharedString, Styled, Task, WeakEntity, Window,
+    div, px, AnyElement, App, AppContext as _, ClickEvent, Edges, Entity, FocusHandle, Focusable,
+    IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Task, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
-    h_flex, v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
+    dock::{DockArea, DockAreaState, DockEvent, DockItem, Panel, PanelControl, PanelEvent, PanelView},
+    h_flex,
+    resizable::{h_resizable, resizable_panel},
+    v_flex, ActiveTheme as _, Icon, IconName, Root, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
 use crate::{
-    debug_board::DebugBoardPanel, git_bar::GitBar, login::LoginView, navigation,
-    run_bar::RunBar, screens::ScreensPanel, sidebar::SidebarPanel,
-    terminal_dock::TerminalDockPanel, update::UpdateState,
+    debug_board::DebugBoardPanel, login::LoginView, navigation, screens::ScreensPanel,
+    sidebar::{RailView, SidebarPanel}, terminal_dock::TerminalDockPanel, top_bar::TopBar,
+    update::UpdateState,
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -46,12 +51,18 @@ use crate::{
 ///     TabPanel title bar) — rebuilt fresh each launch in `install_fixed_chrome`
 ///     (a persisted panel rehydrates wrapped in a TabPanel, growing the bar
 ///     back), exactly like the sidebar.
-const LAYOUT_VERSION: usize = 4;
+/// v5: the sidebar grew the JetBrains-style tool-window rail — persisted
+///     240px left docks would leave a cramped tool window next to the rail.
+/// v6: the left dock is GONE — the sidebar moved inside the center panel's
+///     resizable split so the bottom terminal dock spans beneath it; a
+///     persisted left dock would render a second, dead sidebar.
+const LAYOUT_VERSION: usize = 6;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
-/// Default sidebar width — web parity (the web sidebar column).
-const SIDEBAR_WIDTH: Pixels = px(240.);
+/// Default tool-window width inside the center split — web parity. The 44px
+/// icon rail renders OUTSIDE the dock area (`Workspace::render`).
+const SIDEBAR_WIDTH: Pixels = px(crate::sidebar::DEFAULT_DOCK_WIDTH);
 
 /// Default (closed) terminal-dock height when first opened.
 const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
@@ -62,16 +73,13 @@ const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 pub struct Workspace {
     dock_area: Entity<DockArea>,
-    /// The JetBrains-style top-right run bar (§7.5, EXP-2d/e): a strip above
-    /// the dock carrying the active project's run-config dropdown + play/stop.
-    /// It follows this window's navigation and self-hides (renders nothing)
-    /// off a project scope; it resolves this window's bottom terminal dock
-    /// through `dock_area` for the play→`TabKind::Run` launch (§7.4).
-    run_bar: Entity<RunBar>,
-    /// The trunk git bar (v4 §4.3) — branch chip, clone/sync progress,
-    /// behind/ahead counts, Pull/Push, and the amber conflict chip. Sits left
-    /// of the run bar on the same top strip; self-hides off a project scope.
-    git_bar: Entity<GitBar>,
+    /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
+    /// (so the bottom terminal dock spans everything right of it and lines
+    /// up with the rail's terminal toggle).
+    rail: Entity<RailView>,
+    /// The full-width header above rail + dock area: project picker,
+    /// breadcrumbs, run widget, git cluster.
+    top_bar: Entity<TopBar>,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
@@ -122,6 +130,7 @@ impl Workspace {
             move |_, cx| {
                 navigation::remove_window(window_id, cx);
                 crate::repo_resolver::remove_window(window_id, cx);
+                crate::sidebar::remove_window(window_id, cx);
                 shared.update(cx, |state, cx| {
                     state.windows_open = state.windows_open.saturating_sub(1);
                     cx.notify();
@@ -166,18 +175,16 @@ impl Workspace {
         })
         .detach();
 
-        // The §7.5 run bar owns a weak handle to this window's dock so its
-        // play button can resolve the bottom terminal dock and launch a
-        // `TabKind::Run` tab; built after the fixed chrome so the terminal
-        // dock already exists.
-        let run_bar = cx.new(|cx| RunBar::new(dock_area.downgrade(), window, cx));
-        // The v4 §4.3 git bar shares the top strip, left of the run bar.
-        let git_bar = cx.new(|cx| GitBar::new(window, cx));
+        // The rail and top bar live OUTSIDE the dock area; the top bar's run
+        // widget drives launches through this weak handle. Built after the
+        // fixed chrome so the dock already exists.
+        let rail = cx.new(|cx| RailView::new(window, cx));
+        let top_bar = cx.new(|cx| TopBar::new(dock_area.downgrade(), window, cx));
 
         Self {
             dock_area,
-            run_bar,
-            git_bar,
+            rail,
+            top_bar,
             login,
             ordinal,
             last_saved: None,
@@ -219,53 +226,37 @@ impl Workspace {
     /// (Re)install the fixed chrome on BOTH the restore and default paths:
     ///
     /// - The **center** is always rebuilt fresh as a chrome-less
-    ///   `DockItem::Panel` holding the screens panel — a `DockItem::Tabs` would
-    ///   grow the redundant "Workspace" `TabPanel` title bar (+ zoom control),
-    ///   and a persisted panel rehydrates wrapped in a `TabPanel` all the same,
-    ///   so we never restore the center from disk (same rule as the sidebar).
-    ///   `EXP_DEV_BOARD=1` keeps a tab strip so the second (debug-board) tab
-    ///   stays reachable.
-    /// - The **sidebar** is always rebuilt fresh as a chrome-less
-    ///   `DockItem::Panel` — the serialized form would rehydrate wrapped in a
-    ///   `TabPanel` (growing a title bar), and the sidebar carries no inner
-    ///   state worth restoring; only the persisted dock **width** is kept.
+    ///   `DockItem::Panel` holding [`CenterPanel`] (the sidebar/screens
+    ///   resizable split) — a `DockItem::Tabs` would grow the redundant
+    ///   "Workspace" `TabPanel` title bar (+ zoom control), and a persisted
+    ///   panel rehydrates wrapped in a `TabPanel` all the same, so we never
+    ///   restore the center from disk. `EXP_DEV_BOARD=1` keeps a tab strip so
+    ///   the second (debug-board) tab stays reachable.
+    /// - There is deliberately **no left dock** (v6): the sidebar lives
+    ///   inside the center split so the bottom terminal dock spans beneath it.
     /// - The **bottom terminal dock** is added if the restored state lacked
     ///   it; its open/closed state and height persist across restarts.
-    /// - Collapsibility (EXP-1 #8): left dock NOT collapsible (which also
-    ///   forces it open), bottom dock collapsible (the terminal toggle).
+    /// - Collapsibility: bottom dock collapsible (the terminal toggle).
     fn install_fixed_chrome(
         dock_area: &Entity<DockArea>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let saved_width = dock_area
-            .read(cx)
-            .left_dock()
-            .map(|dock| dock.read(cx).size());
-        let sidebar: Arc<dyn PanelView> =
-            Arc::new(cx.new(|cx| SidebarPanel::new(window, cx)));
         let weak: WeakEntity<DockArea> = dock_area.downgrade();
 
         // Fresh chrome-less center (see the doc note): a single `DockItem::Panel`
         // renders raw (no title bar); the dev-board escape hatch keeps tabs.
-        let screens: Arc<dyn PanelView> = Arc::new(cx.new(|cx| ScreensPanel::new(window, cx)));
+        let center_panel: Arc<dyn PanelView> =
+            Arc::new(cx.new(|cx| CenterPanel::new(window, cx)));
         let center = if std::env::var("EXP_DEV_BOARD").as_deref() == Ok("1") {
             let debug: Arc<dyn PanelView> = Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx)));
-            DockItem::tabs(vec![screens, debug], &weak, window, cx)
+            DockItem::tabs(vec![center_panel, debug], &weak, window, cx)
         } else {
-            DockItem::panel(screens)
+            DockItem::panel(center_panel)
         };
 
         dock_area.update(cx, |dock_area, cx| {
             dock_area.set_center(center, window, cx);
-
-            dock_area.set_left_dock(
-                DockItem::panel(sidebar),
-                Some(saved_width.unwrap_or(SIDEBAR_WIDTH)),
-                true,
-                window,
-                cx,
-            );
 
             if dock_area.bottom_dock().is_none() {
                 let terminal: Arc<dyn PanelView> =
@@ -335,32 +326,41 @@ impl Render for Workspace {
         }
 
         // The §5 session switch: anything but `Synced` renders the login
-        // surface — including `AuthExpired`, the EXP-1 #13(b) dead-token
+        // surface — including `AuthExpired`, the dead-token
         // routing (login screen, never an empty board).
         let session = Store::global(cx).session(cx);
+        // Synced shell = full-width top bar above everything, then rail +
+        // dock area — the bottom terminal dock spans the full width right of
+        // the rail (beneath the sidebar, which lives inside the center split).
         let content: gpui::AnyElement = match session {
-            // §7.5: the run bar rides a compact top strip above the dock (it
-            // renders nothing off a project scope, so non-project screens keep
-            // the full height); the dock fills the rest.
+            // `.h_full()` on the dock wrapper is load-bearing: without a
+            // definite height the dock area collapses (same flex-child rule
+            // as the source-control diff pane).
             SessionPhase::Synced { .. } => v_flex()
                 .size_full()
-                // §4.3: one top strip — git bar (left) + run bar (right). The
-                // strip owns the chrome (constant height, border, title-bar bg)
-                // so navigation off a project scope never shifts the layout;
-                // both children render inner content and self-hide.
+                // The explicit w_full wrapper pins the bar to the window
+                // width — an entity child alone can end up content-sized
+                // (the same flex-child rule as the dock wrapper below).
+                .child(
+                    div()
+                        .w_full()
+                        .flex_shrink_0()
+                        .child(self.top_bar.clone()),
+                )
                 .child(
                     h_flex()
-                        .h(px(30.))
-                        .flex_shrink_0()
-                        .items_center()
-                        .border_b_1()
-                        .border_color(cx.theme().border)
-                        .bg(cx.theme().title_bar)
-                        .child(self.git_bar.clone())
-                        .child(div().flex_1())
-                        .child(self.run_bar.clone()),
+                        .w_full()
+                        .flex_1()
+                        .min_h_0()
+                        .child(self.rail.clone())
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .child(self.dock_area.clone()),
+                        ),
                 )
-                .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
                 .into_any_element(),
             _ => self.login.clone().into_any_element(),
         };
@@ -446,6 +446,78 @@ impl Workspace {
                         })),
                 )
                 .into_any_element(),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CenterPanel — sidebar + screens as a resizable split
+// ---------------------------------------------------------------------------
+
+/// The dock area's center: the tool-window column (sidebar) and the screens
+/// panel in a draggable horizontal split. Lives INSIDE the dock area so the
+/// bottom terminal dock spans beneath both. Implements [`Panel`] because
+/// everything docked must (§3.3), but renders chrome-less via
+/// `DockItem::Panel`; it is rebuilt fresh each launch, never restored.
+pub struct CenterPanel {
+    focus_handle: FocusHandle,
+    sidebar: Entity<SidebarPanel>,
+    screens: Entity<ScreensPanel>,
+}
+
+/// Stable serialization name (§3.3) — present in dumps even though the center
+/// is always rebuilt fresh.
+pub(crate) const CENTER_PANEL_NAME: &str = "Center";
+
+impl CenterPanel {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self {
+            focus_handle: cx.focus_handle(),
+            sidebar: cx.new(|cx| SidebarPanel::new(window, cx)),
+            screens: cx.new(|cx| ScreensPanel::new(window, cx)),
+        }
+    }
+}
+
+impl Panel for CenterPanel {
+    fn panel_name(&self) -> &'static str {
+        CENTER_PANEL_NAME
+    }
+
+    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        "Workspace"
+    }
+
+    /// The split IS the center — closing it would leave an empty center
+    /// baked into the persisted layout.
+    fn closable(&self, _cx: &App) -> bool {
+        false
+    }
+
+    fn zoomable(&self, _cx: &App) -> Option<PanelControl> {
+        None
+    }
+}
+
+impl gpui::EventEmitter<PanelEvent> for CenterPanel {}
+
+impl Focusable for CenterPanel {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for CenterPanel {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        div().size_full().child(
+            h_resizable("center-split")
+                .child(
+                    resizable_panel()
+                        .size(SIDEBAR_WIDTH)
+                        .size_range(px(180.)..px(520.))
+                        .child(self.sidebar.clone()),
+                )
+                .child(resizable_panel().child(self.screens.clone())),
         )
     }
 }

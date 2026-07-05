@@ -20,7 +20,7 @@ import {
   sanitizeRunConfigEnv,
 } from "@/lib/run-configs"
 
-// Per-project terminal run commands (EXP-2). tRPC-only — NOT an Electric
+// Per-project terminal run commands. tRPC-only — NOT an Electric
 // shape: the desktops fetch on demand and gate execution behind the
 // per-device Trust & Run commandSetHash prompt (DB-stored argv run locally
 // reverses the never-execute-synced-values invariant, so the trust prompt is

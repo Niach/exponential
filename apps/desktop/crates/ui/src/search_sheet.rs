@@ -14,7 +14,7 @@
 //! Combobox uses), so keyboard nav is first-class, not bolted on.
 //!
 //! [`init`] registers the App-global [`OpenSearch`] handler (the sidebar's
-//! Search row dispatches it) and the global ⌘K / Ctrl-K binding (EXP-1 #3).
+//! Search row dispatches it) and the global ⌘K / Ctrl-K binding.
 
 use gpui::{
     div, px, App, AppContext as _, IntoElement, KeyBinding, ParentElement, SharedString, Styled,

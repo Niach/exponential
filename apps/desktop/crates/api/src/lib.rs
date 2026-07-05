@@ -16,8 +16,8 @@
 //! - [`accounts`] — the signed-in account set + in-memory tokens, the
 //!   call-time [`TokenProvider`] impls the sync engine consumes, and the
 //!   401→reauth signal surface ([`accounts::AuthEvent::Unauthorized`],
-//!   EXP-1 #13(b): a dead token routes to login, never an empty board).
-//! - [`opener`] — browser-open with the EXP-5 Linux fallback chain (a broken
+//!   a dead token routes to login, never an empty board).
+//! - [`opener`] — browser-open with the Linux fallback chain (a broken
 //!   `xdg-open` degrades to a copyable URL, never a dead end).
 //! - [`trpc`] — the tRPC-over-HTTP client. The server runs
 //!   `initTRPC.context().create()` with **no transformer** (verified against
@@ -27,7 +27,7 @@
 //!   success decodes the `{"result":{"data":…}}` envelope (the proven iOS
 //!   `TrpcClient.swift` mirror).
 //! - [`users`] — typed helpers for `users.mintPersonalApiKey` /
-//!   `listPersonalApiKeys` / `revokePersonalApiKey`, plus the EXP-2a hidden
+//!   `listPersonalApiKeys` / `revokePersonalApiKey`, plus the hidden
 //!   auto-minted `expu_` personal key (mint silently on first need, file store
 //!   storage, mint-new-then-revoke-old regenerate — never a UI text field).
 //! - [`repositories`] / [`coding_sessions`] / [`run_configs`] — the Phase-5
@@ -98,7 +98,7 @@ use std::path::PathBuf;
 pub trait TokenProvider: Send + Sync {
     /// The current session token for the bound account, or `None` when signed
     /// out (callers must then skip/park the request, never degrade to an
-    /// anonymous credential — EXP-1 #13(b)).
+    /// anonymous credential).
     fn token(&self) -> Option<String>;
 }
 

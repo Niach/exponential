@@ -9,7 +9,7 @@
 //! request).
 //!
 //! This module is also the **401→reauth signal surface** the sync engine
-//! consumes (EXP-1 #13(b)): when any shape thread or tRPC call gets a hard
+//! consumes: when any shape thread or tRPC call gets a hard
 //! 401, the pipeline owner calls [`AuthStore::handle_unauthorized`], which
 //! deletes the stored session token and emits
 //! [`AuthEvent::Unauthorized`] — the app shell drains [`AuthStore::events`]
@@ -81,7 +81,7 @@ pub enum AuthEvent {
     SignedIn { account_id: String },
     /// User-initiated sign-out; threads stop, SQLite stays on disk.
     SignedOut { account_id: String },
-    /// EXP-1 #13(b): the session token was rejected (hard 401). The token is
+    /// The session token was rejected (hard 401). The token is
     /// already deleted; the UI must route this account to the login screen.
     Unauthorized { account_id: String },
 }
@@ -179,7 +179,7 @@ impl AuthStore {
         self.state.read().unwrap().tokens.get(account_id).cloned()
     }
 
-    /// The shared secret store (the coding launcher reads the EXP-2a personal
+    /// The shared secret store (the coding launcher reads the personal
     /// key through this — see [`crate::users`]).
     pub fn token_store(&self) -> &TokenStore {
         &self.token_store
@@ -298,7 +298,7 @@ impl AuthStore {
         }
     }
 
-    /// EXP-1 #13(b) — the hard-401 path (§5.6b, §5.7): delete the stored
+    /// The hard-401 path (§5.6b, §5.7): delete the stored
     /// session token, clear the in-memory mirror, emit
     /// [`AuthEvent::Unauthorized`] exactly once (14 shape threads may all
     /// 401 at the same instant; only the first caller finds a token to
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn handle_unauthorized_clears_token_and_emits_once() {
-        // EXP-1 #13(b): dead token → token gone + ONE Unauthorized event,
+        // Dead token → token gone + ONE Unauthorized event,
         // even when all 14 shape threads report simultaneously.
         let dir = TempDir::new("unauth");
         let store = test_store(&dir);

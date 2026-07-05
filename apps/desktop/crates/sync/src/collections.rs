@@ -19,7 +19,7 @@
 //!
 //! The [`Store`] also owns the §5 **session state machine**:
 //! `SignedOut → SigningIn → Synced / AuthExpired`. `AuthExpired` is the
-//! EXP-1 #13(b) gate: a dead token ROUTES TO LOGIN — the workspace renders
+//! hard-401 gate: a dead token ROUTES TO LOGIN — the workspace renders
 //! the login surface, never an empty board. Manager start/stop is wired to
 //! the same transitions ([`Store::connect`] / [`Store::sign_out`] /
 //! the drain's `Unauthorized` handling).
@@ -42,7 +42,7 @@ use domain::rows::{
 };
 
 // ---------------------------------------------------------------------------
-// Session state machine (§5 / EXP-1 #13b)
+// Session state machine (§5)
 // ---------------------------------------------------------------------------
 
 /// The app-level auth/sync session phase. Views branch the whole window on
@@ -57,7 +57,7 @@ pub enum SessionPhase {
     /// live. (Multi-account UI is Phase-3 territory; the engine underneath is
     /// already multi-account.)
     Synced { account_id: String },
-    /// EXP-1 #13(b): the session token was rejected mid-run. The pipeline is
+    /// The session token was rejected mid-run. The pipeline is
     /// down and the token deleted — ROUTE TO LOGIN, never an empty board.
     AuthExpired { account_id: String },
 }
@@ -210,7 +210,7 @@ impl<T> Collection<T> {
 
     /// §4.1 `is_ready`: the shape has caught up to its first `up-to-date` —
     /// an empty collection before this is "still syncing", never "no data"
-    /// (the EXP-1 #13 empty-snapshot-as-empty-state trap).
+    /// (the empty-snapshot-as-empty-state trap).
     pub fn is_ready(&self) -> bool {
         matches!(self.phase, ShapeSyncPhase::Live | ShapeSyncPhase::Refetching)
     }
@@ -742,7 +742,7 @@ impl Store {
                 // §5.6b: the pipeline tore itself down and the token is
                 // already deleted (the on_unauthorized hook ran on the shape
                 // thread). Sweep the dead pipeline entry and ROUTE TO LOGIN —
-                // never an empty board (EXP-1 #13b, the Phase-2 gate bullet).
+                // never an empty board (the Phase-2 gate bullet).
                 //
                 // Only the ACTIVE account's 401 flips the session. A pipeline
                 // can only be running for an account that already went through

@@ -11,7 +11,7 @@
 //!
 //! Entries are **per account** (an account = server URL + user, see
 //! [`crate::accounts`]) and **per kind** — the Better Auth session token and
-//! the hidden EXP-2a `expu_` personal key are separate named entries and must
+//! the hidden `expu_` personal key are separate named entries and must
 //! never be confused (§5.7).
 
 use std::fs;
@@ -28,7 +28,7 @@ pub enum SecretKind {
     /// The Better Auth session token — the `Authorization: Bearer` for every
     /// shape + tRPC request. Deleted on 401 (§5.6b).
     SessionToken,
-    /// The hidden auto-minted `expu_` personal API key (EXP-2a) — used ONLY
+    /// The hidden auto-minted `expu_` personal API key — used ONLY
     /// inside the coding launcher's `.mcp.json`, never as a sync/tRPC
     /// credential.
     PersonalApiKey,

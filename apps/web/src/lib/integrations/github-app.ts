@@ -122,7 +122,7 @@ export async function resolveRepoInstallationToken(
 // (e.g. a row seeded `main` for a `master` repo).
 // NOTE: must authenticate with an **installation token**, not the App JWT —
 // GitHub only accepts the JWT on app-management endpoints, so a JWT-authed
-// `GET /repos/{repo}` always 401s and the heal silently no-ops (EXP-2).
+// `GET /repos/{repo}` always 401s and the heal silently no-ops.
 export async function resolveRepoDefaultBranch(
   repo: string
 ): Promise<string | null> {

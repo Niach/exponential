@@ -13,7 +13,7 @@
 //!   deep-link parser (PRIMARY; token in the URL *fragment*) and the
 //!   `127.0.0.1` loopback listener (FALLBACK; token as `?token=` query).
 //!
-//! The login *view* (cloud button first, EXP-5 ordering) is §4/Phase-3 UI
+//! The login *view* (cloud button first) is §4/Phase-3 UI
 //! territory; this module owns only the mechanics.
 
 use serde::Deserialize;

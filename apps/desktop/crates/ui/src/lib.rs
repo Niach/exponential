@@ -9,7 +9,7 @@
 //! Dependency rule (§3.1): lower crates never depend on `ui` (no back-edges).
 //!
 //! Phase-3 state: the §4 app shell — [`Workspace`] (the `DockArea`) with the
-//! non-collapsible [`sidebar`] in the left dock (EXP-1 #8, live workspace
+//! non-collapsible [`sidebar`] in the left dock (live workspace
 //! picker + nav rows + project rows), the [`screens`] panel in the center
 //! (per-window [`navigation`] routing: board / issue detail / my-issues /
 //! inbox / settings / account — §4.2), the virtualized [`issue_list`] core
@@ -45,7 +45,6 @@ mod join_workspace;
 mod login;
 pub mod markdown;
 mod mention_input;
-mod my_issues;
 mod navigation;
 mod oauth;
 mod properties_panel;
@@ -61,6 +60,7 @@ mod source_control;
 pub mod steer_wiring;
 mod terminal_dock;
 mod timeline;
+mod top_bar;
 mod update;
 mod workspace;
 
@@ -95,7 +95,7 @@ pub fn init(cx: &mut App) {
     // §4.2 accept-invite fallback: "Join workspace…" in the footer account
     // menu (the exp://invite/<token> deep link routes through oauth.rs).
     join_workspace::init(cx);
-    // EXP-1 #10: the sidebar Feedback item opens the public feedback project
+    // The sidebar Feedback item opens the public feedback project
     // in the system browser (the §4.8 browser-path decision; the embedded JS
     // widget is an explicit desktop non-goal for v1). `/feedback` redirects
     // server-side to the current feedback project.
@@ -113,8 +113,8 @@ pub fn init(cx: &mut App) {
             })
             .detach();
     });
-    register_panel(cx, sidebar::PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| sidebar::SidebarPanel::new(window, cx)))
+    register_panel(cx, workspace::CENTER_PANEL_NAME, |_, _, _, window, cx| {
+        Box::new(cx.new(|cx| workspace::CenterPanel::new(window, cx)))
     });
     register_panel(cx, screens::PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| screens::ScreensPanel::new(window, cx)))

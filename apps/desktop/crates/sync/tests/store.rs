@@ -255,7 +255,7 @@ fn refetch_marker_keeps_stale_rows_readable() {
     // 409 arrives with a replacement handle: mark, do NOT delete.
     store.mark_needs_refetch("issues", Some("h-2")).unwrap();
 
-    // Stale rows remain readable the whole time (the EXP-1 #13 symptom was
+    // Stale rows remain readable the whole time (the vanished-issues symptom was
     // exactly this window flashing empty).
     assert_eq!(store.count(issues()).unwrap(), 2);
     let st = store.shape_state("issues").unwrap().unwrap();

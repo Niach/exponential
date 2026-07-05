@@ -9,7 +9,7 @@
 //! FORBIDDEN surfaces as the neutral "Upgrade on the web" notification
 //! (§4.9) — never an in-app purchase UI.
 //!
-//! Opened by the sidebar's Projects `+` (EXP-1 #2) via the [`NewProject`]
+//! Opened by the sidebar's Projects `+` via the [`NewProject`]
 //! action; [`init`] owns the handler.
 
 use gpui::{
@@ -29,7 +29,7 @@ use sync::Store;
 
 use crate::actions::NewProject;
 use crate::create_issue_dialog::parse_hex_color;
-use crate::navigation::{active_workspace_id, nav_for_window, navigate, Screen};
+use crate::navigation::{active_workspace_id, nav_for_window};
 use crate::queries;
 
 /// Web `LABEL_COLORS` (`lib/label-colors.ts`) — the swatch palette shared by
@@ -250,7 +250,14 @@ impl CreateProjectDialogView {
                     }
                     let _ = this.update_in(window, |_, window, cx| {
                         window.close_dialog(cx);
-                        navigate(window, cx, Screen::Board { project_id });
+                        // Scope the window to the new project and surface its
+                        // (empty) issue list in the sidebar.
+                        crate::navigation::set_active_project(window, cx, project_id);
+                        crate::sidebar::activate_tool(
+                            window,
+                            cx,
+                            crate::sidebar::ToolWindow::AllIssues,
+                        );
                     });
                 }
                 Err(err) => {

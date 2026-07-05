@@ -6,7 +6,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum ApiError {
     /// The server rejected the presented **bearer credential** (HTTP 401) on
-    /// an authenticated endpoint. EXP-1 #13(b): terminal for that account's
+    /// an authenticated endpoint — terminal for that account's
     /// pipeline — clear the stored token ([`crate::AuthStore::handle_unauthorized`]),
     /// tear down, route to login. Never retry anonymously.
     ///
@@ -85,7 +85,7 @@ pub(crate) fn http_error(status: u16, body: &str) -> ApiError {
 }
 
 /// Map a `ureq` error on an **authenticated** request: 401 →
-/// [`ApiError::Unauthorized`] (the EXP-1 #13(b) signal), other statuses →
+/// [`ApiError::Unauthorized`] (the reauth signal), other statuses →
 /// [`ApiError::Http`], transport failures → [`ApiError::Transport`].
 pub(crate) fn from_ureq_authed(err: ureq::Error) -> ApiError {
     match err {

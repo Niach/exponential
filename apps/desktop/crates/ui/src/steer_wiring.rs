@@ -26,7 +26,7 @@
 //!    remote input inject, `Terminal::term()` for TRUE geometry), attaches the
 //!    [`steer::PublisherSink`] to the read-loop, and registers the session for
 //!    the kill-switch. Best-effort: a disabled/unreachable relay is a no-op
-//!    (EXP-4 — the session runs fine locally with no remote mirror).
+//! (the session runs fine locally with no remote mirror).
 //!
 //! 3. **Kill-switch — the own-row Electric watch (§8.8).** Every published
 //!    session is registered with the [`sync::KillWatch`]; when its
@@ -151,7 +151,7 @@ impl ControlChannels {
 /// Dial the device-presence control socket for `account` (§8.3). Called from
 /// `session::connect_account` on every sign-in / warm-start. A no-op when the
 /// steer runtime failed to init; the channel itself no-ops when `steer.config`
-/// reports the relay disabled (EXP-4 — an unconfigured instance is silent).
+/// reports the relay disabled (an unconfigured instance is silent).
 pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let Some(runtime) = runtime(cx) else {
         return;
@@ -316,7 +316,7 @@ enum SteerUiEvent {
 /// Attach a steer publisher to a freshly launched coding session (§8.4). The
 /// single call `coding_flow::spawn_into_window` makes on `LaunchOutcome::
 /// Spawned`. Best-effort and non-blocking: a disabled/unreachable relay ends
-/// the publisher task quietly and the session keeps running locally (EXP-4).
+/// the publisher task quietly and the session keeps running locally.
 pub fn attach_publisher(
     session_id: &str,
     issue_id: &str,

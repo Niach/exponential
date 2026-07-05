@@ -127,7 +127,7 @@ impl SeamEditor {
             let cell = current.clone();
             editor.set_on_commit(move |markdown, window, cx| {
                 // Structural edits (image insert/remove) persist immediately —
-                // there is no blur to ride on (masterplan §8.2 / EXP-8). Keep
+                // there is no blur to ride on (masterplan §8.2). Keep
                 // the mirror current, then save through the same path.
                 *cell.borrow_mut() = markdown.to_string();
                 on_save(markdown.to_string(), window, cx);

@@ -1,4 +1,4 @@
-//! Run-config → terminal glue (masterplan-v3 §7.4/§7.5, EXP-2d/e) — the
+//! Run-config → terminal glue (masterplan-v3 §7.4/§7.5) — the
 //! gpui-free core the run bar drives.
 //!
 //! §7.4's contract: the `coding`/`ui` layer never touches PTYs; a launch

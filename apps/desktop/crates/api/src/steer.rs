@@ -4,7 +4,7 @@
 //!
 //! - `steer.config` — **query**, no input → `{enabled, relayUrl}`. Clients
 //!   poll this before dialing anything; `enabled: false` is a normal state,
-//!   never an error (EXP-4 — an unconfigured instance generates no noise).
+//!   never an error (an unconfigured instance generates no noise).
 //! - `steer.mintTicket` — **mutation**, discriminated on `kind`
 //!   (`control` / `publisher` / `viewer`) → `{disabled: true}` or
 //!   `{ticket, url}` where `url` is the FULL ws(s) dial URL with

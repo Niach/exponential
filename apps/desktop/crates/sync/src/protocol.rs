@@ -12,7 +12,7 @@
 //! Load-bearing rule (§5.2): the client sends ONLY `offset`, `handle`, `live`
 //! and (belt-and-suspenders) `cursor`. It NEVER sends `where` or `columns` —
 //! the server proxies pin both (`createShapeRouteHandler`), which is how we
-//! inherit the sorted-where shape-identity fix (EXP-1 #13d) and the
+//! inherit the sorted-where shape-identity fix and the
 //! `issue_subscribers` email-PII exclusion for free.
 
 use serde_json::{Map, Value};

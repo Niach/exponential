@@ -1,4 +1,4 @@
-//! The bottom terminal dock (masterplan-v3 §6.13 / §7.5, EXP-2e) — the
+//! The bottom terminal dock (masterplan-v3 §6.13 / §7.5) — the
 //! JetBrains-style multi-tab terminal panel.
 //!
 //! One [`TerminalDockPanel`] per window lives inside the bottom `Dock`'s
@@ -43,11 +43,10 @@ use gpui_component::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use sync::Store;
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
 
 use crate::coding_flow::CodingHub;
-use crate::navigation::{self, Screen};
+use crate::navigation;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 
 /// Stable serialization name for the panel registry (§3.3: never change it).
@@ -125,6 +124,9 @@ pub struct TerminalDockPanel {
     focus_handle: FocusHandle,
     manager: Entity<TerminalManager>,
     dock_area: WeakEntity<DockArea>,
+    /// Debounces the expanded-and-empty auto-shell (one deferred spawn per
+    /// render burst).
+    spawn_queued: bool,
     _subscription: Subscription,
     /// Repaints the §8.5 "Remote steering" banner when a `presence` frame
     /// changes the steerer. `None` when steer isn't installed (headless tests).
@@ -244,6 +246,7 @@ impl TerminalDockPanel {
             focus_handle: cx.focus_handle(),
             manager,
             dock_area,
+            spawn_queued: false,
             _subscription: subscription,
             _steer_subscription: steer_subscription,
         }
@@ -252,7 +255,7 @@ impl TerminalDockPanel {
     /// Whether the bottom dock is collapsed to its 29px strip. A chrome-less
     /// `DockItem::Panel` keeps rendering its full content inside that strip
     /// (the Dock only shrinks the container), so the panel must render the
-    /// compact strip itself when collapsed (EXP-2 "bottom bar cut off").
+    /// compact strip itself when collapsed ("bottom bar cut off").
     fn dock_collapsed(&self, cx: &App) -> bool {
         self.dock_area
             .upgrade()
@@ -341,24 +344,17 @@ impl TerminalDockPanel {
     }
 
     /// The sync-resolvable inputs for the `+` shell cwd: the shared window repo
-    /// resolver, the active project's id, and the coding settings (repos root).
-    /// `None` off a project screen — the caller then opens the shell at `$HOME`.
+    /// resolver, the window's active project (screen scope with the
+    /// last-board fallback), and the coding settings (repos root). `None`
+    /// with no resolvable project — the caller then opens the shell at
+    /// `$HOME`.
     fn shell_scope(
         &self,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<(Entity<RepoResolver>, String, coding::Settings)> {
         let nav = navigation::nav_for_window(window, cx);
-        let project_id = match navigation::resolved_screen(&nav, cx)? {
-            Screen::Board { project_id } => project_id,
-            Screen::IssueDetail { issue_id } => Store::global(cx)
-                .collections()
-                .issues
-                .read(cx)
-                .get(&issue_id)
-                .map(|issue| issue.project_id.clone())?,
-            _ => return None,
-        };
+        let project_id = navigation::active_project_id(&nav, cx)?;
         let resolver = repo_resolver_for_window(window, cx);
         let settings = CodingHub::global(cx).read(cx).settings.clone();
         Some((resolver, project_id, settings))
@@ -406,7 +402,7 @@ impl TerminalDockPanel {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         TabBar::new("terminal-tabs")
-            .with_size(Size::Small) // compact density (EXP-2f)
+            .with_size(Size::Small) // compact density
             .selected_index(active_ix)
             .on_click(cx.listener(|this, ix: &usize, window, cx| {
                 this.manager.update(cx, |manager, cx| manager.activate(*ix, cx));
@@ -475,7 +471,7 @@ impl TerminalDockPanel {
             )
     }
 
-    /// The collapsed-dock strip (EXP-2): the bottom dock keeps a 29px band
+    /// The collapsed-dock strip: the bottom dock keeps a 29px band
     /// when closed, and a chrome-less panel renders its full content clipped
     /// into it — instead render this compact one-line strip. Clicking it (or
     /// the chevron) re-opens the dock.
@@ -504,7 +500,11 @@ impl TerminalDockPanel {
             .cursor_pointer()
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.expand_dock(window, cx);
-                this.focus_active_terminal(window, cx);
+                // Zero sessions: the expanded render auto-spawns a shell —
+                // there is deliberately no empty state.
+                if !this.manager.read(cx).is_empty() {
+                    this.focus_active_terminal(window, cx);
+                }
             }))
             .child(Icon::new(IconName::SquareTerminal).xsmall())
             .child(div().text_xs().child(label))
@@ -579,35 +579,6 @@ impl TerminalDockPanel {
             )))
     }
 
-    fn render_empty(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // The whole empty area is a click target that starts a shell (§8.8a) —
-        // the button below is a redundant affordance and stops propagation so a
-        // single spawn happens on either.
-        v_flex()
-            .id("terminal-empty")
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_2()
-            .cursor_pointer()
-            .text_color(cx.theme().muted_foreground)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.new_shell_tab(window, cx);
-            }))
-            .child(Icon::new(IconName::SquareTerminal))
-            .child(div().text_sm().child("No terminal sessions"))
-            .child(
-                Button::new("empty-new-terminal-tab")
-                    .outline()
-                    .small()
-                    .icon(IconName::Plus)
-                    .label("New shell")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.new_shell_tab(window, cx);
-                    })),
-            )
-    }
 }
 
 /// Per-tab render snapshot (cloned out so the manager borrow ends before the
@@ -641,7 +612,7 @@ impl Panel for TerminalDockPanel {
     /// click on the outer `TabPanel` / dock re-open). Always notify: the Dock
     /// caches this panel's element, and collapse/expand arrives here (via
     /// `DockItem::set_collapsed`) — without the notify the collapsed strip /
-    /// full content swap (EXP-2) would not repaint.
+    /// full content swap would not repaint.
     fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if active {
             self.focus_active_terminal(window, cx);
@@ -740,14 +711,26 @@ impl Render for TerminalDockPanel {
             .size_full()
             .overflow_hidden();
 
-        // Collapsed dock (EXP-2): only the compact strip — never the full
+        // Collapsed dock: only the compact strip — never the full
         // content squeezed/clipped into the 29px band.
         if self.dock_collapsed(cx) {
             return root.child(self.render_collapsed_strip(metas.len(), cx));
         }
 
         let Some(active_view) = active_view else {
-            return root.child(self.render_empty(cx));
+            // An expanded, empty dock never shows an empty state — it spawns
+            // a shell immediately (deferred out of render). Every expand path
+            // funnels here, so a stray `set_open(true)` still gets a shell.
+            if !self.spawn_queued {
+                self.spawn_queued = true;
+                cx.defer_in(_window, |this, window, cx| {
+                    this.spawn_queued = false;
+                    if this.manager.read(cx).is_empty() && !this.dock_collapsed(cx) {
+                        this.new_shell_tab(window, cx);
+                    }
+                });
+            }
+            return root;
         };
 
         root.child(self.render_tab_bar(&metas, active_ix, cx))

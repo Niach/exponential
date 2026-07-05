@@ -213,7 +213,7 @@ pub fn build_command(spec: &SpawnSpec) -> CommandBuilder {
     // §6.12: full color capability set into our emulator…
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    // …and THE critical fix (EXP-2b/EXP-4/EXP-5): a .app/.desktop launch has a
+    // …and THE critical fix: a .app/.desktop launch has a
     // minimal PATH without Homebrew/npm-global/~/.claude/local — bare
     // `claude`/`git` would fail to resolve.
     cmd.env("PATH", login_path());

@@ -206,7 +206,7 @@ export async function assertCanCreateWorkspace(userId: string): Promise<void> {
 
 export type WorkspaceUsage = {
   // Human members only — the widget's synthetic isAgent user is excluded so a
-  // fresh single-owner workspace reads "1 member", never "2" (EXP-7).
+  // fresh single-owner workspace reads "1 member", never "2".
   members: number
   storageMb: number
   widgetConfigs: number

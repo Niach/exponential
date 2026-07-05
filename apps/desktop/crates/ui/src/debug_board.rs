@@ -80,7 +80,7 @@ impl DebugBoardPanel {
         if !issues.is_ready() && issues.is_empty() {
             // §4.1 load-bearing distinction: an empty collection before the
             // first up-to-date is "still syncing", NEVER "no issues" (the
-            // EXP-1 #13 empty-snapshot trap).
+            // empty-snapshot trap).
             return groups.child(
                 div()
                     .text_sm()

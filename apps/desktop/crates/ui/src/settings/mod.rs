@@ -1,5 +1,5 @@
 //! Workspace settings + account screens (masterplan-v3 §4.2 "Settings" /
-//! "Account", §7.9 integrations surface, EXP-1 #9/#11, EXP-4).
+//! "Account", §7.9 integrations surface).
 //!
 //! Web parity targets: `routes/w/$workspaceSlug/settings/index.tsx` and its
 //! `components/workspace/*-section.tsx` cards, plus
@@ -9,7 +9,7 @@
 //! p-6` — no master-detail nav), in the web's card order with the web's
 //! `isOwner &&` gating; each pane mirrors its web card field-for-field.
 //!
-//! Navigation INTO these screens is EXP-1 #11: the sidebar footer account
+//! Navigation INTO these screens: the sidebar footer account
 //! dropdown dispatches `OpenSettings` / `OpenAccount` (see `sidebar.rs` +
 //! `navigation::init`); this module only provides the screens.
 //!
@@ -17,7 +17,7 @@
 //! pane, NO admin surface. Plan-cap failures (HTTP 412 from `lib/billing.ts`)
 //! render as a neutral "Upgrade on the web" notice — never an in-app
 //! purchase/pricing UI. The GitHub App *install* is a browser hand-off
-//! (§7.9); Google Calendar does not exist anywhere (EXP-1 #9).
+//! (§7.9); Google Calendar does not exist anywhere.
 
 mod account;
 mod coding;
@@ -431,7 +431,7 @@ where
         .detach();
 }
 
-/// Open a URL through the EXP-5-robust opener chain (never a raw xdg-open),
+/// Open a URL through the robust opener chain (never a raw xdg-open),
 /// off the foreground thread.
 pub(crate) fn open_url(cx: &mut App, url: String) {
     cx.background_executor()

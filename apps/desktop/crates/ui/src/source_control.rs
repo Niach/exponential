@@ -98,6 +98,12 @@ struct TrunkScope {
 /// [`crate::navigation::Screen::SourceControl`].
 pub struct SourceControlView {
     nav: Entity<Navigation>,
+    /// The shared per-window rail state — carries the sidebar's "view this
+    /// branch's history" selection (no checkout).
+    rail: Entity<crate::sidebar::RailShared>,
+    /// The branch whose history is shown (`None` = the checked-out branch,
+    /// including the working-tree changes + commit box).
+    viewing: Option<String>,
     /// The shared per-window repo resolver (§4.2) — the trunk repo comes from
     /// here instead of a per-screen `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
@@ -138,6 +144,7 @@ pub struct SourceControlView {
 impl SourceControlView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = navigation::nav_for_window(window, cx);
+        let rail = crate::sidebar::rail_shared_for_window(window, cx);
         let repo_resolver = repo_resolver_for_window(window, cx);
         let diff = cx.new(|cx| DiffView::new(window, cx));
         let commit_input = cx.new(|cx| {
@@ -156,10 +163,14 @@ impl SourceControlView {
             cx.observe(&collections.projects, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
+            // The sidebar's view-branch selection lives on the rail state.
+            cx.observe(&rail, |_, _, cx| cx.notify()),
         ];
 
         Self {
             nav,
+            rail,
+            viewing: None,
             repo_resolver,
             diff,
             commit_input,
@@ -283,13 +294,17 @@ impl SourceControlView {
         self.generation += 1;
         let generation = self.generation;
         let clone = scope.clone_dir.clone();
+        // `Some(branch)` = the sidebar's view-without-checkout selection.
+        let branch = self.viewing.clone();
         cx.spawn(async move |this, cx| {
             let (status, conflict, history, identity_ok) = cx
                 .background_executor()
                 .spawn(async move {
                     let status = scm::status(&clone);
                     let conflict = scm::detect_conflict(&clone);
-                    let history = scm::log(&clone, 0, HISTORY_PAGE).unwrap_or_default();
+                    let history =
+                        scm::log_branch(&clone, branch.as_deref(), 0, HISTORY_PAGE)
+                            .unwrap_or_default();
                     let identity_ok = identity_configured(&clone);
                     (status, conflict, history, identity_ok)
                 })
@@ -329,12 +344,16 @@ impl SourceControlView {
         };
         let clone = scope.clone_dir.clone();
         let skip = self.history_skip;
+        let branch = self.viewing.clone();
         self.history_loading = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let page = cx
                 .background_executor()
-                .spawn(async move { scm::log(&clone, skip, HISTORY_PAGE).unwrap_or_default() })
+                .spawn(async move {
+                    scm::log_branch(&clone, branch.as_deref(), skip, HISTORY_PAGE)
+                        .unwrap_or_default()
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.history_loading = false;
@@ -1042,6 +1061,7 @@ impl SourceControlView {
             Selection::None => div()
                 .flex_1()
                 .min_w_0()
+                .h_full()
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1049,9 +1069,13 @@ impl SourceControlView {
                 .text_color(theme.muted_foreground)
                 .child("Select a file or commit to view its diff.")
                 .into_any_element(),
+            // `.h_full()` is load-bearing: without a definite height the
+            // DiffView's virtual list resolves to zero height and renders
+            // nothing (the issue Changes tab embeds it the same way).
             _ => div()
                 .flex_1()
                 .min_w_0()
+                .h_full()
                 .child(self.diff.clone())
                 .into_any_element(),
         }
@@ -1099,22 +1123,72 @@ impl SourceControlView {
                 .into_any_element();
         }
 
+        // Viewing another branch's history (sidebar selection, no checkout):
+        // the working-tree changes + commit box are the CURRENT branch's and
+        // would mislead — show the banner + that branch's history only.
+        let left = if let Some(branch) = self.viewing.clone() {
+            gpui_component::v_flex()
+                .w(px(LEFT_COL_W))
+                .flex_shrink_0()
+                .h_full()
+                .border_r_1()
+                .border_color(theme.border)
+                .child(self.render_viewing_banner(&branch, cx))
+                .child(self.render_history(cx))
+        } else {
+            gpui_component::v_flex()
+                .w(px(LEFT_COL_W))
+                .flex_shrink_0()
+                .h_full()
+                .border_r_1()
+                .border_color(theme.border)
+                .child(self.render_changes(cx))
+                .child(self.render_commit_box(cx))
+                .child(self.render_history(cx))
+        };
+
         gpui_component::h_flex()
             .flex_1()
             .min_h_0()
-            .child(
-                gpui_component::v_flex()
-                    .w(px(LEFT_COL_W))
-                    .flex_shrink_0()
-                    .h_full()
-                    .border_r_1()
-                    .border_color(theme.border)
-                    .child(self.render_changes(cx))
-                    .child(self.render_commit_box(cx))
-                    .child(self.render_history(cx)),
-            )
+            .child(left)
             .child(self.render_diff_pane(cx))
             .into_any_element()
+    }
+
+    /// The "history of another branch" strip: what is shown + the way back.
+    fn render_viewing_banner(
+        &self,
+        branch: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let theme = cx.theme();
+        gpui_component::h_flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .border_b_1()
+            .border_color(theme.border)
+            .bg(theme.muted.opacity(0.3))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_xs()
+                    .truncate()
+                    .text_color(theme.foreground)
+                    .child(SharedString::from(format!("\u{2387} {branch}"))),
+            )
+            .child(
+                Button::new("scm-view-current")
+                    .ghost()
+                    .xsmall()
+                    .label("Back to current")
+                    .on_click(|_, window, cx| {
+                        crate::sidebar::set_view_branch(window, cx, None);
+                    }),
+            )
     }
 }
 
@@ -1127,6 +1201,17 @@ impl Focusable for SourceControlView {
 impl Render for SourceControlView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_scope(cx);
+        // Follow the sidebar's view-branch selection: a change resets the
+        // selection + reloads history for that branch (no checkout).
+        let view = self.rail.read(cx).view_branch().map(str::to_string);
+        if view != self.viewing {
+            self.viewing = view;
+            self.selection = Selection::None;
+            self.history.clear();
+            self.history_skip = 0;
+            self.history_has_more = false;
+            self.refresh(cx);
+        }
         let theme = cx.theme();
         let conflict = self.conflict.clone();
         let error = self.error.clone();

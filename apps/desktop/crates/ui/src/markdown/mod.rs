@@ -14,10 +14,10 @@
 //!   text blocks are gpui-component `InputState`s holding GFM source, image
 //!   blocks render inline) + the read-only rendered view ([`MarkdownView`])
 //!   with clickable `#IDENT` / `@email` pills and toggleable task checkboxes.
-//! - [`toolbar`] — the static toolbar (EXP-3: **no** selection popover).
+//! - [`toolbar`] — the static toolbar (**no** selection popover).
 //! - [`autocomplete`] — the caret-anchored `@`-member / `#`-issue completion
 //!   overlay (§4.6).
-//! - [`image_paste`] — the single image path (EXP-1 #7): clipboard paste /
+//! - [`image_paste`] — the single image path: clipboard paste /
 //!   file picker → staged `draft://` blocks → atomic upload via
 //!   `/api/issues/{id}/images` → canonical `![alt](/api/attachments/{id})`.
 //!

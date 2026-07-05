@@ -1,5 +1,5 @@
-//! Typed `runConfigs.list` client (masterplan-v3 §7.3 — DB run configs,
-//! EXP-2d). The router is a fresh server addition (lifted from the archive
+//! Typed `runConfigs.list` client (masterplan-v3 §7.3 — DB run
+//! configs). The router is a fresh server addition (lifted from the archive
 //! branch); its pinned wire shape per §7.3.2:
 //!
 //! `runConfigs.list({projectId})` — **query**, member-read — →

@@ -1,4 +1,4 @@
-//! Typed `users.*` tRPC helpers + the EXP-2a hidden personal key
+//! Typed `users.*` tRPC helpers + the hidden personal key
 //! (masterplan-v3 §7.2). Server procedures verified against
 //! `apps/web/src/lib/trpc/users.ts`:
 //!
@@ -9,7 +9,7 @@
 //!   createdAt, lastRequest}]}`.
 //! - `users.revokePersonalApiKey({id})` → `{ok: true}`.
 //!
-//! **EXP-2a is explicit: there is never a manual API-key text field in the
+//! **The rule is explicit: there is never a manual API-key text field in the
 //! desktop UI.** The key is minted silently on first need (the coding
 //! launcher's `.mcp.json`, §7.1 step 4), stored in the file store, and only
 //! ever flows token-store → `.mcp.json`. Settings shows a status row (`start`
@@ -131,7 +131,7 @@ pub fn hostname() -> String {
     "unknown-host".to_string()
 }
 
-/// EXP-2a auto-mint (§7.2): return the device's personal `expu_` key, minting
+/// Hidden-key auto-mint (§7.2): return the device's personal `expu_` key, minting
 /// it silently on first need. The secret read is bounded
 /// ([`PERSONAL_KEY_READ_TIMEOUT`]) so this never stalls Start-coding; the
 /// mint itself can race the git prep (only `.mcp.json` needs the result).

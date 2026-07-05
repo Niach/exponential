@@ -1,6 +1,6 @@
 // Clean reimplementation from the VT spec + alacritty_terminal (Apache-2.0). NOT derived from Zed's GPL terminal crates.
 //! `TerminalManager` — the JetBrains-style multi-tab model for the bottom
-//! dock (masterplan-v3 §6.13, EXP-2e).
+//! dock (masterplan-v3 §6.13).
 //!
 //! The manager owns `Vec<TerminalTab>` + the active index and is the
 //! run-bar's counterpart: §07 owns the run-config dropdown + play/stop

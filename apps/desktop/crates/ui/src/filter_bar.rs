@@ -1,6 +1,6 @@
 //! The board filter bar — web parity target
-//! `apps/web/src/components/issue-filter-bar.tsx` (masterplan-v3 §4.2, EXP-1
-//! #4/#12: tabs + filter button styled EXACTLY like web, at compact density).
+//! `apps/web/src/components/issue-filter-bar.tsx` (masterplan-v3 §4.2:
+//! tabs + filter button styled EXACTLY like web, at compact density).
 //!
 //! Structure mirrors the web component 1:1:
 //!
@@ -8,7 +8,7 @@
 //!    and (when `can_create`) the indigo **New Issue** button,
 //! 2. tabs row — **left-aligned** All Issues / Active / Backlog rounded-full
 //!    ghost tabs; the active tab is `bg-accent text-foreground font-medium`,
-//!    inactive `text-muted-foreground hover:text-foreground` (EXP-1 #4),
+//!    inactive `text-muted-foreground hover:text-foreground`,
 //! 3. [`ActiveFilterPills`] (only when filters are active — web renders null).
 //!
 //! Tabs are presets over `filters.statuses` (`domain::tab_preset_statuses`,
@@ -35,7 +35,7 @@ use crate::active_filter_pills::ActiveFilterPills;
 use crate::create_issue_dialog::indigo_button;
 use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnViewChange};
 
-/// Compact tab height (web `h-7` = 28px, EXP-2f density).
+/// Compact tab height (web `h-7` = 28px, compact density).
 const TAB_HEIGHT: f32 = 24.;
 
 /// Web tab list: `{ all: "All Issues", active: "Active", backlog: "Backlog" }`.

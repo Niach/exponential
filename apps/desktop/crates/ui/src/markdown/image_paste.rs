@@ -1,4 +1,4 @@
-//! The single image path of the markdown editor (EXP-1 #7, masterplan-v3
+//! The single image path of the markdown editor (masterplan-v3
 //! §4.5 "Images"): clipboard paste, drag-drop and the toolbar file picker all
 //! funnel through one staging + upload seam.
 //!

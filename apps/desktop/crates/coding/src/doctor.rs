@@ -1,10 +1,10 @@
-//! The tooling doctor (masterplan-v3 §7.7, EXP-2b): runs `claude --version`
+//! The tooling doctor (masterplan-v3 §7.7): runs `claude --version`
 //! and `git --version` (using the configured Claude path) and captures
 //! success + version string or the spawn error.
 //!
 //! The doctor **blocks Start coding when EITHER tool is missing** — the
 //! launcher's enabled state ANDs `claude.ok && git.ok` (§7.1 step 1), which
-//! prevents the EXP-4 "falsely proceed then crash at git clone" pattern.
+//! prevents the "falsely proceed then crash at git clone" pattern.
 //! Errors are actionable per the spec copy: "claude not found on PATH — set
 //! an absolute path" / "git not found on PATH".
 //!
@@ -220,7 +220,7 @@ mod tests {
         assert!(report.ok());
         assert_eq!(report.first_failure(), None);
 
-        // git missing must ALSO block (§7.1 step 1 ANDs both — EXP-4).
+        // git missing must ALSO block (§7.1 step 1 ANDs both).
         let bad_git = ToolCheck { tool: Tool::Git, ok: false, version: None, error: None };
         let report = DoctorReport { claude: good, git: bad_git.clone() };
         assert!(!report.ok());

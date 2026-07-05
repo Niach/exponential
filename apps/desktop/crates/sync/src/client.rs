@@ -2,7 +2,7 @@
 //! blocking `ureq` over rustls, one dedicated `std::thread` per shape.
 //! gpui-free; a direct port of the proven iOS `ShapeClient.pollOnce`/`run`.
 //!
-//! Load-bearing rules baked in here (EXP-1 #13, §5.6):
+//! Load-bearing rules baked in here (§5.6):
 //!
 //! * **No HTTP cache layer at all** (§5.6a). `ureq` has no shared cache by
 //!   default — exactly what we want. We never send `If-None-Match` /
@@ -200,7 +200,7 @@ pub enum ShapeDelta {
         /// `wait_for_first_sync`, §5.10).
         up_to_date: bool,
     },
-    /// EXP-1 #13(b): the session token was rejected (hard 401). Emitted at
+    /// The session token was rejected (hard 401). Emitted at
     /// most ONCE per account; the pipeline is already tearing itself down.
     /// The UI must route this account to the login screen — never render an
     /// empty board, never retry anonymously.
@@ -452,7 +452,7 @@ impl ShapeClient {
             // §5.6c hardening: a refetch response that decoded to ZERO
             // messages must NOT blindly run the DELETE head or adopt the
             // response cursor: that would persist an empty table AND clear
-            // the refetch marker — the EXP-1 #13 "all issues vanished"
+            // the refetch marker — the "all issues vanished"
             // symptom, made durable. The ONE legitimate zero-message form is
             // a genuinely empty snapshot, which live Electric (1.6.9) sends
             // as a LONE `snapshot-end` control (no rows, no `up-to-date` —
