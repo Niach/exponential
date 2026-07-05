@@ -65,7 +65,16 @@ let shareExtensionSources: SourceFilesList = [
     "ShareExtension/**",
 ]
 
+// Single source of truth for app + extension version; keep these in lockstep so
+// the extension's CFBundleVersion never drifts from the parent app.
+let appMarketingVersion = "0.3.0"
+let appBuildVersion = "3"
+
 let shareExtensionInfoPlist: [String: Plist.Value] = [
+    // Must match the parent app's version (CFBundleVersion mismatch trips
+    // embeddedBinaryValidationUtility during signing).
+    "CFBundleShortVersionString": .string(appMarketingVersion),
+    "CFBundleVersion": .string(appBuildVersion),
     "NSExtension": .dictionary([
         "NSExtensionPointIdentifier": .string("com.apple.share-services"),
         "NSExtensionPrincipalClass": .string("$(PRODUCT_MODULE_NAME).ShareViewController"),
@@ -80,8 +89,8 @@ let shareExtensionInfoPlist: [String: Plist.Value] = [
 ]
 
 let sharedInfoPlist: [String: Plist.Value] = [
-    "CFBundleShortVersionString": "0.3.0",
-    "CFBundleVersion": "3",
+    "CFBundleShortVersionString": .string(appMarketingVersion),
+    "CFBundleVersion": .string(appBuildVersion),
     "UILaunchScreen": .dictionary([:]),
     "CFBundleURLTypes": .array([
         .dictionary([
