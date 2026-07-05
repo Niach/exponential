@@ -323,6 +323,21 @@ final class IssueDetailViewModel {
         await update(input)
     }
 
+    /// Create a workspace label and assign it to this issue in one step
+    /// (parity with Android's createAndAssignLabel).
+    func createAndAssignLabel(name: String, color: String) async {
+        guard let issue, let workspaceId = project?.workspaceId else { return }
+        do {
+            let labelId = try await labelsApi.create(
+                accountId: accountId,
+                CreateLabelInput(name: name, color: color, workspaceId: workspaceId)
+            )
+            try await labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     func toggleLabel(_ labelId: String) async {
         guard let issue else { return }
         do {

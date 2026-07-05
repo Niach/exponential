@@ -16,6 +16,7 @@ struct IssueDetailView: View {
     @State private var showAssigneePicker = false
     @State private var showRecurrencePicker = false
     @State private var showDuplicatePicker = false
+    @State private var showCreateLabel = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -25,8 +26,8 @@ struct IssueDetailView: View {
             if let vm = viewModel, let issue = vm.issue {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Header: identifier + overflow
-                        HStack {
+                        // Header: identifier + repo chip (actions live in the nav bar).
+                        HStack(spacing: 6) {
                             if let identifier = issue.identifier {
                                 Text(identifier)
                                     .font(.caption.monospaced().weight(.medium))
@@ -35,38 +36,16 @@ struct IssueDetailView: View {
                                     .padding(.vertical, 4)
                                     .glassButton()
                             }
+                            // Backing repo chip (v4 §6): the project's repositoryId
+                            // resolved to owner/name via the repositories API.
+                            if let project = vm.project, project.repositoryId != nil {
+                                RepoNameChip(
+                                    accountId: accountId,
+                                    workspaceId: project.workspaceId,
+                                    repositoryId: project.repositoryId
+                                )
+                            }
                             Spacer()
-                            Button {
-                                Task { await vm.toggleSubscribe() }
-                            } label: {
-                                Image(systemName: vm.isSubscribed ? "bell.fill" : "bell.slash")
-                                    .font(.title3)
-                                    .foregroundStyle(
-                                        vm.isSubscribed
-                                            ? Color.accentColor
-                                            : .white.opacity(TextOpacity.secondary)
-                                    )
-                            }
-                            Menu {
-                                // Duplicate = status interception (L27): marking a
-                                // duplicate happens by picking the `duplicate` status,
-                                // which opens the canonical-issue picker. Only the
-                                // unmark action lives here.
-                                if vm.permissions.isModerator, issue.duplicateOfId != nil {
-                                    Button {
-                                        Task { await vm.unmarkDuplicate() }
-                                    } label: {
-                                        Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
-                                    }
-                                }
-                                Button("Delete issue", role: .destructive) {
-                                    showDeleteConfirm = true
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
-                                    .font(.title3)
-                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            }
                         }
 
                         // Canonical-issue banner when marked as a duplicate:
@@ -119,19 +98,6 @@ struct IssueDetailView: View {
                                 deps.deepLinkBus.navigateToIssue(issueId)
                             }
                         )
-
-                        // Backing repo chip (v4 §6): the project's repositoryId
-                        // resolved to owner/name via the repositories API.
-                        if let project = vm.project, project.repositoryId != nil {
-                            HStack {
-                                RepoNameChip(
-                                    accountId: accountId,
-                                    workspaceId: project.workspaceId,
-                                    repositoryId: project.repositoryId
-                                )
-                                Spacer()
-                            }
-                        }
 
                         // Coding session: "Coding now" badge + live steer
                         // viewer / remote "Start on my desktop" (§5b/§5c).
@@ -289,6 +255,26 @@ struct IssueDetailView: View {
                                         .glassButton(isActive: vm.assignedLabelIds.contains(label.id))
                                     }
                                     .buttonStyle(.plain)
+                                    .disabled(!vm.permissions.isModerator)
+                                }
+                                // "+ Label" — create a new workspace label and
+                                // assign it in one step (parity with Android).
+                                if vm.permissions.isModerator {
+                                    Button {
+                                        showCreateLabel = true
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "plus")
+                                                .font(.caption2)
+                                            Text("Label")
+                                                .font(.caption)
+                                        }
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .glassButton()
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -302,10 +288,16 @@ struct IssueDetailView: View {
 
                         // Changes (§4.8, mobile tiers 2–4): PR diff → pushed
                         // branch diff → "Being coded on <device>" steer state.
-                        ChangesSection(
-                            issue: issue,
-                            runningSessions: vm.runningSessions
-                        )
+                        // Only shown when there's something to observe (parity
+                        // with Android) — no empty "No changes yet." card.
+                        if issue.prUrl?.isEmpty == false
+                            || issue.branch?.isEmpty == false
+                            || !vm.runningSessions.isEmpty {
+                            ChangesSection(
+                                issue: issue,
+                                runningSessions: vm.runningSessions
+                            )
+                        }
 
                         // Attachments (read-only list synced from Electric).
                         // Inline images in the description still preview
@@ -396,6 +388,13 @@ struct IssueDetailView: View {
                         }
                     )
                 }
+                .sheet(isPresented: $showCreateLabel) {
+                    CreateLabelSheet { name, color in
+                        Task { await vm.createAndAssignLabel(name: name, color: color) }
+                    }
+                    .presentationDetents([.medium])
+                    .presentationBackground(.ultraThinMaterial)
+                }
                 .sheet(isPresented: $showDuplicatePicker) {
                     DuplicatePickerSheet(
                         loadCandidates: { await vm.duplicateCandidates() },
@@ -404,6 +403,43 @@ struct IssueDetailView: View {
                         }
                     )
                     .presentationBackground(.ultraThinMaterial)
+                }
+                // Actions in the nav bar (parity with Android): subscribe bell
+                // (always) + a moderator-only overflow menu.
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Task { await vm.toggleSubscribe() }
+                        } label: {
+                            Image(systemName: vm.isSubscribed ? "bell.fill" : "bell.slash")
+                                .foregroundStyle(
+                                    vm.isSubscribed
+                                        ? Color.accentColor
+                                        : .white.opacity(TextOpacity.secondary)
+                                )
+                        }
+                    }
+                    if vm.permissions.isModerator {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Menu {
+                                // Duplicate = status interception (L27): unmark is
+                                // the only duplicate action here; marking happens via
+                                // the `duplicate` status picker.
+                                if issue.duplicateOfId != nil {
+                                    Button {
+                                        Task { await vm.unmarkDuplicate() }
+                                    } label: {
+                                        Label("Unmark duplicate", systemImage: "doc.on.doc.fill")
+                                    }
+                                }
+                                Button("Delete issue", role: .destructive) {
+                                    showDeleteConfirm = true
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
+                        }
+                    }
                 }
             } else {
                 ProgressView().tint(.white)
@@ -594,6 +630,76 @@ private func formatRecurrence(_ interval: Int?, _ unit: String?) -> String {
         }
     }
     return "Every \(interval) \(unit.label(for: interval))"
+}
+
+// MARK: - Create label
+
+// Same suggested palette as Android's LabelPickerSheet / the web's label editor.
+private let suggestedLabelColors = [
+    "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308",
+    "#84cc16", "#22c55e", "#10b981", "#14b8a6", "#06b6d4",
+    "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
+    "#ec4899", "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
+]
+
+/// Minimal name + color form; Create makes the label and assigns it to the
+/// issue in one step (mirrors Android's "New label" section).
+private struct CreateLabelSheet: View {
+    let onCreate: (String, String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var color = suggestedLabelColors[0]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("New label")
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            TextField("Label name", text: $name)
+                .textFieldStyle(.plain)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+
+            FlowLayout(spacing: 8) {
+                ForEach(suggestedLabelColors, id: \.self) { swatch in
+                    Button {
+                        color = swatch
+                    } label: {
+                        Circle()
+                            .fill(Color(hex: swatch) ?? .gray)
+                            .frame(width: swatch == color ? 28 : 22, height: swatch == color ? 28 : 22)
+                            .overlay {
+                                if swatch == color {
+                                    Circle().strokeBorder(.white, lineWidth: 2)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Spacer()
+
+            Button {
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                onCreate(trimmed, color)
+                dismiss()
+            } label: {
+                Text("Create label")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(20)
+    }
 }
 
 // MARK: - Flow Layout for labels

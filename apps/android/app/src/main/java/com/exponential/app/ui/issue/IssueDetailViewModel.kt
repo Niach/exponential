@@ -280,6 +280,15 @@ class IssueDetailViewModel @Inject constructor(
     // instead of one tRPC mutation per character.
     private val descriptionInput = MutableStateFlow<String?>(null)
 
+    // The backing repo's full name (owner/name) for the project + issue coding
+    // chips. repository_id rides on the synced projects shape; the name is a
+    // server-only tRPC read, cached per (account, workspace) so the chip doesn't
+    // refetch across recompositions or issue navigations. Declared BEFORE init:
+    // the init coroutine below touches _repoName synchronously (Main.immediate +
+    // collectLatest) during construction, so a later declaration leaves it null.
+    private val _repoName = MutableStateFlow<String?>(null)
+    val repoName: StateFlow<String?> = _repoName
+
     init {
         viewModelScope.launch {
             combine(dbFlow, issueFlow) { db, issue -> db to issue }
@@ -505,13 +514,6 @@ class IssueDetailViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return null
         return repositoriesApi.branchDiff(accountId, issueId)
     }
-
-    // The backing repo's full name (owner/name) for the project + issue coding
-    // chips. repository_id rides on the synced projects shape; the name is a
-    // server-only tRPC read, cached per (account, workspace) so the chip doesn't
-    // refetch across recompositions or issue navigations.
-    private val _repoName = MutableStateFlow<String?>(null)
-    val repoName: StateFlow<String?> = _repoName
 }
 
 // Process-wide cache of a workspace's repos (server-only, no Electric shape).

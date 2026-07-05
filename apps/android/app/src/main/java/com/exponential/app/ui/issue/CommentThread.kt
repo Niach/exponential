@@ -88,7 +88,9 @@ fun CommentThread(
     }
 
     HorizontalDivider()
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+    // No extra horizontal padding: the screen already pads 20dp, so the thread
+    // aligns full-width with the description/metadata above (iOS parity).
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
         Text(
             if (humanComments.isEmpty()) "Comments"
             else "Comments (${humanComments.size})",

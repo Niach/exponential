@@ -78,8 +78,9 @@ struct CommentThreadView: View {
 
             // Rich block-markdown composer (parity with the description editor):
             // reuses MarkdownEditor + IssueEditorModel; images route through the
-            // issue image-upload path on submit.
-            VStack(alignment: .trailing, spacing: 6) {
+            // issue image-upload path on submit. One rounded field with the send
+            // arrow inside its bottom-right corner (matches Android's composer).
+            VStack(alignment: .leading, spacing: 0) {
                 MarkdownEditor(
                     model: composerEditor,
                     placeholder: "Write a comment…",
@@ -89,19 +90,29 @@ struct CommentThreadView: View {
                     mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
                 )
                 .frame(minHeight: 44, maxHeight: 140)
-                .background(Color.white.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                Button {
-                    Task { await submit() }
-                } label: {
-                    Image(systemName: "paperplane.fill")
-                        .padding(8)
-                        .background(.blue, in: RoundedRectangle(cornerRadius: 8))
-                        .foregroundStyle(.white)
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(
+                                submitting || !composerHasText
+                                    ? Color.white.opacity(0.3)
+                                    : Color.blue
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(submitting || !composerHasText)
                 }
-                .disabled(submitting || !composerHasText)
+                .padding(.bottom, 6)
             }
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
         }
         .padding(.vertical, 8)
         .onAppear {

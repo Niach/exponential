@@ -107,6 +107,7 @@ fun IssueDetailScreen(
     var labelsOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var duplicatePickerOpen by remember { mutableStateOf(false) }
+    var overflowOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(issue?.id) {
         if (issue != null) {
@@ -145,6 +146,40 @@ fun IssueDetailScreen(
                                 tint = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        // Overflow lives in the nav bar (parity with iOS); the
+                        // content header below carries only the identifier + repo
+                        // chips. Moderator-gated, matching the pickers' guards.
+                        if (isModerator) {
+                            Box {
+                                IconButton(onClick = { overflowOpen = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "Issue actions")
+                                }
+                                DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                                    // Duplicate = status interception (L27): marking a
+                                    // duplicate happens by picking the `duplicate` status,
+                                    // which opens the canonical-issue picker. Only the
+                                    // unmark action lives here.
+                                    if (issue.duplicateOfId != null) {
+                                        DropdownMenuItem(
+                                            leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                                            text = { Text("Unmark duplicate") },
+                                            onClick = {
+                                                overflowOpen = false
+                                                viewModel.unmarkDuplicate()
+                                            },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Filled.DeleteOutline, contentDescription = null) },
+                                        text = { Text("Delete issue") },
+                                        onClick = {
+                                            overflowOpen = false
+                                            confirmDelete = true
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -175,7 +210,7 @@ fun IssueDetailScreen(
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .fillMaxWidth(),
         ) {
-            // Header: identifier chip + repo chip + overflow
+            // Header: identifier chip + repo chip (actions live in the nav bar).
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     issue.identifier,
@@ -191,39 +226,6 @@ fun IssueDetailScreen(
                 repoName?.let { name ->
                     Spacer(Modifier.width(6.dp))
                     RepoChip(name)
-                }
-                Spacer(Modifier.weight(1f))
-                if (isModerator) {
-                    var overflowOpen by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { overflowOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Issue actions")
-                        }
-                        DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
-                            // Duplicate = status interception (L27): marking a
-                            // duplicate happens by picking the `duplicate` status,
-                            // which opens the canonical-issue picker. Only the
-                            // unmark action lives here.
-                            if (issue.duplicateOfId != null) {
-                                DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
-                                    text = { Text("Unmark duplicate") },
-                                    onClick = {
-                                        overflowOpen = false
-                                        viewModel.unmarkDuplicate()
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Filled.DeleteOutline, contentDescription = null) },
-                                text = { Text("Delete issue") },
-                                onClick = {
-                                    overflowOpen = false
-                                    confirmDelete = true
-                                },
-                            )
-                        }
-                    }
                 }
             }
 
