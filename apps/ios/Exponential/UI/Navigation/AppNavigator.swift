@@ -4,8 +4,8 @@ import SwiftUI
 import GRDB
 
 enum AppRoute: Hashable {
-    case home
-    case myIssues
+    case search
+    case agents
     case inbox
     case project(accountId: String, id: String)
     case issue(accountId: String, id: String)
@@ -14,6 +14,13 @@ enum AppRoute: Hashable {
     case workspaceSettings(accountId: String, workspaceId: String)
     case invite(token: String)
     case syncDebug
+}
+
+/// The project the Issues tab is currently showing. May belong to a
+/// non-active account — the switcher sheet spans every signed-in server.
+struct CurrentProjectRef: Hashable {
+    let accountId: String
+    let projectId: String
 }
 
 struct AppNavigator: View {
@@ -84,6 +91,8 @@ struct MainNavigator: View {
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     @State private var unreadCount = 0
+    @State private var agentsRunning = false
+    @State private var currentProject: CurrentProjectRef?
     @State private var composeTarget: ComposeTarget?
 
     private struct ComposeTarget: Identifiable {
@@ -97,12 +106,13 @@ struct MainNavigator: View {
             AppBackground()
 
             NavigationStack(path: $path) {
-                HomeView(
+                IssuesHomeView(
                     syncing: syncing,
-                    onProjectTap: { accountId, projectId in
-                        handleProjectTap(accountId: accountId, projectId: projectId)
-                    },
-                    projectLoader: projectLoader
+                    currentProject: currentProject,
+                    projectLoader: projectLoader,
+                    onSelectProject: { accountId, projectId in
+                        selectProject(accountId: accountId, projectId: projectId)
+                    }
                 )
                 .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
@@ -114,6 +124,7 @@ struct MainNavigator: View {
                 projectLoader = MultiAccountProjectLoader(auth: deps.auth, db: deps.db)
             }
             startObserving()
+            resolveCurrentProject()
             if workspaceState.workspaces.isEmpty {
                 syncing = true
                 Task {
@@ -124,6 +135,11 @@ struct MainNavigator: View {
         }
         .onChange(of: deps.auth.accounts) { _, _ in
             projectLoader?.refresh()
+        }
+        // Any change to the available (signed-in, non-archived) projects
+        // re-validates the Issues tab's current project.
+        .onChange(of: availableProjectKeys) { _, _ in
+            resolveCurrentProject()
         }
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
@@ -139,31 +155,30 @@ struct MainNavigator: View {
             }
         }
         // Drain links that arrived before this navigator mounted (cold launch).
+        // The Issues tab already lands in the last-used project, so there is no
+        // auto-push anymore — deep links are the only cold-launch navigation.
         .task {
-            var deepLinked = false
             if let issueId = deps.deepLinkBus.consume() {
                 path.append(AppRoute.issue(accountId: deps.auth.activeAccountId ?? "", id: issueId))
-                deepLinked = true
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
-                deepLinked = true
-            }
-            if !deepLinked {
-                await openLastProjectIfAvailable()
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsTabBar {
                 MobileTabBar(
-                    homeActive: path.isEmpty,
-                    myIssuesActive: isOnMyIssues,
+                    issuesActive: path.isEmpty,
+                    searchActive: isOnSearch,
+                    agentsActive: isOnAgents,
                     inboxActive: isOnInbox,
                     unreadCount: unreadCount,
+                    agentsRunning: agentsRunning,
                     showsCompose: resolvedComposeTarget != nil,
-                    onHome: { path = [] },
-                    onMyIssues: { if !isOnMyIssues { path = [.myIssues] } },
+                    onIssues: { path = [] },
+                    onSearch: { if !isOnSearch { path = [.search] } },
+                    onAgents: { if !isOnAgents { path = [.agents] } },
                     onInbox: { if !isOnInbox { path = [.inbox] } },
                     onCompose: { composeTarget = resolvedComposeTarget }
                 )
@@ -178,14 +193,17 @@ struct MainNavigator: View {
 
     // MARK: - Tab bar
 
-    /// The bar floats only over the top-level surfaces (Home, Inbox, project
-    /// lists); detail and settings screens get the full height back.
+    /// The bar floats only over the top-level surfaces (Issues root, Search,
+    /// Agents, Inbox, pushed project lists); detail and settings screens get
+    /// the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
-        if case .inbox = top { return true }
-        if case .myIssues = top { return true }
-        if case .project = top { return true }
-        return false
+        switch top {
+        case .search, .agents, .inbox, .project:
+            return true
+        default:
+            return false
+        }
     }
 
     private var isOnInbox: Bool {
@@ -193,17 +211,26 @@ struct MainNavigator: View {
         return false
     }
 
-    private var isOnMyIssues: Bool {
-        if case .myIssues = path.last { return true }
+    private var isOnSearch: Bool {
+        if case .search = path.last { return true }
         return false
     }
 
-    /// Compose only inside a project — the button targets the project being
-    /// viewed. On the outer surfaces (Home, My Issues, Inbox) it is hidden;
-    /// creating an issue without a project context is ambiguous.
+    private var isOnAgents: Bool {
+        if case .agents = path.last { return true }
+        return false
+    }
+
+    /// Compose targets the project in view: a pushed project list wins,
+    /// otherwise the Issues tab root composes into its current project. The
+    /// other surfaces (Search, Agents, Inbox) hide the button — creating an
+    /// issue without a project context is ambiguous.
     private var resolvedComposeTarget: ComposeTarget? {
         if case let .project(accountId, id)? = path.last {
             return ComposeTarget(accountId: accountId, projectId: id)
+        }
+        if path.isEmpty, let current = currentProject {
+            return ComposeTarget(accountId: current.accountId, projectId: current.projectId)
         }
         return nil
     }
@@ -233,16 +260,11 @@ struct MainNavigator: View {
     @ViewBuilder
     private func destination(for route: AppRoute) -> some View {
         switch route {
-        case .home:
-            HomeView(
-                syncing: syncing,
-                onProjectTap: { accountId, projectId in
-                    handleProjectTap(accountId: accountId, projectId: projectId)
-                },
-                projectLoader: projectLoader
-            )
-        case .myIssues:
-            MyIssuesView()
+        case .search:
+            SearchView()
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
+        case .agents:
+            AgentsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .inbox:
             InboxView()
@@ -307,39 +329,63 @@ struct MainNavigator: View {
                 }
             } catch {}
         }
-        observationTasks = [wsTask, projTask, notifTask]
-    }
-
-    private func handleProjectTap(accountId: String, projectId: String) {
-        // Remember the opened project so the Share Extension defaults its picker
-        // to it and a fresh launch can land back in it.
-        SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
-        path.append(AppRoute.project(accountId: accountId, id: projectId))
-    }
-
-    // Fresh starts land in the last-opened project, with Home left beneath in
-    // the navigation stack. One-shot per process so account switches (which
-    // remount MainNavigator via .id) don't re-trigger it; deep links win. The
-    // stored project must belong to a signed-in account and still exist locally
-    // un-archived — otherwise the launch falls back to Home.
-    @MainActor private static var didAutoOpenLastProject = false
-
-    @MainActor
-    private func openLastProjectIfAvailable() async {
-        guard !MainNavigator.didAutoOpenLastProject else { return }
-        MainNavigator.didAutoOpenLastProject = true
-        guard path.isEmpty,
-              let last = SharedProjectMirror.readLastUsed(),
-              let account = deps.auth.accounts.first(where: { $0.id == last.accountId }),
-              account.token != nil,
-              let pool = try? deps.db.pool(forAccountId: last.accountId)
-        else { return }
-        let projectId = last.projectId
-        let project = try? await pool.read { db in
-            try ProjectEntity.fetchAll(db).first { $0.id == projectId }
+        // Running coding sessions drive the Agents tab's green dot.
+        let sessionObs = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("status") == DomainContract.codingSessionStatusRunning)
+                .fetchAll(db)
         }
-        guard let project, project.archivedAt == nil else { return }
-        path.append(AppRoute.project(accountId: last.accountId, id: projectId))
+        let sessionTask = Task { @MainActor in
+            do {
+                for try await sessions in sessionObs.values(in: pool) {
+                    agentsRunning = !sessions.isEmpty
+                }
+            } catch {}
+        }
+        observationTasks = [wsTask, projTask, notifTask, sessionTask]
+    }
+
+    // MARK: - Current project (Issues tab)
+
+    /// Every selectable project across all signed-in servers, as
+    /// `accountId/projectId` keys. `MultiAccountProjectLoader` already limits
+    /// this to non-archived projects of signed-in accounts, so key membership
+    /// doubles as validity.
+    private var availableProjectKeys: [String] {
+        (projectLoader?.groups ?? []).flatMap { group in
+            group.workspaceBlocks.flatMap { block in
+                block.projects.map { "\(group.accountId)/\($0.id)" }
+            }
+        }
+    }
+
+    /// Resolution order: keep a still-valid selection → last-used project →
+    /// first project of the first workspace (active account sorts first) →
+    /// none (empty state, switcher disabled).
+    private func resolveCurrentProject() {
+        let available = Set(availableProjectKeys)
+        if let current = currentProject,
+           available.contains("\(current.accountId)/\(current.projectId)") {
+            return
+        }
+        if let last = SharedProjectMirror.readLastUsed(),
+           available.contains("\(last.accountId)/\(last.projectId)") {
+            currentProject = CurrentProjectRef(accountId: last.accountId, projectId: last.projectId)
+            return
+        }
+        if let group = projectLoader?.groups.first,
+           let project = group.workspaceBlocks.first?.projects.first {
+            currentProject = CurrentProjectRef(accountId: group.accountId, projectId: project.id)
+            return
+        }
+        currentProject = nil
+    }
+
+    private func selectProject(accountId: String, projectId: String) {
+        // Remember the choice so the Share Extension defaults its picker to it
+        // and the next launch lands back in it.
+        SharedProjectMirror.writeLastUsed(accountId: accountId, projectId: projectId)
+        currentProject = CurrentProjectRef(accountId: accountId, projectId: projectId)
     }
 
     private func stopObserving() {

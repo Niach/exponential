@@ -10,10 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,15 +28,16 @@ import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomNavBar
-import com.exponential.app.ui.home.HomeScreen
 import com.exponential.app.ui.inbox.InboxScreen
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.CreateIssueScreen
-import com.exponential.app.ui.myissues.MyIssuesScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
+import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
+import com.exponential.app.ui.search.SearchScreen
+import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.session.SteerTerminalScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
@@ -52,9 +50,10 @@ import dagger.hilt.android.EntryPointAccessors
 
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
- * [AppBackground] behind one push-stack `NavHost`. No drawer, no rail, no
- * bottom tabs — every destination is a push onto the back stack. Replaces the
- * inline graph + `MainScaffold` drawer shell that used to live in MainActivity.
+ * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
+ * pill (Issues · Search · Agents · Inbox + compose FAB) overlaid on the
+ * top-level routes. Replaces the inline graph + `MainScaffold` drawer shell
+ * that used to live in MainActivity.
  */
 @Composable
 fun AppNavHost() {
@@ -140,14 +139,16 @@ fun AppNavHost() {
             // re-scopes every live screen in place — no key(activeAccountId)
             // rebuild, no pending-handoff flags.
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
+            val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
+            val currentProjectId by viewModel.currentProjectId.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
                 cloudAlreadyAdded = cloudAlreadyAdded,
                 activeAccountId = state.activeAccountId,
                 needsOnboarding = needsOnboarding,
-                pendingDeepLink = pendingTarget != null,
                 unreadCount = unreadCount,
-                resolveLastProjectId = viewModel::lastOpenedProjectId,
+                agentsRunning = agentsRunning,
+                currentProjectId = currentProjectId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
             )
         }
@@ -190,9 +191,9 @@ private fun AuthenticatedNav(
     cloudAlreadyAdded: Boolean,
     activeAccountId: String?,
     needsOnboarding: Boolean,
-    pendingDeepLink: Boolean,
     unreadCount: Int,
-    resolveLastProjectId: suspend () -> String?,
+    agentsRunning: Boolean,
+    currentProjectId: String?,
     onSetInstanceUrl: (String) -> Unit,
 ) {
     val workspaceSelection = applicationWorkspaceSelection()
@@ -210,33 +211,23 @@ private fun AuthenticatedNav(
         }
     }
 
-    // Fresh starts land in the last-opened project, with home left beneath in
-    // the back stack. One-shot: rememberSaveable survives recomposition AND
-    // process recreation (where the restored back stack already is the right
-    // place). A pending deep link's navigation wins, and the onboarding wizard
-    // keeps its shot for after onDone (a brand-new user resolves to null).
-    var autoOpenedLastProject by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(needsOnboarding) {
-        if (autoOpenedLastProject || needsOnboarding) return@LaunchedEffect
-        autoOpenedLastProject = true
-        if (pendingDeepLink) return@LaunchedEffect
-        val projectId = resolveLastProjectId() ?: return@LaunchedEffect
-        navController.navigate("project/$projectId") { launchSingleTop = true }
-    }
+    // (Fresh starts need no auto-push anymore: the Issues tab root IS the
+    // last-opened project — its current-project resolution starts there.)
 
     // Linear-style floating bottom bar over the top-level routes only; detail
-    // and settings screens get the full height back. Compose targets the
-    // project being viewed, else the (validated) last-opened project.
+    // and settings screens get the full height back.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
-        currentRoute in setOf("home", "my-issues", "inbox", "project/{projectId}")
-    // The single add-issue affordance: the FAB shows ONLY while viewing a project
-    // (masterplan §9.3), so it always targets the project in view — no last-opened
-    // fallback that would let it compose from Home / My Issues / Inbox.
-    val composeProjectId =
-        if (currentRoute == "project/{projectId}") backStackEntry?.arguments?.getString("projectId")
-        else null
+        currentRoute in setOf("home", "search", "agents", "inbox", "project/{projectId}")
+    // The single add-issue affordance: the FAB shows while a project is in
+    // view — the Issues tab root (its resolved current project) or a pushed
+    // project route — so it always targets the project on screen.
+    val composeProjectId = when (currentRoute) {
+        "project/{projectId}" -> backStackEntry?.arguments?.getString("projectId")
+        "home" -> currentProjectId
+        else -> null
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
     NavHost(
@@ -256,13 +247,23 @@ private fun AuthenticatedNav(
             )
         }
         composable("home") {
-            HomeScreen(
-                onOpenProject = { _, projectId -> navController.navigate("project/$projectId") },
+            // The Issues tab root: the current project's list with the inline
+            // switcher; picking another project swaps it in place (no push).
+            IssueListScreen(
+                projectId = currentProjectId,
+                mode = IssueListMode.Root,
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
             )
         }
-        composable("my-issues") {
-            MyIssuesScreen(
+        composable("search") {
+            SearchScreen(
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+            )
+        }
+        composable("agents") {
+            AgentsScreen(
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
@@ -340,6 +341,7 @@ private fun AuthenticatedNav(
             }
             IssueListScreen(
                 projectId = projectId,
+                mode = IssueListMode.Pushed,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
             )
@@ -383,15 +385,25 @@ private fun AuthenticatedNav(
 
     if (barVisible) {
         BottomNavBar(
-            homeActive = currentRoute == "home",
-            myIssuesActive = currentRoute == "my-issues",
+            issuesActive = currentRoute == "home",
+            searchActive = currentRoute == "search",
+            agentsActive = currentRoute == "agents",
             inboxActive = currentRoute == "inbox",
             unreadCount = unreadCount,
-            showCompose = composeProjectId != null,
-            onHome = { navController.popBackStack("home", inclusive = false) },
-            onMyIssues = {
-                if (currentRoute != "my-issues") {
-                    navController.navigate("my-issues") {
+            agentsRunning = agentsRunning,
+            showsCompose = composeProjectId != null,
+            onIssues = { navController.popBackStack("home", inclusive = false) },
+            onSearch = {
+                if (currentRoute != "search") {
+                    navController.navigate("search") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                }
+            },
+            onAgents = {
+                if (currentRoute != "agents") {
+                    navController.navigate("agents") {
                         launchSingleTop = true
                         popUpTo("home")
                     }

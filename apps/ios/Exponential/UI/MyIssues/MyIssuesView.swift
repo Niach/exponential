@@ -2,30 +2,29 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Cross-project "assigned to me" view (masterplan §5a) — a fixed built-in
-/// view above the per-project lists: all issues in the active account with
-/// `assigneeId == me`, grouped by status, rows pushing the issue detail.
-/// Same glass row language as `IssueListView`, plus a project name per row
-/// since rows span projects.
-struct MyIssuesView: View {
+/// Cross-project "assigned to me" list (masterplan §5a): all issues in the
+/// active account with `assigneeId == me`, grouped by status, rows pushing
+/// the issue detail. Same glass row language as `IssueListView`, plus a
+/// project name per row since rows span projects. No background or navigation
+/// chrome of its own — it renders embedded as the Search tab's empty-query
+/// "Assigned to you" state (its former standalone tab was folded in there).
+struct MyIssuesListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var viewModel: MyIssuesViewModel?
 
     var body: some View {
-        ZStack {
-            AppBackground()
-
+        Group {
             if let vm = viewModel {
                 if vm.issues.isEmpty {
                     emptyState
                 } else {
                     issueList(vm)
                 }
+            } else {
+                Color.clear
             }
         }
-        .navigationTitle("My Issues")
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear {
             if viewModel == nil {
                 viewModel = MyIssuesViewModel(accountId: accountId, db: deps.db, auth: deps.auth)
@@ -41,13 +40,16 @@ struct MyIssuesView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
+            Spacer()
             Image(systemName: "person.crop.circle")
                 .font(.title2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("No issues assigned to you")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Spacer()
         }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder

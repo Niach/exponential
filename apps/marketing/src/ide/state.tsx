@@ -2,7 +2,13 @@
 import { createContext, useContext } from "react"
 import type { Change, Commit, FilterTab } from "./data"
 
-export type Tool = `issues` | `files` | `source-control`
+export type Tool =
+  | `issues`
+  | `files`
+  | `source-control`
+  | `inbox`
+  | `my-issues`
+  | `reviews`
 export type IdeView = `board` | `issue` | `files` | `source-control`
 
 export type TabKind = `issue` | `file` | `sc`
@@ -44,6 +50,14 @@ export type IdeApi = {
   commits: Commit[]
   commitAll: (message: string, push: boolean) => void
   ahead: number
+
+  inboxRead: Set<string>
+  markInboxRead: (id: string) => void
+  markAllInboxRead: () => void
+
+  mergedReviews: Set<string>
+  goneReviews: Set<string>
+  mergeReview: (issueId: string) => void
 
   coding: CodingState
   startCoding: () => void

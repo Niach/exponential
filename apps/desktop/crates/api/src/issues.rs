@@ -233,6 +233,31 @@ pub fn issues_delete(trpc: &TrpcClient, id: &str) -> Result<IssuesDeleteOutput, 
 }
 
 // ---------------------------------------------------------------------------
+// issues.mergePr
+// ---------------------------------------------------------------------------
+
+/// Output of `issues.mergePr` — `{"merged": true}` on success. The server is
+/// idempotent: an already-merged PR also returns `merged: true` (no error).
+#[derive(Debug, Deserialize)]
+pub struct MergeResult {
+    pub merged: bool,
+}
+
+/// `issues.mergePr` — squash-merges the issue's open PR server-side through
+/// the GitHub App installation token (the desktop never touches `gh`/git for
+/// this). Guard failures (no linked PR, PR not open, no repo, App not
+/// installed, GitHub-side rejection) surface as [`ApiError::Http`] with the
+/// server's user-facing message. Blocking; background executor only (§3.5).
+pub fn merge_pr(trpc: &TrpcClient, issue_id: &str) -> Result<MergeResult, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        issue_id: &'a str,
+    }
+    trpc.mutation("issues.mergePr", &Input { issue_id })
+}
+
+// ---------------------------------------------------------------------------
 // issues.prFiles (§7.8)
 // ---------------------------------------------------------------------------
 
@@ -413,6 +438,35 @@ mod tests {
         assert_eq!(out.tx_id, Some(7));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"id":"i-1"}"#));
+    }
+
+    #[test]
+    fn merge_pr_posts_camel_case_input_and_decodes_result() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
+        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
+        assert!(out.merged);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
+        assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
+        assert!(request.contains("Authorization: Bearer tok-1"));
+    }
+
+    #[test]
+    fn merge_pr_guard_failure_surfaces_the_server_message() {
+        // The server maps merge guards to PRECONDITION_FAILED with a
+        // user-facing message — the panel shows it verbatim.
+        let (base, _captured) = one_shot_server(
+            412,
+            r#"{"error":{"message":"This issue has no linked pull request","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+        );
+        let result = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000");
+        match result {
+            Err(ApiError::Http { status, message }) => {
+                assert_eq!(status, 412);
+                assert!(message.contains("no linked pull request"));
+            }
+            other => panic!("expected Http error, got {other:?}"),
+        }
     }
 
     #[test]

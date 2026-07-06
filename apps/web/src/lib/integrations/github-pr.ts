@@ -63,6 +63,63 @@ export async function createPullRequest(opts: {
   return { url: data.html_url, number: data.number }
 }
 
+// GitHub's merge endpoint uses the HTTP status to distinguish failure modes
+// (405 not mergeable / method disallowed, 409 head changed, 404 gone), so the
+// error carries the status for the caller to map onto user-facing messages.
+export class GitHubMergeError extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+export interface MergedPull {
+  merged: boolean
+  sha: string
+}
+
+// Squash-merge a PR server-side with the App installation token (the Reviews
+// surfaces merge through the server — clients never touch git/gh locally).
+// Throws GitHubMergeError with GitHub's own message on any non-2xx.
+export async function mergePullRequest(opts: {
+  repo: string
+  prNumber: number
+  token: string
+  commitTitle?: string
+}): Promise<MergedPull> {
+  const res = await fetch(
+    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge`,
+    {
+      method: `PUT`,
+      headers: {
+        ...githubApiHeaders(opts.token),
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        merge_method: `squash`,
+        ...(opts.commitTitle !== undefined
+          ? { commit_title: opts.commitTitle }
+          : {}),
+      }),
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    let message = text.slice(0, 300)
+    try {
+      const parsed = JSON.parse(text) as { message?: string }
+      if (parsed.message) message = parsed.message
+    } catch {
+      // Non-JSON error body — surface the raw text.
+    }
+    throw new GitHubMergeError(res.status, message)
+  }
+  const data = (await res.json()) as { merged: boolean; sha: string }
+  return { merged: data.merged, sha: data.sha }
+}
+
 // Pull-request resolution state (for the merge poller).
 export interface PullState {
   state: `open` | `closed`

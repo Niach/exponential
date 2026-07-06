@@ -2,30 +2,27 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-struct HomeView: View {
-    var syncing: Bool = false
-    var onProjectTap: (_ accountId: String, _ projectId: String) -> Void = { _, _ in }
-    var projectLoader: MultiAccountProjectLoader? = nil
-
-    @Environment(AppDependencies.self) private var deps
+/// Bottom-sheet project picker for the Issues tab's inline switcher: the
+/// server → workspace → project tree that used to be the Projects overview
+/// screen, now presented modally. Selecting a project swaps the Issues tab's
+/// list in place (the caller writes last-used and dismisses).
+struct ProjectSwitcherSheet: View {
+    let projectLoader: MultiAccountProjectLoader?
+    let currentProject: CurrentProjectRef?
+    let onSelect: (_ accountId: String, _ projectId: String) -> Void
 
     var body: some View {
-        ZStack {
-            AppBackground()
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Switch project")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 10)
 
             let groups = projectLoader?.groups ?? []
             if groups.isEmpty {
-                if syncing {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .tint(.white)
-                        Text("Syncing...")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                } else {
-                    setUpOnWebHint
-                }
+                emptyHint
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
@@ -34,51 +31,28 @@ struct HomeView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    .padding(.top, 4)
                     .padding(.bottom, 24)
                 }
             }
         }
-        .navigationTitle("Projects")
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                settingsButton
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    // Projects (and workspaces) are created on the web or desktop app — the
-    // mobile app is a companion. When there's nothing to show yet, point the
-    // user there instead of offering a create button.
-    private var setUpOnWebHint: some View {
-        VStack(spacing: 12) {
+    private var emptyHint: some View {
+        VStack(spacing: 10) {
+            Spacer()
             Image(systemName: "tray")
-                .font(.title2)
+                .font(.title3)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No projects yet")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text("Create your first project on the web or desktop app.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
-            if let host = instanceHost {
-                Text(host)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .glassRow()
-            }
+            Spacer()
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 40)
-    }
-
-    private var instanceHost: String? {
-        guard let base = deps.auth.instanceUrl,
-              let url = URL(string: base) else { return nil }
-        return url.host ?? base
     }
 
     @ViewBuilder
@@ -123,9 +97,9 @@ struct HomeView: View {
             VStack(spacing: 6) {
                 ForEach(block.projects) { project in
                     Button {
-                        onProjectTap(accountId, project.id)
+                        onSelect(accountId, project.id)
                     } label: {
-                        projectRow(project)
+                        projectRow(project, isCurrent: isCurrent(accountId: accountId, projectId: project.id))
                     }
                     .buttonStyle(.plain)
                 }
@@ -133,18 +107,12 @@ struct HomeView: View {
         }
     }
 
-    private var settingsButton: some View {
-        NavigationLink(value: AppRoute.settings) {
-            Image(systemName: "gearshape")
-                .font(.body)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle())
-        }
+    private func isCurrent(accountId: String, projectId: String) -> Bool {
+        currentProject?.accountId == accountId && currentProject?.projectId == projectId
     }
 
     @ViewBuilder
-    private func projectRow(_ project: ProjectEntity) -> some View {
+    private func projectRow(_ project: ProjectEntity, isCurrent: Bool) -> some View {
         HStack(spacing: 12) {
             Circle()
                 .fill(Color(hex: project.color ?? "#888888") ?? .gray)
@@ -160,9 +128,11 @@ struct HomeView: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+            if isCurrent {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Accent.indigo)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)

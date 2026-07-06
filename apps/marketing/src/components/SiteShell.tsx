@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { LINKS } from "../lib/links"
+import { DownloadIconRow } from "./DownloadSection"
 import { ExpLogo, IcArrow, IcGithub } from "./icons"
 
 export function SiteHeader() {
@@ -51,6 +52,9 @@ export function FooterCTA({
           <a className="btn btn-ghost" href="/docs/self-host/">
             Self-host
           </a>
+        </div>
+        <div className="footer-cta-dl">
+          <DownloadIconRow />
         </div>
       </div>
     </section>

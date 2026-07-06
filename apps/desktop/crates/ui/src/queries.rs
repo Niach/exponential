@@ -301,8 +301,9 @@ pub fn inbox(cx: &App) -> InboxData {
     }
 }
 
-/// "Needs your review" (`inbox-view.tsx`): synced issues in this workspace
-/// with an open PR — a query over `issues`, independent of notifications.
+/// Open pull requests: synced issues in this workspace with an open PR — a
+/// query over `issues`, independent of notifications. Feeds the Reviews rail
+/// badge and, grouped, the Reviews tool window.
 pub fn review_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue> {
     let collections = Store::global(cx).collections();
     let projects = collections.projects.read(cx);
@@ -318,6 +319,56 @@ pub fn review_issues(cx: &App, workspace_id: &str) -> Vec<domain::rows::Issue> {
         })
         .cloned()
         .collect()
+}
+
+/// One Reviews tool-window section: a project and its open-PR issues (the
+/// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
+pub struct ReviewGroup {
+    pub project: domain::rows::Project,
+    pub issues: Vec<domain::rows::Issue>,
+}
+
+/// The Reviews tool window read: [`review_issues`] grouped by project.
+/// Groups follow project `sort_order` (name tiebreak, like the sidebars);
+/// issues are newest first within a group — web parity.
+pub fn review_groups(cx: &App, workspace_id: &str) -> Vec<ReviewGroup> {
+    let open = review_issues(cx, workspace_id);
+    let collections = Store::global(cx).collections();
+    let projects = collections.projects.read(cx);
+
+    let mut by_project: HashMap<String, Vec<domain::rows::Issue>> = HashMap::new();
+    for issue in open {
+        by_project
+            .entry(issue.project_id.clone())
+            .or_default()
+            .push(issue);
+    }
+
+    let mut groups: Vec<ReviewGroup> = by_project
+        .into_iter()
+        .filter_map(|(project_id, mut issues)| {
+            // The workspace filter in `review_issues` already proved the
+            // project exists; the lookup only resolves the row.
+            let project = projects.get(&project_id)?.clone();
+            // Newest first — ISO strings from one source compare
+            // lexicographically (None sorts last).
+            issues.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            Some(ReviewGroup { project, issues })
+        })
+        .collect();
+    groups.sort_by(|a, b| {
+        a.project
+            .sort_order
+            .unwrap_or(f64::MAX)
+            .total_cmp(&b.project.sort_order.unwrap_or(f64::MAX))
+            .then_with(|| {
+                a.project
+                    .name
+                    .to_lowercase()
+                    .cmp(&b.project.name.to_lowercase())
+            })
+    });
+    groups
 }
 
 // ---------------------------------------------------------------------------

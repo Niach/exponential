@@ -10,9 +10,6 @@ struct IssueListView: View {
     @Environment(\.accountId) private var accountId
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
-    @State private var searchText = ""
-    @State private var searchOpen = false
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
         ZStack {
@@ -68,41 +65,10 @@ struct IssueListView: View {
     @ViewBuilder
     private func issueListContent(_ vm: IssueListViewModel) -> some View {
         VStack(spacing: 0) {
-            // Filter bar
+            // Filter bar (search lives in the Search tab, not the issue list)
             filterBar(vm)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-
-            // Custom glass search field. NOT system .searchable — on iOS 26+
-            // the navigationBarDrawer placement renders as a bottom-edge glass
-            // bar on iPhone, colliding with the floating tab bar.
-            if searchOpen {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    TextField("Search issues", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.white)
-                        .focused($searchFocused)
-                        .submitLabel(.search)
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            }
 
             if !vm.filters.isEmpty {
                 activeFilterPills(vm)
@@ -112,7 +78,7 @@ struct IssueListView: View {
 
             List {
                 ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                    let statusIssues = filteredIssues(vm.issuesForStatus(status))
+                    let statusIssues = vm.issuesForStatus(status)
                     if !statusIssues.isEmpty {
                         Section {
                             if !vm.collapsedStatuses.contains(status) {
@@ -170,16 +136,6 @@ struct IssueListView: View {
         }
     }
 
-    private func filteredIssues(_ issues: [IssueEntity]) -> [IssueEntity] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return issues }
-        return issues.filter {
-            $0.title.localizedCaseInsensitiveContains(trimmed)
-                || ($0.identifier ?? "").localizedCaseInsensitiveContains(trimmed)
-                || getIssueDescriptionText($0.description).localizedCaseInsensitiveContains(trimmed)
-        }
-    }
-
     @ViewBuilder
     private func filterBar(_ vm: IssueListViewModel) -> some View {
         HStack(spacing: 8) {
@@ -204,22 +160,6 @@ struct IssueListView: View {
                     }
             }
             .glassButton(isActive: !vm.filters.isEmpty)
-
-            // Search toggle — opens the inline glass search field below.
-            Button {
-                withAnimation(.snappy(duration: 0.15)) {
-                    searchOpen.toggle()
-                    if !searchOpen { searchText = "" }
-                }
-                searchFocused = searchOpen
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(searchOpen || !searchText.isEmpty ? 1.0 : TextOpacity.secondary))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-            }
-            .glassButton(isActive: searchOpen)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {

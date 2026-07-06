@@ -244,6 +244,23 @@
   border-radius: 2px;
   background: #4f46e5;
 }
+.ide-rail-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #4f46e5;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
 .ide-rail-div {
   width: 24px;
   height: 1px;
@@ -295,6 +312,176 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+
+/* ── Inbox / My Issues / Reviews tool panels ── */
+.ide-inboxpanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.ide-inbox-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #0a0a0a;
+}
+.ide-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.ide-inbox-row:hover {
+  background: rgba(38, 38, 38, 0.3);
+}
+.ide-inbox-row.is-read {
+  opacity: 0.6;
+}
+.ide-inbox-badge {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #262626;
+  color: #a1a1a1;
+}
+.ide-inbox-main {
+  flex: 1;
+  min-width: 0;
+}
+.ide-inbox-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.ide-inbox-id {
+  flex: none;
+  font-family: var(--ide-mono);
+  font-size: 11px;
+  color: #a1a1a1;
+}
+.ide-inbox-title {
+  font-size: 12px;
+  color: #fafafa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-inbox-title.is-unread {
+  font-weight: 600;
+}
+.ide-inbox-sentence {
+  font-size: 11px;
+  color: #a1a1a1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-inbox-meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ide-inbox-time {
+  font-size: 10px;
+  color: #737373;
+}
+.ide-inbox-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #4f46e5;
+}
+
+.ide-reviews-group {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #0a0a0a;
+}
+.ide-reviews-project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #a1a1a1;
+}
+.ide-reviews-project .ide-proj-dot {
+  width: 8px;
+  height: 8px;
+}
+.ide-review-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: opacity 0.35s ease;
+}
+.ide-review-row:hover {
+  background: rgba(38, 38, 38, 0.3);
+}
+.ide-review-row.is-merged {
+  opacity: 0.45;
+}
+.ide-review-icon {
+  flex: none;
+}
+.ide-review-main {
+  flex: 1;
+  min-width: 0;
+}
+.ide-review-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.ide-review-id {
+  flex: none;
+  font-family: var(--ide-mono);
+  font-size: 11px;
+  color: #a1a1a1;
+}
+.ide-review-title {
+  font-size: 12px;
+  color: #fafafa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-review-sub {
+  font-family: var(--ide-mono);
+  font-size: 10px;
+  color: #737373;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-review-mergebtn {
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.ide-review-mergedtag {
+  flex: none;
+  font-size: 11px;
+  color: #60a5fa;
+  white-space: nowrap;
+}
+.ide-reviews-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: #737373;
 }
 
 /* ── Board panel ── */

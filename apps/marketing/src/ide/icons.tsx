@@ -16,6 +16,7 @@ import {
   Circle,
   CircleCheck,
   CircleDashed,
+  CircleDot,
   CircleUser,
   CircleX,
   Code,
@@ -23,6 +24,7 @@ import {
   Folder,
   FolderOpen,
   GitMerge,
+  GitPullRequest,
   Heading1,
   Heading2,
   Heading3,
@@ -35,6 +37,7 @@ import {
   ListFilter,
   ListOrdered,
   ListTodo,
+  MessageSquare,
   Minus,
   Play,
   Plus,
@@ -53,6 +56,7 @@ import {
   Timer,
   TriangleAlert,
   User,
+  UserPlus,
   X,
   type LucideProps,
 } from "lucide-react"
@@ -79,6 +83,10 @@ export const IcFolder = wrap(Folder)
 export const IcFolderOpen = wrap(FolderOpen)
 export const IcFile = wrap(File)
 export const IcGitMerge = wrap(GitMerge)
+export const IcGitPullRequest = wrap(GitPullRequest)
+export const IcUserPlus = wrap(UserPlus)
+export const IcMessageSquare = wrap(MessageSquare)
+export const IcCircleDot = wrap(CircleDot)
 export const IcSettings = wrap(Settings)
 export const IcChevsUpDown = wrap(ChevronsUpDown)
 export const IcChevDown = wrap(ChevronDown)

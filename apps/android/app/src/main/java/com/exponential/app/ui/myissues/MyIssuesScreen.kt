@@ -1,6 +1,7 @@
 package com.exponential.app.ui.myissues
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,13 +16,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -42,73 +38,63 @@ import com.exponential.app.ui.issue.LongPressIssueRow
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * "My Issues" (masterplan §5a): top-level cross-project view of everything
- * assigned to me on the active account, grouped by status. A fixed built-in
- * view — no filters, no saved views. Reached from the bottom navigation
- * (Projects · My Issues · Inbox, mirroring the iOS tab order).
+ * "Assigned to you" (the old My Issues tab, masterplan §5a): a cross-project
+ * list of everything assigned to me on the active account, grouped by status.
+ * A fixed built-in view — no filters, no saved views. Lives on as the Search
+ * tab's empty-query state; embedded there rather than routed to.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MyIssuesScreen(
+fun MyIssuesListContent(
     onOpenIssue: (String) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: MyIssuesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            TopAppBar(
-                title = { Text("My Issues") },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-            )
-        },
-    ) { padding ->
-        when {
-            !state.loaded -> LoadingState(modifier = Modifier.padding(padding))
-            state.groups.isEmpty() -> EmptyState(
-                message = "Nothing assigned to you",
-                icon = Icons.Filled.Person,
-                modifier = Modifier.padding(padding),
-            )
-            else -> LazyColumn(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(3.dp),
-            ) {
-                state.groups.forEach { group ->
-                    val isCollapsed = group.status in collapsed
-                    item(key = "header-${group.status.wire}") {
-                        GroupHeader(
-                            status = group.status,
-                            count = group.issues.size,
-                            collapsed = isCollapsed,
-                            onToggle = {
-                                collapsed =
-                                    if (isCollapsed) collapsed - group.status else collapsed + group.status
+    when {
+        !state.loaded -> LoadingState(modifier = modifier)
+        state.groups.isEmpty() -> EmptyState(
+            message = "Nothing assigned to you",
+            icon = Icons.Filled.Person,
+            modifier = modifier,
+        )
+        else -> LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            state.groups.forEach { group ->
+                val isCollapsed = group.status in collapsed
+                item(key = "header-${group.status.wire}") {
+                    GroupHeader(
+                        status = group.status,
+                        count = group.issues.size,
+                        collapsed = isCollapsed,
+                        onToggle = {
+                            collapsed =
+                                if (isCollapsed) collapsed - group.status else collapsed + group.status
+                        },
+                    )
+                }
+                if (!isCollapsed) {
+                    items(group.issues, key = { it.issue.id }) { entry ->
+                        // Rows span projects — the identifier's project
+                        // prefix ({PREFIX}-{n}) disambiguates; the assignee
+                        // avatar is omitted (it's always me).
+                        LongPressIssueRow(
+                            issue = entry.issue,
+                            labels = entry.labels,
+                            assignee = null,
+                            canMutate = true,
+                            onMarkDone = {
+                                viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
                             },
+                            onMoveToBacklog = {
+                                viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Backlog)
+                            },
+                            onClick = { onOpenIssue(entry.issue.id) },
                         )
-                    }
-                    if (!isCollapsed) {
-                        items(group.issues, key = { it.issue.id }) { entry ->
-                            // Rows span projects — the identifier's project
-                            // prefix ({PREFIX}-{n}) disambiguates; the assignee
-                            // avatar is omitted (it's always me).
-                            LongPressIssueRow(
-                                issue = entry.issue,
-                                labels = entry.labels,
-                                assignee = null,
-                                canMutate = true,
-                                onMarkDone = {
-                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
-                                },
-                                onMoveToBacklog = {
-                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Backlog)
-                                },
-                                onClick = { onOpenIssue(entry.issue.id) },
-                            )
-                        }
                     }
                 }
             }

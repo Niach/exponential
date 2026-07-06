@@ -4,6 +4,7 @@ import {
   CHANGES,
   CODING_SCRIPT,
   COMMITS,
+  INBOX_ITEMS,
   type Change,
   type Commit,
   type FilterTab,
@@ -99,6 +100,7 @@ function CenterArea() {
     return (
       <div className="ide-center">
         <EmptyState />
+        <TerminalDock />
       </div>
     )
   }
@@ -145,6 +147,7 @@ function CenterArea() {
           </div>
         ))}
       </div>
+      <TerminalDock />
     </div>
   )
 }
@@ -175,6 +178,18 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [scriptPos, setScriptPos] = useState<ScriptPos>({ done: 0, chars: 0 })
   const [dockOpen, setDockOpen] = useState(false)
   const [dockTab, setDockTab] = useState<DockTab>(`shell`)
+  const [inboxRead, setInboxRead] = useState<Set<string>>(new Set())
+  const [mergedReviews, setMergedReviews] = useState<Set<string>>(new Set())
+  const [goneReviews, setGoneReviews] = useState<Set<string>>(new Set())
+  const mergeTimers = useRef<number[]>([])
+
+  /* Clear pending merge animate-out timers on unmount */
+  useEffect(
+    () => () => {
+      mergeTimers.current.forEach((t) => window.clearTimeout(t))
+    },
+    [],
+  )
 
   /* Typed-out claude session. Instant when prefers-reduced-motion. */
   useEffect(() => {
@@ -259,6 +274,25 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
       setAhead(push ? 0 : ahead + 1)
     },
     ahead,
+    inboxRead,
+    markInboxRead: (id) => setInboxRead((prev) => new Set(prev).add(id)),
+    markAllInboxRead: () =>
+      setInboxRead((prev) => {
+        const next = new Set(prev)
+        INBOX_ITEMS.forEach((n) => next.add(n.id))
+        return next
+      }),
+    mergedReviews,
+    goneReviews,
+    mergeReview: (issueId) => {
+      setMergedReviews((prev) => new Set(prev).add(issueId))
+      mergeTimers.current.push(
+        window.setTimeout(
+          () => setGoneReviews((prev) => new Set(prev).add(issueId)),
+          900,
+        ),
+      )
+    },
     coding,
     startCoding: () => {
       setCoding(`running`)
@@ -293,7 +327,6 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
             <SidebarPanel />
             <CenterArea />
           </div>
-          <TerminalDock />
         </div>
       </IdeContext.Provider>
     </div>

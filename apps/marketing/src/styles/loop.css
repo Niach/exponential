@@ -114,8 +114,19 @@
 
 /* ── Home-page layout (home agent) ── */
 
-.home-hero-dl {
-  margin-top: 20px;
+.hero-dl-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 18px;
+  font-size: 0.8125rem;
+  color: var(--fg-dim);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.hero-dl-link:hover {
+  color: var(--fg);
 }
 
 .home-ide-wrap {

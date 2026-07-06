@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -30,20 +28,18 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,11 +60,16 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.LabelDot
+import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
+import com.exponential.app.ui.home.HomeViewModel
+import com.exponential.app.ui.home.ProjectSwitcherSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -76,143 +77,104 @@ import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
+/**
+ * How the issue list is mounted:
+ * - [Root] — the Issues tab's home. No back button; the pinned header is the
+ *   inline project switcher (current project name + expander glyph → the
+ *   switcher sheet) plus the settings gear. The project swaps in place.
+ * - [Pushed] — a pushed `project/{projectId}` destination (share target,
+ *   deep link, search): back button, fixed project.
+ */
+enum class IssueListMode { Root, Pushed }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueListScreen(
-    projectId: String,
+    projectId: String?,
+    mode: IssueListMode,
     onOpenIssue: (String) -> Unit,
-    onBack: () -> Unit,
+    onBack: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
+    var showSwitcher by remember { mutableStateOf(false) }
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
+
+    // Root mode resolves the project outside the nav args (last-used → first),
+    // so the ViewModel is re-pointed whenever the resolution changes.
+    LaunchedEffect(projectId) { viewModel.setProject(projectId.orEmpty()) }
+
+    // The switcher tree + bootstrap live in the (old home) switcher ViewModel;
+    // only the Root mount needs them. The mode of a mounted screen never
+    // changes, so the conditional composable calls are stable.
+    val homeViewModel: HomeViewModel? = if (mode == IssueListMode.Root) hiltViewModel() else null
+    val homeState = homeViewModel?.state?.collectAsStateWithLifecycle()?.value
+    val homeError = homeViewModel?.error?.collectAsStateWithLifecycle()?.value
+    if (homeViewModel != null) {
+        LaunchedEffect(Unit) { homeViewModel.bootstrap() }
+    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // Pinned nav row: circular back + (filter) — iOS nav buttons. The
-            // single add-issue affordance is the project-only FAB (masterplan §9.3).
+            // Pinned nav row. Pushed: circular back button. Root: the inline
+            // project switcher control + the settings gear. The filter button
+            // moved inline with the tab-preset chips (iOS placement); the
+            // single add-issue affordance is the bottom bar's compose FAB.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircleIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
-                Spacer(Modifier.weight(1f))
-                BadgedBox(badge = {
-                    if (state.filters.count > 0) Badge { Text(state.filters.count.toString()) }
-                }) {
-                    CircleIconButton(Icons.Filled.FilterList, "Filters", onClick = { showFilters = true })
+                when (mode) {
+                    IssueListMode.Pushed -> {
+                        CircleIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                        Spacer(Modifier.weight(1f))
+                    }
+                    IssueListMode.Root -> {
+                        ProjectSwitcherControl(
+                            name = state.project?.name,
+                            enabled = homeState?.projectTree?.isNotEmpty() == true,
+                            onClick = { showSwitcher = true },
+                        )
+                        Spacer(Modifier.weight(1f))
+                        CircleIconButton(Icons.Filled.Settings, "Settings", onClick = onOpenSettings)
+                    }
                 }
             }
 
-            val filteredGroups = remember(state.groups, query) {
-                if (query.isBlank()) {
-                    state.groups
+            if (mode == IssueListMode.Root && projectId.isNullOrBlank()) {
+                // No project on this account yet (companion app: projects are
+                // created on web/desktop). The switcher stays disabled above.
+                // When the synced tree already has projects, the current one is
+                // still resolving — show a spinner, not the empty copy.
+                if (homeState?.projectTree?.isNotEmpty() == true) {
+                    LoadingState()
                 } else {
-                    state.groups
-                        .map { group ->
-                            group.copy(
-                                issues = group.issues.filter {
-                                    it.issue.title.contains(query, ignoreCase = true)
-                                },
-                            )
-                        }
-                        .filter { it.issues.isNotEmpty() }
+                    EmptyState(
+                        message = when {
+                            homeState?.isSyncing == true -> "Syncing…"
+                            homeError != null -> homeError
+                            else -> "No projects yet. Create your first project on the web or desktop app."
+                        },
+                        icon = Icons.Filled.UnfoldMore,
+                    )
                 }
-            }
-            val usersById = remember(state.users) { state.users.associateBy { it.id } }
-
-            PullToRefreshBox(
-                isRefreshing = state.isRefreshing,
-                onRefresh = viewModel::refresh,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    // Large project title (scrolls with content, iOS .navigationTitle).
-                    item(key = "title") {
-                        Text(
-                            state.project?.name ?: "Project",
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
-                        )
-                    }
-                    item(key = "search") {
-                        SearchField(query = query, onQueryChange = { query = it })
-                        Spacer(Modifier.height(4.dp))
-                    }
-                    item(key = "pills") {
-                        FilterPills(
-                            active = state.tab,
-                            hasFilters = !state.filters.isEmpty,
-                            onSelect = viewModel::setTab,
-                            onClear = viewModel::clearFilters,
-                        )
-                        ActiveFilterPills(
-                            filters = state.filters,
-                            labels = state.labels,
-                            onToggleStatus = viewModel::toggleStatus,
-                            onTogglePriority = viewModel::togglePriority,
-                            onToggleLabel = viewModel::toggleLabel,
-                            onClear = viewModel::clearFilters,
-                        )
-                    }
-
-                    if (filteredGroups.isEmpty()) {
-                        item(key = "empty") {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    if (query.isBlank()) "No issues yet" else "No issues match",
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                )
-                            }
-                        }
-                    } else {
-                        filteredGroups.forEach { group ->
-                            val isCollapsed = group.status in collapsed
-                            item(key = "header-${group.status.wire}") {
-                                StatusHeader(
-                                    status = group.status,
-                                    count = group.issues.size,
-                                    collapsed = isCollapsed,
-                                    onToggle = {
-                                        collapsed = if (isCollapsed) collapsed - group.status else collapsed + group.status
-                                    },
-                                )
-                            }
-                            if (!isCollapsed) {
-                                items(group.issues, key = { it.issue.id }) { entry ->
-                                    LongPressIssueRow(
-                                        issue = entry.issue,
-                                        labels = entry.labels,
-                                        assignee = usersById[entry.issue.assigneeId],
-                                        canMutate = permissions.canMutateIssue(entry.issue.creatorId),
-                                        onMarkDone = {
-                                            viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
-                                        },
-                                        onMoveToBacklog = {
-                                            viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Backlog)
-                                        },
-                                        onClick = { onOpenIssue(entry.issue.id) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+            } else {
+                IssueListContent(
+                    state = state,
+                    permissions = permissions,
+                    collapsed = collapsed,
+                    onToggleCollapsed = { status, isCollapsed ->
+                        collapsed = if (isCollapsed) collapsed - status else collapsed + status
+                    },
+                    onOpenFilters = { showFilters = true },
+                    onOpenIssue = onOpenIssue,
+                    viewModel = viewModel,
+                )
             }
         }
     }
@@ -226,6 +188,150 @@ fun IssueListScreen(
             onToggleLabel = viewModel::toggleLabel,
             onClear = viewModel::clearFilters,
             onDismiss = { showFilters = false },
+        )
+    }
+
+    if (showSwitcher && homeViewModel != null) {
+        ProjectSwitcherSheet(
+            groups = homeState?.projectTree ?: emptyList(),
+            onSelect = { accountId, pickedProjectId ->
+                homeViewModel.selectProject(accountId, pickedProjectId)
+                showSwitcher = false
+            },
+            onDismiss = { showSwitcher = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun IssueListContent(
+    state: IssueListState,
+    permissions: WorkspacePermissions,
+    collapsed: Set<IssueStatus>,
+    onToggleCollapsed: (IssueStatus, Boolean) -> Unit,
+    onOpenFilters: () -> Unit,
+    onOpenIssue: (String) -> Unit,
+    viewModel: IssueListViewModel,
+) {
+    val usersById = remember(state.users) { state.users.associateBy { it.id } }
+
+    PullToRefreshBox(
+        isRefreshing = state.isRefreshing,
+        onRefresh = viewModel::refresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            // Large project title (scrolls with content, iOS .navigationTitle).
+            item(key = "title") {
+                Text(
+                    state.project?.name ?: "Project",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                )
+            }
+            item(key = "pills") {
+                FilterPills(
+                    active = state.tab,
+                    hasFilters = !state.filters.isEmpty,
+                    filterCount = state.filters.count,
+                    onSelect = viewModel::setTab,
+                    onClear = viewModel::clearFilters,
+                    onOpenFilters = onOpenFilters,
+                )
+                ActiveFilterPills(
+                    filters = state.filters,
+                    labels = state.labels,
+                    onToggleStatus = viewModel::toggleStatus,
+                    onTogglePriority = viewModel::togglePriority,
+                    onToggleLabel = viewModel::toggleLabel,
+                    onClear = viewModel::clearFilters,
+                )
+            }
+
+            if (state.groups.isEmpty()) {
+                item(key = "empty") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No issues yet",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        )
+                    }
+                }
+            } else {
+                state.groups.forEach { group ->
+                    val isCollapsed = group.status in collapsed
+                    item(key = "header-${group.status.wire}") {
+                        StatusHeader(
+                            status = group.status,
+                            count = group.issues.size,
+                            collapsed = isCollapsed,
+                            onToggle = { onToggleCollapsed(group.status, isCollapsed) },
+                        )
+                    }
+                    if (!isCollapsed) {
+                        items(group.issues, key = { it.issue.id }) { entry ->
+                            LongPressIssueRow(
+                                issue = entry.issue,
+                                labels = entry.labels,
+                                assignee = usersById[entry.issue.assigneeId],
+                                canMutate = permissions.canMutateIssue(entry.issue.creatorId),
+                                onMarkDone = {
+                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
+                                },
+                                onMoveToBacklog = {
+                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Backlog)
+                                },
+                                onClick = { onOpenIssue(entry.issue.id) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The Issues tab root's inline project switcher: current project name + an
+// up/down expander glyph as one tappable glass control (iOS combobox pattern).
+@Composable
+private fun ProjectSwitcherControl(
+    name: String?,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .glassButton()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            name ?: "Issues",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.Filled.UnfoldMore,
+            contentDescription = "Switch project",
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+            ),
         )
     }
 }
@@ -252,51 +358,17 @@ private fun CircleIconButton(icon: ImageVector, contentDescription: String, onCl
     }
 }
 
-// Always-visible rounded glass search field (iOS .searchable).
-@Composable
-private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
-    TextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth(),
-        placeholder = {
-            Text("Search issues", color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
-        },
-        leadingIcon = {
-            Icon(
-                Icons.Filled.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Filled.Close, contentDescription = "Clear search")
-                }
-            }
-        },
-        singleLine = true,
-        shape = RoundedCornerShape(12.dp),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = GlassTokens.RowFill,
-            unfocusedContainerColor = GlassTokens.RowFill,
-            disabledContainerColor = GlassTokens.RowFill,
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-        ),
-    )
-}
-
-// Inline glass filter pills (iOS filter bar): the three tab presets as glass
+// Inline glass filter pills (iOS filter bar): the circular filter button with
+// its active-count badge leading, then the three tab presets as glass
 // capsules, plus a "Clear" pill when any advanced filter is active.
 @Composable
 private fun FilterPills(
     active: FilterTab,
     hasFilters: Boolean,
+    filterCount: Int,
     onSelect: (FilterTab) -> Unit,
     onClear: () -> Unit,
+    onOpenFilters: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -306,6 +378,11 @@ private fun FilterPills(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        BadgedBox(badge = {
+            if (filterCount > 0) Badge { Text(filterCount.toString()) }
+        }) {
+            CircleIconButton(Icons.Filled.FilterList, "Filters", onClick = onOpenFilters)
+        }
         FilterTab.entries.forEach { tab ->
             val selected = active == tab
             Text(
@@ -457,4 +534,3 @@ internal fun IssueRow(
         )
     }
 }
-

@@ -45,6 +45,18 @@
   opacity: 0.6;
 }
 
+/* Subdued platform pill row inside the footer CTA */
+.footer-cta-dl .dl-iconrow {
+  justify-content: center;
+  margin-top: 1.75rem;
+}
+.footer-cta-dl .dl-iconbtn {
+  opacity: 0.85;
+}
+.footer-cta-dl .dl-iconbtn.is-soon {
+  opacity: 0.55;
+}
+
 /* ─── /download/ page — platform card grid (3 desktop / 2 mobile-store) ─── */
 .dl-grid {
   display: grid;

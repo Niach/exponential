@@ -30,15 +30,12 @@ import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -72,7 +69,7 @@ data class IssueListState(
     val error: String? = null,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class IssueListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -84,7 +81,11 @@ class IssueListViewModel @Inject constructor(
     private val appContext: android.content.Context,
 ) : ViewModel() {
 
-    private val projectId: String = savedStateHandle["projectId"] ?: ""
+    // Pushed mounts (`project/{projectId}`, `project/{projectId}/new`) seed the
+    // project from the nav args; the Issues tab root has no arg and re-points
+    // the ViewModel via setProject whenever its current-project resolution
+    // (last-used → first) changes.
+    private val projectIdFlow = MutableStateFlow<String>(savedStateHandle["projectId"] ?: "")
 
     // Reactive account scoping: all queries re-scope on account switch (no
     // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
@@ -98,15 +99,19 @@ class IssueListViewModel @Inject constructor(
     private val _refreshing = MutableStateFlow(false)
     private val _project = MutableStateFlow<ProjectEntity?>(null)
 
-    // Raw search query is updated on every keystroke (the text field stays
-    // instantly responsive via local Compose state), but the expensive
-    // filter/group recompute is driven off a debounced snapshot so it runs
-    // ~250ms after typing stops — off the keystroke and off the UI thread.
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery
-    private val debouncedQuery: Flow<String> = _searchQuery
-        .debounce(250)
-        .distinctUntilChanged()
+    /** Swap the list to another project in place (Issues tab root). */
+    fun setProject(projectId: String) {
+        if (projectId == projectIdFlow.value) return
+        // Filters can reference another workspace's labels — start clean.
+        _filters.value = IssueFilters()
+        projectIdFlow.value = projectId
+    }
+
+    private val issuesForProject = combine(dbFlow, projectIdFlow) { db, pid -> db to pid }
+        .flatMapLatest { (db, pid) ->
+            if (db == null || pid.isBlank()) flowOf(emptyList())
+            else db.issueDao().observeByProject(pid)
+        }
 
     private val labelsForWorkspace = combine(dbFlow, _project) { db, project -> db to project }
         .flatMapLatest { (db, project) ->
@@ -145,19 +150,18 @@ class IssueListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
     // The heavy filter/group/sort pipeline. Recomputes only when one of its
-    // *meaningful* data inputs changes (project, issues, labels, joins, filters,
-    // users, or the debounced search query). Transient UI flags (busy / error /
-    // refreshing) are deliberately kept out so toggling them never rebuilds the
-    // grouped list.
+    // *meaningful* data inputs changes (project, issues, labels, joins,
+    // filters, or users). Transient UI flags (busy / error / refreshing) are
+    // deliberately kept out so toggling them never rebuilds the grouped list.
+    // (Issue-list search is gone — cross-project search lives in its own tab.)
     private val groupedState: Flow<GroupedIssueState> = combine(
         listOf(
             _project,
-            dbFlow.scopedQuery(emptyList()) { it.issueDao().observeByProject(projectId) },
+            issuesForProject,
             labelsForWorkspace,
             issueLabelsForWorkspace,
             _filters,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
-            debouncedQuery,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -171,20 +175,15 @@ class IssueListViewModel @Inject constructor(
         val filters = values[4] as IssueFilters
         @Suppress("UNCHECKED_CAST")
         val users = values[5] as List<UserEntity>
-        val query = values[6] as String
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
-        val trimmedQuery = query.trim()
 
         val filteredAndDecorated = issues.mapNotNull { issue ->
             val status = IssueStatus.fromWire(issue.status)
             val priority = IssuePriority.fromWire(issue.priority)
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
             if (!matchesFilters(status, priority, labelIds, filters)) return@mapNotNull null
-            if (trimmedQuery.isNotEmpty() && !issue.title.contains(trimmedQuery, ignoreCase = true)) {
-                return@mapNotNull null
-            }
             val resolvedLabels = labelIds.mapNotNull { labelsById[it] }
             IssueWithLabels(issue, resolvedLabels)
         }
@@ -229,9 +228,12 @@ class IssueListViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() }.collect { all ->
-                _project.value = all.firstOrNull { it.id == projectId }
-            }
+            combine(
+                dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+                projectIdFlow,
+            ) { all, pid ->
+                all.firstOrNull { it.id == pid }
+            }.collect { _project.value = it }
         }
     }
 
@@ -260,10 +262,6 @@ class IssueListViewModel @Inject constructor(
 
     fun clearFilters() {
         _filters.value = IssueFilters()
-    }
-
-    fun setSearchQuery(query: String) {
-        _searchQuery.value = query
     }
 
     /**
@@ -324,7 +322,7 @@ class IssueListViewModel @Inject constructor(
             val created = issuesApi.create(
                 accountId,
                 CreateIssueInput(
-                    projectId = projectId,
+                    projectId = projectIdFlow.value,
                     title = title.trim(),
                     status = status.wire,
                     priority = priority.wire,

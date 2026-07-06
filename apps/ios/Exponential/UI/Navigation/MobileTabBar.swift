@@ -1,27 +1,53 @@
 import ExpUI
 import SwiftUI
 
-/// Linear-style floating bottom navigation: a glass pill with the top-level
-/// destinations (Projects, My Issues, Inbox — with an unread dot) plus a
-/// detached circular compose button on the right. Overlaid via safeAreaInset so
-/// content scrolls underneath it; MainNavigator hides it on detail screens.
+/// Linear-style floating bottom navigation: a glass pill with the four
+/// top-level destinations (Issues, Search, Agents — with a running-session
+/// dot — and Inbox — with an unread dot) plus a detached circular compose
+/// button on the right. Overlaid via safeAreaInset so content scrolls
+/// underneath it; MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
-    let homeActive: Bool
-    let myIssuesActive: Bool
+    let issuesActive: Bool
+    let searchActive: Bool
+    let agentsActive: Bool
     let inboxActive: Bool
     let unreadCount: Int
+    let agentsRunning: Bool
     let showsCompose: Bool
-    let onHome: () -> Void
-    let onMyIssues: () -> Void
+    let onIssues: () -> Void
+    let onSearch: () -> Void
+    let onAgents: () -> Void
     let onInbox: () -> Void
     let onCompose: () -> Void
+
+    /// SF Symbols has no robot-head glyph, so the Agents tab draws a bundled
+    /// template vector asset; every other tab keeps a system symbol.
+    private enum TabGlyph {
+        case system(String)
+        case asset(String)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
-                tab(icon: "square.grid.2x2", label: "Projects", active: homeActive, action: onHome)
-                tab(icon: "person.crop.circle", label: "My Issues", active: myIssuesActive, action: onMyIssues)
-                tab(icon: "tray", label: "Inbox", active: inboxActive, badge: unreadCount > 0, action: onInbox)
+                tab(glyph: .system("list.bullet"), label: "Issues", active: issuesActive, action: onIssues)
+                tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
+                tab(
+                    glyph: .asset("tab-robot"),
+                    label: "Agents",
+                    active: agentsActive,
+                    badge: agentsRunning,
+                    badgeColor: DesignTokens.Semantic.green,
+                    action: onAgents
+                )
+                tab(
+                    glyph: .system("tray"),
+                    label: "Inbox",
+                    active: inboxActive,
+                    badge: unreadCount > 0,
+                    badgeColor: Accent.indigo,
+                    action: onInbox
+                )
             }
             .padding(5)
             .background(.ultraThinMaterial, in: Capsule())
@@ -54,21 +80,20 @@ struct MobileTabBar: View {
     }
 
     private func tab(
-        icon: String,
+        glyph: TabGlyph,
         label: String,
         active: Bool,
         badge: Bool = false,
+        badgeColor: Color = Accent.indigo,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+            glyphImage(glyph, active: active)
                 .frame(width: 56, height: 42)
                 .overlay(alignment: .topTrailing) {
                     if badge {
                         Circle()
-                            .fill(Accent.indigo)
+                            .fill(badgeColor)
                             .frame(width: 8, height: 8)
                             .offset(x: -14, y: 8)
                     }
@@ -78,5 +103,22 @@ struct MobileTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+
+    @ViewBuilder
+    private func glyphImage(_ glyph: TabGlyph, active: Bool) -> some View {
+        switch glyph {
+        case let .system(name):
+            Image(systemName: name)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+        case let .asset(name):
+            Image(name)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 20, height: 20)
+                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+        }
     }
 }

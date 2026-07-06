@@ -176,6 +176,10 @@ interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE workspace_id = :workspaceId")
     fun observeByWorkspace(workspaceId: String): Flow<List<CodingSessionEntity>>
 
+    // Account-wide live sessions (the Agents tab + its bottom-bar dot).
+    @Query("SELECT * FROM coding_sessions WHERE status = :status ORDER BY started_at DESC")
+    fun observeByStatus(status: String): Flow<List<CodingSessionEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CodingSessionEntity)
 

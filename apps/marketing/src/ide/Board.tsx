@@ -16,7 +16,7 @@ const PILLS: { id: FilterTab; label: string }[] = [
   { id: `backlog`, label: `Backlog` },
 ]
 
-function IssueRow({ issue }: { issue: Issue }) {
+export function IssueRow({ issue }: { issue: Issue }) {
   const { openIssue, interactive, active } = useIde()
   const isOpen = active === `issue:${issue.id}`
   return (

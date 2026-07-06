@@ -219,8 +219,10 @@ fun SteerPanel(
     }
 }
 
+// Pulsing live-session dot; internal so the Agents tab reuses the exact
+// "Coding now" pulse.
 @Composable
-private fun PulsingDot() {
+internal fun PulsingDot(size: androidx.compose.ui.unit.Dp = 8.dp) {
     val transition = rememberInfiniteTransition(label = "coding-now")
     val alpha by transition.animateFloat(
         initialValue = 1f,
@@ -233,7 +235,7 @@ private fun PulsingDot() {
     )
     Box(
         modifier = Modifier
-            .size(8.dp)
+            .size(size)
             .clip(CircleShape)
             .background(LiveGreen.copy(alpha = alpha)),
     )

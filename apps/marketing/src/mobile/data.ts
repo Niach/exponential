@@ -89,6 +89,187 @@ export const mobGroups: MobGroup[] = [
   },
 ]
 
+/* ─── Second fixture project — cycled via the header project switcher ─── */
+
+export const mobAltGroups: MobGroup[] = [
+  {
+    status: `in_progress`,
+    label: `In Progress`,
+    issues: [
+      {
+        identifier: `MOB-4`,
+        title: `Offline issue drafts`,
+        priority: `high`,
+        status: `in_progress`,
+        assignee: `DS`,
+      },
+    ],
+  },
+  {
+    status: `todo`,
+    label: `Todo`,
+    issues: [
+      {
+        identifier: `MOB-7`,
+        title: `Push notification deep links`,
+        priority: `medium`,
+        status: `todo`,
+      },
+      {
+        identifier: `MOB-9`,
+        title: `Haptics on swipe actions`,
+        priority: `none`,
+        status: `todo`,
+      },
+    ],
+  },
+  {
+    status: `done`,
+    label: `Done`,
+    issues: [
+      {
+        identifier: `MOB-2`,
+        title: `Widget screenshot viewer`,
+        priority: `none`,
+        status: `done`,
+        assignee: `DS`,
+      },
+    ],
+  },
+]
+
+export const mobProjects = [
+  { name: `Exponential`, groups: mobGroups },
+  { name: `Mobile App`, groups: mobAltGroups },
+] as const
+
+/* ─── Search tab fixtures ─── */
+
+export const mobSearchQuery = `auth`
+
+export const mobSearchResults: MobIssue[] = [
+  {
+    identifier: `EXP-3`,
+    title: `Google auth on the register page`,
+    priority: `medium`,
+    status: `done`,
+  },
+  {
+    identifier: `EXP-14`,
+    title: `Auth session refresh on wake`,
+    priority: `high`,
+    status: `in_progress`,
+    assignee: `DS`,
+  },
+  {
+    identifier: `EXP-19`,
+    title: `OAuth error toasts`,
+    priority: `none`,
+    status: `todo`,
+  },
+]
+
+export const mobAssigned: MobIssue[] = [
+  {
+    identifier: `EXP-8`,
+    title: `Live-steer terminal reconnect`,
+    priority: `high`,
+    status: `in_progress`,
+    assignee: `DS`,
+  },
+  {
+    identifier: `EXP-5`,
+    title: `Side-by-side diff view`,
+    priority: `none`,
+    status: `done`,
+    assignee: `DS`,
+  },
+]
+
+/* ─── Agents tab fixtures — running coding sessions ─── */
+
+export type MobAgent = {
+  identifier: string
+  title: string
+  meta: string
+}
+
+export const mobAgents: MobAgent[] = [
+  {
+    identifier: `EXP-12`,
+    title: `Attachment paste uploads`,
+    meta: `Claude on dennis-mbp · 12m`,
+  },
+  {
+    identifier: `EXP-8`,
+    title: `Live-steer terminal reconnect`,
+    meta: `Claude on dennis-mbp · 34m`,
+  },
+]
+
+/* ─── Live steer screen — static terminal snapshot ─── */
+
+export type MobSteerLine = { kind: `cmd` | `claude` | `ok` | `out`; text: string }
+
+export const mobSteerLines: MobSteerLine[] = [
+  { kind: `ok`, text: `Created worktree .worktrees/EXP-12` },
+  { kind: `cmd`, text: `claude --dangerously-skip-permissions` },
+  { kind: `claude`, text: `Reading issue EXP-12 — Attachment paste uploads` },
+  { kind: `claude`, text: `Plan: intercept paste, reuse the drop upload path` },
+  { kind: `claude`, text: `Edited issue-editor/paste-upload.ts (+41 -3)` },
+  { kind: `claude`, text: `Running bun run typecheck…` },
+  { kind: `ok`, text: `typecheck passed · 0 errors` },
+  { kind: `claude`, text: `Committing and opening the pull request` },
+]
+
+/* ─── Inbox tab fixtures — single activity stream ─── */
+
+export type MobInboxType = `pr_opened` | `pr_merged` | `comment` | `assigned`
+
+export type MobInboxItem = {
+  type: MobInboxType
+  identifier: string
+  title: string
+  sentence: string
+  time: string
+  unread: boolean
+}
+
+export const mobInboxItems: MobInboxItem[] = [
+  {
+    type: `pr_opened`,
+    identifier: `EXP-12`,
+    title: `Attachment paste uploads`,
+    sentence: `Claude opened pull request #217`,
+    time: `2m`,
+    unread: true,
+  },
+  {
+    type: `comment`,
+    identifier: `EXP-8`,
+    title: `Live-steer terminal reconnect`,
+    sentence: `Danny commented: backoff should cap at 15s`,
+    time: `1h`,
+    unread: true,
+  },
+  {
+    type: `pr_merged`,
+    identifier: `EXP-5`,
+    title: `Side-by-side diff view`,
+    sentence: `Danny merged the pull request`,
+    time: `3h`,
+    unread: false,
+  },
+  {
+    type: `assigned`,
+    identifier: `EXP-11`,
+    title: `Issue board keyboard navigation`,
+    sentence: `Danny assigned you`,
+    time: `5h`,
+    unread: false,
+  },
+]
+
 export const mobDetailIssue = {
   identifier: `EXP-8`,
   title: `Live-steer terminal reconnect`,

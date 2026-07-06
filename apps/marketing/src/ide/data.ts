@@ -102,6 +102,104 @@ export const PRIORITY_LABEL: Record<IssuePriority, string> = {
   low: `Low`,
 }
 
+/* ─── Inbox fixtures — single Linear-style activity stream ─── */
+
+export type InboxType =
+  | `issue_assigned`
+  | `issue_comment`
+  | `issue_status_changed`
+  | `pr_opened`
+  | `pr_merged`
+
+export type InboxItem = {
+  id: string
+  type: InboxType
+  issueId: string
+  title: string
+  sentence: string
+  time: string
+  unread: boolean
+}
+
+export const INBOX_ITEMS: InboxItem[] = [
+  {
+    id: `n1`,
+    type: `pr_opened`,
+    issueId: `EXP-8`,
+    title: `Live-steer terminal reconnect`,
+    sentence: `Claude opened pull request #214 for EXP-8`,
+    time: `2m`,
+    unread: true,
+  },
+  {
+    id: `n2`,
+    type: `issue_comment`,
+    issueId: `EXP-12`,
+    title: `Attachment paste uploads`,
+    sentence: `Danny commented: paste should reuse the drag-drop path`,
+    time: `26m`,
+    unread: true,
+  },
+  {
+    id: `n3`,
+    type: `issue_assigned`,
+    issueId: `EXP-11`,
+    title: `Issue board keyboard navigation`,
+    sentence: `Danny assigned you EXP-11`,
+    time: `1h`,
+    unread: true,
+  },
+  {
+    id: `n4`,
+    type: `pr_merged`,
+    issueId: `EXP-5`,
+    title: `Side-by-side diff view`,
+    sentence: `Danny merged the pull request for EXP-5`,
+    time: `3h`,
+    unread: false,
+  },
+  {
+    id: `n5`,
+    type: `issue_status_changed`,
+    issueId: `EXP-7`,
+    title: `Terminal exit-code badges`,
+    sentence: `Danny changed the status to Done`,
+    time: `5h`,
+    unread: false,
+  },
+]
+
+/* ─── My Issues — subset of ISSUES assigned to the signed-in user ─── */
+
+export const MY_ISSUE_IDS: string[] = [`EXP-8`, `EXP-5`]
+
+/* ─── Reviews — issues with an open PR (one issue = one PR = one branch) ─── */
+
+export type Review = {
+  issueId: string
+  identifier: string
+  title: string
+  branch: string
+  prNumber: number
+}
+
+export const REVIEWS: Review[] = [
+  {
+    issueId: `EXP-8`,
+    identifier: `EXP-8`,
+    title: `Live-steer terminal reconnect`,
+    branch: `exp/EXP-8`,
+    prNumber: 214,
+  },
+  {
+    issueId: `EXP-11`,
+    identifier: `EXP-11`,
+    title: `Issue board keyboard navigation`,
+    branch: `exp/EXP-11`,
+    prNumber: 209,
+  },
+]
+
 /* ─── Issue detail bodies (rendered GFM, statically) ─── */
 
 export type Inline = { t: string; code?: boolean }

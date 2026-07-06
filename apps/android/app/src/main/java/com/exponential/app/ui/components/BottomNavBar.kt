@@ -16,10 +16,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Inbox
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -32,23 +33,29 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
-// Linear-style floating bottom navigation: a dark pill with the top-level
-// destinations (Projects, My Issues, Inbox — with an unread dot) plus a
-// detached circular compose button on the right. Overlaid above the NavHost;
-// AppNavHost shows it only on the top-level routes. (Compose has no cheap
-// backdrop blur, so the pill uses a near-opaque dark fill instead of the iOS
-// material.)
+// Linear-style floating bottom navigation: a dark pill with the four top-level
+// destinations (Issues, Search, Agents — with a green live dot — and Inbox —
+// with an unread dot) plus a detached circular compose button on the right.
+// Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
+// (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
+// instead of the iOS material.)
 private val PillFill = Color(0xF2151518)
+
+// Live-session green, matching the steer UI's "Coding now" badge.
+private val AgentsLiveGreen = Color(0xFF34D399)
 
 @Composable
 fun BottomNavBar(
-    homeActive: Boolean,
-    myIssuesActive: Boolean,
+    issuesActive: Boolean,
+    searchActive: Boolean,
+    agentsActive: Boolean,
     inboxActive: Boolean,
     unreadCount: Int,
-    showCompose: Boolean,
-    onHome: () -> Unit,
-    onMyIssues: () -> Unit,
+    agentsRunning: Boolean,
+    showsCompose: Boolean,
+    onIssues: () -> Unit,
+    onSearch: () -> Unit,
+    onAgents: () -> Unit,
     onInbox: () -> Unit,
     onCompose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -69,16 +76,24 @@ fun BottomNavBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TabItem(
-                icon = Icons.Filled.GridView,
-                contentDescription = "Projects",
-                active = homeActive,
-                onClick = onHome,
+                icon = Icons.AutoMirrored.Filled.List,
+                contentDescription = "Issues",
+                active = issuesActive,
+                onClick = onIssues,
             )
             TabItem(
-                icon = Icons.Filled.Person,
-                contentDescription = "My Issues",
-                active = myIssuesActive,
-                onClick = onMyIssues,
+                icon = Icons.Filled.Search,
+                contentDescription = "Search",
+                active = searchActive,
+                onClick = onSearch,
+            )
+            TabItem(
+                icon = Icons.Filled.SmartToy,
+                contentDescription = "Agents",
+                active = agentsActive,
+                showDot = agentsRunning,
+                dotColor = AgentsLiveGreen,
+                onClick = onAgents,
             )
             TabItem(
                 icon = Icons.Filled.Inbox,
@@ -91,7 +106,7 @@ fun BottomNavBar(
 
         Spacer(Modifier.weight(1f))
 
-        if (showCompose) {
+        if (showsCompose) {
             Box(
                 modifier = Modifier
                     .size(52.dp)
@@ -118,6 +133,7 @@ private fun TabItem(
     contentDescription: String,
     active: Boolean,
     showDot: Boolean = false,
+    dotColor: Color? = null,
     onClick: () -> Unit,
 ) {
     Box(
@@ -142,7 +158,7 @@ private fun TabItem(
                     .offset(x = (-14).dp, y = 8.dp)
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .background(dotColor ?: MaterialTheme.colorScheme.primary),
             )
         }
     }

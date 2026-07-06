@@ -1,5 +1,4 @@
 import { motion } from "motion/react"
-import { DownloadIconRow } from "./components/DownloadSection"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
 import { WidgetEmbed } from "./components/WidgetEmbed"
 import { IcArrow, IcGithub } from "./components/icons"
@@ -38,8 +37,10 @@ export function HomePage() {
               <IcGithub size={14} /> GitHub
             </a>
           </motion.div>
-          <motion.div className={`home-hero-dl`} variants={heroChild}>
-            <DownloadIconRow />
+          <motion.div variants={heroChild}>
+            <a className={`hero-dl-link`} href={LINKS.downloadPage}>
+              Download the desktop app <IcArrow size={12} />
+            </a>
           </motion.div>
         </motion.div>
 
@@ -53,7 +54,7 @@ export function HomePage() {
             <IdeDemo />
           </div>
           <p className={`home-ide-caption`}>
-            The desktop IDE &mdash; try it, it&apos;s real.
+            This is the desktop IDE. Go ahead &mdash; click around.
           </p>
         </motion.div>
       </section>
@@ -64,8 +65,10 @@ export function HomePage() {
           <span className={`section-eyebrow`}>The loop</span>
           <LoopCircle />
           <p className={`home-loop-sub`}>
-            Feedback becomes an issue, Claude writes the fix, and the pull
-            request ships.
+            Drop the feedback widget into your app and it becomes your
+            helpdesk: reports arrive as issues with screenshots, Claude codes
+            the fix, the pull request ships &mdash; and the reporter
+            automatically hears back.
           </p>
         </motion.div>
       </section>
@@ -74,13 +77,16 @@ export function HomePage() {
       <section id={`mobile`} className={`home-mobile`}>
         <div className={`shell`}>
           <div className={`home-mobile-grid`}>
-            <MobileDemo />
+            <MobileDemo autoTour />
             <motion.div className={`home-mobile-copy`} {...sectionReveal}>
               <span className={`section-eyebrow`}>Mobile</span>
-              <h2 className={`section-title`}>Native in your pocket.</h2>
+              <h2 className={`section-title`}>
+                Steer your agents from your pocket.
+              </h2>
               <p className={`section-sub`}>
-                SwiftUI on iOS, Compose on Android &mdash; the same live data,
-                down to the terminal of a running coding session.
+                A coding session is running on your desk &mdash; watch its live
+                terminal, take control, and type, from wherever you are. Native
+                apps for iOS and Android.
               </p>
               <a className={`btn btn-ghost`} href={LINKS.downloadPage}>
                 Get the apps <IcArrow size={12} />

@@ -22,6 +22,7 @@ import {
   Container,
   Copy,
   Download,
+  Eye,
   File,
   Filter,
   Folder,
@@ -30,6 +31,7 @@ import {
   GitMerge,
   GitPullRequest,
   Inbox,
+  Keyboard,
   LayoutGrid,
   ListTodo,
   MessageSquare,
@@ -57,6 +59,7 @@ import {
   Timer,
   TriangleAlert,
   User as UserIcon,
+  UserPlus,
   X,
   Zap,
   type LucideProps,
@@ -142,6 +145,9 @@ export const IcCompose = wrap(SquarePen)
 export const IcGrid = wrap(LayoutGrid)
 export const IcRefresh = wrap(RefreshCw)
 export const IcMessage = wrap(MessageSquare)
+export const IcUserPlus = wrap(UserPlus)
+export const IcEye = wrap(Eye)
+export const IcKeyboard = wrap(Keyboard)
 
 const Custom = ({
   size = 16,

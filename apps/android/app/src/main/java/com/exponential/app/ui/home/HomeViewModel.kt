@@ -9,106 +9,46 @@ import com.exponential.app.data.auth.AuthRepository
 import io.ktor.http.HttpStatusCode
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.MultiAccountProjectRepository
-import com.exponential.app.data.db.MultiAccountWorkspaceRepository
-import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.ServerProjectGroup
-import com.exponential.app.data.db.ServerWorkspaceGroup
-import com.exponential.app.data.db.WorkspaceEntity
-import com.exponential.app.data.db.accountDatabaseFlow
-import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+// Powers the Issues tab root's project-switcher sheet (the old Projects home
+// collapsed into a bottom sheet): the cross-server workspace/project tree,
+// first-run workspace bootstrap, and the pick action that swaps the root
+// list's project in place.
+
 data class HomeState(
-    val email: String? = null,
-    val workspaces: List<WorkspaceEntity> = emptyList(),
-    val selectedWorkspace: WorkspaceEntity? = null,
-    val projects: List<ProjectEntity> = emptyList(),
-    val error: String? = null,
-    // Unified cross-server picker source. `workspaces` above stays scoped to
-    // the active server so existing in-screen displays (top-bar workspace
-    // name, drawer dropdown) keep working unchanged.
-    val serverGroups: List<ServerWorkspaceGroup> = emptyList(),
-    val activeAccountId: String? = null,
-    // Server > Workspace > Project tree shown on Home. Every signed-in
-    // account contributes one block.
+    // Server > Workspace > Project tree shown in the switcher sheet. Every
+    // signed-in account contributes one block.
     val projectTree: List<ServerProjectGroup> = emptyList(),
     // True while the first workspace bootstrap is in flight and nothing has
-    // synced yet — drives the Home "Syncing…" state (parity with iOS).
+    // synced yet — drives the root "Syncing…" state (parity with iOS).
     val isSyncing: Boolean = false,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val workspacesApi: WorkspacesApi,
     private val holder: DatabaseHolder,
     private val selection: WorkspaceSelection,
-    private val multiAccountWorkspaces: MultiAccountWorkspaceRepository,
-    private val multiAccountProjects: MultiAccountProjectRepository,
+    multiAccountProjects: MultiAccountProjectRepository,
 ) : ViewModel() {
-
-    // Reactive account scoping: all queries re-scope on account switch (no
-    // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
-    private val dbFlow = accountDatabaseFlow(auth, holder)
-
-    private val workspacesFlow = dbFlow.scopedQuery(emptyList()) { it.workspaceDao().observeAll() }
-
-    private val projectsFlow = combine(dbFlow, selection.selectedId) { db, id -> db to id }
-        .flatMapLatest { (db, id) ->
-            if (db == null || id == null) flowOf(emptyList())
-            else db.projectDao().observeByWorkspace(id)
-        }
 
     private val _syncing = MutableStateFlow(false)
 
-    // Pre-combine the new cross-server inputs into a single Flow so the outer
-    // combine stays within kotlinx.coroutines' 5-arg typed overload.
-    private data class MultiAccount(
-        val groups: List<ServerWorkspaceGroup>,
-        val activeAccountId: String?,
-        val projectTree: List<ServerProjectGroup>,
-        val syncing: Boolean,
-    )
-
-    private val multiAccountFlow = combine(
-        multiAccountWorkspaces.serverGroups,
-        auth.activeAccountId,
+    val state: StateFlow<HomeState> = combine(
         multiAccountProjects.serverGroups,
         _syncing,
-    ) { groups, activeAccountId, projectTree, syncing ->
-        MultiAccount(groups, activeAccountId, projectTree, syncing)
-    }
-
-    val state: StateFlow<HomeState> = combine(
-        workspacesFlow,
-        selection.selectedId,
-        projectsFlow,
-        auth.userEmail,
-        multiAccountFlow,
-    ) { workspaces, selectedId, projects, email, multi ->
-        val selected = workspaces.firstOrNull { it.id == selectedId }
-            ?: workspaces.firstOrNull()
-        HomeState(
-            email = email,
-            workspaces = workspaces,
-            selectedWorkspace = selected,
-            projects = projects,
-            serverGroups = multi.groups,
-            activeAccountId = multi.activeAccountId,
-            projectTree = multi.projectTree,
-            isSyncing = multi.syncing,
-        )
+    ) { projectTree, syncing ->
+        HomeState(projectTree = projectTree, isSyncing = syncing)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
     private val _error = MutableStateFlow<String?>(null)
@@ -142,13 +82,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /// Project tap from the cross-server Home tree. Makes the tapped project's
-    /// account active (a no-op for same-server taps); the caller navigates
-    /// immediately afterwards — feature ViewModels scope to the active account
-    /// reactively, so no rebuild/pending-handoff dance is needed.
-    fun onProjectTap(accountId: String) {
+    /// Project pick from the switcher sheet. Makes the picked project's account
+    /// active (a no-op for same-server picks) and records it as last-used —
+    /// the Issues root's current-project resolution reacts to both, so the
+    /// list swaps in place with no navigation.
+    fun selectProject(accountId: String, projectId: String) {
         if (accountId != auth.activeAccountId.value) {
             auth.switchAccount(accountId)
         }
+        selection.rememberLastProject(accountId, projectId)
     }
 }

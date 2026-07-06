@@ -14,8 +14,16 @@ import {
 } from "@/lib/workspace-membership"
 import {
   fetchPullFiles,
+  GitHubMergeError,
+  mergePullRequest,
   resolveRepoToken,
 } from "@/lib/integrations/github-pr"
+import {
+  githubAppConfigured,
+  resolveRepoInstallationToken,
+} from "@/lib/integrations/github-app"
+import { applyPrMergeState } from "@/lib/integrations/pr-sync"
+import { resolveProjectRepository } from "@/lib/trpc/repositories"
 import {
   dateOnlySchema,
   getIssueDescriptionText,
@@ -517,6 +525,122 @@ export const issuesRouter = router({
       }
 
       return { issue }
+    }),
+
+  // Squash-merge the issue's open PR via the GitHub App installation token
+  // (the symmetric counterpart of the MCP open_pr tool). Merging flips
+  // prState/prMergedAt only — issue status stays a human decision. State
+  // write + pr_merged event + notifications all go through the shared
+  // applyPrMergeState writer, whose idempotent open→merged guard also absorbs
+  // the later webhook delivery for the same merge.
+  mergePr: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
+      const { workspaceId, projectId } = await getIssueWorkspaceContext(
+        input.issueId
+      )
+      // Any workspace member may merge (consistent with mutate-issue rights);
+      // anonymous public-workspace visitors can never reach this.
+      await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+
+      const [row] = await ctx.db
+        .select({
+          prNumber: issues.prNumber,
+          prUrl: issues.prUrl,
+          prState: issues.prState,
+          identifier: issues.identifier,
+          title: issues.title,
+        })
+        .from(issues)
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+      }
+      if (!row.prNumber || !row.prUrl) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This issue has no linked pull request`,
+        })
+      }
+      if (row.prState === `merged`) {
+        // Already merged (e.g. the webhook beat us) — idempotent no-op.
+        return { merged: true }
+      }
+      if (row.prState !== `open`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The pull request is ${row.prState} — only open pull requests can be merged`,
+        })
+      }
+
+      const repo = await resolveProjectRepository(projectId)
+      if (!repo) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `No repository is connected to this project`,
+        })
+      }
+      if (!githubAppConfigured()) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not configured on this instance`,
+        })
+      }
+      const token = await resolveRepoInstallationToken(repo.fullName)
+      if (!token) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not installed on ${repo.fullName}`,
+        })
+      }
+
+      try {
+        await mergePullRequest({
+          repo: repo.fullName,
+          prNumber: row.prNumber,
+          token,
+          commitTitle: `${row.identifier}: ${row.title} (#${row.prNumber})`,
+        })
+      } catch (err) {
+        if (err instanceof GitHubMergeError) {
+          // 405 covers "not mergeable" and "squash merges not allowed" —
+          // GitHub's message is the most useful thing to show verbatim.
+          if (err.status === 405) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: err.message,
+            })
+          }
+          if (err.status === 409) {
+            throw new TRPCError({
+              code: `CONFLICT`,
+              message: `Head branch changed on GitHub — refresh and try again`,
+            })
+          }
+          if (err.status === 404) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Pull request not found on GitHub`,
+            })
+          }
+          throw new TRPCError({
+            code: `INTERNAL_SERVER_ERROR`,
+            message: `GitHub merge failed: ${err.message}`,
+          })
+        }
+        throw err
+      }
+
+      await applyPrMergeState({
+        issueId: input.issueId,
+        prUrl: row.prUrl,
+        mergedAt: new Date(),
+        actorUserId: ctx.session.user.id,
+      })
+
+      return { merged: true }
     }),
 
   // Changed files for the issue's PR (one issue = one PR), for the diff view.

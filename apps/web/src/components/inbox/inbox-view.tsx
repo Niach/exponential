@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useMemo } from "react"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
@@ -19,10 +19,7 @@ import {
   projectCollection,
 } from "@/lib/collections"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-
-type InboxTab = `for_me` | `needs_review`
 
 const typeIcon: Record<string, typeof Bell> = {
   issue_assigned: UserPlus,
@@ -44,15 +41,11 @@ function relativeTime(value: Date | string): string {
   return `${Math.round(hrs / 24)}d`
 }
 
-export function InboxView({
-  workspaceSlug,
-  workspaceId,
-}: {
-  workspaceSlug: string
-  workspaceId: string | undefined
-}) {
-  const [tab, setTab] = useState<InboxTab>(`for_me`)
-
+// Single Linear-style activity stream: one row per issue group, showing the
+// latest notification's sentence (titles are already full human sentences —
+// no composition, no actor avatar). Reviewing open PRs moved to the
+// dedicated Reviews page.
+export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
   // The notifications shape is already scoped to the current user.
   const { data: notifications } = useLiveQuery((query) =>
     query
@@ -102,19 +95,6 @@ export function InboxView({
     )
   }, [notifications, issueMap, projectMap])
 
-  // "Needs your review": issues in this workspace with an open PR (pr_state
-  // populated by the open_pr flow + merge webhook). Independent of the
-  // notification feed.
-  const reviewIssues = useMemo(() => {
-    return (issues ?? [])
-      .filter((i) => {
-        const project = projectMap.get((i as Issue).projectId)
-        if (!project || project.workspaceId !== workspaceId) return false
-        return (i as Issue).prState === `open`
-      })
-      .map((i) => ({ issue: i as Issue, project: projectMap.get((i as Issue).projectId)! }))
-  }, [issues, projectMap, workspaceId])
-
   const totalUnread = groups.reduce((sum, g) => sum + g.unread, 0)
 
   const markGroupRead = async (items: Notification[]) => {
@@ -143,29 +123,18 @@ export function InboxView({
         )}
       </div>
 
-      <div className="flex gap-1 rounded-md bg-muted/50 p-0.5 text-sm">
-        <TabButton active={tab === `for_me`} onClick={() => setTab(`for_me`)}>
-          For me{totalUnread > 0 ? ` · ${totalUnread}` : ``}
-        </TabButton>
-        <TabButton
-          active={tab === `needs_review`}
-          onClick={() => setTab(`needs_review`)}
-        >
-          Needs your review
-          {reviewIssues.length > 0 ? ` · ${reviewIssues.length}` : ``}
-        </TabButton>
-      </div>
-
-      <div className="mt-3 flex-1 space-y-2 overflow-y-auto">
-        {tab === `for_me` ? (
-          groups.length === 0 ? (
-            <EmptyState
-              icon={CheckCircle2}
-              title="All caught up"
-              description="Assignments, comments and mentions on issues you follow will show up here."
-            />
-          ) : (
-            groups.map((g) => (
+      <div className="flex-1 space-y-2 overflow-y-auto">
+        {groups.length === 0 ? (
+          <EmptyState
+            icon={CheckCircle2}
+            title="All caught up"
+            description="Assignments, comments and mentions on issues you follow will show up here."
+          />
+        ) : (
+          groups.map((g) => {
+            const latest = g.items[0]
+            const Icon = typeIcon[latest.type] ?? Bell
+            return (
               <Link
                 key={g.issue.id}
                 to="/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
@@ -176,108 +145,42 @@ export function InboxView({
                 }}
                 onClick={() => void markGroupRead(g.items)}
                 className={cn(
-                  `block rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
-                  g.unread > 0 && `border-l-2 border-l-primary`
+                  `flex items-start gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/50`,
+                  g.unread === 0 && `opacity-60`
                 )}
               >
-                <div className="flex items-center gap-2">
-                  {g.unread > 0 && (
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                  )}
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {g.issue.identifier}
-                  </span>
-                  <span className="truncate text-sm font-medium">
-                    {g.issue.title}
-                  </span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                    {relativeTime(g.items[0].createdAt)}
-                  </span>
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
-                <div className="mt-1 space-y-0.5 pl-4">
-                  {g.items.slice(0, 3).map((n) => {
-                    const Icon = typeIcon[n.type] ?? Bell
-                    return (
-                      <div
-                        key={n.id}
-                        className="flex items-center gap-2 text-xs text-muted-foreground"
-                      >
-                        <Icon className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{n.title}</span>
-                      </div>
-                    )
-                  })}
-                  {g.items.length > 3 && (
-                    <div className="text-xs text-muted-foreground/70">
-                      +{g.items.length - 3} more
-                    </div>
-                  )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                      {g.issue.identifier}
+                    </span>
+                    <span
+                      className={cn(
+                        `truncate text-sm`,
+                        g.unread > 0 && `font-medium`
+                      )}
+                    >
+                      {g.issue.title}
+                    </span>
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                      {relativeTime(latest.createdAt)}
+                    </span>
+                    {g.unread > 0 && (
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                    )}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {latest.title}
+                  </div>
                 </div>
               </Link>
-            ))
-          )
-        ) : reviewIssues.length === 0 ? (
-          <Empty label="Nothing waiting on your review." />
-        ) : (
-          reviewIssues.map(({ issue, project }) => (
-            <Link
-              key={issue.id}
-              to="/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
-              params={{
-                workspaceSlug,
-                projectSlug: project.slug,
-                issueIdentifier: issue.identifier,
-              }}
-              className="block rounded-md border px-3 py-2 transition-colors hover:bg-accent/50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-muted-foreground">
-                  {issue.identifier}
-                </span>
-                <span className="truncate text-sm font-medium">
-                  {issue.title}
-                </span>
-                <Badge variant="secondary" className="ml-auto shrink-0 gap-1">
-                  <GitPullRequest className="h-3 w-3" /> PR
-                </Badge>
-              </div>
-            </Link>
-          ))
+            )
+          })
         )}
       </div>
-    </div>
-  )
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        `flex-1 rounded px-3 py-1 font-medium transition-colors`,
-        active
-          ? `bg-background text-foreground shadow-sm`
-          : `text-muted-foreground hover:text-foreground`
-      )}
-    >
-      {children}
-    </button>
-  )
-}
-
-function Empty({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-      {label}
     </div>
   )
 }

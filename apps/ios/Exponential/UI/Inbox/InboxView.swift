@@ -2,52 +2,36 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
+/// Linear-style single activity stream: one row per issue group showing the
+/// latest notification's sentence (titles are already full human sentences —
+/// no composition), a circular type-icon badge leading, relative time + an
+/// unread dot trailing. Fully-read groups render dimmed. Tapping a row marks
+/// its group read and opens the issue. Open-PR review triage moved to the
+/// web/desktop Reviews surfaces.
 struct InboxView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var viewModel: InboxViewModel?
-    @State private var tab = 0 // 0 = For me, 1 = Needs your review
 
     var body: some View {
         ZStack {
             AppBackground()
 
             if let vm = viewModel {
-                VStack(spacing: 0) {
-                    Picker("", selection: $tab) {
-                        Text(vm.totalUnread > 0 ? "For me · \(vm.totalUnread)" : "For me").tag(0)
-                        Text(vm.reviewIssues.isEmpty ? "Needs review" : "Needs review · \(vm.reviewIssues.count)").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding()
-
-                    if tab == 0 {
-                        if vm.groups.isEmpty {
-                            emptyState("You're all caught up.")
-                        } else {
-                            list {
-                                ForEach(vm.groups) { group in
-                                    NavigationLink(value: AppRoute.issue(accountId: accountId, id: group.issue.id)) {
-                                        groupCard(group)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .simultaneousGesture(TapGesture().onEnded { vm.markGroupRead(group) })
+                if vm.groups.isEmpty {
+                    emptyState("You're all caught up.")
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(vm.groups) { group in
+                                NavigationLink(value: AppRoute.issue(accountId: accountId, id: group.issue.id)) {
+                                    streamRow(group)
                                 }
+                                .buttonStyle(.plain)
+                                .simultaneousGesture(TapGesture().onEnded { vm.markGroupRead(group) })
                             }
                         }
-                    } else {
-                        if vm.reviewIssues.isEmpty {
-                            emptyState("Nothing waiting on your review.")
-                        } else {
-                            list {
-                                ForEach(vm.reviewIssues) { issue in
-                                    NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                                        reviewCard(issue)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
+                        .padding()
                     }
                 }
             }
@@ -76,62 +60,86 @@ struct InboxView: View {
         .onDisappear { viewModel?.stopObserving() }
     }
 
-    @ViewBuilder
-    private func list<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 8) { content() }
-                .padding()
-        }
-    }
+    private func streamRow(_ group: InboxViewModel.Group) -> some View {
+        let unread = group.unread > 0
+        return HStack(alignment: .top, spacing: 10) {
+            // Circular type-icon badge (no actor avatar — notifications carry
+            // no actor column; the sentence names the actor).
+            Image(systemName: typeIcon(group.latest?.type))
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 28, height: 28)
+                .background(Color.white.opacity(0.08), in: Circle())
 
-    private func groupCard(_ group: InboxViewModel.Group) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                if group.unread > 0 {
-                    Circle().fill(Color.accentColor).frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    if let identifier = group.issue.identifier {
+                        Text(identifier)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                    Text(group.issue.title)
+                        .font(.subheadline.weight(unread ? .semibold : .regular))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
                 }
-                if let identifier = group.issue.identifier {
-                    Text(identifier)
-                        .font(.caption.monospaced())
+                if let latest = group.latest {
+                    Text(latest.title)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 6) {
+                if let latest = group.latest {
+                    Text(relativeDate(latest.createdAt))
+                        .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
-                Text(group.issue.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                if unread {
+                    Circle()
+                        .fill(Accent.indigo)
+                        .frame(width: 8, height: 8)
+                }
             }
-            ForEach(group.notifications.prefix(3), id: \.id) { n in
-                Text(n.title)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .padding(.leading, 16)
-            }
+            .padding(.top, 3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .opacity(unread ? 1 : 0.6)
     }
 
-    private func reviewCard(_ issue: IssueEntity) -> some View {
-        HStack(spacing: 8) {
-            if let identifier = issue.identifier {
-                Text(identifier)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            Text(issue.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            Spacer()
-            Text("PR")
-                .font(.caption2)
-                .foregroundStyle(Color.accentColor)
+    /// Locked cross-platform type → icon mapping (SF Symbol column).
+    private func typeIcon(_ type: String?) -> String {
+        switch type {
+        case DomainContract.notificationTypeIssueAssigned:
+            return "person.badge.plus"
+        case DomainContract.notificationTypeIssueComment, DomainContract.notificationTypeIssueMention:
+            return "text.bubble"
+        case DomainContract.notificationTypeIssueStatusChanged:
+            return "record.circle"
+        case DomainContract.notificationTypePrOpened:
+            return "arrow.triangle.branch"
+        case DomainContract.notificationTypePrMerged:
+            return "arrow.triangle.merge"
+        default:
+            return "bell"
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func relativeDate(_ s: String) -> String {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = isoFormatter.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+        guard let date else { return "" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     private func emptyState(_ label: String) -> some View {

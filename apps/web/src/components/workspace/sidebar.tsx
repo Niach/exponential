@@ -1,11 +1,13 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   Bell,
   Check,
   ChevronsUpDown,
   CircleUser,
   FolderKanban,
+  GitPullRequest,
   Inbox,
   LogIn,
   LogOut,
@@ -14,6 +16,7 @@ import {
   Settings,
   Shield,
 } from "lucide-react"
+import { issueCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -58,6 +61,33 @@ function InboxUnreadBadge() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
   return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
+}
+
+// Open-PR count across the workspace's projects, for the Reviews entry. Pure
+// client-side counting over the already-synced issues shape (prState is on
+// every issue row).
+function ReviewsCountBadge({ projects }: { projects: Project[] | undefined }) {
+  const projectIds = useMemo(
+    () => (projects ?? []).map((project) => project.id),
+    [projects]
+  )
+  const { data } = useLiveQuery(
+    (query) =>
+      projectIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) =>
+              and(
+                inArray(issues.projectId, projectIds),
+                eq(issues.prState, `open`)
+              )
+            )
+        : undefined,
+    [projectIds.join(`,`)]
+  )
+  const count = data?.length ?? 0
+  if (count === 0) return null
+  return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }
 
 interface WorkspaceSidebarProps {
@@ -226,6 +256,20 @@ export function WorkspaceSidebar({
                         </Link>
                       </SidebarMenuButton>
                       <InboxUnreadBadge />
+                    </SidebarMenuItem>
+                  )}
+                  {isAuthed && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link
+                          to="/w/$workspaceSlug/reviews"
+                          params={{ workspaceSlug }}
+                        >
+                          <GitPullRequest className="h-4 w-4" />
+                          <span>Reviews</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      <ReviewsCountBadge projects={projects} />
                     </SidebarMenuItem>
                   )}
                 </SidebarMenu>

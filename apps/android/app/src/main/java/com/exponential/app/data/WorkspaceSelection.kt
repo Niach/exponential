@@ -29,11 +29,19 @@ class WorkspaceSelection @Inject constructor(
     // key(activeAccountId) rebuild to hand state across anymore.)
 
     // Last project the user opened, persisted per account so the share-target
-    // picker can pre-select a sensible default. Account-keyed to avoid
-    // pre-selecting a project that belongs to a different server's DB.
+    // picker can pre-select a sensible default and the Issues tab root can
+    // resolve its current project. Account-keyed to avoid pre-selecting a
+    // project that belongs to a different server's DB.
+    //
+    // SecureStore isn't observable, so a version counter lets reactive readers
+    // (the Issues tab's current-project resolution) re-read after every write.
+    private val _lastProjectVersion = MutableStateFlow(0)
+    val lastProjectVersion: StateFlow<Int> = _lastProjectVersion.asStateFlow()
+
     fun rememberLastProject(accountId: String, projectId: String) {
         if (accountId.isBlank()) return
         secureStore.set(lastProjectKey(accountId), projectId)
+        _lastProjectVersion.value += 1
     }
 
     fun lastProject(accountId: String): String? =

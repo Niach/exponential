@@ -22,9 +22,13 @@ import kotlinx.coroutines.launch
 
 data class InboxGroup(
     val issue: IssueEntity,
+    // Newest first (the DAO orders created_at DESC and grouping preserves it).
     val notifications: List<NotificationEntity>,
     val unread: Int,
-)
+) {
+    /** The newest notification — drives the row's icon, sentence, and time. */
+    val latest: NotificationEntity get() = notifications.first()
+}
 
 data class InboxState(
     val groups: List<InboxGroup> = emptyList(),

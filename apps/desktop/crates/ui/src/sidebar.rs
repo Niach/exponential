@@ -6,8 +6,9 @@
 //! - [`RailView`] — a 44px icon-only strip owned by the `Workspace` shell and
 //!   rendered OUTSIDE the `DockArea`, full height below the top bar. Top: the
 //!   Search action, then the tool-window selectors — **Inbox / My Issues /
-//!   All Issues** (mini issue lists) and **Files / Source Control** (Source
-//!   Control carries an amber badge in conflict mode and opens the changes
+//!   All Issues / Reviews** (mini issue lists; Reviews carries a dot while
+//!   open PRs exist) and **Files / Source Control** (Source Control carries
+//!   an amber badge in conflict mode and opens the changes
 //!   screen immediately). The active tool's icon is tinted with the active
 //!   project's color. One tool is ALWAYS active — re-clicking never
 //!   unselects. Bottom: terminal-dock toggle, settings gear, and the
@@ -23,7 +24,7 @@
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FontWeight,
@@ -36,7 +37,7 @@ use gpui_component::{
     menu::DropdownMenu as _,
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -70,6 +71,9 @@ pub(crate) enum ToolWindow {
     MyIssues,
     /// Every issue in the workspace (mini list).
     AllIssues,
+    /// Open pull requests across the workspace, grouped by project, with an
+    /// inline squash-merge action (server-side via the GitHub App).
+    Reviews,
     /// The trunk file tree at full panel height.
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
@@ -218,11 +222,15 @@ impl RailView {
         let nav = nav_for_window(window, cx);
         let shared = rail_shared_for_window(window, cx);
         let git_bar = shared.read(cx).git_bar.clone();
+        let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
             // Conflict badge follows the git bar's trunk state.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
+            // The Reviews dot is a live read over issues ⨝ projects.
+            cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+            cx.observe(&collections.projects, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -401,6 +409,10 @@ impl Render for RailView {
         }
 
         let accent = project_accent(&self.nav, cx);
+        // Reviews badge: any open PR in the active workspace.
+        let has_reviews = active_workspace_id(&self.nav, cx)
+            .map(|id| !queries::review_issues(cx, &id).is_empty())
+            .unwrap_or(false);
         v_flex()
             .w(px(RAIL_W))
             .flex_shrink_0()
@@ -449,6 +461,15 @@ impl Render for RailView {
                 ToolWindow::AllIssues,
                 "All Issues",
                 false,
+                accent,
+                cx,
+            ))
+            .child(self.rail_tool_icon(
+                "rail-reviews",
+                Icon::from(ExpIcon::GitPullRequest),
+                ToolWindow::Reviews,
+                "Reviews",
+                has_reviews,
                 accent,
                 cx,
             ))
@@ -503,7 +524,37 @@ pub struct SidebarPanel {
     board_all: Entity<BoardView>,
     /// The "My Issues" tool window — same board pinned to assignee == me.
     board_my: Entity<BoardView>,
+    /// Two-click merge confirm: the armed row's issue id. Any other click or
+    /// ~5s of inactivity disarms.
+    review_arm: Option<String>,
+    /// Bumped on every arm/disarm — a stale disarm timer checks it before
+    /// clearing so it never cancels a newer arm.
+    review_arm_seq: u64,
+    /// Issue ids with an in-flight `issues.mergePr` call. On success the id
+    /// stays until the Electric echo removes the row (render prunes it).
+    review_merging: HashSet<String>,
+    /// The last merge failure, `(issue_id, message)` — a caption under the
+    /// row, cleared on the next attempt.
+    review_error: Option<(String, String)>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// Latest-notification kind → the inbox row's leading type-badge glyph (the
+/// meaning table shared across all clients).
+fn notification_type_icon(kind: Option<&str>) -> Icon {
+    match kind {
+        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_ASSIGNED) => Icon::from(ExpIcon::UserPlus),
+        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_COMMENT)
+        | Some(domain::contract::NOTIFICATION_TYPE_ISSUE_MENTION) => {
+            Icon::from(ExpIcon::MessageSquare)
+        }
+        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED) => {
+            Icon::from(ExpIcon::CircleDot)
+        }
+        Some(domain::contract::NOTIFICATION_TYPE_PR_OPENED) => Icon::from(ExpIcon::GitPullRequest),
+        Some(domain::contract::NOTIFICATION_TYPE_PR_MERGED) => Icon::from(ExpIcon::GitMerge),
+        _ => Icon::new(IconName::Bell),
+    }
 }
 
 impl SidebarPanel {
@@ -535,6 +586,10 @@ impl SidebarPanel {
             shared,
             board_all,
             board_my,
+            review_arm: None,
+            review_arm_seq: 0,
+            review_merging: HashSet::new(),
+            review_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -566,63 +621,6 @@ impl SidebarPanel {
                     .font_weight(FontWeight::MEDIUM)
                     .child(title),
             )
-    }
-
-    /// One mini issue row: status icon + identifier + truncated title;
-    /// clicking opens the full detail in the center pane.
-    fn mini_issue_row(
-        &self,
-        prefix: &'static str,
-        issue: &domain::rows::Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let selected = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::IssueDetail { issue_id }) if issue_id == issue.id
-        );
-        let status_icon =
-            crate::icons::option_icon(domain::options::get_issue_status_config(issue.status), cx);
-        let issue_id = issue.id.clone();
-        h_flex()
-            .id(SharedString::from(format!("{prefix}-{}", issue.id)))
-            .w_full()
-            .items_center()
-            .gap_1p5()
-            .px_2()
-            .py_1()
-            .rounded(theme.radius)
-            .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
-            .hover(|this| this.bg(theme.accent.opacity(0.3)))
-            .cursor_pointer()
-            .on_click(cx.listener(move |_, _, window, cx| {
-                navigate(
-                    window,
-                    cx,
-                    Screen::IssueDetail {
-                        issue_id: issue_id.clone(),
-                    },
-                );
-            }))
-            .child(status_icon.xsmall().flex_shrink_0())
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(issue.identifier.clone())),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(issue.title.clone())),
-            )
-            .into_any_element()
     }
 
     fn list_skeleton(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -679,15 +677,12 @@ impl SidebarPanel {
                 )
             });
 
-        // "Needs your review": open PRs on issues in the active workspace —
-        // the old inbox's second tab, now a trailing section.
-        let review = active_workspace_id(&self.nav, cx)
-            .map(|id| queries::review_issues(cx, &id))
-            .unwrap_or_default();
-
+        // Single Linear-style activity stream: one row per issue group, the
+        // LATEST notification's type icon + sentence. (The old trailing
+        // "Needs your review" section moved to the Reviews tool window.)
         let body: gpui::AnyElement = if !data.is_ready {
             self.list_skeleton(cx)
-        } else if data.groups.is_empty() && review.is_empty() {
+        } else if data.groups.is_empty() {
             self.list_note("All caught up.", cx)
         } else {
             let theme_radius = cx.theme().radius;
@@ -708,20 +703,28 @@ impl SidebarPanel {
                         .filter(|n| n.read_at.is_none())
                         .map(|n| n.id.clone())
                         .collect();
-                    let time: SharedString = group
-                        .items
-                        .first()
+                    // Items are newest first — `first()` IS the latest.
+                    let latest = group.items.first();
+                    let time: SharedString = latest
                         .and_then(|n| n.created_at.as_deref())
                         .map(crate::inbox::relative_time)
                         .unwrap_or_default()
                         .into();
+                    // Notification titles are full human sentences ("Danny
+                    // merged the pull request for …") — shown verbatim.
+                    let sentence: SharedString = latest
+                        .and_then(|n| n.title.clone())
+                        .unwrap_or_default()
+                        .into();
+                    let type_icon =
+                        notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
                     h_flex()
                         .id(SharedString::from(format!("mini-inbox-{}", group.issue.id)))
                         .w_full()
-                        .items_center()
-                        .gap_1p5()
+                        .items_start()
+                        .gap_2()
                         .px_2()
-                        .py_1()
+                        .py_1p5()
                         .rounded(theme_radius)
                         .when(selected, |this| this.bg(theme.accent.opacity(0.6)))
                         .hover(|this| this.bg(theme.accent.opacity(0.3)))
@@ -757,69 +760,94 @@ impl SidebarPanel {
                                 },
                             );
                         }))
+                        // Leading circular type badge (the latest item's kind).
                         .child(
-                            div()
-                                .size_2()
+                            h_flex()
+                                .size_6()
                                 .flex_shrink_0()
+                                .items_center()
+                                .justify_center()
                                 .rounded_full()
-                                .when(unread, |this| this.bg(theme.primary)),
+                                .bg(theme.muted)
+                                .child(type_icon.xsmall().text_color(theme.muted_foreground)),
                         )
                         .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .child(SharedString::from(group.issue.identifier.clone())),
-                        )
-                        .child(
-                            div()
+                            v_flex()
                                 .flex_1()
                                 .min_w_0()
-                                .text_xs()
-                                .truncate()
-                                .text_color(theme.foreground)
-                                .child(SharedString::from(group.issue.title.clone())),
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .items_center()
+                                        .gap_1p5()
+                                        .child(
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_xs()
+                                                .text_color(theme.muted_foreground)
+                                                .font_family(theme::terminal::FONT_FAMILY)
+                                                .child(SharedString::from(
+                                                    group.issue.identifier.clone(),
+                                                )),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .text_xs()
+                                                .truncate()
+                                                .when(unread, |this| {
+                                                    this.font_weight(FontWeight::MEDIUM)
+                                                })
+                                                // Read groups render dimmed.
+                                                .text_color(if unread {
+                                                    theme.foreground
+                                                } else {
+                                                    theme.muted_foreground
+                                                })
+                                                .child(SharedString::from(
+                                                    group.issue.title.clone(),
+                                                )),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .text_xs()
+                                        .truncate()
+                                        .text_color(theme.muted_foreground)
+                                        .child(sentence),
+                                ),
                         )
                         .child(
-                            div()
+                            h_flex()
                                 .flex_shrink_0()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(time),
+                                .items_center()
+                                .gap_1p5()
+                                .pt_0p5()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(time),
+                                )
+                                .child(
+                                    div()
+                                        .size_2()
+                                        .flex_shrink_0()
+                                        .rounded_full()
+                                        .when(unread, |this| this.bg(theme.primary)),
+                                ),
                         )
                         .into_any_element()
                 })
-                .collect();
-            let muted = cx.theme().muted_foreground;
-            let review_rows: Vec<gpui::AnyElement> = review
-                .iter()
-                .map(|issue| self.mini_issue_row("mini-review", issue, cx))
                 .collect();
             div()
                 .id("mini-inbox-scroll")
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scrollbar()
-                .child(
-                    v_flex()
-                        .p_1()
-                        .gap_0p5()
-                        .children(rows)
-                        .when(!review_rows.is_empty(), |this| {
-                            this.child(
-                                div()
-                                    .px_2()
-                                    .pt_2()
-                                    .pb_0p5()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(muted)
-                                    .child("Needs your review"),
-                            )
-                            .children(review_rows)
-                        }),
-                )
+                .child(v_flex().p_1().gap_0p5().children(rows))
                 .into_any_element()
         };
 
@@ -869,6 +897,297 @@ impl SidebarPanel {
             .min_w_0()
             .child(self.board_all.clone())
             .into_any_element()
+    }
+
+    // -- Reviews tool window ----------------------------------------------------
+
+    /// *Reviews* tool window: open pull requests across the workspace,
+    /// grouped by project, each row with a two-click inline merge confirm.
+    /// Merging goes through the server (`issues.mergePr`, GitHub App squash)
+    /// — never local git; on success the Electric echo flips `pr_state` and
+    /// the row leaves the list.
+    fn render_reviews_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let collections = Store::global(cx).collections().clone();
+        let is_ready = collections.issues.read(cx).is_ready()
+            && collections.projects.read(cx).is_ready();
+        let groups = active_workspace_id(&self.nav, cx)
+            .map(|id| queries::review_groups(cx, &id))
+            .unwrap_or_default();
+
+        // Rows that merged/closed (or left the workspace scope) drop their
+        // transient merge state — this is also where a successful merge's
+        // lingering "Merging…" id gets collected once the echo lands.
+        {
+            let live_ids: HashSet<&str> = groups
+                .iter()
+                .flat_map(|group| group.issues.iter().map(|issue| issue.id.as_str()))
+                .collect();
+            self.review_merging.retain(|id| live_ids.contains(id.as_str()));
+            if self
+                .review_arm
+                .as_deref()
+                .is_some_and(|id| !live_ids.contains(id))
+            {
+                self.review_arm = None;
+            }
+            if self
+                .review_error
+                .as_ref()
+                .is_some_and(|(id, _)| !live_ids.contains(id.as_str()))
+            {
+                self.review_error = None;
+            }
+        }
+
+        let header = self.tool_header(Icon::from(ExpIcon::GitPullRequest), "Reviews", cx);
+
+        let body: gpui::AnyElement = if !is_ready {
+            self.list_skeleton(cx)
+        } else if groups.is_empty() {
+            self.list_note("No open pull requests.", cx)
+        } else {
+            let muted = cx.theme().muted_foreground;
+            let mut children: Vec<gpui::AnyElement> = Vec::new();
+            for group in &groups {
+                let dot = group
+                    .project
+                    .color
+                    .as_deref()
+                    .and_then(parse_hex_color)
+                    .unwrap_or(muted);
+                children.push(
+                    h_flex()
+                        .px_2()
+                        .pt_2()
+                        .pb_0p5()
+                        .gap_1p5()
+                        .items_center()
+                        .child(div().size_2().flex_shrink_0().rounded_full().bg(dot))
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(muted)
+                                .child(SharedString::from(group.project.name.clone())),
+                        )
+                        .into_any_element(),
+                );
+                for issue in &group.issues {
+                    children.push(self.review_row(issue, cx));
+                }
+            }
+            div()
+                .id("reviews-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .child(v_flex().p_1().gap_0p5().children(children))
+                .into_any_element()
+        };
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// One Reviews row: PR icon + identifier + title with a trailing Merge
+    /// button, sub-line `#N · branch`, optional error caption. Clicking the
+    /// row opens the issue detail (its Changes tab shows the diff).
+    fn review_row(
+        &self,
+        issue: &domain::rows::Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let radius = theme.radius;
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let accent = theme.accent;
+        let danger = theme.danger;
+        // Open-PR green (the token the status/priority accents use).
+        let pr_green = theme::tokens::GREEN.to_hsla();
+
+        let selected = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::IssueDetail { issue_id }) if issue_id == issue.id
+        );
+        let merging = self.review_merging.contains(&issue.id);
+        let armed = self.review_arm.as_deref() == Some(issue.id.as_str());
+        let error: Option<String> = self
+            .review_error
+            .as_ref()
+            .filter(|(id, _)| *id == issue.id)
+            .map(|(_, message)| message.clone());
+
+        let sub: String = match (issue.pr_number, issue.branch.as_deref()) {
+            (Some(number), Some(branch)) => format!("#{number} \u{00B7} {branch}"),
+            (Some(number), None) => format!("#{number}"),
+            (None, Some(branch)) => branch.to_string(),
+            (None, None) => String::new(),
+        };
+
+        let merge_button = {
+            let mut button = Button::new(SharedString::from(format!("review-merge-{}", issue.id)))
+                .xsmall()
+                .outline();
+            if merging {
+                button = button.label("Merging…").loading(true).disabled(true);
+            } else if armed {
+                button = button.label("Confirm merge").danger();
+            } else {
+                button = button.label("Merge");
+            }
+            let click_id = issue.id.clone();
+            button.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.on_merge_click(click_id.clone(), cx);
+            }))
+        };
+
+        let nav_id = issue.id.clone();
+        v_flex()
+            .id(SharedString::from(format!("review-{}", issue.id)))
+            .w_full()
+            .px_2()
+            .py_1()
+            .gap_0p5()
+            .rounded(radius)
+            .when(selected, |this| this.bg(accent.opacity(0.6)))
+            .hover(|this| this.bg(accent.opacity(0.3)))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, window, cx| {
+                // Any click outside the armed button disarms the confirm.
+                if this.review_arm.is_some() {
+                    this.review_arm = None;
+                    this.review_arm_seq += 1;
+                    cx.notify();
+                }
+                navigate(
+                    window,
+                    cx,
+                    Screen::IssueDetail {
+                        issue_id: nav_id.clone(),
+                    },
+                );
+            }))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        Icon::from(ExpIcon::GitPullRequest)
+                            .xsmall()
+                            .flex_shrink_0()
+                            .text_color(pr_green),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(issue.identifier.clone())),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .text_color(fg)
+                            .child(SharedString::from(issue.title.clone())),
+                    )
+                    .child(merge_button),
+            )
+            .child(
+                div()
+                    .pl_5()
+                    .text_xs()
+                    .truncate()
+                    .text_color(muted)
+                    .child(SharedString::from(sub)),
+            )
+            .when_some(error, |this, message| {
+                this.child(
+                    div()
+                        .pl_5()
+                        .text_xs()
+                        .truncate()
+                        .text_color(danger)
+                        .child(SharedString::from(message)),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// The Merge button's two-click flow: first click arms (auto-disarm after
+    /// ~5s), second click fires `issues.mergePr` on the background executor.
+    /// Failures come back to a caption under the row; success leaves the
+    /// spinner until the Electric echo removes the row.
+    fn on_merge_click(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        if self.review_merging.contains(&issue_id) {
+            return;
+        }
+        if self.review_arm.as_deref() != Some(issue_id.as_str()) {
+            self.review_arm = Some(issue_id);
+            self.review_arm_seq += 1;
+            let seq = self.review_arm_seq;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(5))
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.review_arm_seq == seq && this.review_arm.is_some() {
+                        this.review_arm = None;
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+            cx.notify();
+            return;
+        }
+
+        // Confirmed — fire the server-side squash merge.
+        self.review_arm = None;
+        self.review_arm_seq += 1;
+        self.review_error = None;
+        let Some(trpc) = queries::trpc_client(cx) else {
+            log::warn!("[ui] issues.mergePr skipped: no active account");
+            cx.notify();
+            return;
+        };
+        self.review_merging.insert(issue_id.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let call_id = issue_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::issues::merge_pr(&trpc, &call_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(err) = result {
+                    log::warn!("[ui] issues.mergePr({issue_id}) failed: {err}");
+                    // Show the server's user-facing message when there is
+                    // one; transport-level errors keep the full rendering.
+                    let message = match err {
+                        api::ApiError::Http { message, .. } => message,
+                        other => other.to_string(),
+                    };
+                    this.review_merging.remove(&issue_id);
+                    this.review_error = Some((issue_id.clone(), message));
+                    cx.notify();
+                }
+                // Success: nothing to do — the collection observer re-renders
+                // when the echo flips `pr_state` and the row leaves the list.
+            });
+        })
+        .detach();
     }
 
     // -- Files tool window ----------------------------------------------------
@@ -1052,6 +1371,7 @@ impl Render for SidebarPanel {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),
                 ToolWindow::MyIssues => self.render_my_issues_tool(cx),
                 ToolWindow::AllIssues => self.render_all_issues_tool(cx),
+                ToolWindow::Reviews => self.render_reviews_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),
             })

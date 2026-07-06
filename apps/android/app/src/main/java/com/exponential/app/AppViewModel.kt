@@ -9,6 +9,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.domain.DomainContract
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -64,19 +66,47 @@ class AppViewModel @Inject constructor(
         else db.notificationDao().observeUnreadCount(userId)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
+    // True while at least one coding session is running on the active account —
+    // drives the bottom bar's green Agents dot.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val agentsRunning: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
+        .flatMapLatest { db ->
+            if (db == null) flowOf(false)
+            else db.codingSessionDao()
+                .observeByStatus(DomainContract.codingSessionStatusRunning)
+                .map { it.isNotEmpty() }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // The Issues tab root's current project: last-used on the active account
+    // (validated against the live Room table, so deleted/archived projects fall
+    // through), else the first project of the first workspace, else none. The
+    // lastProjectVersion counter re-runs the resolve after every last-used
+    // write — that's what swaps the root list in place after a switcher pick.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentProjectId: StateFlow<String?> = combine(
+        accountDatabaseFlow(auth, databaseHolder),
+        auth.activeAccountId,
+        workspaceSelection.lastProjectVersion,
+    ) { db, accountId, _ -> db to accountId }
+        .flatMapLatest { (db, accountId) ->
+            if (db == null || accountId == null) flowOf(null)
+            else combine(
+                db.projectDao().observeAll(),
+                db.workspaceDao().observeAll(),
+            ) { projects, workspaces ->
+                val lastUsed = workspaceSelection.lastProject(accountId)
+                projects.firstOrNull { it.id == lastUsed }?.id
+                    ?: workspaces.firstNotNullOfOrNull { ws ->
+                        projects.firstOrNull { it.workspaceId == ws.id }
+                    }?.id
+                    ?: projects.firstOrNull()?.id
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     fun setInstanceUrl(url: String) {
         viewModelScope.launch { auth.setInstanceUrl(url) }
-    }
-
-    // Resolves the project a fresh start should land in: the last project the
-    // user opened on the active account, if it still exists locally and isn't
-    // archived (deleted/archived projects fall back to home).
-    suspend fun lastOpenedProjectId(): String? {
-        val accountId = auth.activeAccountId.value ?: return null
-        val projectId = workspaceSelection.lastProject(accountId) ?: return null
-        return runCatching {
-            databaseHolder.database(forAccountId = accountId).projectDao().getActiveById(projectId)?.id
-        }.getOrNull()
     }
 
     fun clearInstance() {

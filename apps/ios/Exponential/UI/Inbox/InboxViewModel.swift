@@ -6,13 +6,14 @@ import GRDB
 final class InboxViewModel {
     struct Group: Identifiable {
         let issue: IssueEntity
+        /// Newest first — `latest` drives the single-row stream anatomy.
         let notifications: [NotificationEntity]
         var id: String { issue.id }
         var unread: Int { notifications.filter { $0.readAt == nil }.count }
+        var latest: NotificationEntity? { notifications.first }
     }
 
     var groups: [Group] = []
-    var reviewIssues: [IssueEntity] = []
     var totalUnread = 0
 
     private let accountId: String
@@ -76,7 +77,6 @@ final class InboxViewModel {
             guard let issue = issuesById[iid], let ns = byIssue[iid] else { return nil }
             return Group(issue: issue, notifications: ns)
         }
-        reviewIssues = issues.filter { $0.prState == "open" }
         totalUnread = groups.reduce(0) { $0 + $1.unread }
     }
 
