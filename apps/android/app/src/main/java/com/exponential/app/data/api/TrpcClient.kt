@@ -18,8 +18,6 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 class TrpcException(message: String, val status: HttpStatusCode? = null) : RuntimeException(message)
 
@@ -45,11 +43,13 @@ class TrpcClient @Inject constructor(
     ): O {
         val baseUrl = accountUrl(accountId)
         val token = accountToken(accountId)
+        // The server runs tRPC with NO transformer, so the body is the raw
+        // input JSON — never the superjson `{"json": ...}` envelope (the
+        // server would see it as the literal input and fail Zod validation).
         val inputJson = json.encodeToJsonElement(inputSerializer, input)
-        val body = buildJsonObject { put("json", inputJson) }
         val response = client.post("$baseUrl/api/trpc/$path") {
             contentType(ContentType.Application.Json)
-            setBody(body)
+            setBody(json.encodeToString(JsonElement.serializer(), inputJson))
             if (token != null) header("Authorization", "Bearer $token")
         }
         val text = response.bodyAsText()
@@ -84,8 +84,9 @@ class TrpcClient @Inject constructor(
         val url = if (omitInputIfEmpty && isEmpty) {
             "$baseUrl/api/trpc/$path"
         } else {
-            val wrapper = buildJsonObject { put("json", inputJson) }
-            val encoded = URLEncoder.encode(json.encodeToString(JsonObject.serializer(), wrapper), "UTF-8")
+            // No transformer on the server: `?input=` carries the raw input
+            // JSON, not the superjson `{"json": ...}` wrapper.
+            val encoded = URLEncoder.encode(json.encodeToString(JsonElement.serializer(), inputJson), "UTF-8")
             "$baseUrl/api/trpc/$path?input=$encoded"
         }
         val response = client.get(url) {
@@ -105,10 +106,10 @@ class TrpcClient @Inject constructor(
     ): O {
         val envelope = json.parseToJsonElement(text) as? JsonObject
             ?: throw TrpcException("tRPC $path returned non-object")
-        val data = (envelope["result"] as? JsonObject)
-            ?.get("data") as? JsonObject
+        val data = (envelope["result"] as? JsonObject)?.get("data")
             ?: throw TrpcException("tRPC $path missing result.data")
-        val payload: JsonElement = data["json"] ?: data
-        return json.decodeFromJsonElement(outputSerializer, payload)
+        // result.data is the raw output value (no transformer); it may be an
+        // object, array, or scalar.
+        return json.decodeFromJsonElement(outputSerializer, data)
     }
 }

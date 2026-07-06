@@ -64,9 +64,12 @@ class ShapeClient<T : Any>(
                     delay(2_000)
                     continue
                 }
-                pollOnce(baseUrl, token)
+                val shouldPause = pollOnce(baseUrl, token)
                 onSuccess()
                 backoffMs = 500L
+                // Pace the loop when a non-live poll made no progress, so a
+                // response that never reaches up-to-date can't spin-request.
+                if (shouldPause) delay(500)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (auth: ShapeAuthException) {
@@ -85,10 +88,15 @@ class ShapeClient<T : Any>(
         }
     }
 
-    private suspend fun pollOnce(baseUrl: String, token: String) {
+    /** Returns true when the run loop should pause before the next poll. */
+    private suspend fun pollOnce(baseUrl: String, token: String): Boolean {
         val saved = offsetDao.get(shapeName)
         val isInitial = saved == null
-        onPhase(if (isInitial) "initial" else "live")
+        // Only long-poll live once the snapshot completed (up-to-date seen);
+        // catch-up polls stay non-live per the Electric protocol. Sending
+        // live=true from a mid-snapshot offset is rejected by Electric.
+        val wasLive = saved?.isLive ?: false
+        onPhase(if (isInitial) "initial" else if (wasLive) "live" else "catchup")
         val response: HttpResponse = withTimeoutOrNull(LIVE_TIMEOUT_MS + 30_000L) {
             client.get("$baseUrl$urlPath") {
                 // Authenticate the shape request so the server scopes data to
@@ -102,7 +110,7 @@ class ShapeClient<T : Any>(
                 } else {
                     parameter("offset", saved!!.offset)
                     parameter("handle", saved.handle)
-                    parameter("live", "true")
+                    if (wasLive) parameter("live", "true")
                 }
             }
         } ?: throw IOException("Shape $shapeName request timed out")
@@ -110,7 +118,7 @@ class ShapeClient<T : Any>(
         if (response.status == HttpStatusCode.Conflict || response.status.value == 409) {
             offsetDao.deleteShape(shapeName)
             onMessages(listOf(ShapeMessage.MustRefetch))
-            return
+            return false
         }
         if (response.status == HttpStatusCode.Unauthorized ||
             response.status == HttpStatusCode.Forbidden
@@ -125,6 +133,7 @@ class ShapeClient<T : Any>(
         val offset = response.headers["electric-offset"]
         val body = response.bodyAsText()
         val messages = decodeMessages(body)
+        val sawUpToDate = messages.any { it is ShapeMessage.UpToDate }
         if (messages.isNotEmpty()) {
             onMessages(messages)
             // Count only data ops (insert/update/partial/delete), not control msgs.
@@ -136,8 +145,17 @@ class ShapeClient<T : Any>(
         }
 
         if (handle != null && offset != null) {
-            offsetDao.upsert(ElectricOffsetEntity(shape = shapeName, handle = handle, offset = offset))
+            offsetDao.upsert(
+                ElectricOffsetEntity(
+                    shape = shapeName,
+                    handle = handle,
+                    offset = offset,
+                    isLive = sawUpToDate || wasLive,
+                )
+            )
         }
+
+        return !wasLive && !sawUpToDate && messages.isEmpty()
     }
 
     private fun decodeMessages(body: String): List<ShapeMessage<T>> {
@@ -157,6 +175,9 @@ class ShapeClient<T : Any>(
             return when (control) {
                 "up-to-date" -> ShapeMessage.UpToDate
                 "must-refetch" -> ShapeMessage.MustRefetch
+                // Chunk boundary of a multi-response snapshot — carries no
+                // data; liveness is gated on up-to-date, never snapshot-end.
+                "snapshot-end" -> null
                 else -> null
             }
         }

@@ -277,4 +277,7 @@ data class ElectricOffsetEntity(
     @PrimaryKey @ColumnInfo(name = "shape") val shape: String,
     val handle: String,
     val offset: String,
+    // True once an up-to-date control was seen — only then may polls long-poll
+    // with live=true; catch-up polls stay non-live per the Electric protocol.
+    @ColumnInfo(name = "is_live") val isLive: Boolean = false,
 )

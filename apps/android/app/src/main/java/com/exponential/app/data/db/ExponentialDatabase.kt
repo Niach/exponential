@@ -33,9 +33,11 @@ import androidx.room.RoomDatabase
     //     repositories registry (tRPC `repositories` router, never synced).
     // v8: added projects.repository_id (masterplan v4 §3 — project = repository;
     //     additive column on the existing projects shape, no shape-count change).
+    // v9: added electric_offsets.is_live (live-gating: only long-poll live=true
+    //     after up-to-date; catch-up polls stay non-live).
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
