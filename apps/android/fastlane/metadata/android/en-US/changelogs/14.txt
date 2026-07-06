@@ -1,0 +1,7 @@
+First public build of Exponential — real-time issue tracking with live sync.
+
+• Workspaces, projects, and issues with labels, priorities, and due dates
+• Real-time updates across all your devices
+• Markdown descriptions and comments with @mentions and images
+• Inbox with push notifications
+• Sign in with Google

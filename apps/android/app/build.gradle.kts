@@ -58,6 +58,11 @@ android {
             if (releaseStoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // Package native symbol tables into the AAB so Play can symbolicate
+            // crashes/ANRs in dependency .so libs (stripped before delivery).
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
         }
         debug {
             // Same applicationId as release so a single google-services.json
