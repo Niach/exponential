@@ -91,10 +91,9 @@ export function DocsSection({
   return (
     <section id={id} data-docs-section={id}>
       <div className="docs-section-tag">
-        <span className="num">{num}</span>
-        <span className="line" />
-        <span className="num docs-section-label">{label}</span>
-        <span className="line" />
+        <span className="docs-section-num">{num}</span>
+        <span className="docs-section-label">{label}</span>
+        <span className="docs-section-line" />
       </div>
       {children}
     </section>

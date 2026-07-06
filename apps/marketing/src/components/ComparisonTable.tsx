@@ -15,7 +15,6 @@ function Cell({ cell, isExp }: { cell: CompareCell; isExp?: boolean }) {
         )}
         {cell.value}
       </span>
-      {cell.detail && <span className="cmp-detail">{cell.detail}</span>}
     </div>
   )
 }
@@ -37,11 +36,6 @@ export function ComparisonTable() {
           <Cell cell={row.linear} />
         </div>
       ))}
-      <p className="cmp-footnote">
-        Linear pricing and features as published at linear.app, June 2026,
-        billed yearly. Linear is a trademark of Linear Orbit, Inc., which is
-        not affiliated with Exponential.
-      </p>
     </motion.div>
   )
 }

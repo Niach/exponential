@@ -12,10 +12,9 @@ export function SiteHeader() {
         </a>
         <nav className="nav">
           <a href="/#product">Product</a>
-          <a href="/#agents">Coding</a>
           <a href="/pricing/">Pricing</a>
           <a href="/docs/">Docs</a>
-          <a href="/docs/#desktop-apps">Download</a>
+          <a href={LINKS.downloadPage}>Download</a>
         </nav>
         <div className="topbar-right">
           <a className="btn btn-ghost btn-sm" href={LINKS.github.repo}>
@@ -64,7 +63,7 @@ export function SiteFooter() {
       title: `Product`,
       links: [
         { label: `Pricing`, href: `/pricing/` },
-        { label: `Download`, href: `/docs/#desktop-apps` },
+        { label: `Download`, href: LINKS.downloadPage },
         { label: `Docs`, href: `/docs/` },
         { label: `Self-host`, href: `/docs/self-host/` },
       ],

@@ -1,24 +1,63 @@
 import type { CSSProperties } from "react"
 import {
+  ArrowDownLeft,
   ArrowRight,
+  ArrowUpRight,
+  Bell,
+  BellOff,
   Bot,
+  CalendarDays,
   CalendarSync,
   Calendar as CalendarIcon,
+  Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ChevronsUpDown,
+  CircleCheck,
+  CircleDashed,
+  CircleUser,
+  CircleX,
   Container,
   Copy,
+  Download,
+  File,
   Filter,
+  Folder,
+  FolderOpen,
   Github,
+  GitMerge,
+  GitPullRequest,
+  Inbox,
+  LayoutGrid,
+  ListTodo,
+  MessageSquare,
+  Minus,
+  Monitor,
   PanelLeft,
   Paperclip,
+  Play,
   Plus,
+  RefreshCw,
+  Search,
+  Send,
   Server,
+  Settings,
   Shield,
+  SignalHigh,
+  SignalLow,
+  SignalMedium,
+  Smartphone,
   Sparkles,
+  Square,
+  SquarePen,
+  SquareTerminal,
   Tag,
+  Timer,
+  TriangleAlert,
   User as UserIcon,
+  X,
   Zap,
   type LucideProps,
 } from "lucide-react"
@@ -62,6 +101,47 @@ export const IcChevDown = wrap(ChevronDown)
 export const IcChevSwap = wrap(ChevronsUpDown)
 export const IcSidebar = wrap(PanelLeft)
 export const IcSparkles = wrap(Sparkles)
+
+/* ─── Generic lucide re-exports for product recreations & pages ─── */
+export const IcSearch = wrap(Search)
+export const IcInbox = wrap(Inbox)
+export const IcListTodo = wrap(ListTodo)
+export const IcFolder = wrap(Folder)
+export const IcFolderOpen = wrap(FolderOpen)
+export const IcFile = wrap(File)
+export const IcGitMerge = wrap(GitMerge)
+export const IcGitPr = wrap(GitPullRequest)
+export const IcSettings = wrap(Settings)
+export const IcCircleUser = wrap(CircleUser)
+export const IcPlay = wrap(Play)
+export const IcSquare = wrap(Square)
+export const IcBell = wrap(Bell)
+export const IcBellOff = wrap(BellOff)
+export const IcSend = wrap(Send)
+export const IcTimer = wrap(Timer)
+export const IcCircleCheck = wrap(CircleCheck)
+export const IcCircleX = wrap(CircleX)
+export const IcLucideCircleDashed = wrap(CircleDashed)
+export const IcMinus = wrap(Minus)
+export const IcAlert = wrap(TriangleAlert)
+export const IcSignalHigh = wrap(SignalHigh)
+export const IcSignalMedium = wrap(SignalMedium)
+export const IcSignalLow = wrap(SignalLow)
+export const IcCalDays = wrap(CalendarDays)
+export const IcChevUp = wrap(ChevronUp)
+export const IcChevLeft = wrap(ChevronLeft)
+export const IcTerminalSquare = wrap(SquareTerminal)
+export const IcClose = wrap(X)
+export const IcCheckmark = wrap(Check)
+export const IcArrowDownLeft = wrap(ArrowDownLeft)
+export const IcArrowUpRight = wrap(ArrowUpRight)
+export const IcDownload = wrap(Download)
+export const IcMonitor = wrap(Monitor)
+export const IcSmartphone = wrap(Smartphone)
+export const IcCompose = wrap(SquarePen)
+export const IcGrid = wrap(LayoutGrid)
+export const IcRefresh = wrap(RefreshCw)
+export const IcMessage = wrap(MessageSquare)
 
 const Custom = ({
   size = 16,

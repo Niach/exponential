@@ -23,20 +23,9 @@ export function SelfHostDocsPage() {
       <SiteHeader />
 
       <section className="docs-hero">
-        <div className="hero-atmos" aria-hidden />
-        <div className="shell docs-hero-content fade-in">
-          <span className="tag-row">
-            <span className="tag-pill">Self-host docs</span>
-          </span>
-          <h1>
-            Your infrastructure,
-            <br />
-            <em>your data.</em>
-          </h1>
-          <p>
-            Install Exponential on your own server with Docker Compose.
-            One command, four containers, no SaaS dependencies.
-          </p>
+        <div className="shell docs-hero-content">
+          <h1>Self-host</h1>
+          <p>Docker Compose on your own server. No SaaS dependencies, no limits.</p>
           <div className="docs-hero-cta">
             <a className="btn btn-primary" href="#installation">
               <IcDocker size={14} /> Install
@@ -53,25 +42,18 @@ export function SelfHostDocsPage() {
         <DocsSection id="installation" num="01" label="Installation">
           <h2>Installation</h2>
 
+          <p>
+            One <code>docker compose</code> file, four services: Postgres,
+            Electric (real-time sync), Garage (S3-compatible attachment
+            storage), and Caddy (reverse proxy). Set{` `}
+            <code>SELF_HOSTED=true</code> and every plan limit disappears —
+            billing is disabled entirely.
+          </p>
+
           <DocsCallout kind="tip" title="Just want to use Exponential?">
             Sign up free at{` `}
             <a href="https://app.exponential.at">app.exponential.at</a> — no
-            install needed. Check the{` `}
-            <a href="/docs/">usage guide</a> for how things work.
-          </DocsCallout>
-
-          <p>
-            Exponential ships as a single <code>docker compose</code> file.
-            Four services come up — Postgres, Electric (real-time sync),
-            Garage (S3-compatible attachment storage), and Caddy (HTTP/2
-            reverse proxy with automatic TLS). No SaaS dependencies. No
-            telemetry.
-          </p>
-
-          <DocsCallout kind="tip" title="No limits, ever">
-            Set <code>SELF_HOSTED=true</code> and every plan limit disappears
-            — unlimited members, projects, workspaces, and storage. Billing is
-            disabled entirely. Self-hosting is the unlimited tier.
+            install needed.
           </DocsCallout>
 
           <h3>1. Clone the repo</h3>
@@ -82,34 +64,17 @@ cd exponential
 
           <h3>2. Pick your sign-in method</h3>
           <p>
-            Three options, and they can be combined. Email and password is
-            on by default, so you can skip this step and come back to it
-            later if you just want to kick the tyres.
-          </p>
-          <p>
-            <strong>Email &amp; password.</strong> Enabled out of the box. To
-            turn it off later, set <code>AUTH_PASSWORD_ENABLED=false</code>.
-          </p>
-          <p>
-            <strong>OIDC (Authentik, Keycloak, Zitadel, …).</strong> Configure
-            one or more providers as a JSON array. Each entry needs an{` `}
-            <code>id</code>, <code>name</code>, your client credentials, and
-            the provider's discovery URL.
+            Email &amp; password is on by default (<code>AUTH_PASSWORD_ENABLED=false</code>{` `}
+            turns it off). For OIDC (Authentik, Keycloak, Zitadel, …),
+            configure providers as a JSON array:
           </p>
           <DocsCode language="env">{`
 OIDC_PROVIDERS='[{"id":"authentik","name":"Authentik","clientId":"...","clientSecret":"...","discoveryUrl":"https://auth.example.com/application/o/app/.well-known/openid-configuration"}]'
 `}</DocsCode>
           <p>
-            The authorized redirect URI in your IdP is{` `}
+            The redirect URI in your IdP is{` `}
             <code>{`\${BETTER_AUTH_URL}/api/auth/oauth2/callback/<id>`}</code>.
-            Optional <code>adminGroups</code> + <code>groupsClaim</code>{` `}
-            promote users to admin based on a claim from the ID token.
-          </p>
-          <p>
-            <strong>Google sign-in.</strong> Same Google OAuth client you'd
-            use for the Calendar integration. Setting both client vars and
-            flipping the flag adds a "Sign in with Google" button to the
-            login screen.
+            Google sign-in works too:
           </p>
           <DocsCode language="env">{`
 GOOGLE_CLIENT_ID=
@@ -119,10 +84,8 @@ GOOGLE_LOGIN_ENABLED=true
 
           <h3>3. Bring the stack up</h3>
           <p>
-            <code>bun install</code> sets up dependencies,{` `}
-            <code>backend:up</code> starts the four containers, and{` `}
-            <code>storage:init</code> prints the S3 keys you'll need in a
-            moment.
+            <code>storage:init</code> prints the S3 keys you&apos;ll need in
+            the next step.
           </p>
           <DocsCode language="shell">{`
 bun install
@@ -132,10 +95,8 @@ bun run storage:init
 
           <h3>4. Configure</h3>
           <p>
-            Copy the example env file and fill in the three values you
-            actually need: the database URL (default works for local), a
-            session secret, and the S3 keys from the previous step. Add the
-            sign-in env vars from step 2 here too.
+            Copy the example env file and fill in the database URL, a session
+            secret, and the S3 keys from the previous step.
           </p>
           <DocsCode language="shell">{`
 cp apps/web/.env.example .env
@@ -152,27 +113,28 @@ docker exec -i exponential-postgres-1 \\
 bun dev
 `}</DocsCode>
           <p>
-            Open <code>http://localhost:5173</code>, register the first user
-            — that's your instance.
+            Open <code>http://localhost:5173</code> and register the first
+            user — that&apos;s your instance.
           </p>
+
+          <DocsCallout kind="note" title="Projects need a GitHub App">
+            Every project is backed by a GitHub repository, so creating
+            projects requires a configured GitHub App — see the{` `}
+            <code>GITHUB_APP_*</code> variables below.
+          </DocsCallout>
 
           <h3>Connect the apps</h3>
           <p>
-            All native clients — iOS, Android, macOS, and Linux — work with
-            self-hosted instances out of the box. On first launch, enter your
-            instance URL instead of <code>app.exponential.at</code> and sign
-            in. The desktop app clones your projects&apos; repos and runs
-            coding sessions against your server exactly as it does on the
-            cloud.
+            All native clients — iOS, Android, macOS, Linux — work with
+            self-hosted instances: on first launch, enter your instance URL
+            instead of <code>app.exponential.at</code> and sign in.
           </p>
 
           <h3>Going live</h3>
           <p>
-            For production, build the web image with the root{` `}
-            <code>Dockerfile</code>, point a domain at your server, and put
-            it behind Caddy. The included{` `}
-            <code>Caddyfile.example</code> is preconfigured with the long-poll
-            timeouts Electric needs for real-time sync — copy it across.
+            Build the web image with the root <code>Dockerfile</code> and put
+            it behind Caddy — <code>Caddyfile.example</code> ships with the
+            long-poll timeouts Electric needs.
           </p>
           <DocsCode language="shell">{`
 docker build -f Dockerfile -t exponential-web:latest .
@@ -183,43 +145,30 @@ docker build -f Dockerfile -t exponential-web:latest .
         <DocsSection id="push" num="02" label="Push notifications">
           <h2>Push notifications</h2>
           <p>
-            Native push to phones is handled by a small companion service,
-            the <strong>push-relay</strong>, that wraps Firebase Cloud
-            Messaging. The web app posts payloads to it; the relay
-            multicasts to your devices.
+            Native push goes through a small companion service, the{` `}
+            <strong>push-relay</strong>, that wraps Firebase Cloud Messaging.
           </p>
 
           <h3>Use the public relay</h3>
           <p>
-            A public instance runs at{` `}
-            <code>https://push.exponential.at</code> and is what
-            the official Android and iOS builds talk to by default. The
-            quickest path is to point your web deployment at it and you're
-            done — no Firebase project, no extra container.
+            The official mobile builds talk to the public relay at{` `}
+            <code>https://push.exponential.at</code>. Point your deployment at
+            it and you&apos;re done — no Firebase project, no extra container.
           </p>
           <DocsCode language="env">{`
 PUSH_RELAY_URL=https://push.exponential.at
 `}</DocsCode>
           <DocsCallout kind="note" title="What the public relay sees">
-            The relay receives the FCM device token, the notification title
-            and body, and the data payload — typically just an issue ID. It
-            never sees your database, your auth state, or your users'
-            credentials, and it forwards straight to Google's FCM.
+            The FCM device token, the notification title/body, and the data
+            payload (typically an issue ID). Never your database, auth state,
+            or credentials.
           </DocsCallout>
 
           <h3>Or run your own</h3>
           <p>
-            If you'd rather not depend on the public relay — different trust
-            model, different Firebase project, your own region — host one
-            yourself. The image is in the repo. You'll also need to{` `}
-            <strong>build the mobile apps yourself with your own FCM
-            credentials</strong>; the published Android/iOS binaries are
-            wired to the public Firebase project and won't deliver
-            notifications through your relay.
-          </p>
-          <p>
-            Create a Firebase project, generate a service-account key from
-            its settings, then run the relay:
+            Host the relay yourself with your own Firebase project — you&apos;ll
+            also need to build the mobile apps with your own FCM credentials,
+            since the published binaries are wired to the public relay.
           </p>
           <DocsCode language="shell">{`
 docker build -f Dockerfile.push-relay -t push-relay:latest .
@@ -231,17 +180,13 @@ docker run -d \\
 # verify
 curl https://push.yourapp.com/healthz   # => {"ok":true}
 `}</DocsCode>
-          <p>
-            Point the web app at your relay:
-          </p>
           <DocsCode language="env">{`
 PUSH_RELAY_URL=https://push.yourapp.com
 `}</DocsCode>
           <DocsCallout kind="warn" title="Open by default">
-            The reference relay leaves <code>/send</code> unauthenticated so
-            anything inside your trust boundary can call it. If you expose
-            it to the public internet, restrict it by network policy or
-            re-add the bearer-token middleware in{` `}
+            The reference relay leaves <code>/send</code> unauthenticated. If
+            you expose it publicly, restrict it by network policy or re-add
+            the bearer-token middleware in{` `}
             <code>apps/push-relay/src/index.ts</code>.
           </DocsCallout>
         </DocsSection>
@@ -250,8 +195,7 @@ PUSH_RELAY_URL=https://push.yourapp.com
         <DocsSection id="environment" num="03" label="Environment variables">
           <h2>Environment variables</h2>
           <p>
-            All configuration is via environment variables. Only three are
-            strictly required for a minimal install — the rest have sensible
+            Only three are strictly required — the rest have sensible
             defaults.
           </p>
 
@@ -272,15 +216,9 @@ PUSH_RELAY_URL=https://push.yourapp.com
             <EnvVar name="ELECTRIC_URL">
               Electric service URL (default: <code>http://localhost:30000</code>).
             </EnvVar>
-            <EnvVar name="S3_ENDPOINT">
-              S3-compatible storage URL.
-            </EnvVar>
-            <EnvVar name="S3_ACCESS_KEY">
-              S3 access key.
-            </EnvVar>
-            <EnvVar name="S3_SECRET_KEY">
-              S3 secret key.
-            </EnvVar>
+            <EnvVar name="S3_ENDPOINT">S3-compatible storage URL.</EnvVar>
+            <EnvVar name="S3_ACCESS_KEY">S3 access key.</EnvVar>
+            <EnvVar name="S3_SECRET_KEY">S3 secret key.</EnvVar>
             <EnvVar name="S3_BUCKET">
               Attachment bucket name (default: <code>exponential-attachments</code>).
             </EnvVar>
@@ -289,7 +227,7 @@ PUSH_RELAY_URL=https://push.yourapp.com
             </EnvVar>
             <EnvVar name="SELF_HOSTED">
               Set to <code>true</code> to disable billing and unlock all plan
-              limits (unlimited members, projects, storage).
+              limits.
             </EnvVar>
             <EnvVar name="AUTH_PASSWORD_ENABLED">
               Enable email/password login (default: <code>true</code>).
@@ -297,17 +235,29 @@ PUSH_RELAY_URL=https://push.yourapp.com
             <EnvVar name="OIDC_PROVIDERS">
               JSON array of OIDC provider configs.
             </EnvVar>
-            <EnvVar name="GOOGLE_CLIENT_ID">
-              Google OAuth client ID.
-            </EnvVar>
+            <EnvVar name="GOOGLE_CLIENT_ID">Google OAuth client ID.</EnvVar>
             <EnvVar name="GOOGLE_CLIENT_SECRET">
               Google OAuth client secret.
             </EnvVar>
             <EnvVar name="GOOGLE_LOGIN_ENABLED">
               Show Google sign-in button (default: <code>false</code>).
             </EnvVar>
-            <EnvVar name="GOOGLE_CALENDAR_ENABLED">
-              Enable Calendar integration (default: <code>false</code>).
+            <EnvVar name="GITHUB_APP_ID">
+              GitHub App numeric ID — required to connect repositories and
+              create projects.
+            </EnvVar>
+            <EnvVar name="GITHUB_APP_SLUG">
+              GitHub App URL slug (builds the install link).
+            </EnvVar>
+            <EnvVar name="GITHUB_APP_PRIVATE_KEY">
+              GitHub App PEM private key, base64-encoded.
+            </EnvVar>
+            <EnvVar name="GITHUB_WEBHOOK_SECRET">
+              GitHub App webhook secret (PR-merge detection via webhook).
+            </EnvVar>
+            <EnvVar name="GITHUB_POLLING">
+              Set to <code>true</code> to poll for PR merges instead — for
+              servers behind NAT that webhooks can&apos;t reach.
             </EnvVar>
             <EnvVar name="PUSH_RELAY_URL">
               Push notification relay URL.
@@ -319,8 +269,7 @@ PUSH_RELAY_URL=https://push.yourapp.com
         <DocsSection id="updating" num="04" label="Updating">
           <h2>Updating</h2>
           <p>
-            Exponential follows a rolling-release model on the{` `}
-            <code>master</code> branch. To update a self-hosted install:
+            Exponential rolls forward on <code>master</code>. To update:
           </p>
 
           <h3>1. Pull the latest code</h3>
@@ -334,10 +283,6 @@ docker build -f Dockerfile -t exponential-web:latest .
 `}</DocsCode>
 
           <h3>3. Run migrations</h3>
-          <p>
-            Always apply migrations <strong>before</strong> restarting the
-            containers — schema changes are not backwards compatible.
-          </p>
           <DocsCode language="shell">{`
 bun run migrate
 docker exec -i exponential-postgres-1 \\
@@ -351,8 +296,8 @@ docker compose down && docker compose up -d
 `}</DocsCode>
 
           <DocsCallout kind="warn" title="Migrations first">
-            If you restart containers before running migrations, the app may
-            fail to start or behave unexpectedly. Always migrate first.
+            Always apply migrations before restarting the containers — the
+            app may fail to start otherwise.
           </DocsCallout>
         </DocsSection>
       </DocsLayout>

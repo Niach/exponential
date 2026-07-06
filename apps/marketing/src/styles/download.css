@@ -1,0 +1,155 @@
+/* ─── Download page styles (dl-*) — owned by the downloadnav agent ─── */
+
+/* Hero — compact */
+.dl-hero {
+  padding-bottom: 2.5rem;
+}
+.dl-hero .hero-sub {
+  margin-top: 0.5rem;
+}
+
+/* ─── Hero platform icon row (used on the Home hero) ─── */
+.dl-iconrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+.dl-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 34px;
+  padding: 0 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.dl-iconbtn:hover {
+  background: var(--bg-soft);
+  color: var(--fg);
+  border-color: var(--input);
+}
+.dl-iconbtn svg {
+  flex-shrink: 0;
+}
+.dl-iconbtn.is-soon {
+  opacity: 0.6;
+}
+
+/* ─── /download/ page — platform card grid (3 desktop / 2 mobile-store) ─── */
+.dl-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  max-width: 980px;
+  margin: 0 auto;
+}
+@media (max-width: 860px) {
+  .dl-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .dl-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.dl-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-elev);
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+.dl-card:not(.is-soon):hover {
+  border-color: var(--input);
+  transform: translateY(-2px);
+}
+.dl-card.is-soon {
+  cursor: default;
+  opacity: 0.7;
+}
+.dl-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--fg);
+  margin-bottom: 0.5rem;
+}
+.dl-card-name {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.dl-card-req {
+  font-size: 0.8125rem;
+  color: var(--fg-dim);
+}
+.dl-card-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  height: 34px;
+  padding: 0 0.9rem;
+  border-radius: 8px;
+  background: var(--fg);
+  color: #171717;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.dl-card-btn.is-soon {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+/* Releases footnote */
+.dl-releases {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  max-width: 720px;
+  margin: 1.5rem auto 0;
+  font-size: 0.8125rem;
+  color: var(--fg-dim);
+}
+.dl-releases svg {
+  flex-shrink: 0;
+}
+.dl-releases a {
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dl-releases a:hover {
+  color: var(--fg);
+}
+
+@media (max-width: 560px) {
+  .dl-grid {
+    grid-template-columns: 1fr;
+  }
+}

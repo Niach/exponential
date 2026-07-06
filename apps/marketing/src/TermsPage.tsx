@@ -137,7 +137,7 @@ const h2Style = {
 } as const
 
 const linkStyle = {
-  color: `var(--accent)`,
+  color: `var(--fg)`,
   textDecoration: `underline`,
   textUnderlineOffset: 3,
 } as const

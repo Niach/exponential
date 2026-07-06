@@ -6,8 +6,8 @@ import { IcArrow } from "./icons"
 
 type Plan = {
   name: string
-  price: string
-  cadence: string
+  amount: string
+  cadence?: string
   note?: string
   tagline: string
   highlight?: boolean
@@ -20,45 +20,44 @@ type Plan = {
 const cloudPlans: Plan[] = [
   {
     name: `Free`,
-    price: `$0`,
+    amount: `$0`,
     cadence: `forever`,
     tagline: `For you and your side projects.`,
     features: [
-      `1 seat (just you)`,
-      `Unlimited projects, repos & coding sessions`,
+      `1 seat`,
       `250 MB storage`,
-      `Push & steer — free`,
       `All native apps`,
+      `Real-time sync`,
+      `Push & steer`,
     ],
     cta: { label: `Sign up free`, href: LINKS.app.register },
   },
   {
     name: `Pro`,
-    price: `$5`,
-    cadence: `per seat / month`,
-    note: `billed yearly`,
+    amount: `$5`,
+    cadence: `/seat/mo`,
+    note: `· billed yearly`,
     tagline: `For teams that ship together.`,
     highlight: true,
     features: [
-      `Buy exactly the seats you need`,
-      `Unlimited projects, repos & coding sessions`,
+      `Everything in Free`,
       `5 GB storage`,
-      `Feedback widget + helpdesk emails`,
-      `Push & steer — free`,
+      `Feedback widget`,
+      `Helpdesk emails`,
     ],
     cta: { label: `Start with Pro`, href: LINKS.app.register },
   },
   {
     name: `Business`,
-    price: `$10`,
-    cadence: `per seat / month`,
+    amount: `$10`,
+    cadence: `/seat/mo`,
     note: `monthly or yearly`,
-    tagline: `For orgs that need room to grow.`,
+    tagline: `For orgs with room to grow.`,
     features: [
       `Everything in Pro`,
       `50 GB storage`,
       `Unlimited feedback widgets`,
-      `SSO / OIDC — coming soon`,
+      `SSO / OIDC — soon`,
       `Priority support`,
     ],
     cta: { label: `Start with Business`, href: LINKS.app.register },
@@ -66,33 +65,32 @@ const cloudPlans: Plan[] = [
 ]
 
 /* Run-it-yourself tiers — self-host is free & unlimited; Enterprise is
-   contact-sales with honor-system ">10 employees" language (no enforcement). */
+   contact-sales. Plain, friendly phrasing. */
 const selfHostPlans: (Plan & { selfHost?: boolean; enterprise?: boolean })[] = [
   {
     name: `Self-hosted`,
-    price: `Free`,
-    cadence: `your infrastructure`,
-    tagline: `Everything unlimited, on your hardware.`,
+    amount: `Free`,
+    cadence: `your hardware`,
+    tagline: `Free for individuals and small businesses — under 10 people.`,
     selfHost: true,
     features: [
-      `Unlimited seats, projects & storage`,
       `Every feature unlocked`,
+      `Unlimited seats & storage`,
       `One docker compose`,
-      `Elastic License 2.0`,
+      `Source-available (ELv2)`,
     ],
     cta: { label: `Read self-host docs`, href: `/docs/self-host/` },
   },
   {
     name: `Enterprise`,
-    price: `Let's talk`,
+    amount: `Let's talk`,
     cadence: `self-hosted, supported`,
-    tagline: `For companies of more than 10 running Exponential in-house.`,
+    tagline: `For teams of 10 or more running it in-house.`,
     enterprise: true,
     features: [
       `Everything in self-hosted`,
-      `Extended, prioritized support`,
-      `Deployment & upgrade guidance`,
-      `Honor-system — pay if you're >10 people`,
+      `Prioritized support`,
+      `Deployment & upgrade help`,
     ],
     cta: {
       label: `Contact sales`,
@@ -114,6 +112,16 @@ function FeatureList({ features }: { features: string[] }) {
   )
 }
 
+function PriceLockup({ plan }: { plan: Plan }) {
+  return (
+    <div className="plan-price">
+      <span className="plan-amount">{plan.amount}</span>
+      {plan.cadence && <span className="plan-cadence">{plan.cadence}</span>}
+      {plan.note && <span className="plan-note">{plan.note}</span>}
+    </div>
+  )
+}
+
 export function PlanCards() {
   return (
     <motion.div
@@ -132,11 +140,7 @@ export function PlanCards() {
           {p.highlight && <span className="plan-flag">Most popular</span>}
           <div className="plan-head">
             <h3>{p.name}</h3>
-            <div className="plan-price">
-              <span className="plan-amount">{p.price}</span>
-              <span className="plan-cadence">{p.cadence}</span>
-            </div>
-            {p.note && <span className="plan-note">{p.note}</span>}
+            <PriceLockup plan={p} />
             <p className="plan-tagline">{p.tagline}</p>
           </div>
           <FeatureList features={p.features} />
@@ -177,10 +181,7 @@ export function SelfHostCards() {
               )}
               {p.name}
             </h3>
-            <div className="plan-price">
-              <span className="plan-amount">{p.price}</span>
-              <span className="plan-cadence">{p.cadence}</span>
-            </div>
+            <PriceLockup plan={p} />
             <p className="plan-tagline">{p.tagline}</p>
           </div>
           <FeatureList features={p.features} />

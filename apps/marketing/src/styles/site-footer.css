@@ -1,109 +1,10 @@
-/* ─── Copy block ─── */
-.copy-cmd {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: oklch(0.12 0 0);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  overflow: hidden;
-  margin: 0 auto 8px;
-  max-width: 100%;
-}
-.copy-cmd code {
-  padding: 12px 16px;
-  color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
-}
-.copy-cmd code::before {
-  content: "$ ";
-  color: var(--accent);
-}
-.copy-cmd .copy-btn {
-  padding: 0 16px;
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: oklch(0.16 0 0);
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.copy-cmd .copy-btn:hover {
-  color: var(--fg);
-  background: oklch(0.2 0 0);
-}
-
-/* ─── Self-host grid ─── */
-.selfhost-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 32px;
-  align-items: start;
-}
-
-@media (max-width: 880px) {
-  .selfhost-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ─── OSS card ─── */
-.repo-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  background: var(--bg-card);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.repo-cta {
-  align-self: flex-start;
-  margin-top: 4px;
-}
-
-.repo-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-.repo-head .repo-owner { color: var(--fg-muted); }
-.repo-head .repo-name { color: var(--fg); }
-
-.repo-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  font-size: 12px;
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-}
-.repo-meta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
 /* ─── Footer CTA ─── */
 .footer-cta {
   position: relative;
   padding: 80px 0;
   text-align: center;
-  background:
-    radial-gradient(ellipse 50% 60% at 50% 40%, var(--accent-soft), transparent 70%),
-    var(--bg);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
 }
 
 .footer-cta-inner h2 {
@@ -170,4 +71,3 @@ footer {
 .foot-legal {
   align-self: center;
 }
-

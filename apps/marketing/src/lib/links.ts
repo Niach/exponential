@@ -5,6 +5,7 @@ const APP = `https://app.exponential.at`
 const REPO = `https://github.com/Niach/exponential`
 
 export const LINKS = {
+  downloadPage: `/download/`,
   app: {
     register: `${APP}/auth/register`,
     login: `${APP}/auth/login`,
@@ -18,9 +19,12 @@ export const LINKS = {
   downloads: {
     // GitHub Releases `latest` assets — published by build-desktop.yml on desktop-v* tags.
     // Asset names are fixed by the release pipeline (masterplan P4.d).
-    macos: `${REPO}/releases/latest/download/Exponential-production.dmg`,
-    linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
+    // macOS ships the ad-hoc-signed zip today; switch to
+    // Exponential-production.dmg once MACOS_CERT_P12 lands (the notarized
+    // .dmg replaces the .zip asset in the same release).
+    macos: `${REPO}/releases/latest/download/exp-desktop-production.zip`,
     windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.zip`,
+    linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
     // Mobile stores are placeholders until the apps are approved — see DownloadSection.
     // TODO(launch): App Store URL
     ios: `${REPO}/releases`,

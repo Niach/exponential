@@ -2,13 +2,11 @@
    Order matters: files concatenate in the original cascade order. */
 @import "./styles/tokens.css";
 @import "./styles/site.css";
-@import "./styles/mockup-board.css";
 @import "./styles/site-footer.css";
-@import "./styles/mockup-mobile-agents.css";
-@import "./styles/mockup-docs.css";
-@import "./styles/terminal.css";
-@import "./styles/loop.css";
 @import "./styles/ide.css";
+@import "./styles/mobile.css";
+@import "./styles/loop.css";
 @import "./styles/pricing.css";
-@import "./styles/responsive.css";
+@import "./styles/download.css";
 @import "./styles/docs.css";
+@import "./styles/responsive.css";
