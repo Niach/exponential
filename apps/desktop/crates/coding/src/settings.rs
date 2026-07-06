@@ -112,6 +112,19 @@ impl Settings {
         fs::write(path, rendered)
     }
 
+    /// The claude program to spawn / doctor-check. An explicit path (anything
+    /// other than the bare default) is used verbatim; the bare `claude` is
+    /// probed against the well-known per-user install locations before
+    /// falling back to PATH resolution. GUI apps launched from the desktop
+    /// don't inherit a login-shell PATH, so bare `claude` can otherwise
+    /// resolve to a stale system-wide install (an old `npm -g` shim in
+    /// /usr/local/bin) while the user's shell runs the current native
+    /// install from `~/.local/bin` — version skew that surfaces as startup
+    /// warnings about invalid config files in the embedded terminal.
+    pub fn resolved_claude_path(&self) -> String {
+        resolve_claude_program(&self.claude_path, dirs::home_dir())
+    }
+
     /// The `<repos_root>` of §7.1's worktree layout, tilde-expanded.
     pub fn repos_root_path(&self) -> PathBuf {
         expand_tilde(
@@ -119,6 +132,29 @@ impl Settings {
             dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")),
         )
     }
+}
+
+/// See [`Settings::resolved_claude_path`]. Split out (with `home` injected)
+/// for testability.
+pub fn resolve_claude_program(raw: &str, home: Option<PathBuf>) -> String {
+    if raw != DEFAULT_CLAUDE_PATH {
+        return raw.to_string();
+    }
+    if let Some(home) = home {
+        let candidates = [
+            // The official native installer's location — the install the
+            // user's login shell almost certainly runs.
+            home.join(".local").join("bin").join("claude"),
+            // Older `claude install` local location.
+            home.join(".claude").join("local").join("claude"),
+        ];
+        for candidate in candidates {
+            if candidate.is_file() {
+                return candidate.to_string_lossy().into_owned();
+            }
+        }
+    }
+    raw.to_string()
 }
 
 /// `~` / `~/…` → `home`-rooted path; anything else passes through. (Only the
@@ -160,6 +196,30 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn bare_claude_prefers_the_per_user_native_install() {
+        let dir = TempDir::new("resolve");
+        // No install in the fake home → PATH fallback.
+        assert_eq!(
+            resolve_claude_program("claude", Some(dir.0.clone())),
+            "claude"
+        );
+        // The native installer's binary wins over PATH.
+        let bin = dir.0.join(".local").join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let installed = bin.join("claude");
+        fs::write(&installed, "").unwrap();
+        assert_eq!(
+            resolve_claude_program("claude", Some(dir.0.clone())),
+            installed.to_string_lossy()
+        );
+        // An explicit override is always used verbatim.
+        assert_eq!(
+            resolve_claude_program("/opt/homebrew/bin/claude", Some(dir.0.clone())),
+            "/opt/homebrew/bin/claude"
+        );
     }
 
     #[test]

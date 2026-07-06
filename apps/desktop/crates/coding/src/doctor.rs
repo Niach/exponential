@@ -81,7 +81,7 @@ impl DoctorReport {
 /// absolute override allowed); `git` is always plain `git` from PATH.
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
     DoctorReport {
-        claude: check_tool(Tool::Claude, &settings.claude_path),
+        claude: check_tool(Tool::Claude, &settings.resolved_claude_path()),
         git: check_tool(Tool::Git, "git"),
     }
 }

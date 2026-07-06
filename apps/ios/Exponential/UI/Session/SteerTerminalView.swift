@@ -288,8 +288,14 @@ struct SteerTerminalView: View {
     }
 
     private func submitInput(_ model: SteerViewerModel) {
-        // Send the line + Return (the remote shell/TUI does its own echo).
-        model.sendInput(inputText + "\r")
+        // Send the line and the Return as SEPARATE input frames. Bundled into
+        // one frame they reach the PTY as a single write, which TUI apps
+        // (Claude) treat as a paste — the trailing \r inserts instead of
+        // submitting, forcing a second Enter press.
+        if !inputText.isEmpty {
+            model.sendInput(inputText)
+        }
+        model.sendInput("\r")
         inputText = ""
     }
 }

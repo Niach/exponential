@@ -38,7 +38,7 @@ pub struct ClaudeTask {
 /// [`Settings`] (same source as [`crate::launch`], so the two paths stay in
 /// lockstep on the configured `claude` binary and model).
 pub fn claude_task(settings: &Settings, cwd: &Path, prompt: &str, label: &str) -> ClaudeTask {
-    let spawn = SpawnSpec::new(&settings.claude_path)
+    let spawn = SpawnSpec::new(&settings.resolved_claude_path())
         .args([
             "--model",
             settings.claude_model.as_str(),

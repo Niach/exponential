@@ -404,7 +404,12 @@ private fun SteerInputRow(onSend: (String) -> Unit) {
                 ),
             )
             IconButton(onClick = {
-                onSend(field + "\r")
+                // Send the line and the Return as SEPARATE input frames.
+                // Bundled into one frame they reach the PTY as a single write,
+                // which TUI apps (Claude) treat as a paste — the trailing \r
+                // inserts instead of submitting.
+                if (field.isNotEmpty()) onSend(field)
+                onSend("\r")
                 field = ""
             }) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")

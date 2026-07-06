@@ -368,7 +368,7 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     // The seed line rides argv as the positional prompt: bytes typed into
     // the PTY before claude's TUI enters raw mode get swallowed during
     // startup, so the prompt must never be delivered via stdin.
-    let spawn = SpawnSpec::new(&deps.settings.claude_path)
+    let spawn = SpawnSpec::new(&deps.settings.resolved_claude_path())
         .args([
             "--model",
             deps.settings.claude_model.as_str(),
