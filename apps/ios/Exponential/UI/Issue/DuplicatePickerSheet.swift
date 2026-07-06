@@ -27,7 +27,52 @@ struct DuplicatePickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 0) {
+                // Inline search field. NOT system .searchable — on iOS 26+ it
+                // renders as a bottom-edge glass bar (see IssueListView).
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("Search issues", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .submitLabel(.search)
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                pickerContent
+            }
+            .navigationTitle("Duplicate of")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .task {
+            candidates = await loadCandidates()
+        }
+    }
+
+    @ViewBuilder
+    private var pickerContent: some View {
+        Group {
                 if candidates == nil {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -63,18 +108,5 @@ struct DuplicatePickerSheet: View {
                     }
                 }
             }
-            .navigationTitle("Duplicate of")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search issues")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .task {
-            candidates = await loadCandidates()
         }
     }
-}

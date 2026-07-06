@@ -11,6 +11,8 @@ struct IssueListView: View {
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
     @State private var searchText = ""
+    @State private var searchOpen = false
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         ZStack {
@@ -70,6 +72,37 @@ struct IssueListView: View {
             filterBar(vm)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+
+            // Custom glass search field. NOT system .searchable — on iOS 26+
+            // the navigationBarDrawer placement renders as a bottom-edge glass
+            // bar on iPhone, colliding with the floating tab bar.
+            if searchOpen {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    TextField("Search issues", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.white)
+                        .focused($searchFocused)
+                        .submitLabel(.search)
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
 
             if !vm.filters.isEmpty {
                 activeFilterPills(vm)
@@ -134,7 +167,6 @@ struct IssueListView: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 16)
             }
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search issues")
         }
     }
 
@@ -172,6 +204,22 @@ struct IssueListView: View {
                     }
             }
             .glassButton(isActive: !vm.filters.isEmpty)
+
+            // Search toggle — opens the inline glass search field below.
+            Button {
+                withAnimation(.snappy(duration: 0.15)) {
+                    searchOpen.toggle()
+                    if !searchOpen { searchText = "" }
+                }
+                searchFocused = searchOpen
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(searchOpen || !searchText.isEmpty ? 1.0 : TextOpacity.secondary))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+            }
+            .glassButton(isActive: searchOpen)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
