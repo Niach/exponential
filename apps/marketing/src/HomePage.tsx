@@ -6,6 +6,7 @@ import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { LINKS } from "./lib/links"
 import { IdeDemo } from "./ide/Ide"
 import { LoopCircle } from "./loop/LoopCircle"
+import { WidgetPreview } from "./loop/WidgetPreview"
 import { MobileDemo } from "./mobile/MobileDemo"
 
 export function HomePage() {
@@ -63,13 +64,10 @@ export function HomePage() {
       <section id={`loop`}>
         <motion.div className={`shell home-loop`} {...sectionReveal}>
           <span className={`section-eyebrow`}>The loop</span>
-          <LoopCircle />
-          <p className={`home-loop-sub`}>
-            Drop the feedback widget into your app and it becomes your
-            helpdesk: reports arrive as issues with screenshots, Claude codes
-            the fix, the pull request ships &mdash; and the reporter
-            automatically hears back.
-          </p>
+          <div className={`home-loop-grid`}>
+            <LoopCircle />
+            <WidgetPreview />
+          </div>
         </motion.div>
       </section>
 

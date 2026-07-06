@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
-      include: [`src/**/*.test.ts`],
+      include: [`src/**/*.test.ts`, `src/**/*.test.tsx`],
     },
   }
 })

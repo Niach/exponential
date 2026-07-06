@@ -64,15 +64,16 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     setCrop(null)
   }, [])
 
-  const capture = useCallback(async () => {
+  const capture = useCallback(async (): Promise<boolean> => {
     const blob = await captureScreenshot(snapdomEngine)
     if (blob) {
       replaceBase({ blob, objectUrl: URL.createObjectURL(blob) })
       setCaptureFailed(false)
-    } else {
-      replaceBase(null)
-      setCaptureFailed(true)
+      return true
     }
+    replaceBase(null)
+    setCaptureFailed(true)
+    return false
   }, [replaceBase])
 
   const open = useCallback(() => {
@@ -80,8 +81,13 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     // Capture BEFORE the panel renders so the screenshot shows the page as
     // the reporter sees it, panel-free.
     setPhase({ kind: `capturing` })
-    void capture().then(() => {
-      if (phaseRef.current.kind === `capturing`) setPhase({ kind: `open` })
+    void capture().then((captured) => {
+      if (phaseRef.current.kind !== `capturing`) return
+      // Jump straight into the annotation editor when a screenshot exists —
+      // marking up the shot is the most common first action. Happens exactly
+      // once per open: closing the editor lands on the form and nothing
+      // re-triggers it.
+      setPhase(captured ? { kind: `annotating` } : { kind: `open` })
     })
   }, [capture])
 

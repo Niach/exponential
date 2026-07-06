@@ -100,7 +100,6 @@ function CenterArea() {
     return (
       <div className="ide-center">
         <EmptyState />
-        <TerminalDock />
       </div>
     )
   }
@@ -147,7 +146,6 @@ function CenterArea() {
           </div>
         ))}
       </div>
-      <TerminalDock />
     </div>
   )
 }
@@ -324,8 +322,15 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
           <Topbar />
           <div className="ide-body">
             <Rail />
-            <SidebarPanel />
-            <CenterArea />
+            {/* The terminal dock spans sidebar + center; only the icon rail
+                stays full-height, matching the real IDE. */}
+            <div className="ide-main">
+              <div className="ide-main-top">
+                <SidebarPanel />
+                <CenterArea />
+              </div>
+              <TerminalDock />
+            </div>
           </div>
         </div>
       </IdeContext.Provider>

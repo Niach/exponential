@@ -59,8 +59,10 @@ const MD_GROUPS: { Icon: IdeIcon; title: string }[][] = [
     { Icon: IcStrike, title: `Strikethrough` },
     { Icon: IcCode, title: `Inline code` },
   ],
-  [{ Icon: IcLink, title: `Link` }],
-  [{ Icon: IcQuote, title: `Blockquote` }],
+  [
+    { Icon: IcLink, title: `Link` },
+    { Icon: IcQuote, title: `Blockquote` },
+  ],
   [
     { Icon: IcList, title: `Bullet list` },
     { Icon: IcListOrdered, title: `Numbered list` },
@@ -284,8 +286,8 @@ export function IssueDetail({ issueId }: { issueId: string }) {
           <div className="ide-issue-main">
             <div className="ide-issue-col">
               <div className="ide-issue-title">{issue.title}</div>
-              <Description issueId={issue.id} />
               <MarkdownToolbar />
+              <Description issueId={issue.id} />
               <div className="ide-attach">
                 <span className="ide-attach-count">0 images</span>
               </div>

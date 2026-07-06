@@ -84,6 +84,8 @@
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
+  /* Belt-and-braces: nothing inside the form should ever scroll sideways. */
+  overflow-x: hidden;
 }
 
 .exp-shot {
@@ -163,6 +165,10 @@
 .exp-input,
 .exp-textarea {
   all: initial;
+  /* `all: initial` resets box-sizing to content-box, so width:100% plus the
+     padding/border below overflowed the panel and caused a horizontal
+     scrollbar. Re-assert border-box after the reset. */
+  box-sizing: border-box;
   font-family: inherit;
   font-size: 13.5px;
   color: var(--exp-foreground);

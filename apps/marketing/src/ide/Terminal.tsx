@@ -7,7 +7,7 @@ import {
   type ScriptLine,
 } from "./data"
 import { useIde } from "./state"
-import { IcChevDown, IcChevUp, IcPlus, IcSquareTerminal } from "./icons"
+import { IcChevDown, IcChevUp, IcPlus, IcSquareTerminal, IcX } from "./icons"
 
 function TermLine({ line, partial }: { line: ScriptLine; partial?: number }) {
   const text = partial === undefined ? line.text : line.text.slice(0, partial)
@@ -61,6 +61,8 @@ export function TerminalDock() {
       ? CODING_SCRIPT[scriptPos.done]
       : null
 
+  const claudeVisible = dockTab === `claude` && coding !== `idle`
+
   return (
     <div className="ide-dock">
       <div className="ide-dock-tabs">
@@ -69,7 +71,11 @@ export function TerminalDock() {
           type="button"
           onClick={interactive ? () => setDockTab(`shell`) : undefined}
         >
+          <span className="ide-dock-star">✳</span>
           {SHELL_TAB_TITLE}
+          <span className="ide-dock-x" aria-hidden>
+            <IcX size={10} />
+          </span>
         </button>
         {coding !== `idle` && (
           <button
@@ -77,14 +83,18 @@ export function TerminalDock() {
             type="button"
             onClick={interactive ? () => setDockTab(`claude`) : undefined}
           >
+            <span className="ide-dock-star">✳</span>
             {CLAUDE_TAB_TITLE}
             {coding === `ended` && <span className="ide-exitbadge">0</span>}
+            <span className="ide-dock-x" aria-hidden>
+              <IcX size={10} />
+            </span>
           </button>
         )}
+        <div className="ide-flex1" />
         <button className="ide-ghost ide-icbtn" type="button" title="New shell">
           <IcPlus size={12} />
         </button>
-        <div className="ide-flex1" />
         <button
           className={`ide-ghost ide-icbtn${interactive ? ` is-click` : ``}`}
           type="button"
@@ -94,18 +104,12 @@ export function TerminalDock() {
           <IcChevDown size={14} />
         </button>
       </div>
-      {dockTab === `claude` && coding !== `idle` ? (
+      {claudeVisible ? (
         <div className="ide-term" ref={termRef}>
           {CODING_SCRIPT.slice(0, scriptPos.done).map((line, i) => (
             <TermLine key={i} line={line} />
           ))}
           {typingLine && <TermLine line={typingLine} partial={scriptPos.chars} />}
-          {coding === `ended` && (
-            <div className="ide-exitstrip">
-              <span className="ide-exitdot" />
-              Process finished with exit code 0
-            </div>
-          )}
         </div>
       ) : (
         <div className="ide-term" ref={termRef}>
@@ -113,6 +117,12 @@ export function TerminalDock() {
             <span className="ide-term-ok">{`❯ `}</span>
             <span className="ide-caret" />
           </div>
+        </div>
+      )}
+      {claudeVisible && coding === `ended` && (
+        <div className="ide-dock-status">
+          <span className="ide-exitdot" />
+          Process finished with exit code 0
         </div>
       )}
     </div>
