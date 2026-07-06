@@ -42,11 +42,17 @@ platform :android do
     UI.success("APK: #{lane_context[SharedValues::GRADLE_APK_OUTPUT_PATH]}")
   end
 
-  desc "Build + upload the production .aab to the Play internal testing track."
-  lane :internal do
+  # Distribution runs through the CLOSED testing track (Google-Groups testers),
+  # not internal. The Play Console's default closed track is named "Beta" and
+  # its API identifier is `beta`; a custom closed track would use its exact
+  # name — override via PLAY_TRACK.
+  CLOSED_TRACK = ENV["PLAY_TRACK"] || "beta"
+
+  desc "Build + upload the production .aab to the Play closed testing track."
+  lane :closed do
     build
     upload_to_play_store(
-      track: "internal",
+      track: CLOSED_TRACK,
       aab: lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
       json_key: ENV.fetch("SUPPLY_JSON_KEY"),
       release_status: "draft",
@@ -57,10 +63,10 @@ platform :android do
     )
   end
 
-  desc "Promote the current internal build to the production track (no new binary)."
+  desc "Promote the current closed-testing build to the production track (no new binary)."
   lane :production do
     upload_to_play_store(
-      track: "internal",
+      track: CLOSED_TRACK,
       track_promote_to: "production",
       json_key: ENV.fetch("SUPPLY_JSON_KEY"),
       skip_upload_aab: true,

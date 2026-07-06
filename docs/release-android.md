@@ -104,44 +104,46 @@ fastlane's `supply` uploads to Play with a **service-account JSON** (no interact
 
 The very **first** upload for a brand-new app must be done **by hand** in the Play Console
 (opt into **Play App Signing**, let Google generate the app signing key — your keystore
-becomes the *upload* key). Once the app record and the internal track exist, every
+becomes the *upload* key). Once the app record and the closed testing track exist, every
 subsequent release goes through the lanes below.
 
 ## 4. Cut a release (the two-liner)
 
 1. Bump `versionCode` (monotonic integer) and `versionName` in
    `apps/android/app/build.gradle.kts`. Play rejects a re-used `versionCode`.
-2. Build + upload to the internal track:
+2. Build + upload to the closed testing track:
 
    ```bash
    cd apps/android
-   bundle exec fastlane internal
+   bundle exec fastlane closed
    ```
 
-   `internal` runs `build` (signed `.aab` + APK for the `production` flavor — signing from
+   `closed` runs `build` (signed `.aab` + APK for the `production` flavor — signing from
    the `RELEASE_*` env/props of §2) then `supply`-uploads the `.aab` as a **draft** on the
-   internal track. Fill release notes from `fastlane/metadata/.../changelogs/default.txt`.
-3. Smoke-test the internal build, then promote it to production:
+   closed track (default Play closed track = API name `beta`; override a custom track via
+   `PLAY_TRACK`). Release notes come from `fastlane/metadata/.../changelogs/<versionCode>.txt`.
+3. Smoke-test the closed build with the Google-Groups testers, then promote it to
+   production:
 
    ```bash
    bundle exec fastlane production
    ```
 
-   `production` promotes the current internal release to the production track (no new
-   binary) and pushes the versioned store listing metadata.
+   `production` promotes the current closed-testing release to the production track (no
+   new binary) and pushes the versioned store listing metadata.
 
 ### Lanes
 
 | Lane | Does |
 |------|------|
 | `build`      | Signed `.aab` + APK for the `production` flavor (unsigned fallback when `RELEASE_STORE_FILE` unset). |
-| `internal`   | `build` → `supply` upload to the **internal** track (draft). Needs `SUPPLY_JSON_KEY`. |
-| `production` | Promote **internal → production** + push listing metadata. Needs `SUPPLY_JSON_KEY`. |
+| `closed`     | `build` → `supply` upload to the **closed** testing track (draft; `PLAY_TRACK` overrides the track name, default `beta`). Needs `SUPPLY_JSON_KEY`. |
+| `production` | Promote **closed → production** + push listing metadata. Needs `SUPPLY_JSON_KEY`. |
 
 ### CI (optional)
 
 The `android-v*` tag workflow (`.gitea/workflows/build-android.yml`) still builds the
-`.aab`s + APKs as release artifacts. Wiring it to run `bundle exec fastlane internal`
+`.aab`s + APKs as release artifacts. Wiring it to run `bundle exec fastlane closed`
 (with `SUPPLY_JSON_KEY` + the `RELEASE_*` secrets injected on the runner) is optional — the
 lanes are designed to run from a local Mac first.
 
