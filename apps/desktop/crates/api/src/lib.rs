@@ -126,17 +126,37 @@ impl TokenProvider for StaticToken {
 /// `~/.local/share/exponential/`) on Linux. Holds `accounts.json`, the
 /// per-account `accounts/{id}/` dirs (sync SQLite + token-file fallback), etc.
 /// The app shell computes this once and hands it to both `api` and `sync`.
+///
+/// Channel-isolated: the `staging` feature moves the whole dir aside so a
+/// staging build never reads or writes production accounts/state (a shared
+/// `accounts.json` was surfacing saved staging instance URLs in production
+/// builds). Production keeps the historical path, so existing installs keep
+/// their data.
 pub fn default_data_dir() -> PathBuf {
     let base = dirs::data_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
     #[cfg(target_os = "macos")]
     {
-        base.join("at.exponential")
+        #[cfg(not(feature = "staging"))]
+        {
+            base.join("at.exponential")
+        }
+        #[cfg(feature = "staging")]
+        {
+            base.join("at.exponential.staging")
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
-        base.join("exponential")
+        #[cfg(not(feature = "staging"))]
+        {
+            base.join("exponential")
+        }
+        #[cfg(feature = "staging")]
+        {
+            base.join("exponential-staging")
+        }
     }
 }
 

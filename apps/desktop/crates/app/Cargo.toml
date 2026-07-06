@@ -9,9 +9,10 @@ name = "exp-desktop"
 path = "src/main.rs"
 
 [features]
-# Staging/dev channel: targets next.exponential.at and installs a distinct
-# `.desktop` app id so a staging build can coexist with a production one.
-staging = ["ui/staging"]
+# Staging/dev channel: targets next.exponential.at, installs a distinct
+# `.desktop` app id, and uses a separate data dir so a staging build can
+# coexist with a production one without sharing saved accounts.
+staging = ["ui/staging", "api/staging"]
 
 [dependencies]
 ui = { path = "../ui" }

@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Staging/dev channel: moves the app data dir aside (`exponential-staging` /
+# `at.exponential.staging`) so staging and production builds never share
+# accounts.json, sync state, or the single-instance socket.
+staging = []
+
 [dependencies]
 domain = { path = "../domain" }
 serde = { workspace = true }

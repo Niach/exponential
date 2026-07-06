@@ -6,8 +6,9 @@ license.workspace = true
 
 [features]
 # Staging/dev channel: "Exponential Cloud" targets next.exponential.at instead
-# of app.exponential.at (see login.rs `CLOUD_INSTANCE`).
-staging = []
+# of app.exponential.at (see login.rs `CLOUD_INSTANCE`), and the app data dir
+# moves aside so channels never share saved accounts (api/staging).
+staging = ["api/staging"]
 
 [dependencies]
 theme = { path = "../theme" }

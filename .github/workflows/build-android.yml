@@ -1,0 +1,108 @@
+name: build-android
+
+on:
+  push:
+    tags:
+      - 'android-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/android-v}
+          else
+            VERSION=dev-${GITHUB_SHA::7}
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      # The keystore is stored base64-encoded in the ANDROID_KEYSTORE_B64 secret;
+      # decode it to a path the gradle signing config can read. All signing steps
+      # are skipped gracefully when the secrets are absent (unsigned artifacts).
+      - name: Materialize signing keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          echo "RELEASE_STORE_FILE=$RUNNER_TEMP/upload.jks" >> $GITHUB_ENV
+
+      - name: Build debug APKs
+        working-directory: apps/android
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Build release APKs + Play bundles
+        working-directory: apps/android
+        # Signed when the RELEASE_* / ANDROID_KEYSTORE_B64 secrets are present,
+        # otherwise unsigned (keeps CI green pre-keystore).
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease :app:bundleProductionRelease :app:bundleStagingRelease --no-daemon
+
+      - name: Collect artifacts
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          APK_DIR="apps/android/app/build/outputs/apk"
+          AAB_DIR="apps/android/app/build/outputs/bundle"
+          mkdir -p dist
+          cp "${APK_DIR}/production/debug/app-production-debug.apk" "dist/exponential-production-debug-${VERSION}.apk"
+          cp "${APK_DIR}/staging/debug/app-staging-debug.apk" "dist/exponential-staging-debug-${VERSION}.apk"
+          # Release APKs are suffixed -unsigned when no signing config applies;
+          # resolve by glob so this works signed or unsigned.
+          cp $(ls ${APK_DIR}/production/release/app-production-release*.apk | head -n1) "dist/exponential-production-release-${VERSION}.apk"
+          cp $(ls ${APK_DIR}/staging/release/app-staging-release*.apk | head -n1) "dist/exponential-staging-release-${VERSION}.apk"
+          cp "${AAB_DIR}/productionRelease/app-production-release.aab" "dist/exponential-production-release-${VERSION}.aab"
+          cp "${AAB_DIR}/stagingRelease/app-staging-release.aab" "dist/exponential-staging-release-${VERSION}.aab"
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ steps.version.outputs.VERSION }}
+          path: dist/*
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Android ${{ steps.version.outputs.VERSION }}
+          body: |
+            Built from ${{ github.sha }}.
+            Production = app.exponential.at; Staging = next.exponential.at (co-installable, applicationId `.staging`).
+            Debug APKs are debuggable. Release APKs + Play bundles (.aab) are signed when the signing secrets are configured, otherwise unsigned (sign locally before distributing). Upload the production `.aab` to the Play Console — see docs/release-android.md.
+          files: |
+            dist/*
