@@ -106,7 +106,6 @@ impl RepoChoice {
                 default_branch: (!repo.default_branch.is_empty())
                     .then(|| repo.default_branch.clone()),
                 private: Some(repo.private),
-                installation_id: (repo.installation_id != 0).then_some(repo.installation_id),
             },
         }
     }

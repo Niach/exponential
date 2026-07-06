@@ -14,6 +14,13 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => {
   }
 })
 
+// The connect gate (caller must be attributed to the repo's installation)
+// lives in the integrations router module; stub it so connect tests drive it
+// directly.
+vi.mock(`@/lib/trpc/integrations`, () => ({
+  assertRepoInstallationAccess: vi.fn(),
+}))
+
 import {
   BRANCH_PREFIX_DEFAULT,
   connectRepositoryInTx,
@@ -26,11 +33,11 @@ import {
   fetchBranchDiff,
   peekBranchDiff,
   resolveRepoDefaultBranch,
-  resolveRepoInstallationToken,
   type CompareFetch,
 } from "@/lib/integrations/github-app"
+import { assertRepoInstallationAccess } from "@/lib/trpc/integrations"
 
-const mockResolveToken = vi.mocked(resolveRepoInstallationToken)
+const mockAssertRepoAccess = vi.mocked(assertRepoInstallationAccess)
 const mockResolveDefaultBranch = vi.mocked(resolveRepoDefaultBranch)
 
 function jsonResponse(status: number, body: unknown) {
@@ -269,9 +276,11 @@ describe(`fetchBranchDiff`, () => {
 // connect semantics. A minimal fake tx exercises each branch.
 describe(`connectRepositoryInTx`, () => {
   beforeEach(() => {
-    mockResolveToken.mockReset()
+    mockAssertRepoAccess.mockReset()
     mockResolveDefaultBranch.mockReset()
-    // Default: caller supplies no branch and the live lookup succeeds.
+    // Default: the caller is attributed to the repo's installation and
+    // supplies no branch; the live default-branch lookup succeeds.
+    mockAssertRepoAccess.mockResolvedValue(7)
     mockResolveDefaultBranch.mockResolvedValue(`main`)
   })
 
@@ -299,18 +308,20 @@ describe(`connectRepositoryInTx`, () => {
     }
   }
 
-  const input = { workspaceId: `ws1`, fullName: `acme/app` }
+  const input = { userId: `u1`, workspaceId: `ws1`, fullName: `acme/app` }
 
-  it(`returns the freshly inserted id`, async () => {
-    mockResolveToken.mockResolvedValue(`tok`)
-    const tx = makeTx({ insert: [{ id: `r1` }] })
+  it(`returns the freshly inserted id and persists the resolved installation`, async () => {
+    const captured: { values?: Record<string, unknown> } = {}
+    const tx = makeTx({ insert: [{ id: `r1` }], captured })
     await expect(
       connectRepositoryInTx(tx as never, input)
     ).resolves.toBe(`r1`)
+    expect(mockAssertRepoAccess).toHaveBeenCalledWith(`u1`, `acme/app`)
+    // The persisted id is GitHub's authoritative one, never a client claim.
+    expect(captured.values?.installationId).toBe(7)
   })
 
   it(`resolves the live default branch when the caller supplies none`, async () => {
-    mockResolveToken.mockResolvedValue(`tok`)
     mockResolveDefaultBranch.mockResolvedValue(`master`)
     const captured: { values?: Record<string, unknown> } = {}
     const tx = makeTx({ insert: [{ id: `r1` }], captured })
@@ -320,7 +331,6 @@ describe(`connectRepositoryInTx`, () => {
   })
 
   it(`does NOT resolve when the caller already supplied a branch`, async () => {
-    mockResolveToken.mockResolvedValue(`tok`)
     const captured: { values?: Record<string, unknown> } = {}
     const tx = makeTx({ insert: [{ id: `r1` }], captured })
     await connectRepositoryInTx(tx as never, {
@@ -332,7 +342,6 @@ describe(`connectRepositoryInTx`, () => {
   })
 
   it(`falls back to main when the live lookup yields nothing`, async () => {
-    mockResolveToken.mockResolvedValue(`tok`)
     mockResolveDefaultBranch.mockResolvedValue(null)
     const captured: { values?: Record<string, unknown> } = {}
     const tx = makeTx({ insert: [{ id: `r1` }], captured })
@@ -341,7 +350,6 @@ describe(`connectRepositoryInTx`, () => {
   })
 
   it(`falls back to main when the live lookup throws`, async () => {
-    mockResolveToken.mockResolvedValue(`tok`)
     mockResolveDefaultBranch.mockRejectedValue(new Error(`network`))
     const captured: { values?: Record<string, unknown> } = {}
     const tx = makeTx({ insert: [{ id: `r1` }], captured })
@@ -350,7 +358,6 @@ describe(`connectRepositoryInTx`, () => {
   })
 
   it(`un-archives and returns the existing id on conflict`, async () => {
-    mockResolveToken.mockResolvedValue(`tok`)
     const tx = makeTx({ insert: [], update: [{ id: `r2` }] })
     await expect(
       connectRepositoryInTx(tx as never, input)
@@ -358,15 +365,16 @@ describe(`connectRepositoryInTx`, () => {
   })
 
   it(`throws CONFLICT when the row was removed concurrently`, async () => {
-    mockResolveToken.mockResolvedValue(`tok`)
     const tx = makeTx({ insert: [], update: [] })
     await expect(
       connectRepositoryInTx(tx as never, input)
     ).rejects.toThrow(/removed concurrently/)
   })
 
-  it(`throws PRECONDITION_FAILED when the App isn't installed`, async () => {
-    mockResolveToken.mockResolvedValue(null)
+  it(`propagates the gate's rejection (not installed / foreign installation)`, async () => {
+    mockAssertRepoAccess.mockRejectedValue(
+      new Error(`The Exponential GitHub App is not installed on acme/app. Install it, then try again.`)
+    )
     const tx = makeTx({ insert: [{ id: `r1` }] })
     await expect(
       connectRepositoryInTx(tx as never, input)

@@ -16,6 +16,7 @@ import {
   resolveRepoDefaultBranchCached,
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
+import { assertRepoInstallationAccess } from "@/lib/trpc/integrations"
 
 // GitHub installation tokens last ~1h; we hand back a conservative 55-minute
 // horizon so the desktop launcher refreshes before the real expiry. (The
@@ -61,27 +62,28 @@ type Db = typeof db
 type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
 
 // The exact `repositories.add` validation + upsert, reusable inside another
-// transaction (projects.create's inline connect path). Verifies the App is
-// installed (the gate — a repo the App can't reach can never mint a push token),
-// upserts + un-archives, returns the repository id. Owner/admin + plan-cap
-// checks are the caller's responsibility (done before opening the tx).
+// transaction (projects.create's inline connect path). Verifies the repo
+// resolves to a GitHub App installation the CALLER is attributed to — the App
+// JWT can reach every installation of the App, so this check (not mere
+// installed-ness) is what stops one user binding another user's private repo
+// to their own workspace. Upserts + un-archives, returns the repository id.
+// Owner/admin + plan-cap checks are the caller's responsibility (done before
+// opening the tx). The persisted installation id is the authoritative one
+// resolved from GitHub, never the client-supplied claim.
 export async function connectRepositoryInTx(
   tx: Tx,
   input: {
+    userId: string
     workspaceId: string
     fullName: string
     defaultBranch?: string
     private?: boolean
-    installationId?: number | null
   }
 ): Promise<string> {
-  const token = await resolveRepoInstallationToken(input.fullName)
-  if (!token) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `The Exponential GitHub App is not installed on ${input.fullName}. Install it, then try again.`,
-    })
-  }
+  const installationId = await assertRepoInstallationAccess(
+    input.userId,
+    input.fullName
+  )
 
   // Never blind-seed `main` (L30): when the caller didn't supply a branch, ask
   // GitHub for the authoritative default. Only fall back to `main` when the live
@@ -112,7 +114,7 @@ export async function connectRepositoryInTx(
       fullName: input.fullName,
       defaultBranch,
       private: input.private ?? false,
-      installationId: input.installationId ?? null,
+      installationId,
     })
     .onConflictDoNothing({
       target: [repositories.workspaceId, repositories.fullName],
@@ -271,8 +273,9 @@ export const repositoriesRouter = router({
       }))
     }),
 
-  // Owner/admin: register a repo the App is installed on. The install check is
-  // the gate — a repo the App can't reach can never mint a push token.
+  // Owner/admin: register a repo reachable through one of the CALLER's GitHub
+  // App installations. The installation id is resolved server-side from
+  // GitHub — clients never supply it.
   add: authedProcedure
     .input(
       z.object({
@@ -280,7 +283,6 @@ export const repositoriesRouter = router({
         fullName: fullNameSchema,
         defaultBranch: z.string().min(1).max(255).optional(),
         private: z.boolean().optional(),
-        installationId: z.number().int().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -291,11 +293,11 @@ export const repositoriesRouter = router({
       // full row to hand back.
       const repository = await ctx.db.transaction(async (tx) => {
         const repositoryId = await connectRepositoryInTx(tx, {
+          userId: ctx.session.user.id,
           workspaceId: input.workspaceId,
           fullName: input.fullName,
           defaultBranch: input.defaultBranch,
           private: input.private,
-          installationId: input.installationId,
         })
         const [row] = await tx
           .select()

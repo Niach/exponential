@@ -43,7 +43,8 @@ pub struct ProjectOut {
 /// is NOT NULL, so `projects.create` requires one). Mirrors the server's
 /// `repositoryInputSchema` union: either `Registry` (an existing registry repo,
 /// `{repositoryId}`) or `Inline` (connect a GitHub-App repo in the same
-/// transaction, `{fullName, defaultBranch?, private?, installationId?}`). The
+/// transaction, `{fullName, defaultBranch?, private?}` — the installation id
+/// is resolved server-side, never sent by clients). The
 /// create-project dialog offers both — the registry picker and, when the App is
 /// installed, an inline GitHub repo.
 #[derive(Clone, Debug, Serialize)]
@@ -60,8 +61,6 @@ pub enum ProjectRepositoryInput {
         default_branch: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         private: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        installation_id: Option<i64>,
     },
 }
 
@@ -225,18 +224,16 @@ mod tests {
             full_name: "acme/app".to_string(),
             default_branch: Some("main".to_string()),
             private: Some(true),
-            installation_id: Some(42),
         };
         assert_eq!(
             serde_json::to_string(&inline).unwrap(),
-            r#"{"fullName":"acme/app","defaultBranch":"main","private":true,"installationId":42}"#
+            r#"{"fullName":"acme/app","defaultBranch":"main","private":true}"#
         );
         // Optional fields drop out when unknown (server fills defaults).
         let sparse = ProjectRepositoryInput::Inline {
             full_name: "acme/app".to_string(),
             default_branch: None,
             private: None,
-            installation_id: None,
         };
         assert_eq!(
             serde_json::to_string(&sparse).unwrap(),

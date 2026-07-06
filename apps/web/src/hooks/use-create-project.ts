@@ -13,7 +13,6 @@ export type CreateProjectRepository =
       fullName: string
       defaultBranch: string
       private: boolean
-      installationId: number
     }
 
 export type CreateProjectInput = {

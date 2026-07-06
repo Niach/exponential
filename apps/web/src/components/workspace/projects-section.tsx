@@ -276,7 +276,6 @@ function ChangeRepositoryDialog({
           fullName: picked.fullName,
           defaultBranch: picked.defaultBranch,
           private: picked.private,
-          installationId: picked.installationId,
         },
         { context: { skipErrorToast: true } }
       )

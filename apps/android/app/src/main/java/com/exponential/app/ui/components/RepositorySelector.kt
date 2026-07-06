@@ -96,7 +96,6 @@ fun RepositorySelector(
                         fullName = added.fullName,
                         defaultBranch = added.defaultBranch,
                         isPrivate = added.isPrivate,
-                        installationId = added.installationId,
                     )
                 )
             }
@@ -138,7 +137,6 @@ fun RepositorySelector(
                         fullName = repo.fullName,
                         defaultBranch = repo.defaultBranch,
                         isPrivate = repo.isPrivate,
-                        installationId = repo.installationId,
                     )
                 )
             },

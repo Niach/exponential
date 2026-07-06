@@ -9,23 +9,23 @@ public enum ProjectRepositoryChoice: Encodable, Sendable, Equatable {
     /// Target an existing registry repo (same-workspace, not archived).
     case repositoryId(String)
     /// Connect a new repo inline by `owner/name`; the extra fields seed the
-    /// registry row (all optional server-side).
-    case fullName(String, defaultBranch: String? = nil, isPrivate: Bool? = nil, installationId: Int? = nil)
+    /// registry row (all optional server-side). The installation id is
+    /// resolved server-side from GitHub — clients never send it.
+    case fullName(String, defaultBranch: String? = nil, isPrivate: Bool? = nil)
 
     private enum IdKeys: String, CodingKey { case repositoryId }
-    private enum NameKeys: String, CodingKey { case fullName, defaultBranch, `private`, installationId }
+    private enum NameKeys: String, CodingKey { case fullName, defaultBranch, `private` }
 
     public func encode(to encoder: Encoder) throws {
         switch self {
         case let .repositoryId(id):
             var c = encoder.container(keyedBy: IdKeys.self)
             try c.encode(id, forKey: .repositoryId)
-        case let .fullName(name, defaultBranch, isPrivate, installationId):
+        case let .fullName(name, defaultBranch, isPrivate):
             var c = encoder.container(keyedBy: NameKeys.self)
             try c.encode(name, forKey: .fullName)
             try c.encodeIfPresent(defaultBranch, forKey: .defaultBranch)
             try c.encodeIfPresent(isPrivate, forKey: .private)
-            try c.encodeIfPresent(installationId, forKey: .installationId)
         }
     }
 }

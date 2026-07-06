@@ -32,7 +32,6 @@ const repositoryInputSchema = z.union([
     fullName: fullNameSchema,
     defaultBranch: z.string().min(1).max(255).optional(),
     private: z.boolean().optional(),
-    installationId: z.number().int().optional(),
   }),
 ])
 
@@ -119,11 +118,11 @@ export const projectsRouter = router({
         const repositoryId =
           `fullName` in repositoryInput
             ? await connectRepositoryInTx(tx, {
+                userId: ctx.session.user.id,
                 workspaceId: input.workspaceId,
                 fullName: repositoryInput.fullName,
                 defaultBranch: repositoryInput.defaultBranch,
                 private: repositoryInput.private,
-                installationId: repositoryInput.installationId,
               })
             : await assertRepositoryInWorkspace(
                 tx,

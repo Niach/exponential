@@ -19,12 +19,14 @@ sealed interface ProjectRepositoryChoice {
     /** Target an existing registry repo (same-workspace, not archived). */
     data class Registry(val repositoryId: String) : ProjectRepositoryChoice
 
-    /** Connect a new repo inline by `owner/name`; extra fields seed the registry row. */
+    /**
+     * Connect a new repo inline by `owner/name`; extra fields seed the registry
+     * row. The installation id is resolved server-side — never sent by clients.
+     */
     data class Inline(
         val fullName: String,
         val defaultBranch: String? = null,
         val isPrivate: Boolean? = null,
-        val installationId: Int? = null,
     ) : ProjectRepositoryChoice
 
     fun toJson(): JsonObject = when (this) {
@@ -33,7 +35,6 @@ sealed interface ProjectRepositoryChoice {
             put("fullName", fullName)
             defaultBranch?.let { put("defaultBranch", it) }
             isPrivate?.let { put("private", it) }
-            installationId?.let { put("installationId", it) }
         }
     }
 }

@@ -127,7 +127,6 @@ export function WorkspaceRepositoriesSection({
             fullName: picked.fullName,
             defaultBranch: picked.defaultBranch,
             private: picked.private,
-            installationId: picked.installationId,
           },
           // Failures render inline below (plan-limit nudge or error box);
           // the global mutation-error toast would be redundant noise.

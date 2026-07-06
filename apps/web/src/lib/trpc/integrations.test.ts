@@ -28,6 +28,12 @@ const listInstallationRepos = vi.fn(async () => ({
   hasMore: false,
 }))
 
+// resolveInstallations now admin-gates unattributed rows; treat the test
+// caller as a regular user with attributed rows.
+vi.mock(`@/lib/admin`, () => ({
+  isUserAdmin: vi.fn(async () => false),
+}))
+
 vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => true,
   githubAppInstallUrl: () => `https://install.example`,

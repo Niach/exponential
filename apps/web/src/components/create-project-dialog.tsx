@@ -92,7 +92,6 @@ export function CreateProjectDialog({
             fullName: selection.repo.fullName,
             defaultBranch: selection.repo.defaultBranch,
             private: selection.repo.private,
-            installationId: selection.repo.installationId,
           }
     const result = await createProject({
       workspaceId,

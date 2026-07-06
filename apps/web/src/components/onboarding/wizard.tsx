@@ -64,7 +64,6 @@ export function OnboardingWizard({
         fullName: repo.fullName,
         defaultBranch: repo.defaultBranch,
         private: repo.private,
-        installationId: repo.installationId,
       },
     })
     if (result.ok) {

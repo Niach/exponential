@@ -73,7 +73,11 @@ async function ghApp(path: string, init?: RequestInit): Promise<Response> {
 }
 
 // repo "owner/name" → installation id, or null if the App isn't installed there.
-async function installationIdForRepo(repo: string): Promise<number | null> {
+// Exported for the connect-path authorization check (the repo's installation
+// must be one the caller is attributed to).
+export async function installationIdForRepo(
+  repo: string
+): Promise<number | null> {
   const res = await ghApp(`/repos/${repo}/installation`)
   if (res.status === 404) return null
   if (!res.ok) {

@@ -7,7 +7,7 @@ import SwiftUI
 /// the user also add a brand-new repo by name via the installed-repos picker —
 /// that path connects the repo inline through `projects.create`'s
 /// `repository: { fullName }`. Empty state (nothing connected, nothing added):
-/// "Connect a repository in the web app first". Binds a `ProjectRepositoryChoice`.
+/// an inline "Add a repository from GitHub…" picker. Binds a `ProjectRepositoryChoice`.
 struct RepositorySelector: View {
     let accountId: String
     let workspaceId: String
@@ -61,14 +61,13 @@ struct RepositorySelector: View {
                         selection = .fullName(
                             added.fullName,
                             defaultBranch: added.defaultBranch,
-                            isPrivate: added.`private`,
-                            installationId: added.installationId
+                            isPrivate: added.`private`
                         )
                     }
                 }
 
                 if repos.isEmpty && addedRepo == nil {
-                    Text("Connect a repository in the web app first.")
+                    Text("No repositories connected yet.")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(.vertical, 4)
@@ -108,8 +107,7 @@ struct RepositorySelector: View {
                 selection = .fullName(
                     repo.fullName,
                     defaultBranch: repo.defaultBranch,
-                    isPrivate: repo.`private`,
-                    installationId: repo.installationId
+                    isPrivate: repo.`private`
                 )
             }
             .presentationBackground(.ultraThinMaterial)

@@ -3,9 +3,12 @@ import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { githubInstallations } from "@/db/schema"
+import { isUserAdmin } from "@/lib/admin"
+import { TRPCError } from "@trpc/server"
 import {
   githubAppConfigured,
   githubAppInstallUrl,
+  installationIdForRepo,
   listAppInstallations,
   listInstallationRepos,
   type InstallationRepo,
@@ -40,21 +43,23 @@ let fallbackCache: {
   expiresAt: number
 } | null = null
 
-// The installations a user's UI should treat as "installed". DB rows are the
-// fast path: the user's own rows PLUS unattributed ones (the installation
-// webhook and a logged-out setup redirect insert with user_id null — those
-// can't be attributed to anyone, and hiding them made the UI claim "not
-// installed" right after a successful install). Only when the TABLE ITSELF is
-// empty — the fresh-instance/missed-webhook case (webhook not configured,
-// install finished in another browser) — ask the App API for the truth and
-// self-heal the table so the next call is DB-only. The emptiness gate is
-// deliberate: falling back whenever the CALLER sees zero rows would leak
-// other users' attributed installations (their accounts + all the App's
-// repos) and re-hit GitHub every TTL forever, because the self-heal upsert
-// no-ops on rows that already exist attributed to someone else.
+// The installations a user's UI should treat as "installed" — STRICTLY the
+// caller's own attributed rows. Unattributed rows (user_id null: installation
+// webhooks and logged-out setup redirects) must never be served to regular
+// users: an installation grants access to its account's repos (browse via
+// `repos`, connect via projects.create), so showing someone else's
+// installation is a cross-user repo leak. The in-app install flow attributes
+// reliably — the setup redirect upserts user_id whenever the browser carries
+// a session, even over an earlier webhook insert.
+//
+// Instance ADMINS additionally see unattributed rows and (empty-table only)
+// the App-API fallback: they operate the GitHub App anyway, and this keeps
+// the fresh-instance / missed-redirect case self-healing for the person who
+// actually set the instance up.
 async function resolveInstallations(
   userId: string
 ): Promise<ResolvedInstallation[]> {
+  const callerIsAdmin = await isUserAdmin(userId)
   const rows = await db
     .select({
       installationId: githubInstallations.installationId,
@@ -62,15 +67,20 @@ async function resolveInstallations(
     })
     .from(githubInstallations)
     .where(
-      or(
-        eq(githubInstallations.userId, userId),
-        isNull(githubInstallations.userId)
-      )
+      callerIsAdmin
+        ? or(
+            eq(githubInstallations.userId, userId),
+            isNull(githubInstallations.userId)
+          )
+        : eq(githubInstallations.userId, userId)
     )
   if (rows.length > 0) return rows
+  if (!callerIsAdmin) return []
 
-  // Existence probe with NO user filter: any row at all means the writers are
-  // working and this caller simply has no installations of their own.
+  // Admin with no rows at all: the fresh-instance/missed-webhook case
+  // (webhook not configured, install finished in another browser). Ask the
+  // App API for the truth and self-heal the table so the next call is
+  // DB-only.
   const [anyRow] = await db
     .select({ installationId: githubInstallations.installationId })
     .from(githubInstallations)
@@ -109,6 +119,34 @@ async function resolveInstallations(
       .onConflictDoNothing()
   }
   return resolved
+}
+
+// Connect-path authorization: connecting a repo (repositories.add /
+// projects.create inline) must be limited to repos reachable through an
+// installation the CALLER is attributed to — the App JWT itself can reach
+// every installation of the App, so without this check any user who knows a
+// repo's full name could bind someone else's private repo to their own
+// workspace. Returns the authoritative installation id so callers persist
+// that instead of trusting the client-supplied one.
+export async function assertRepoInstallationAccess(
+  userId: string,
+  fullName: string
+): Promise<number> {
+  const repoInstallationId = await installationIdForRepo(fullName)
+  if (repoInstallationId == null) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The Exponential GitHub App is not installed on ${fullName}. Install it, then try again.`,
+    })
+  }
+  const installs = await resolveInstallations(userId)
+  if (!installs.some((i) => i.installationId === repoInstallationId)) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `${fullName} belongs to a GitHub App installation that isn't connected to your account. Install the App on that account first.`,
+    })
+  }
+  return repoInstallationId
 }
 
 export const integrationsRouter = router({
