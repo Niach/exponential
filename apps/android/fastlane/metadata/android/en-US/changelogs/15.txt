@@ -1,0 +1,7 @@
+Create projects right from your phone — full onboarding is here.
+
+• Set up your first project in the app: name, prefix, color, and a GitHub repository
+• Connect the GitHub App inline (opens your browser, picks up where you left off)
+• Cleaner workspace experience: one personal workspace, feedback board only if you join it
+• Anonymous identities on public boards
+• Bug fixes and polish
