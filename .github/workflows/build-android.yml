@@ -13,6 +13,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      # Override the repo's 2G default — packaging release APKs + both Play
+      # bundles in one invocation exhausts that heap on CI runners.
+      GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx6g -Dfile.encoding=UTF-8"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
