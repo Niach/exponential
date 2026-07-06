@@ -115,8 +115,8 @@ export function TermsPage() {
           <h2 style={h2Style}>Contact</h2>
           <p style={prose}>
             Questions about these terms:{` `}
-            <a href="mailto:danny@straehhuber.com" style={linkStyle}>
-              danny@straehhuber.com
+            <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
+              dennis@straehhuber.com
             </a>
             .
           </p>

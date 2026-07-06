@@ -30,7 +30,7 @@ export function PrivacyPage() {
             This privacy policy describes what data the Exponential service and
             its apps (web, Android, iOS, and desktop — together “Exponential”,
             “the service”) collect, how it is used, stored, shared, and
-            deleted. Exponential is operated by Dennis Strähhuber, Austria
+            deleted. Exponential is operated by Dennis Strähhuber, Germany
             (“we”). It applies to the hosted cloud service at{` `}
             <code style={inlineCode}>app.exponential.at</code>. If you connect
             the apps to a self-hosted Exponential instance instead, the
@@ -65,9 +65,10 @@ export function PrivacyPage() {
               the page URL you were on, your browser’s user-agent and
               viewport/screen size, and any email, name, or custom data the
               host site chooses to pass along with your submission. This lets
-              the site operator triage and follow up on your report. Reporter
-              email addresses are kept server-side and are not published to the
-              operator’s synced boards.
+              the site operator triage and follow up on your report — the
+              members of the operator’s workspace who handle feedback can see
+              your email and message. Your email is never exposed to anonymous
+              or public-board viewers.
             </li>
             <li style={listItem}>
               <strong>Push notification tokens.</strong> If you enable push
@@ -123,8 +124,8 @@ export function PrivacyPage() {
             </li>
             <li style={listItem}>
               <strong>Resend</strong> — transactional email (receives your
-              email address and the message content, e.g. invites and
-              notification emails).
+              email address and the message content, e.g. notification,
+              account-verification, and password-reset emails).
             </li>
             <li style={listItem}>
               <strong>Creem</strong> — subscription billing (merchant of
@@ -151,8 +152,8 @@ export function PrivacyPage() {
             </li>
             <li style={listItem}>
               Data is stored in a PostgreSQL database and S3-compatible object
-              storage on servers in the EU (Germany/Austria), reachable only
-              from the application servers.
+              storage on servers in Germany (Hetzner), reachable only from the
+              application servers.
             </li>
             <li style={listItem}>
               Access is session-authenticated; workspace data is only synced
@@ -168,8 +169,8 @@ export function PrivacyPage() {
             inside the app — deletions are immediate and propagate to all
             synced devices. To delete your entire account and all associated
             data, email{` `}
-            <a href="mailto:danny@straehhuber.com" style={linkStyle}>
-              danny@straehhuber.com
+            <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
+              dennis@straehhuber.com
             </a>
             {` `}from the address tied to your account; requests are honoured
             within 30 days. Revoking Google access is possible anytime at{` `}
@@ -212,10 +213,10 @@ export function PrivacyPage() {
 
           <h2 style={h2Style}>Contact</h2>
           <p style={prose}>
-            Data controller: Dennis Strähhuber, Austria. Questions about this
+            Data controller: Dennis Strähhuber, Germany. Questions about this
             policy and all data-deletion requests:{` `}
-            <a href="mailto:danny@straehhuber.com" style={linkStyle}>
-              danny@straehhuber.com
+            <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
+              dennis@straehhuber.com
             </a>
             .
           </p>
