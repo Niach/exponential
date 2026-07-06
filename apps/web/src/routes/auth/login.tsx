@@ -2,6 +2,7 @@ import * as React from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth/client"
 import { getAuthConfig } from "@/lib/auth/config"
+import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -18,7 +19,12 @@ export const Route = createFileRoute(`/auth/login`)({
   component: LoginPage,
   ssr: false,
   loader: () => getAuthConfig(),
-  validateSearch: (search: Record<string, unknown>) => ({
+  // Pass unknown params through — an in-flight OAuth authorize query
+  // (client_id, redirect_uri, ...) must survive router normalization.
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { redirect?: string } & Record<string, unknown> => ({
+    ...search,
     redirect: (search.redirect as string) || undefined,
   }),
 })
@@ -31,11 +37,13 @@ function LoginPage() {
     oidcProviders,
     googleLoginEnabled,
   } = Route.useLoaderData()
+  const [oauthResumeUrl] = useState(captureOAuthResumeUrl)
+  const destination = oauthResumeUrl || redirectTo
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
   const { pendingProvider, error, setError, signInWithOidc, signInWithGoogle } =
-    useOAuthSignIn(redirectTo)
+    useOAuthSignIn(destination)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,7 +56,7 @@ function LoginPage() {
         {
           onSuccess: async () => {
             await authClient.getSession()
-            window.location.href = redirectTo || `/`
+            window.location.href = destination || `/`
           },
         }
       )
@@ -77,7 +85,7 @@ function LoginPage() {
             Don&apos;t have an account?{` `}
             <Link
               to="/auth/register"
-              search={{ redirect: redirectTo }}
+              search={(current) => current}
               className="text-primary underline-offset-4 hover:underline"
             >
               Register

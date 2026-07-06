@@ -2,6 +2,7 @@ import * as React from "react"
 import { createFileRoute, Link, redirect } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth/client"
 import { getAuthConfig } from "@/lib/auth/config"
+import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -20,15 +21,21 @@ export const Route = createFileRoute(`/auth/register`)({
   loader: async ({ location }) => {
     const config = await getAuthConfig()
     if (!config.passwordEnabled) {
-      const searchParams = new URLSearchParams(location.search as unknown as string)
+      // Forward the full search — an in-flight OAuth authorize query
+      // (client_id, redirect_uri, ...) must survive the hop to login.
       throw redirect({
         to: `/auth/login`,
-        search: { redirect: searchParams.get(`redirect`) || undefined },
+        search: location.search as Record<string, unknown>,
       })
     }
     return config
   },
-  validateSearch: (search: Record<string, unknown>) => ({
+  // Pass unknown params through — an in-flight OAuth authorize query
+  // (client_id, redirect_uri, ...) must survive router normalization.
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { redirect?: string } & Record<string, unknown> => ({
+    ...search,
     redirect: (search.redirect as string) || undefined,
   }),
 })
@@ -36,12 +43,14 @@ export const Route = createFileRoute(`/auth/register`)({
 function RegisterPage() {
   const { redirect: redirectTo } = Route.useSearch()
   const { oidcProviders, googleLoginEnabled } = Route.useLoaderData()
+  const [oauthResumeUrl] = useState(captureOAuthResumeUrl)
+  const destination = oauthResumeUrl || redirectTo
   const [name, setName] = useState(``)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
   const { pendingProvider, error, setError, signInWithOidc, signInWithGoogle } =
-    useOAuthSignIn(redirectTo)
+    useOAuthSignIn(destination)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -54,7 +63,7 @@ function RegisterPage() {
         {
           onSuccess: async () => {
             await authClient.getSession()
-            window.location.href = redirectTo || `/`
+            window.location.href = destination || `/`
           },
         }
       )
@@ -80,7 +89,7 @@ function RegisterPage() {
           Already have an account?{` `}
           <Link
             to="/auth/login"
-            search={{ redirect: redirectTo }}
+            search={(current) => current}
             className="text-primary underline-offset-4 hover:underline"
           >
             Sign in
