@@ -49,13 +49,19 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       # The keystore is stored base64-encoded in the ANDROID_KEYSTORE_B64 secret;
-      # decode it to a path the gradle signing config can read. All signing steps
-      # are skipped gracefully when the secrets are absent (unsigned artifacts).
+      # decode it to a path the gradle signing config can read. Skipped gracefully
+      # when the secret is absent (unsigned artifacts) — secrets can't be used in
+      # step `if:` expressions, so the emptiness check lives in the script.
       - name: Materialize signing keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/upload.jks"
-          echo "RELEASE_STORE_FILE=$RUNNER_TEMP/upload.jks" >> $GITHUB_ENV
+          if [ -n "$ANDROID_KEYSTORE_B64" ]; then
+            echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "RELEASE_STORE_FILE=$RUNNER_TEMP/upload.jks" >> $GITHUB_ENV
+          else
+            echo "No keystore secret — building unsigned."
+          fi
 
       - name: Build debug APKs
         working-directory: apps/android
