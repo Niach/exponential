@@ -1,5 +1,6 @@
 import { formatDistanceToNowStrict } from "date-fns"
 import type { User } from "@/db/schema"
+import { displayUserName } from "@/lib/user-display"
 
 export function relativeTime(date: Date | string | null | undefined): string {
   if (!date) return ``
@@ -8,7 +9,11 @@ export function relativeTime(date: Date | string | null | undefined): string {
   return formatDistanceToNowStrict(value, { addSuffix: true })
 }
 
-export function authorLabel(author: User | undefined, isAgent: boolean): string {
+export function authorLabel(
+  author: User | undefined,
+  isAgent: boolean,
+  authorId?: string | null
+): string {
   if (isAgent) return author?.name || `Agent`
-  return author?.name || author?.email || `Someone`
+  return displayUserName(author, authorId)
 }

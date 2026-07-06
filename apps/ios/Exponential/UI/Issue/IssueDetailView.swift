@@ -155,8 +155,8 @@ struct IssueDetailView: View {
                                 Button {
                                     showAssigneePicker = true
                                 } label: {
-                                    if let assignee = vm.assignee() {
-                                        Text(assignee.name ?? assignee.email)
+                                    if let assigneeId = vm.issue?.assigneeId {
+                                        Text(memberDisplayName(vm.assignee(), id: assigneeId))
                                             .font(.subheadline)
                                             .foregroundStyle(.white)
                                     } else {

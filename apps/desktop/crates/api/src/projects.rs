@@ -2,7 +2,9 @@
 //! settings Projects pane). Verified against
 //! `apps/web/src/lib/trpc/projects.ts`:
 //!
-//! - `projects.create({workspaceId, name, prefix, color?})` → `{project, txId}`
+//! - `projects.create({workspaceId, name, prefix, color?, repository})` →
+//!   `{project, txId}` — `repository` is the `{repositoryId}` OR
+//!   `{fullName, …}` union ([`ProjectRepositoryInput`]).
 //!   (slug is server-derived — there is no slug field, §4.2; prefix is
 //!   uppercased server-side).
 //! - `projects.update({id, name?, color?, archivedAt?})` → `{project}` (no txId).
@@ -38,15 +40,29 @@ pub struct ProjectOut {
 }
 
 /// The backing repository for a new project (v4 §3.1 — `projects.repositoryId`
-/// is NOT NULL, so `projects.create` requires one). The server's
-/// `repositoryInputSchema` is a union of `{repositoryId}` (an existing registry
-/// repo) or `{fullName, …}` (inline GitHub-App connect). The desktop only ever
-/// targets an already-connected registry repo — inline connect is a web-only
-/// hand-off (§7.9) — so this mirrors just the `{repositoryId}` arm.
+/// is NOT NULL, so `projects.create` requires one). Mirrors the server's
+/// `repositoryInputSchema` union: either `Registry` (an existing registry repo,
+/// `{repositoryId}`) or `Inline` (connect a GitHub-App repo in the same
+/// transaction, `{fullName, defaultBranch?, private?, installationId?}`). The
+/// create-project dialog offers both — the registry picker and, when the App is
+/// installed, an inline GitHub repo.
 #[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectRepositoryInput {
-    pub repository_id: String,
+#[serde(untagged)]
+pub enum ProjectRepositoryInput {
+    #[serde(rename_all = "camelCase")]
+    Registry {
+        repository_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    Inline {
+        full_name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default_branch: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        private: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        installation_id: Option<i64>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -186,7 +202,7 @@ mod tests {
                 name: "Gate".to_string(),
                 prefix: "gate".to_string(),
                 color: None,
-                repository: ProjectRepositoryInput {
+                repository: ProjectRepositoryInput::Registry {
                     repository_id: "repo-1".to_string(),
                 },
             },
@@ -201,6 +217,31 @@ mod tests {
         assert!(request.ends_with(
             r#"{"workspaceId":"w-1","name":"Gate","prefix":"gate","repository":{"repositoryId":"repo-1"}}"#
         ));
+    }
+
+    #[test]
+    fn inline_repository_serializes_as_camel_case_union_arm() {
+        let inline = ProjectRepositoryInput::Inline {
+            full_name: "acme/app".to_string(),
+            default_branch: Some("main".to_string()),
+            private: Some(true),
+            installation_id: Some(42),
+        };
+        assert_eq!(
+            serde_json::to_string(&inline).unwrap(),
+            r#"{"fullName":"acme/app","defaultBranch":"main","private":true,"installationId":42}"#
+        );
+        // Optional fields drop out when unknown (server fills defaults).
+        let sparse = ProjectRepositoryInput::Inline {
+            full_name: "acme/app".to_string(),
+            default_branch: None,
+            private: None,
+            installation_id: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&sparse).unwrap(),
+            r#"{"fullName":"acme/app"}"#
+        );
     }
 
     #[test]

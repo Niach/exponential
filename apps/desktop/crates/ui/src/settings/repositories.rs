@@ -10,11 +10,12 @@
 //! - the workspace's connected repos + their project links off
 //!   `repositories.list` (server-only tables — read via tRPC, never synced).
 //!
-//! The GitHub-App **install** is a web-only hand-off (§7.9): the buttons
-//! open the install/manage URL in the system browser through the robust
-//! opener chain. Repo add/link/unlink/set-primary mutations are the §7
-//! IDE-track's step on top of this pane; v1 here is the read-only state
-//! surface + the browser hand-off.
+//! The GitHub-App **install** is a browser hand-off: the buttons open the
+//! install/manage URL in the system browser through the robust opener chain
+//! (the App's install OAuth flow can't run in-process). Inline repo *connect*
+//! now happens in the create-project dialog once the App is installed — the
+//! shared status/repo fetches live in [`crate::github_connect`]. This pane is
+//! the read-only connected-repo surface + the install/manage hand-off.
 
 use gpui::{
     div, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
@@ -28,6 +29,7 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 use sync::Store;
 
+use crate::github_connect::{fetch_github_status, GithubStatus};
 use crate::navigation::{active_workspace_id, Navigation};
 use crate::queries;
 
@@ -36,21 +38,6 @@ use super::{card, card_header, error_notice, open_url};
 // ---------------------------------------------------------------------------
 // Server-only reads (typed mirrors of the web loader results)
 // ---------------------------------------------------------------------------
-
-/// `integrations.github.status` (per-user App install state). Shared with
-/// the Account → Integrations pane.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct GithubStatus {
-    #[serde(default)]
-    pub configured: bool,
-    #[serde(default)]
-    pub installed: bool,
-    #[serde(default)]
-    pub install_url: Option<String>,
-    #[serde(default)]
-    pub accounts: Vec<String>,
-}
 
 /// `repositories.list` — one connected repo + the projects it backs (v4
 /// `projects.repositoryId`; project names now resolved server-side).
@@ -75,12 +62,6 @@ pub(super) struct RepoRow {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RepoProjectRef {
     pub name: String,
-}
-
-pub(super) fn fetch_github_status(
-    trpc: &api::TrpcClient,
-) -> Result<GithubStatus, api::ApiError> {
-    trpc.query("integrations.github.status")
 }
 
 fn fetch_repositories(
@@ -271,8 +252,8 @@ impl Render for RepositoriesPane {
                     }
                     Some(status) => {
                         // Configured but not installed → the install nudge.
-                        // Install is a WEB-ONLY hand-off (§7.9): open the
-                        // browser, never carry the flow in-app.
+                        // Install is a browser hand-off: open the install URL,
+                        // never carry the App's OAuth flow in-app.
                         let mut banner = h_flex()
                             .flex_wrap()
                             .gap_2()

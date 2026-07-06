@@ -2,18 +2,22 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// First-run screen. The mobile app is a companion — workspaces and projects
-/// are created on the web or desktop app, so onboarding is a single informational
-/// screen instead of a create-project/issue wizard. `onboarding.complete` (and the
-/// local `needsOnboarding` flag) is flipped on Continue so the nav gate in
-/// AppNavigator stops showing this screen. The server also backfills
-/// onboardingCompletedAt on session reads for users who already have a project in a
-/// non-public workspace (lib/auth/onboarding.ts), so a stale account self-heals via
-/// reconcileWithServer before the user ever taps Continue.
+/// First-run wizard (web onboarding parity, wizard.tsx): a welcome page, then a
+/// create-first-project page (name → auto-derived prefix → color → REQUIRED
+/// repository, connected inline). `onboarding.complete` (and the local
+/// `needsOnboarding` flag) is flipped after the project is created so the nav
+/// gate in AppNavigator stops showing this screen. The server also backfills
+/// onboardingCompletedAt on session reads for users who already have a project
+/// in a non-public workspace (lib/auth/onboarding.ts), so a stale account
+/// self-heals via reconcileWithServer before the user ever creates anything.
 struct OnboardingView: View {
     @Environment(AppDependencies.self) private var deps
 
-    @State private var busy = false
+    @State private var page = 0
+    @State private var workspaceId: String?
+    @State private var workspaceError: String?
+    // Deliberately sticky once set: flipping needsOnboarding swaps this view out.
+    @State private var finishing = false
 
     var body: some View {
         ZStack {
@@ -21,45 +25,10 @@ struct OnboardingView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    Text("Welcome to Exponential")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-
-                    Spacer().frame(height: 24)
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "laptopcomputer.and.iphone")
-                                .font(.title2)
-                                .foregroundStyle(.white)
-                            Text("Create your first project on the web or desktop app")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                        }
-
-                        Text("This app is your companion for tracking and updating issues on the go. Set up workspaces and projects — and start coding — from the web or desktop app, then everything syncs here.")
-                            .font(.body)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                        if let host = instanceHost {
-                            Text(host)
-                                .font(.body.monospaced())
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.white.opacity(0.06))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                    }
-                    .padding(24)
-                    .glassCard()
-
-                    Spacer().frame(height: 24)
-
-                    primaryButton(busy ? "Finishing…" : "Continue", enabled: !busy) {
-                        Task { await finish() }
+                    if page == 0 {
+                        welcomePage
+                    } else {
+                        projectPage
                     }
                 }
                 .padding(.horizontal, 32)
@@ -70,10 +39,86 @@ struct OnboardingView: View {
         .task { await reconcileWithServer() }
     }
 
-    private var instanceHost: String? {
-        guard let base = deps.auth.instanceUrl,
-              let url = URL(string: base) else { return nil }
-        return url.host ?? base
+    // MARK: - Welcome
+
+    private var welcomePage: some View {
+        VStack(spacing: 0) {
+            Text("Welcome to Exponential")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 24)
+
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                    Text("Create your first project")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
+
+                Text("A project is backed by a GitHub repository, so the issues you track can be coded on right away. Let's set one up.")
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            .padding(24)
+            .glassCard()
+
+            Spacer().frame(height: 24)
+
+            primaryButton("Get started", enabled: true) {
+                page = 1
+            }
+        }
+    }
+
+    // MARK: - Create project
+
+    private var projectPage: some View {
+        VStack(spacing: 0) {
+            Text("Create your first project")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 24)
+
+            Group {
+                if let workspaceId {
+                    CreateProjectForm(
+                        accountId: deps.auth.activeAccountId ?? "",
+                        workspaceId: workspaceId,
+                        onCreated: { _ in Task { await finish() } }
+                    )
+                    .padding(24)
+                    .glassCard()
+                } else if let workspaceError {
+                    VStack(spacing: 12) {
+                        Text(workspaceError)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .multilineTextAlignment(.center)
+                        primaryButton("Try again", enabled: true) {
+                            Task { await prepareWorkspace() }
+                        }
+                    }
+                    .padding(24)
+                    .glassCard()
+                } else {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small).tint(.white.opacity(0.6))
+                        Text("Preparing your workspace…")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .padding(.vertical, 32)
+                }
+            }
+        }
+        .task { await prepareWorkspace() }
     }
 
     private func primaryButton(_ title: String, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -108,11 +153,22 @@ struct OnboardingView: View {
         deps.auth.markOnboardingCompleted(completedAt)
     }
 
-    // Deliberately leaves `busy` set: flipping needsOnboarding swaps this view
-    // out, and re-enabling the button first would open a double-submit window.
+    /// Resolve (creating if needed) the default workspace the first project
+    /// lands in — invited users never reach onboarding, so this is always the
+    /// user's own auto-created workspace.
+    private func prepareWorkspace() async {
+        guard workspaceId == nil, let accountId = deps.auth.activeAccountId else { return }
+        workspaceError = nil
+        do {
+            workspaceId = try await deps.workspacesApi.ensureDefault(accountId: accountId).id
+        } catch {
+            workspaceError = error.trpcUserMessage
+        }
+    }
+
     private func finish() async {
-        guard !busy else { return }
-        busy = true
+        guard !finishing else { return }
+        finishing = true
         if let accountId = deps.auth.activeAccountId {
             try? await deps.onboardingApi.complete(accountId: accountId)
         }

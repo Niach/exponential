@@ -1,7 +1,8 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,10 +10,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,76 +29,161 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.api.GithubPickerRepo
+import com.exponential.app.data.api.ProjectRepositoryChoice
 import com.exponential.app.data.api.WorkspaceRepo
+import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
 // The required repository picker for project creation (masterplan v4 §6). Lists
-// ONLY already-connected repos — connecting new repos stays web-only on Android,
-// so the empty state points the user at the web app. Shared by the create-project
-// sheet and the onboarding wizard.
+// the workspace's already-connected registry repos AND lets the user add a
+// brand-new repo by name via the installed-repos picker — that path connects the
+// repo inline through `projects.create`'s `repository: { fullName }`. Binds a
+// [ProjectRepositoryChoice]. Shared by the create-project sheet and onboarding.
 @Composable
 fun RepositorySelector(
+    accountId: String,
     repos: List<WorkspaceRepo>,
     loading: Boolean,
-    selectedId: String?,
-    onSelect: (String) -> Unit,
+    selection: ProjectRepositoryChoice?,
+    onSelect: (ProjectRepositoryChoice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
 
-    if (!loading && repos.isEmpty()) {
-        Text(
-            "Connect a repository in the web app first",
-            style = MaterialTheme.typography.bodySmall,
-            color = tertiary,
-            modifier = modifier.padding(vertical = 4.dp),
-        )
-        return
-    }
+    // A repo added by name in this session (not yet in the registry) — shown as a
+    // selectable row and connected inline on create.
+    var addedRepo by remember { mutableStateOf<GithubPickerRepo?>(null) }
+    var showPicker by remember { mutableStateOf(false) }
 
-    val selected = repos.firstOrNull { it.id == selectedId }
-    var menuOpen by remember { mutableStateOf(false) }
-    Box(modifier = modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (loading) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = 6.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Loading repositories…", style = MaterialTheme.typography.bodySmall, color = tertiary)
+            }
+            return@Column
+        }
+
+        repos.forEach { repo ->
+            RepoRow(
+                fullName = repo.fullName,
+                isPrivate = repo.isPrivate,
+                selected = selection == ProjectRepositoryChoice.Registry(repo.id),
+                secondary = secondary,
+                tertiary = tertiary,
+            ) { onSelect(ProjectRepositoryChoice.Registry(repo.id)) }
+        }
+
+        addedRepo?.let { added ->
+            val selected = (selection as? ProjectRepositoryChoice.Inline)?.fullName == added.fullName
+            RepoRow(
+                fullName = added.fullName,
+                isPrivate = added.isPrivate,
+                selected = selected,
+                secondary = secondary,
+                tertiary = tertiary,
+            ) {
+                onSelect(
+                    ProjectRepositoryChoice.Inline(
+                        fullName = added.fullName,
+                        defaultBranch = added.defaultBranch,
+                        isPrivate = added.isPrivate,
+                        installationId = added.installationId,
+                    )
+                )
+            }
+        }
+
+        if (repos.isEmpty() && addedRepo == null) {
+            Text(
+                "Connect a GitHub repository to back this project.",
+                style = MaterialTheme.typography.bodySmall,
+                color = tertiary,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .fillMaxWidth()
-                .glassRow()
-                .clickable(enabled = !loading) { menuOpen = true }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .glassButton()
+                .clickable { showPicker = true }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
-            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+            Spacer(Modifier.width(6.dp))
             Text(
-                when {
-                    loading -> "Loading repositories…"
-                    selected != null -> selected.fullName
-                    else -> "Select a repository"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = if (selected != null) FontFamily.Monospace else FontFamily.Default,
-                color = if (selected != null) MaterialTheme.colorScheme.onSurface else tertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                if (repos.isEmpty() && addedRepo == null) "Add a repository from GitHub…" else "Add another repository…",
+                style = MaterialTheme.typography.labelMedium,
+                color = secondary,
             )
-            Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(18.dp), tint = tertiary)
         }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            repos.forEach { repo ->
-                DropdownMenuItem(
-                    text = {
-                        Text(repo.fullName, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-                    },
-                    leadingIcon = { Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                    onClick = {
-                        menuOpen = false
-                        onSelect(repo.id)
-                    },
+    }
+
+    if (showPicker) {
+        GithubRepoPickerSheet(
+            accountId = accountId,
+            onPick = { repo ->
+                addedRepo = repo
+                onSelect(
+                    ProjectRepositoryChoice.Inline(
+                        fullName = repo.fullName,
+                        defaultBranch = repo.defaultBranch,
+                        isPrivate = repo.isPrivate,
+                        installationId = repo.installationId,
+                    )
                 )
-            }
+            },
+            onDismiss = { showPicker = false },
+        )
+    }
+}
+
+@Composable
+private fun RepoRow(
+    fullName: String,
+    isPrivate: Boolean,
+    selected: Boolean,
+    secondary: androidx.compose.ui.graphics.Color,
+    tertiary: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassRow(active = selected)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Icon(
+            if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = if (selected) MaterialTheme.colorScheme.primary else tertiary,
+        )
+        Spacer(Modifier.width(10.dp))
+        Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            fullName,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (isPrivate) {
+            Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
         }
     }
 }

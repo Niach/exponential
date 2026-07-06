@@ -345,9 +345,9 @@ struct IssueListView: View {
                     .foregroundStyle(dueDateColor(dueDate))
                 }
 
-                // Assignee avatar
-                if let assignee = vm.userFor(id: issue.assigneeId) {
-                    userAvatar(assignee, size: 22)
+                // Assignee avatar (pseudonym initial when the user row isn't synced)
+                if let assigneeId = issue.assigneeId {
+                    userAvatar(vm.userFor(id: assigneeId), id: assigneeId, size: 22)
                 }
             }
             .padding(.horizontal, 12)
@@ -358,8 +358,8 @@ struct IssueListView: View {
     }
 
     @ViewBuilder
-    private func userAvatar(_ user: UserEntity, size: CGFloat) -> some View {
-        let initial = (user.name ?? user.email).prefix(1).uppercased()
+    private func userAvatar(_ user: UserEntity?, id: String, size: CGFloat) -> some View {
+        let initial = memberDisplayName(user, id: id).prefix(1).uppercased()
         Text(initial)
             .font(.system(size: size * 0.45, weight: .medium))
             .foregroundStyle(.white)

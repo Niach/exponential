@@ -127,6 +127,7 @@ struct CommentThreadView: View {
         RegularCommentRow(
             comment: comment,
             author: users[comment.authorId],
+            authorId: comment.authorId,
             isAuthor: comment.authorId == deps.auth.userId,
             isAdmin: deps.auth.isAdmin,
             isEditing: editingCommentId == comment.id,
@@ -265,7 +266,7 @@ struct CommentThreadView: View {
     // label/PR changes).
     @ViewBuilder
     private func eventRow(_ event: IssueEventEntity) -> some View {
-        let who = event.actorUserId.flatMap { users[$0] }.map { $0.name ?? $0.email } ?? "Someone"
+        let who = memberDisplayName(event.actorUserId.flatMap { users[$0] }, id: event.actorUserId)
         HStack(spacing: 8) {
             Circle()
                 .fill(.white.opacity(TextOpacity.tertiary))
@@ -284,6 +285,9 @@ struct CommentThreadView: View {
 private struct RegularCommentRow: View {
     let comment: CommentEntity
     let author: UserEntity?
+    // The author's user id, so a not-synced author still gets a stable pseudonym
+    // instead of the generic fallback.
+    let authorId: String
     let isAuthor: Bool
     let isAdmin: Bool
     let isEditing: Bool
@@ -305,11 +309,11 @@ private struct RegularCommentRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            avatar(author: author)
+            avatar(author: author, id: authorId)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(displayName(for: author))
+                    Text(displayName(for: author, id: authorId))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                     Text(relativeDate(comment.createdAt))
@@ -390,23 +394,23 @@ private struct RegularCommentRow: View {
 
 // MARK: - Shared helpers
 
-private func avatar(author: UserEntity?) -> some View {
+private func avatar(author: UserEntity?, id: String?) -> some View {
     Circle()
         .fill(Color.white.opacity(0.08))
         .frame(width: 28, height: 28)
         .overlay(
-            Text(initials(for: author))
+            Text(initials(for: author, id: id))
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         )
 }
 
-private func displayName(for author: UserEntity?, fallback: String = "Someone") -> String {
-    author?.name ?? author?.email ?? fallback
+private func displayName(for author: UserEntity?, id: String?, fallback: String = "Someone") -> String {
+    memberDisplayName(author, id: id, generic: fallback)
 }
 
-private func initials(for author: UserEntity?) -> String {
-    let source = displayName(for: author)
+private func initials(for author: UserEntity?, id: String?) -> String {
+    let source = displayName(for: author, id: id)
     let parts = source.split(separator: " ").prefix(2)
     return parts.map { $0.first.map(String.init) ?? "" }.joined().uppercased()
 }

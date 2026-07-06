@@ -32,17 +32,25 @@ export function useWorkspacePermissions(
   const isAdmin = Boolean(currentUserId) && isAdminUser(session?.user)
 
   return useMemo(() => {
-    const isMember = Boolean(
-      currentUserId && members.some((m) => m.userId === currentUserId)
+    const currentMember = currentUserId
+      ? members.find((m) => m.userId === currentUserId)
+      : undefined
+    const isMember = Boolean(currentMember)
+    // Public-workspace membership is an open self-service join, so a plain
+    // member there is a participant, not a moderator — mirrors the server's
+    // isWorkspaceModerator / assertIssueAccess rules.
+    const isPrivilegedMember = Boolean(
+      currentMember &&
+        (!workspace?.isPublic || currentMember.role === `owner`)
     )
-    const isModerator = isMember || isAdmin
+    const isModerator = isPrivilegedMember || isAdmin
     const canCreate = isAuthed
       ? isMember ||
         Boolean(workspace?.isPublic && workspace?.publicWritePolicy === `everyone`)
       : false
     const canMutateIssue = (issue: Pick<Issue, `creatorId`>) => {
       if (!isAuthed) return false
-      if (isMember) return true
+      if (isPrivilegedMember) return true
       if (workspace?.isPublic && issue.creatorId === currentUserId) return true
       if (isAdmin) return true
       return false

@@ -378,9 +378,11 @@ impl PropertiesPanel {
         let issue_id = issue.id.clone();
         let current_id = issue.assignee_id.clone();
 
-        let trigger = match &selected {
-            Some(user) => Button::new("prop-assignee").ghost().xsmall().label(
-                SharedString::from(crate::comments::author_label(Some(user))),
+        let trigger = match issue.assignee_id.as_deref() {
+            // Assigned — render the member's name, falling back to `Member
+            // <LAST4>` when the co-member's user row didn't sync.
+            Some(id) => Button::new("prop-assignee").ghost().xsmall().label(
+                SharedString::from(crate::comments::user_label(id, selected.as_ref())),
             ),
             None => Button::new("prop-assignee")
                 .ghost()

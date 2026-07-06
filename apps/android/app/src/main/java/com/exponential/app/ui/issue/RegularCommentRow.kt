@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MentionMember
@@ -73,7 +74,7 @@ internal fun RegularCommentRow(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                initials(author?.name ?: author?.email ?: "?"),
+                initials(userDisplayName(author, comment.authorId)),
                 style = MaterialTheme.typography.labelSmall,
                 color = CommentAvatarText,
             )
@@ -82,7 +83,7 @@ internal fun RegularCommentRow(
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    author?.name ?: author?.email ?: "Someone",
+                    userDisplayName(author, comment.authorId),
                     style = MaterialTheme.typography.labelMedium,
                     color = CommentAuthor,
                     maxLines = 1,

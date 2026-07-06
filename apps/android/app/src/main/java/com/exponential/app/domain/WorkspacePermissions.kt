@@ -14,14 +14,21 @@ data class WorkspacePermissions(
     private val currentUserId: String?,
     private val workspaceIsPublic: Boolean,
 ) {
-    // Members and admins are moderators. Non-moderators in public workspaces
-    // can only set title, description, and labels.
-    val isModerator: Boolean get() = isMember || isAdmin
+    // Public-workspace membership is an open self-service join, so a plain member
+    // there is a participant, not a moderator — only an owner (or an instance
+    // admin) moderates a public workspace. Private workspaces are unchanged: any
+    // member moderates. Mirrors the server's isWorkspaceModerator / assertIssueAccess.
+    private val isPrivilegedMember: Boolean
+        get() = isMember && (!workspaceIsPublic || isOwner)
+
+    val isModerator: Boolean get() = isPrivilegedMember || isAdmin
 
     fun canMutateIssue(creatorId: String?): Boolean {
         if (!isAuthed) return false
-        if (isMember) return true
+        if (isPrivilegedMember) return true
         if (isAdmin) return true
+        // A non-privileged authed user may still mutate issues they created in a
+        // public workspace.
         if (workspaceIsPublic && creatorId != null && creatorId == currentUserId) return true
         return false
     }

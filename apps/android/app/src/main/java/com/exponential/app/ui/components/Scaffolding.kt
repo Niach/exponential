@@ -35,6 +35,7 @@ fun EmptyState(
     message: String,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    action: (@Composable () -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
@@ -44,7 +45,7 @@ fun EmptyState(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (icon != null) {
                 Icon(
@@ -60,6 +61,7 @@ fun EmptyState(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 textAlign = TextAlign.Center,
             )
+            action?.invoke()
         }
     }
 }

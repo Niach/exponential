@@ -39,6 +39,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.PriorityIcon
+import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.parseColor
@@ -96,10 +97,10 @@ fun IssueMetadataEditor(
         CardDivider()
         DetailRow(label = "Assignee", enabled = isModerator, onClick = onAssigneeClick) {
             Text(
-                assignee?.name ?: assignee?.email ?: "Unassigned",
+                if (issue.assigneeId != null) userDisplayName(assignee, issue.assigneeId) else "Unassigned",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (assignee != null) TextEmphasis.Primary else TextEmphasis.Tertiary,
+                    alpha = if (issue.assigneeId != null) TextEmphasis.Primary else TextEmphasis.Tertiary,
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

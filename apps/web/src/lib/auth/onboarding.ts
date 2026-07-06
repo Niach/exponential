@@ -7,8 +7,8 @@ import { projects, users, workspaceMembers, workspaces } from "@/db/schema"
 // this is the one place the rule lives: a user who already has a project in a
 // non-public workspace they're an explicit member of doesn't need the wizard —
 // the flag is backfilled on session read (covers accounts that predate the
-// wizard). Implicit visibility of the public feedback workspace deliberately
-// does NOT count: its projects exist for every authed user.
+// wizard). Membership in the public feedback workspace deliberately does NOT
+// count: joining a public board is not the same as setting up your own space.
 export async function resolveOnboardingCompletedAt(user: {
   id: string
   onboardingCompletedAt?: Date | string | null

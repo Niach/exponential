@@ -14,6 +14,14 @@ struct IssuesHomeView: View {
 
     @Environment(AppDependencies.self) private var deps
     @State private var showSwitcher = false
+    @State private var preparingCreate = false
+    @State private var createTarget: CreateTarget?
+
+    private struct CreateTarget: Identifiable {
+        let accountId: String
+        let workspaceId: String
+        var id: String { "\(accountId)/\(workspaceId)" }
+    }
 
     var body: some View {
         ZStack {
@@ -34,7 +42,7 @@ struct IssuesHomeView: View {
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
             } else {
-                setUpOnWebHint
+                emptyStateHint
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -58,6 +66,14 @@ struct IssuesHomeView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+            .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(item: $createTarget) { target in
+            CreateProjectSheet(
+                accountId: target.accountId,
+                workspaceId: target.workspaceId,
+                onCreated: { projectId in onSelectProject(target.accountId, projectId) }
+            )
             .presentationBackground(.ultraThinMaterial)
         }
     }
@@ -115,10 +131,9 @@ struct IssuesHomeView: View {
 
     // MARK: - Empty state
 
-    // Projects (and workspaces) are created on the web or desktop app — the
-    // mobile app is a companion. When there's nothing to show yet, point the
-    // user there instead of offering a create button.
-    private var setUpOnWebHint: some View {
+    // Nothing synced yet — offer to create the first project inline (a project
+    // is backed by a GitHub repo, connected in the create sheet).
+    private var emptyStateHint: some View {
         VStack(spacing: 12) {
             Image(systemName: "tray")
                 .font(.title2)
@@ -126,25 +141,43 @@ struct IssuesHomeView: View {
             Text("No projects yet")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Create your first project on the web or desktop app.")
+            Text("Create your first project to get started.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
-            if let host = instanceHost {
-                Text(host)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .glassRow()
+
+            Button {
+                Task { await beginCreateProject() }
+            } label: {
+                HStack(spacing: 6) {
+                    if preparingCreate {
+                        ProgressView().controlSize(.small).tint(.white)
+                    } else {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.semibold))
+                    }
+                    Text("Create project")
+                        .font(.subheadline.weight(.medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .glassButton()
             }
+            .buttonStyle(.plain)
+            .disabled(preparingCreate)
         }
         .padding(.horizontal, 40)
     }
 
-    private var instanceHost: String? {
-        guard let base = deps.auth.instanceUrl,
-              let url = URL(string: base) else { return nil }
-        return url.host ?? base
+    /// Resolve (creating if needed) the default workspace, then open the create
+    /// sheet targeting it.
+    private func beginCreateProject() async {
+        guard !preparingCreate, let accountId = deps.auth.activeAccountId else { return }
+        preparingCreate = true
+        defer { preparingCreate = false }
+        if let workspace = try? await deps.workspacesApi.ensureDefault(accountId: accountId) {
+            createTarget = CreateTarget(accountId: accountId, workspaceId: workspace.id)
+        }
     }
 }

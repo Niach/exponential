@@ -69,7 +69,9 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.InitialsAvatar
+import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.onboarding.CreateProjectSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
@@ -137,6 +139,7 @@ fun WorkspaceSettingsScreen(
 @Composable
 private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettingsViewModel) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var showCreateProject by remember { mutableStateOf(false) }
     // Repository management is owner-only (the server enforces workspace-owner
     // on the `repositories` router mutations); everyone else reads the registry.
     val isOwner = state.currentUserId != null && state.members.any {
@@ -182,6 +185,14 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader("Projects")
             Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                if (state.projects.isEmpty()) {
+                    Text(
+                        "No projects yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
                 state.projects.forEachIndexed { i, project ->
                     if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                     Row(
@@ -197,6 +208,11 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                     }
                 }
             }
+            OutlinedButton(onClick = { showCreateProject = true }) {
+                Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("New project")
+            }
         }
 
         RepositoriesSection(state, viewModel, isOwner)
@@ -206,6 +222,14 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
             Spacer(Modifier.width(8.dp))
             Text("Delete workspace", color = MaterialTheme.colorScheme.error)
         }
+    }
+
+    if (showCreateProject) {
+        CreateProjectSheet(
+            workspaceId = state.workspace?.id,
+            onCreated = { showCreateProject = false },
+            onDismiss = { showCreateProject = false },
+        )
     }
 
     if (confirmDelete) {
@@ -424,12 +448,12 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    InitialsAvatar(row.user?.name ?: row.user?.email, size = 32.dp)
+                    InitialsAvatar(userDisplayName(row.user, row.member.userId), size = 32.dp)
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             buildString {
-                                append(row.user?.name ?: row.user?.email ?: "Unknown")
+                                append(userDisplayName(row.user, row.member.userId))
                                 if (isYou) append(" (you)")
                             },
                             style = MaterialTheme.typography.bodyMedium,

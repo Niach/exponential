@@ -5,12 +5,14 @@ import SwiftUI
 struct WorkspaceProjectsSection: View {
     let projects: [ProjectEntity]
     let accountId: String
+    let workspaceId: String
     let isOwner: Bool
     let projectsApi: ProjectsApi
     let repositoriesApi: RepositoriesApi
     let onDelete: (ProjectEntity) -> Void
 
     @State private var repoTarget: ProjectEntity?
+    @State private var showCreate = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -21,6 +23,28 @@ struct WorkspaceProjectsSection: View {
                 Text("\(projects.count)")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+
+                Spacer()
+
+                // New projects require repo-connect rights — owner-gated, matching
+                // the server's create policy.
+                if isOwner {
+                    Button {
+                        showCreate = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.caption2.weight(.semibold))
+                            Text("New project")
+                                .font(.caption.weight(.medium))
+                        }
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .glassButton()
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
             if projects.isEmpty {
@@ -88,6 +112,10 @@ struct WorkspaceProjectsSection: View {
                 repositoriesApi: repositoriesApi
             )
             .presentationBackground(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showCreate) {
+            CreateProjectSheet(accountId: accountId, workspaceId: workspaceId)
+                .presentationBackground(.ultraThinMaterial)
         }
     }
 }

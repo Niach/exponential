@@ -38,6 +38,7 @@ struct WorkspaceSettingsView: View {
                     WorkspaceProjectsSection(
                         projects: projects.filter { $0.archivedAt == nil },
                         accountId: accountId,
+                        workspaceId: workspaceId,
                         isOwner: isOwner,
                         projectsApi: deps.projectsApi,
                         repositoriesApi: deps.repositoriesApi,

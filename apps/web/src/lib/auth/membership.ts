@@ -56,8 +56,9 @@ export async function getPublicWorkspaceIds(): Promise<string[]> {
 }
 
 // Resolves the set of workspace ids readable by a caller — used by shape
-// proxies. Authed users see their own memberships plus all public workspaces;
-// anonymous callers see only public workspaces.
+// proxies. Authed users see only workspaces they have actually joined (public
+// workspaces require an explicit join); anonymous callers see public
+// workspaces, which keeps logged-out browsing of public boards working.
 export async function getReadableWorkspaceIds(
   userId: string | null
 ): Promise<string[]> {
@@ -74,14 +75,12 @@ export async function getReadableProjectIds(
 
 // Resolves the user ids whose full `users` rows the caller may sync via the
 // users shape (and read via users.listByWorkspaceIds). The users table carries
-// EMAILS, so this is deliberately tighter than workspace readability: public
-// workspaces are readable by anyone, but their members' emails must not be
-// enumerable by arbitrary viewers. A caller therefore only sees users they
-// share an actual workspace_members row with — co-members of workspaces the
-// caller has JOINED (private or public) — plus themself. Anonymous callers get
-// no user rows at all; public-workspace UIs degrade gracefully (placeholder
-// avatars, raw `@email` mention text) for non-member viewers, while actual
-// members keep full mention/assignee rendering.
+// EMAILS and NAMES, so this is deliberately tighter than workspace
+// readability: a caller only sees co-members of PRIVATE workspaces they have
+// joined, plus themself. Public workspaces are excluded even for their own
+// members — an open "join" button must not turn the feedback board into a
+// directory of everyone's identity. Clients render a deterministic anonymous
+// handle for any user row that never syncs.
 export async function getReadableUserIdsInWorkspaces(
   userId: string | null
 ): Promise<string[]> {
@@ -90,7 +89,10 @@ export async function getReadableUserIdsInWorkspaces(
   const membershipRows = await db
     .select({ workspaceId: workspaceMembers.workspaceId })
     .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, userId))
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .where(
+      and(eq(workspaceMembers.userId, userId), eq(workspaces.isPublic, false))
+    )
   const joinedWorkspaceIds = membershipRows.map((row) => row.workspaceId)
   if (joinedWorkspaceIds.length === 0) return [userId]
   const rows = await db
@@ -122,12 +124,7 @@ export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
     .from(workspaceMembers)
     .where(eq(workspaceMembers.userId, userId))
 
-  const ids = rows.map((row) => row.workspaceId)
-  const publicIds = await getPublicWorkspaceIds()
-  for (const publicId of publicIds) {
-    if (!ids.includes(publicId)) ids.push(publicId)
-  }
-  return ids
+  return rows.map((row) => row.workspaceId)
 }
 
 export async function getUserProjectIds(userId: string): Promise<string[]> {
@@ -144,24 +141,6 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
     .where(inArray(projects.workspaceId, workspaceIds))
 
   return rows.map((row) => row.id)
-}
-
-export async function getUserIdsInWorkspaces(
-  userId: string
-): Promise<string[]> {
-  const workspaceIds = await getUserWorkspaceIds(userId)
-
-  if (workspaceIds.length === 0) {
-    return []
-  }
-
-  const db = await getDb()
-  const rows = await db
-    .select({ userId: workspaceMembers.userId })
-    .from(workspaceMembers)
-    .where(inArray(workspaceMembers.workspaceId, workspaceIds))
-
-  return [...new Set(rows.map((row) => row.userId))]
 }
 
 export async function getWorkspaceMember(userId: string, workspaceId: string) {
@@ -311,17 +290,21 @@ export async function assertNotPublicWorkspace(
   }
 }
 
-// A "moderator" is a workspace member or an instance admin. In public
-// workspaces moderators retain full edit/set rights on issue fields
+// A "moderator" retains full edit/set rights on issue fields
 // (status/priority/assignee/dueDate); non-moderators are restricted to
 // title/description/labels even when they're allowed to mutate (e.g., on
-// issues they created).
+// issues they created). In a private workspace every member moderates. In a
+// PUBLIC workspace membership is an open self-service join, so plain members
+// do NOT moderate — only owner-members and instance admins.
 export async function isWorkspaceModerator(
   userId: string,
   workspaceId: string
 ): Promise<boolean> {
   const member = await getWorkspaceMember(userId, workspaceId)
-  if (member) return true
+  if (member) {
+    const workspace = await getWorkspaceById(workspaceId)
+    if (!workspace?.isPublic || member.role === `owner`) return true
+  }
   return isUserAdmin(userId)
 }
 

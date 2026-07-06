@@ -24,7 +24,6 @@ import {
   getAttachmentWorkspaceContext,
   getIssueWorkspaceContext,
   getProjectWorkspaceId,
-  getPublicWorkspaceIds,
   getUserWorkspaceIds,
   resolveWorkspaceAccess,
 } from "@/lib/workspace-membership"
@@ -158,28 +157,9 @@ export function registerExponentialTools(
           .where(eq(workspaceMembers.userId, user.id))
           .orderBy(asc(workspaces.name))
 
-        const memberIds = new Set(memberRows.map((row) => row.id))
-        const publicIds = await getPublicWorkspaceIds()
-        const extraIds = publicIds.filter((id) => !memberIds.has(id))
-        const publicOnly: typeof memberRows = []
-        if (extraIds.length > 0) {
-          const publicRows = await db
-            .select({
-              id: workspaces.id,
-              name: workspaces.name,
-              slug: workspaces.slug,
-              iconUrl: workspaces.iconUrl,
-              createdAt: workspaces.createdAt,
-              updatedAt: workspaces.updatedAt,
-            })
-            .from(workspaces)
-            .where(inArray(workspaces.id, extraIds))
-            .orderBy(asc(workspaces.name))
-          for (const row of publicRows) {
-            publicOnly.push({ ...row, role: `public` as never })
-          }
-        }
-        return ok([...memberRows, ...publicOnly])
+        // Membership-only, matching the sync semantics: public workspaces
+        // appear once the user has explicitly joined, never implicitly.
+        return ok(memberRows)
       } catch (e) {
         return err(e)
       }

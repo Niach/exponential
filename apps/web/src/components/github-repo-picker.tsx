@@ -33,10 +33,9 @@ type ReposResult = {
 // are installed, and re-detects after the user returns from the GitHub install
 // tab (window focus). Calls `onSelect` with the chosen repo.
 //
-// v4: repo-less projects no longer exist, so there is no skip escape. Surfaces
-// that don't want the inline install CTA (the create-project dialog) pass
-// `installEmptyState` to render their own call to action (e.g. a link to
-// workspace settings → Repositories) in the App-absent states instead.
+// v4: repo-less projects no longer exist, so there is no skip escape. Every
+// surface uses the built-in inline install CTA; `installEmptyState` remains
+// for callers that need a custom App-absent state.
 export function GithubRepoPicker({
   onSelect,
   installEmptyState,

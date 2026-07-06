@@ -3,11 +3,17 @@
 //!
 //! Name `Input` + an **auto-derived-but-editable prefix** `Input`
 //! (`derivePrefix`, uppercased, max 10) + the `ColorSwatchGrid` — **no slug
-//! field** (server-derived). Submit → `projects.create`; the close is gated
-//! on the new project appearing in the synced collection (§4.1 create flows),
-//! so the sidebar row is there the moment the dialog is gone. A plan-cap
-//! FORBIDDEN surfaces as the neutral "Upgrade on the web" notification
-//! (§4.9) — never an in-app purchase UI.
+//! field** (server-derived) + the **required backing repository** picker (v4
+//! §3.1). The repo picker mirrors the web `GithubRepoPicker`: it offers the
+//! workspace's already-connected registry repos AND, once the GitHub App is
+//! installed, the user's installable GitHub repos to connect inline in the
+//! same `projects.create` call; when the App is configured but not installed a
+//! "Connect GitHub" button opens the browser install and an explicit Refresh
+//! re-detects. Submit → `projects.create` (then a fire-and-forget
+//! `onboarding.complete`); the close is gated on the new project appearing in
+//! the synced collection (§4.1 create flows), so the sidebar row is there the
+//! moment the dialog is gone. A plan-cap FORBIDDEN surfaces as the neutral
+//! "Upgrade on the web" notification (§4.9) — never an in-app purchase UI.
 //!
 //! Opened by the sidebar's Projects `+` via the [`NewProject`]
 //! action; [`init`] owns the handler.
@@ -29,8 +35,10 @@ use sync::Store;
 
 use crate::actions::NewProject;
 use crate::create_issue_dialog::parse_hex_color;
+use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
 use crate::navigation::{active_workspace_id, nav_for_window};
 use crate::queries;
+use crate::settings::open_url;
 
 /// Web `LABEL_COLORS` (`lib/label-colors.ts`) — the swatch palette shared by
 /// project + label colors (fixed hex literals on web too).
@@ -56,15 +64,55 @@ struct RepoOption {
 /// Server fetch state for the registry repo picker.
 enum RepoLoad {
     Loading,
-    /// The connected-repo list (possibly empty → the "connect one first"
-    /// empty state).
+    /// The connected-repo list (possibly empty → fall through to the inline
+    /// GitHub picker).
     Ready(Vec<RepoOption>),
     Failed(SharedString),
 }
 
-/// `repositories.list({workspaceId})` — the workspace's connected repos.
-/// Inline GitHub connect stays web-only (§7.9), so the desktop only ever
-/// picks from an existing registry repo here.
+/// Server fetch state for the inline GitHub-App repo picker
+/// (`integrations.github.repos`).
+enum GithubLoad {
+    Loading,
+    Ready(GithubReposResult),
+    Failed(SharedString),
+}
+
+/// The chosen backing repository — either an already-connected registry repo
+/// (`{repositoryId}`) or a GitHub-App repo connected inline (`{fullName, …}`).
+/// Both carry `full_name` so the trigger renders without a lookup.
+#[derive(Clone)]
+enum RepoChoice {
+    Registry { id: String, full_name: String },
+    Inline(GithubRepo),
+}
+
+impl RepoChoice {
+    fn full_name(&self) -> &str {
+        match self {
+            RepoChoice::Registry { full_name, .. } => full_name,
+            RepoChoice::Inline(repo) => &repo.full_name,
+        }
+    }
+
+    /// The `projects.create` repository union arm this choice submits.
+    fn to_input(&self) -> api::projects::ProjectRepositoryInput {
+        match self {
+            RepoChoice::Registry { id, .. } => api::projects::ProjectRepositoryInput::Registry {
+                repository_id: id.clone(),
+            },
+            RepoChoice::Inline(repo) => api::projects::ProjectRepositoryInput::Inline {
+                full_name: repo.full_name.clone(),
+                default_branch: (!repo.default_branch.is_empty())
+                    .then(|| repo.default_branch.clone()),
+                private: Some(repo.private),
+                installation_id: (repo.installation_id != 0).then_some(repo.installation_id),
+            },
+        }
+    }
+}
+
+/// `repositories.list({workspaceId})` — the workspace's already-connected repos.
 fn fetch_repositories(
     trpc: &api::TrpcClient,
     workspace_id: &str,
@@ -117,9 +165,13 @@ pub struct CreateProjectDialogView {
     prefix: Entity<InputState>,
     color: String,
     /// The chosen backing repository (v4 §3.1 — required to submit).
-    repository_id: Option<String>,
+    repo_choice: Option<RepoChoice>,
     /// Connected-repo list for the picker, fetched from `repositories.list`.
     repos: RepoLoad,
+    /// Installable GitHub-App repos, fetched from `integrations.github.repos`.
+    github: GithubLoad,
+    /// Monotonic guard so a slow refetch can't clobber a newer Refresh.
+    fetch_generation: u64,
     submitting: bool,
     error: Option<SharedString>,
     focused_once: bool,
@@ -166,47 +218,72 @@ impl CreateProjectDialogView {
             },
         ));
 
-        // Load the workspace's connected repos so the picker can offer a
-        // backing repository (required by the server, v4 §3.1).
-        if let Some(trpc) = queries::trpc_client(cx) {
-            let workspace_id_for_fetch = workspace_id.clone();
-            cx.spawn(async move |this, cx| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        fetch_repositories(&trpc, &workspace_id_for_fetch)
-                            .map_err(|err| err.to_string())
-                    })
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    this.repos = match result {
-                        Ok(repos) => RepoLoad::Ready(repos),
-                        Err(message) => RepoLoad::Failed(message.into()),
-                    };
-                    cx.notify();
-                });
-            })
-            .detach();
-        }
-
-        Self {
+        let mut this = Self {
             workspace_id,
             name,
             prefix,
             color: DEFAULT_COLOR.to_string(),
-            repository_id: None,
+            repo_choice: None,
             repos: RepoLoad::Loading,
+            github: GithubLoad::Loading,
+            fetch_generation: 0,
             submitting: false,
             error: None,
             focused_once: false,
             _subscriptions: subscriptions,
-        }
+        };
+        // Load the workspace's connected repos AND the installable GitHub-App
+        // repos so the picker can offer both an existing registry repo and an
+        // inline connect (a backing repo is required by the server, v4 §3.1).
+        this.spawn_fetches(false, cx);
+        this
+    }
+
+    /// (Re)fetch both the registry repos and the installable GitHub-App repos.
+    /// `refresh` forces the server past its per-user repo cache — used by the
+    /// explicit Refresh after the user connects the App in the browser.
+    fn spawn_fetches(&mut self, refresh: bool, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.fetch_generation += 1;
+        let generation = self.fetch_generation;
+        self.repos = RepoLoad::Loading;
+        self.github = GithubLoad::Loading;
+        let workspace_id = self.workspace_id.clone();
+        cx.spawn(async move |this, cx| {
+            let (registry, github) = cx
+                .background_executor()
+                .spawn(async move {
+                    let registry = fetch_repositories(&trpc, &workspace_id)
+                        .map_err(|err| err.to_string());
+                    let github = fetch_github_repos(&trpc, refresh)
+                        .map_err(|err| err.to_string());
+                    (registry, github)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.fetch_generation != generation {
+                    return; // superseded by a newer fetch
+                }
+                this.repos = match registry {
+                    Ok(repos) => RepoLoad::Ready(repos),
+                    Err(message) => RepoLoad::Failed(message.into()),
+                };
+                this.github = match github {
+                    Ok(result) => GithubLoad::Ready(result),
+                    Err(message) => GithubLoad::Failed(message.into()),
+                };
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let name = self.name.read(cx).value().trim().to_string();
         let prefix = self.prefix.read(cx).value().trim().to_string();
-        let Some(repository_id) = self.repository_id.clone() else {
+        let Some(repo_choice) = self.repo_choice.clone() else {
             return;
         };
         if name.is_empty() || prefix.is_empty() || self.submitting {
@@ -227,13 +304,25 @@ impl CreateProjectDialogView {
             name,
             prefix,
             color: Some(self.color.clone()),
-            repository: api::projects::ProjectRepositoryInput { repository_id },
+            repository: repo_choice.to_input(),
         };
 
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::projects::projects_create(&trpc, &input) })
+                .spawn(async move {
+                    let created = api::projects::projects_create(&trpc, &input);
+                    // First project completes onboarding (web fires this after
+                    // the onboarding create). Fire-and-forget: a repeat call on
+                    // an already-onboarded user just no-ops, and a failure here
+                    // must never block the create.
+                    if created.is_ok() {
+                        let _ = trpc.mutation_no_input::<serde_json::Value>(
+                            "onboarding.complete",
+                        );
+                    }
+                    created
+                })
                 .await;
 
             match result {
@@ -285,45 +374,55 @@ impl CreateProjectDialogView {
 }
 
 impl CreateProjectDialogView {
-    /// The "Repository" field: a dropdown that picks one connected registry
-    /// repo (inline GitHub connect stays web-only, §7.9). Empty registry →
-    /// the "connect one first" nudge; a failed fetch surfaces its error.
+    /// The "Repository" field: a dropdown offering the workspace's connected
+    /// registry repos AND (once the GitHub App is installed) the user's
+    /// installable GitHub repos to connect inline. When the App is configured
+    /// but not installed, a "Connect GitHub" button opens the install URL in
+    /// the browser; an explicit Refresh re-runs both fetches after the user
+    /// returns. Failures/empties fall through to a nudge.
     fn repository_field(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let control: gpui::AnyElement = match &self.repos {
-            RepoLoad::Loading => Button::new("project-repo-picker")
-                .outline()
-                .small()
-                .w_full()
-                .label("Loading repositories\u{2026}")
-                .disabled(true)
-                .into_any_element(),
-            RepoLoad::Failed(message) => div()
-                .text_sm()
-                .text_color(cx.theme().danger)
-                .child(message.clone())
-                .into_any_element(),
-            RepoLoad::Ready(repos) if repos.is_empty() => div()
-                .px_3()
-                .py_2()
-                .rounded(cx.theme().radius)
-                .border_1()
-                .border_dashed()
-                .border_color(cx.theme().border)
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("Connect a repository in the web app first")
-                .into_any_element(),
-            RepoLoad::Ready(repos) => {
-                let selected = self
-                    .repository_id
-                    .as_deref()
-                    .and_then(|id| repos.iter().find(|repo| repo.id == id));
-                let label: SharedString = selected
-                    .map(|repo| SharedString::from(repo.full_name.clone()))
-                    .unwrap_or_else(|| "Select a repository".into());
-                let current = self.repository_id.clone();
-                let repos = repos.clone();
-                let view = cx.entity().clone();
+        let mut column = v_flex().gap_2();
+
+        // Both sources still in flight → a single disabled placeholder.
+        if matches!(self.repos, RepoLoad::Loading) && matches!(self.github, GithubLoad::Loading) {
+            return v_flex()
+                .gap_2()
+                .child(field_label(cx, "Repository"))
+                .child(
+                    Button::new("project-repo-picker")
+                        .outline()
+                        .small()
+                        .w_full()
+                        .label("Loading repositories\u{2026}")
+                        .disabled(true),
+                );
+        }
+
+        let registry: Vec<RepoOption> = match &self.repos {
+            RepoLoad::Ready(repos) => repos.clone(),
+            _ => Vec::new(),
+        };
+        let github_result = match &self.github {
+            GithubLoad::Ready(result) => Some(result),
+            _ => None,
+        };
+        let github_repos: Vec<GithubRepo> = github_result
+            .map(|result| result.repos.clone())
+            .unwrap_or_default();
+        let has_options = !registry.is_empty() || !github_repos.is_empty();
+
+        if has_options {
+            let label: SharedString = self
+                .repo_choice
+                .as_ref()
+                .map(|choice| SharedString::from(choice.full_name().to_string()))
+                .unwrap_or_else(|| "Select a repository".into());
+            let selected_full = self
+                .repo_choice
+                .as_ref()
+                .map(|choice| choice.full_name().to_string());
+            let view = cx.entity().clone();
+            column = column.child(
                 Button::new("project-repo-picker")
                     .outline()
                     .small()
@@ -331,31 +430,140 @@ impl CreateProjectDialogView {
                     .icon(IconName::Github)
                     .label(label)
                     .dropdown_menu(move |mut menu, _window, _cx| {
-                        for repo in &repos {
-                            let view = view.clone();
-                            let id = repo.id.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
-                                    .icon(Icon::new(IconName::Github))
-                                    .checked(current.as_deref() == Some(repo.id.as_str()))
-                                    .on_click(move |_, _, cx| {
-                                        let id = id.clone();
-                                        view.update(cx, |this, cx| {
-                                            this.repository_id = Some(id);
-                                            cx.notify();
-                                        });
-                                    }),
-                            );
+                        if !registry.is_empty() {
+                            menu = menu.label("Connected");
+                            for repo in &registry {
+                                let view = view.clone();
+                                let id = repo.id.clone();
+                                let full_name = repo.full_name.clone();
+                                let checked = selected_full.as_deref() == Some(repo.full_name.as_str());
+                                menu = menu.item(
+                                    PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                                        .icon(Icon::new(IconName::Github))
+                                        .checked(checked)
+                                        .on_click(move |_, _, cx| {
+                                            let choice = RepoChoice::Registry {
+                                                id: id.clone(),
+                                                full_name: full_name.clone(),
+                                            };
+                                            view.update(cx, |this, cx| {
+                                                this.repo_choice = Some(choice.clone());
+                                                cx.notify();
+                                            });
+                                        }),
+                                );
+                            }
+                        }
+                        if !github_repos.is_empty() {
+                            if !registry.is_empty() {
+                                menu = menu.separator();
+                            }
+                            menu = menu.label("GitHub");
+                            for repo in &github_repos {
+                                let view = view.clone();
+                                let repo = repo.clone();
+                                let checked = selected_full.as_deref() == Some(repo.full_name.as_str());
+                                let title = if repo.private {
+                                    format!("{} \u{00b7} private", repo.full_name)
+                                } else {
+                                    repo.full_name.clone()
+                                };
+                                menu = menu.item(
+                                    PopupMenuItem::new(SharedString::from(title))
+                                        .icon(Icon::new(IconName::Github))
+                                        .checked(checked)
+                                        .on_click(move |_, _, cx| {
+                                            let choice = RepoChoice::Inline(repo.clone());
+                                            view.update(cx, |this, cx| {
+                                                this.repo_choice = Some(choice.clone());
+                                                cx.notify();
+                                            });
+                                        }),
+                                );
+                            }
                         }
                         menu
-                    })
-                    .into_any_element()
+                    }),
+            );
+        }
+
+        // Connect-GitHub affordance: the App is configured on the server but
+        // not installed for this user. Install is a browser hand-off; Refresh
+        // re-runs both fetches once the user returns.
+        let configured_not_installed = github_result
+            .map(|result| result.configured && !result.installed)
+            .unwrap_or(false);
+        if configured_not_installed {
+            let install_url = github_result.and_then(|result| result.install_url.clone());
+            let mut row = h_flex().flex_wrap().gap_2().items_center();
+            if let Some(url) = install_url {
+                row = row.child(
+                    Button::new("project-repo-connect-gh")
+                        .outline()
+                        .small()
+                        .icon(IconName::Github)
+                        .label("Connect GitHub")
+                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                );
             }
-        };
+            column = column.child(row);
+        }
+
+        // Empty/failure messaging when there is nothing to pick.
+        if !has_options && !configured_not_installed {
+            let message: SharedString = match (&self.repos, &self.github) {
+                (RepoLoad::Failed(message), _) => message.clone(),
+                (_, GithubLoad::Failed(message)) => message.clone(),
+                (_, GithubLoad::Ready(result)) if !result.configured => {
+                    "GitHub isn't configured on this server, so repositories can't be connected."
+                        .into()
+                }
+                _ => "No repositories available yet — connect one on GitHub.".into(),
+            };
+            column = column.child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_dashed()
+                    .border_color(cx.theme().border)
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(message),
+            );
+        }
+
+        // Always offer a manual Refresh (re-detect after a browser install),
+        // plus a "manage on GitHub" link when the installed repo list was
+        // truncated (the target repo may need granting on GitHub first).
+        let mut actions = h_flex().gap_2().items_center().child(
+            Button::new("project-repo-refresh")
+                .ghost()
+                .xsmall()
+                .label("Refresh")
+                .on_click(cx.listener(|this, _, _, cx| this.spawn_fetches(true, cx))),
+        );
+        if let Some(url) = github_result.and_then(|result| {
+            (result.installed && result.has_more)
+                .then(|| result.install_url.clone())
+                .flatten()
+        }) {
+            actions = actions.child(
+                Button::new("project-repo-manage-gh")
+                    .link()
+                    .xsmall()
+                    .label("Add more on GitHub")
+                    .icon(IconName::ExternalLink)
+                    .on_click(move |_, _, cx| open_url(cx, url.clone())),
+            );
+        }
+        column = column.child(actions);
+
         v_flex()
             .gap_2()
             .child(field_label(cx, "Repository"))
-            .child(control)
+            .child(column)
     }
 }
 
@@ -371,7 +579,7 @@ impl Render for CreateProjectDialogView {
         // v4 §3.1: a project must be backed by a repository — block submit
         // until one is picked (the server would otherwise reject the create).
         let disabled =
-            name_empty || prefix_empty || self.repository_id.is_none() || self.submitting;
+            name_empty || prefix_empty || self.repo_choice.is_none() || self.submitting;
 
         let mut form = v_flex()
             .gap_4()

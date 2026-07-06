@@ -8,9 +8,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -33,9 +38,8 @@ import com.exponential.app.ui.theme.TextEmphasis
  * the old Projects home screen's tree, relocated — picking a project swaps the
  * Issues tab's list in place instead of pushing a new destination.
  *
- * The mobile app is a pure companion (masterplan L26): workspaces and projects
- * are created on the web or desktop app, so the sheet only ever reads the
- * synced tree — no create-project entry point lives here.
+ * A "New project" action at the foot opens the create-project sheet (the mobile
+ * app now creates projects directly, with an inline GitHub repo connect).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +47,7 @@ fun ProjectSwitcherSheet(
     groups: List<ServerProjectGroup>,
     onSelect: (accountId: String, projectId: String) -> Unit,
     onDismiss: () -> Unit,
+    onCreateProject: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     ModalBottomSheet(
@@ -51,14 +56,23 @@ fun ProjectSwitcherSheet(
         containerColor = GlassTokens.BackgroundBottom,
     ) {
         if (groups.isEmpty()) {
-            Text(
-                "No projects yet. Create your first project on the web or desktop app.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 32.dp),
-            )
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    "No projects yet. Create your first project to get started.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+                Button(onClick = onCreateProject, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("New project")
+                }
+            }
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
@@ -67,6 +81,13 @@ fun ProjectSwitcherSheet(
             ) {
                 items(groups, key = { it.accountId }) { group ->
                     ServerSection(group = group, onSelect = onSelect)
+                }
+                item(key = "__new_project__") {
+                    Button(onClick = onCreateProject, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("New project")
+                    }
                 }
             }
         }

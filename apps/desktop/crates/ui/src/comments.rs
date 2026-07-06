@@ -49,6 +49,17 @@ pub(crate) fn author_label(author: Option<&User>) -> String {
         .unwrap_or_else(|| "Someone".to_string())
 }
 
+/// Display label for a resolved `user_id` whose row may be missing: the row's
+/// [`author_label`] when present, else the `Member <LAST4>` fallback (the
+/// server no longer syncs user rows for public-workspace co-members, so an id
+/// referenced by an issue/comment/event can resolve to no row).
+pub(crate) fn user_label(user_id: &str, user: Option<&User>) -> String {
+    match user {
+        Some(user) => author_label(Some(user)),
+        None => domain::member_fallback_label(user_id),
+    }
+}
+
 /// Tolerant ISO-8601 → unix seconds. Accepts the two forms Electric/tRPC
 /// emit for Postgres timestamptz (`2026-07-03T10:00:00Z`-style RFC 3339 and
 /// the `2026-07-03 10:00:00+00` space form) plus bare dates.
@@ -139,7 +150,10 @@ pub(crate) fn comment_row(
     props: CommentRowProps<'_>,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
-    let name = author_label(props.author);
+    let name = match props.comment.author_id.as_deref() {
+        Some(id) => user_label(id, props.author),
+        None => author_label(props.author),
+    };
     let comment_id = props.comment.id.clone();
     let created = props.comment.created_at.as_deref().unwrap_or("");
     let mut meta = relative_time(created, props.now_epoch);
@@ -314,6 +328,18 @@ mod tests {
         assert_eq!(author_label(Some(&agent)), "Agent");
 
         assert_eq!(author_label(None), "Someone");
+    }
+
+    #[test]
+    fn user_label_falls_back_to_member_when_row_missing() {
+        let user: User = serde_json::from_value(json!({
+            "id": "u-1", "name": "Ada Lovelace"
+        }))
+        .unwrap();
+        // Present row → the normal author label.
+        assert_eq!(user_label("u-1", Some(&user)), "Ada Lovelace");
+        // Missing row (un-synced co-member) → the Member fallback, not "Someone".
+        assert_eq!(user_label("user_abc123ef", None), "Member 23EF");
     }
 
     #[test]

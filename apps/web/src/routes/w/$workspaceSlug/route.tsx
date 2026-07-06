@@ -14,6 +14,7 @@ import { WorkspaceSidebar } from "@/components/workspace/sidebar"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
+import { WorkspaceJoinGate } from "@/components/workspace/join-gate"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
@@ -41,14 +42,19 @@ export const Route = createFileRoute(`/w/$workspaceSlug`)({
           params: { workspaceSlug: workspace.slug },
         })
       }
-      return { session, user }
+      return { session, user, joinGateWorkspace: null }
     }
 
     // Public-aware lookup. Anonymous callers can resolve a public workspace
     // and continue; authed non-members of a private workspace get NOT_FOUND.
     try {
-      await trpc.workspaces.getBySlug.query({ slug })
-      return { session, user }
+      const workspace = await trpc.workspaces.getBySlug.query({ slug })
+      // Public boards don't sync for signed-in non-members — instead of an
+      // empty shell, show the explicit join gate.
+      if (workspace.isPublic && session && workspace.membership === null) {
+        return { session, user, joinGateWorkspace: workspace }
+      }
+      return { session, user, joinGateWorkspace: null }
     } catch (e) {
       const isNotFound =
         e instanceof TRPCClientError && e.data?.code === `NOT_FOUND`
@@ -70,6 +76,7 @@ export const Route = createFileRoute(`/w/$workspaceSlug`)({
 
 function WorkspaceLayout() {
   const { workspaceSlug } = Route.useParams()
+  const { joinGateWorkspace } = Route.useRouteContext()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const projects = useWorkspaceProjects(workspace?.id)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -87,6 +94,16 @@ function WorkspaceLayout() {
     window.addEventListener(`keydown`, handleKeyDown)
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [])
+
+  if (joinGateWorkspace) {
+    return (
+      <WorkspaceJoinGate
+        workspaceSlug={workspaceSlug}
+        workspaceName={joinGateWorkspace.name}
+        workspaceId={joinGateWorkspace.id}
+      />
+    )
+  }
 
   return (
     <SidebarProvider>

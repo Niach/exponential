@@ -10,20 +10,26 @@ public struct WorkspacePermissions: Sendable {
     public let isOwner: Bool
     public let isAdmin: Bool
 
-    // Members and admins are moderators. Non-moderators in public workspaces
-    // can only set title, description, and labels — never status, priority,
-    // assignee, due date / time, or recurrence.
-    public var isModerator: Bool { isMember || isAdmin }
+    // Public-workspace membership is an open self-service join, so a plain
+    // member there is a participant, not a moderator — mirrors the server's
+    // isWorkspaceModerator / assertIssueAccess rules. A member is privileged
+    // only in a private workspace, or as the workspace owner.
+    public var isPrivilegedMember: Bool {
+        isMember && (workspaceIsPublic != true || isOwner)
+    }
+
+    // Privileged members and admins are moderators. Non-moderators in public
+    // workspaces can only set title, description, and labels — never status,
+    // priority, assignee, due date / time, or recurrence.
+    public var isModerator: Bool { isPrivilegedMember || isAdmin }
 
     public let canCreate: Bool
 
     public func canMutateIssue(creatorId: String?) -> Bool {
         guard isAuthed else { return false }
-        if isMember { return true }
+        if isPrivilegedMember { return true }
+        if workspaceIsPublic == true, creatorId == currentUserId { return true }
         if isAdmin { return true }
-        if let workspaceIsPublic, workspaceIsPublic, creatorId == currentUserId {
-            return true
-        }
         return false
     }
 

@@ -174,6 +174,17 @@ pub struct User {
     pub updated_at: Option<String>,
 }
 
+/// Display fallback for a user id whose [`User`] row didn't sync: the server
+/// no longer syncs user rows for public-workspace co-members, so a known id can
+/// resolve to no row. Rather than leak the raw id (or a misleading "Someone"),
+/// show `Member <LAST4>` — the uppercased last four chars of the id.
+pub fn member_fallback_label(user_id: &str) -> String {
+    let chars: Vec<char> = user_id.chars().collect();
+    let start = chars.len().saturating_sub(4);
+    let tail: String = chars[start..].iter().collect();
+    format!("Member {}", tail.to_uppercase())
+}
+
 /// `workspace_members` shape row.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct WorkspaceMember {
@@ -357,6 +368,14 @@ pub struct CodingSession {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn member_fallback_uses_uppercased_last_four() {
+        assert_eq!(member_fallback_label("user_abc123ef"), "Member 23EF");
+        // Shorter ids just use the whole id.
+        assert_eq!(member_fallback_label("ab"), "Member AB");
+        assert_eq!(member_fallback_label(""), "Member ");
+    }
 
     #[test]
     fn issue_hydrates_from_snake_map_with_heterogeneous_scalars() {

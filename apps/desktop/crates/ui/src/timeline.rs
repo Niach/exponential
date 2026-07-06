@@ -539,12 +539,10 @@ fn event_row(
     cx: &App,
 ) -> Option<impl IntoElement> {
     let (icon, phrase) = event_phrase(event, user_map, label_map)?;
-    let actor_name = event
-        .actor_user_id
-        .as_deref()
-        .and_then(|id| user_map.get(id))
-        .map(|user| comments::author_label(Some(user)))
-        .unwrap_or_else(|| "Someone".to_string());
+    let actor_name = match event.actor_user_id.as_deref() {
+        Some(id) => comments::user_label(id, user_map.get(id)),
+        None => "Someone".to_string(),
+    };
 
     Some(
         h_flex()

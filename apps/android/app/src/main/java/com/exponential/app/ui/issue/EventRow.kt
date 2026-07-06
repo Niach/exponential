@@ -17,12 +17,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.ui.components.userDisplayName
 
 // Compact Linear-style activity line for non-agent events (status/assignee/label).
 // Extracted from CommentThread.kt (pure move — no behavior change).
 @Composable
 internal fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
-    val who = actor?.name ?: actor?.email ?: "Someone"
+    val who = userDisplayName(actor, event.actorUserId)
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,

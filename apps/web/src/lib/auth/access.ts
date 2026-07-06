@@ -95,8 +95,10 @@ export async function resolveWorkspaceAccess(
 // ---------------------------------------------------------------------------
 
 // - `read`: anyone who can read the workspace.
-// - `write` / `delete`: member, OR (in a public workspace) the issue creator or
-//   an instance admin. publicWritePolicy gates create, not mutation.
+// - `write` / `delete`: in a private workspace any member. In a PUBLIC
+//   workspace membership is an open self-service join, so plain members get no
+//   blanket mutation rights — only owner-members, the issue creator, or an
+//   instance admin. publicWritePolicy gates create, not mutation.
 export type IssueAction = `read` | `write` | `delete`
 
 export async function assertIssueAccess(
@@ -121,7 +123,9 @@ export async function assertIssueAccess(
         })
       }
       const member = await getWorkspaceMember(userId, issueContext.workspaceId)
-      if (member) return issueContext
+      if (member && (!workspace.isPublic || member.role === `owner`)) {
+        return issueContext
+      }
       if (workspace.isPublic) {
         const db = await getDb()
         const [issue] = await db

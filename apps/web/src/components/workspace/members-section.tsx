@@ -18,6 +18,7 @@ import { invalidateBillingCache } from "@/hooks/use-billing"
 import { useWorkspaceInvites } from "@/hooks/use-workspace-data"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { getInitials } from "@/lib/utils"
+import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -66,9 +67,15 @@ export function WorkspaceMembersSection({
     await trpc.workspaceMembers.updateRole.mutate({ memberId, role })
   }
 
-  const handleRemove = async (memberId: string) => {
+  const handleRemove = async (memberId: string, isSelf: boolean) => {
     await trpc.workspaceMembers.remove.mutate({ memberId })
     invalidateBillingCache()
+    // Leaving the workspace you're looking at changes every shape's where
+    // clause and drops your read access — hard-navigate home so all Electric
+    // collections restart cleanly.
+    if (isSelf) {
+      window.location.assign(`/w/default`)
+    }
   }
 
   return (
@@ -88,7 +95,7 @@ export function WorkspaceMembersSection({
           {members.map((member) => {
             const isSelf = member.userId === currentUserId
             const user = userMap.get(member.userId)
-            const displayName = user?.name ?? member.userId
+            const displayName = displayUserName(user, member.userId)
             const roleIcon =
               member.role === `owner` ? (
                 <Crown className="h-3.5 w-3.5" />
@@ -169,7 +176,7 @@ export function WorkspaceMembersSection({
                         )}
                         {isSelf ? (
                           <DropdownMenuItem
-                            onClick={() => handleRemove(member.id)}
+                            onClick={() => handleRemove(member.id, true)}
                             className="text-destructive"
                           >
                             <UserMinus className="mr-2 h-4 w-4" />
@@ -178,7 +185,7 @@ export function WorkspaceMembersSection({
                         ) : (
                           isOwner && (
                             <DropdownMenuItem
-                              onClick={() => handleRemove(member.id)}
+                              onClick={() => handleRemove(member.id, false)}
                               className="text-destructive"
                             >
                               <UserMinus className="mr-2 h-4 w-4" />

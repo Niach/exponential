@@ -47,9 +47,7 @@ import {
   getWorkspaceUsage,
   assertCanInviteMember,
   assertCanCreateWidget,
-  assertCanCreateWorkspace,
   assertWithinStorageLimit,
-  FREE_OWNED_WORKSPACES_CAP,
   type PlanTier,
 } from "./billing"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "./plan-limit-error"
@@ -280,30 +278,6 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
   it(`self-hosted skips the gate`, async () => {
     cloud.value = false
     await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
-  })
-})
-
-describe(`assertCanCreateWorkspace — invisible free-tier abuse cap`, () => {
-  it(`free user under the cap passes`, async () => {
-    selectResults.push([]) // getUserPlan → free
-    selectResults.push([{ count: FREE_OWNED_WORKSPACES_CAP - 1 }]) // owned count
-    await expect(assertCanCreateWorkspace(USER)).resolves.toBeUndefined()
-  })
-
-  it(`free user at the cap is blocked with a contact-us message`, async () => {
-    selectResults.push([]) // getUserPlan → free
-    selectResults.push([{ count: FREE_OWNED_WORKSPACES_CAP }]) // owned count
-    await expect(assertCanCreateWorkspace(USER)).rejects.toThrow(/Contact us/)
-  })
-
-  it(`paid user is never capped (no owned-count query needed)`, async () => {
-    selectResults.push([{ productId: BUSINESS_ID }]) // getUserPlan → business
-    await expect(assertCanCreateWorkspace(USER)).resolves.toBeUndefined()
-  })
-
-  it(`self-hosted skips the cap`, async () => {
-    cloud.value = false
-    await expect(assertCanCreateWorkspace(USER)).resolves.toBeUndefined()
   })
 })
 

@@ -7,15 +7,17 @@ import {
   generateTxId,
 } from "@/lib/trpc"
 import { workspaces, workspaceMembers } from "@/db/schema"
-import { publicWritePolicySchema } from "@exp/db-schema/domain"
-import { and, eq } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { randomBytes } from "crypto"
-import { assertCanCreateWorkspace } from "@/lib/billing"
+import { isUserAdmin } from "@/lib/admin"
+import {
+  createPersonalWorkspace,
+  findNonPublicMembership,
+} from "@/lib/auth/personal-workspace"
 import {
   assertWorkspaceOwner,
   assertNotPublicWorkspace,
   getWorkspaceMember,
-  invalidatePublicWorkspaceCache,
 } from "@/lib/workspace-membership"
 
 function slugify(input: string): string {
@@ -56,22 +58,11 @@ export const workspacesRouter = router({
     const userName = ctx.session.user.name || `My`
 
     return await ctx.db.transaction(async (tx) => {
-      // Check if user has any non-public workspace memberships. We never
-      // pick the public workspace as the user's "default" landing spot.
-      const [membership] = await tx
-        .select({ workspaceId: workspaceMembers.workspaceId })
-        .from(workspaceMembers)
-        .innerJoin(
-          workspaces,
-          eq(workspaces.id, workspaceMembers.workspaceId)
-        )
-        .where(
-          and(
-            eq(workspaceMembers.userId, userId),
-            eq(workspaces.isPublic, false)
-          )
-        )
-        .limit(1)
+      // Normally the signup hook already created the personal workspace
+      // (lib/auth/personal-workspace.ts); this is the self-heal path for
+      // legacy accounts. We never pick the public workspace as the user's
+      // "default" landing spot.
+      const membership = await findNonPublicMembership(tx, userId)
 
       if (membership) {
         const [workspace] = await tx
@@ -82,22 +73,10 @@ export const workspacesRouter = router({
         return { workspace, txId: 0 }
       }
 
-      // Create a new workspace with unique slug
-      const slug = `ws-${randomBytes(4).toString(`hex`)}`
       const txId = await generateTxId(tx)
-      const [workspace] = await tx
-        .insert(workspaces)
-        .values({
-          name: `${userName}'s Workspace`,
-          slug,
-        })
-        .returning()
-
-      // Add user as owner
-      await tx.insert(workspaceMembers).values({
-        workspaceId: workspace.id,
+      const workspace = await createPersonalWorkspace(tx, {
         userId,
-        role: `owner`,
+        userName,
       })
 
       return { workspace, txId }
@@ -113,9 +92,16 @@ export const workspacesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      // Per-plan cap on owned workspaces (cloud only). Checked before the tx so
-      // the FORBIDDEN path stays cheap. ensureDefault is intentionally exempt.
-      await assertCanCreateWorkspace(userId)
+      // Regular users live in their single auto-created personal workspace and
+      // collaborate via invites — only instance admins may create additional
+      // workspaces. (ensureDefault is the personal-workspace path and stays
+      // open to everyone.)
+      if (!(await isUserAdmin(userId))) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only instance admins can create workspaces`,
+        })
+      }
 
       return await ctx.db.transaction(async (tx) => {
         const slug = await uniqueSlug(tx, input.name)
@@ -140,13 +126,15 @@ export const workspacesRouter = router({
       })
     }),
 
+  // `isPublic`/`publicWritePolicy` are deliberately NOT updatable here: the
+  // only public workspace is the bootstrap-created feedback board, and its
+  // flags are written directly by the bootstrap. Regular workspaces stay
+  // private, always.
   update: authedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
-        isPublic: z.boolean().optional(),
-        publicWritePolicy: publicWritePolicySchema.optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
       })
     )
@@ -154,7 +142,7 @@ export const workspacesRouter = router({
       const { id, ...updates } = input
       await assertWorkspaceOwner(ctx.session.user.id, id)
 
-      const result = await ctx.db.transaction(async (tx) => {
+      return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [workspace] = await tx
           .update(workspaces)
@@ -163,12 +151,6 @@ export const workspacesRouter = router({
           .returning()
         return { workspace, txId }
       })
-
-      if (input.isPublic !== undefined) {
-        invalidatePublicWorkspaceCache()
-      }
-
-      return result
     }),
 
   delete: authedProcedure
@@ -190,8 +172,10 @@ export const workspacesRouter = router({
     }),
 
   // Public read of minimal workspace metadata by slug. Used by the route guard
-  // to decide whether anonymous viewing is permitted. Returns NOT_FOUND for
-  // private workspaces the caller can't access, to avoid leaking existence.
+  // to decide whether anonymous viewing is permitted and whether an authed
+  // caller needs the join gate (`membership` is the caller's role, null for
+  // anonymous callers and non-members). Returns NOT_FOUND for private
+  // workspaces the caller can't access, to avoid leaking existence.
   getBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1).max(255) }))
     .query(async ({ ctx, input }) => {
@@ -211,16 +195,15 @@ export const workspacesRouter = router({
       if (!workspace) {
         throw new TRPCError({ code: `NOT_FOUND` })
       }
-      if (workspace.isPublic) return workspace
 
       const userId = ctx.session?.user?.id
-      if (!userId) {
+      const member = userId
+        ? await getWorkspaceMember(userId, workspace.id)
+        : undefined
+
+      if (!workspace.isPublic && !member) {
         throw new TRPCError({ code: `NOT_FOUND` })
       }
-      const member = await getWorkspaceMember(userId, workspace.id)
-      if (!member) {
-        throw new TRPCError({ code: `NOT_FOUND` })
-      }
-      return workspace
+      return { ...workspace, membership: member?.role ?? null }
     }),
 })

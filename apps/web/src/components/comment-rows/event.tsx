@@ -6,6 +6,7 @@ import {
   UserPlus,
 } from "lucide-react"
 import type { IssueEvent, Label, User } from "@/db/schema"
+import { displayUserName } from "@/lib/user-display"
 
 function statusLabel(s: string): string {
   return s.replace(/_/g, ` `)
@@ -22,7 +23,7 @@ export function EventRow({
   labelMap: Map<string, Label>
 }) {
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
-  const actorName = actor?.name || actor?.email || `Someone`
+  const actorName = displayUserName(actor, event.actorUserId)
   const payload = (event.payload ?? {}) as Record<string, unknown>
 
   let Icon = CircleDot
@@ -50,7 +51,7 @@ export function EventRow({
         <>
           assigned{` `}
           <span className="font-medium text-foreground">
-            {to ? to.name || to.email : `someone`}
+            {displayUserName(to, String(payload.to))}
           </span>
         </>
       ) : (

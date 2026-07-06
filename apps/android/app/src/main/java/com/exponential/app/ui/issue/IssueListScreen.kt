@@ -36,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -70,6 +71,7 @@ import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.home.ProjectSwitcherSheet
+import com.exponential.app.ui.onboarding.CreateProjectSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -101,6 +103,7 @@ fun IssueListScreen(
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
+    var showCreateProject by remember { mutableStateOf(false) }
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
 
     // Root mode resolves the project outside the nav args (last-used → first),
@@ -154,13 +157,21 @@ fun IssueListScreen(
                 if (homeState?.projectTree?.isNotEmpty() == true) {
                     LoadingState()
                 } else {
+                    val syncingOrError = homeState?.isSyncing == true || homeError != null
                     EmptyState(
                         message = when {
                             homeState?.isSyncing == true -> "Syncing…"
                             homeError != null -> homeError
-                            else -> "No projects yet. Create your first project on the web or desktop app."
+                            else -> "No projects yet. Create your first project to get started."
                         },
                         icon = Icons.Filled.UnfoldMore,
+                        action = if (syncingOrError) null else {
+                            {
+                                Button(onClick = { showCreateProject = true }) {
+                                    Text("Create project")
+                                }
+                            }
+                        },
                     )
                 }
             } else {
@@ -199,6 +210,20 @@ fun IssueListScreen(
                 showSwitcher = false
             },
             onDismiss = { showSwitcher = false },
+            onCreateProject = {
+                showSwitcher = false
+                showCreateProject = true
+            },
+        )
+    }
+
+    if (showCreateProject) {
+        // The new project's last-used pointer swaps the root list in place, so
+        // dismissing is all this needs to do on success.
+        CreateProjectSheet(
+            workspaceId = null,
+            onCreated = { showCreateProject = false },
+            onDismiss = { showCreateProject = false },
         )
     }
 }

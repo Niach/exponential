@@ -62,10 +62,7 @@ func eventPhrase(
         return "changed status to \(statusLabel(to))"
     case "assignee_changed":
         guard let to = eventField(event.payload, "to") else { return "unassigned this issue" }
-        if let name = users[to].map({ $0.name ?? $0.email }) {
-            return "assigned \(name)"
-        }
-        return "assigned this issue"
+        return "assigned \(memberDisplayName(users[to], id: to))"
     case "label_added":
         if let id = eventField(event.payload, "labelId"), let name = labels?[id]?.name {
             return "added label \(name)"

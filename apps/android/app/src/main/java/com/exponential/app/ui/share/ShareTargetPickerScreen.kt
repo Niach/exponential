@@ -127,7 +127,7 @@ fun ShareTargetPickerScreen(
             when {
                 state.isLoading -> LoadingState()
                 state.groups.isEmpty() -> EmptyState(
-                    message = "No projects yet — open Exponential and let it sync, then try sharing again.",
+                    message = "Open Exponential to create your first project, then try sharing again.",
                     icon = Icons.Filled.Inbox,
                 )
                 else -> LazyColumn(

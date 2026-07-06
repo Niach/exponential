@@ -11,7 +11,6 @@ export {
   invalidatePublicWorkspaceCache,
   getUserWorkspaceIds,
   getUserProjectIds,
-  getUserIdsInWorkspaces,
   getWorkspaceMember,
   assertWorkspaceMember,
   assertWorkspaceOwner,

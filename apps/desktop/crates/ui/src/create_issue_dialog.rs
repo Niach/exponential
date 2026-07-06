@@ -1252,12 +1252,14 @@ pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     Some(rgb_hsla(r, g, b))
 }
 
-/// A user's display name (name, else email, else id — web shows `user.name`).
+/// A user's display name (name, else email, else the `Member <LAST4>` fallback
+/// — web shows `user.name`; a row with neither field is a co-member whose PII
+/// didn't sync).
 fn display_name(user: &User) -> String {
     user.name
         .clone()
         .or_else(|| user.email.clone())
-        .unwrap_or_else(|| user.id.clone())
+        .unwrap_or_else(|| domain::member_fallback_label(&user.id))
 }
 
 /// Validate an `HH:MM` time input (the server's zod shape). Empty/invalid →

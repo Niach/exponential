@@ -540,13 +540,18 @@ fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
         .as_deref()
         .and_then(|id| Store::global(cx).collections().users.read(cx).get(id).cloned());
 
-    let trigger = match &assignee {
-        Some(user) => Button::new(row_id("assignee", &issue.id))
+    let trigger = match issue.assignee_id.as_deref() {
+        // Assigned — the avatar seeds from the member's name, or `Member
+        // <LAST4>` when the co-member's user row didn't sync.
+        Some(id) => Button::new(row_id("assignee", &issue.id))
             .ghost()
             .xsmall()
             .child(
                 Avatar::new()
-                    .name(SharedString::from(crate::comments::author_label(Some(user))))
+                    .name(SharedString::from(crate::comments::user_label(
+                        id,
+                        assignee.as_ref(),
+                    )))
                     .xsmall(),
             ),
         None => Button::new(row_id("assignee", &issue.id)).ghost().xsmall().child(

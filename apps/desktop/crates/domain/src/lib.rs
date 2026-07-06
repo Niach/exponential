@@ -31,6 +31,7 @@ pub mod options;
 pub mod rows;
 
 pub use enums::{IssuePriority, IssueStatus};
+pub use rows::member_fallback_label;
 pub use filters::{
     active_filter_count, derive_active_tab, empty_filters, has_active_filters, matches_filters,
     tab_preset_statuses, IssueFilters, TabPreset,

@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassSection
@@ -86,7 +87,7 @@ fun SteerPanel(
                     color = LiveGreen,
                 )
                 Spacer(Modifier.width(8.dp))
-                val who = sessionOwner?.let { it.name ?: it.email } ?: "Someone"
+                val who = userDisplayName(sessionOwner, session.userId)
                 val device = session.deviceLabel?.takeIf { it.isNotBlank() }
                 Text(
                     who + if (device != null) " · $device" else "",

@@ -36,6 +36,7 @@ mod file_viewer;
 mod filter_bar;
 mod filter_popover;
 mod git_bar;
+mod github_connect;
 mod icons;
 mod inbox;
 mod issue_changes;

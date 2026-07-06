@@ -173,7 +173,9 @@ export function WorkspaceSidebar({
                     </DropdownMenuItem>
                   ))}
                 {isAuthed && <DropdownMenuSeparator />}
-                {isAuthed && (
+                {/* Workspace creation is admin-only: regular users live in
+                    their single personal workspace (server enforces too). */}
+                {isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>
                     <Plus className="h-4 w-4" />
                     New workspace
@@ -371,7 +373,7 @@ export function WorkspaceSidebar({
                   <Bell className="mr-2 h-4 w-4" />
                   Notifications
                 </DropdownMenuItem>
-                {!showChrome && (
+                {!showChrome && isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
                     New workspace
@@ -409,7 +411,7 @@ export function WorkspaceSidebar({
           workspaceId={workspace.id}
         />
       )}
-      {isAuthed && (
+      {isAdminUser(session?.user) && (
         <CreateWorkspaceDialog
           open={createWorkspaceOpen}
           onOpenChange={setCreateWorkspaceOpen}

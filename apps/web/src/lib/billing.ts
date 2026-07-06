@@ -186,24 +186,6 @@ export async function countOwnedWorkspaces(userId: string): Promise<number> {
   return row?.count ?? 0
 }
 
-// Invisible abuse guard: a FREE user may own at most FREE_OWNED_WORKSPACES_CAP
-// workspaces (storage-farming guard, not a marketed limit). Paid users are
-// uncapped. Never called on the auto-created first workspace (ensureDefault is
-// exempt by design).
-export async function assertCanCreateWorkspace(userId: string): Promise<void> {
-  if (!isCloudInstance()) return
-
-  const { plan } = await getUserPlan(userId)
-  if (plan !== `free`) return
-
-  const owned = await countOwnedWorkspaces(userId)
-  if (owned >= FREE_OWNED_WORKSPACES_CAP) {
-    throw planLimitError(
-      `up to ${FREE_OWNED_WORKSPACES_CAP} workspaces. Contact us if you need more.`
-    )
-  }
-}
-
 export type WorkspaceUsage = {
   // Human members only — the widget's synthetic isAgent user is excluded so a
   // fresh single-owner workspace reads "1 member", never "2".

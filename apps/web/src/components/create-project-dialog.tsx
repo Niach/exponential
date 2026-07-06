@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react"
-import { Link } from "@tanstack/react-router"
-import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Check, Github } from "lucide-react"
 import {
   Dialog,
@@ -15,7 +13,6 @@ import { Label } from "@/components/ui/label"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
-import { workspaceCollection } from "@/lib/collections"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { derivePrefix } from "@/lib/project"
@@ -51,15 +48,6 @@ export function CreateProjectDialog({
 
   const [selection, setSelection] = useState<RepoSelection | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const { data: workspaceRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ workspaces: workspaceCollection })
-        .where(({ workspaces }) => eq(workspaces.id, workspaceId)),
-    [workspaceId]
-  )
-  const workspaceSlug = workspaceRows?.[0]?.slug ?? null
 
   useEffect(() => {
     void getRuntimeConfig().then((config) => {
@@ -130,37 +118,6 @@ export function CreateProjectDialog({
   const selectedInlineName =
     selection?.kind === `inline` ? selection.repo.fullName : null
 
-  // The App-absent empty state used inside the picker: point owners at
-  // workspace settings → Repositories to install the GitHub App.
-  const installEmptyState = (
-    <div className="space-y-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
-      <div className="flex items-start gap-2">
-        <Github className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>
-          No repository is connected yet. Connect the GitHub App in workspace
-          settings, then pick a repository here.
-        </span>
-      </div>
-      {workspaceSlug && (
-        <Button
-          asChild
-          type="button"
-          variant="link"
-          size="sm"
-          className="px-0"
-        >
-          <Link
-            to="/w/$workspaceSlug/settings"
-            params={{ workspaceSlug }}
-            onClick={() => onOpenChange(false)}
-          >
-            Go to Repositories settings
-          </Link>
-        </Button>
-      )}
-    </div>
-  )
-
   return (
     <>
       <Dialog
@@ -216,7 +173,6 @@ export function CreateProjectDialog({
                   })
                 }
                 onConnectNew={handlePickerSelect}
-                installEmptyState={installEmptyState}
                 appendedRow={
                   selectedInlineName ? (
                     <div className="flex w-full items-center gap-2 px-3 py-2 text-sm">

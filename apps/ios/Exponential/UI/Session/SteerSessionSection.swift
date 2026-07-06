@@ -121,7 +121,7 @@ struct SteerSessionSection: View {
     }
 
     private func sessionByline(owner: UserEntity?, session: CodingSessionEntity) -> String {
-        let name = owner?.name ?? owner?.email ?? "Someone"
+        let name = memberDisplayName(owner, id: session.userId)
         if let device = session.deviceLabel, !device.isEmpty {
             return "\(name) · \(device)"
         }

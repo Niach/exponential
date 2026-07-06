@@ -39,7 +39,7 @@ export function RegularCommentRow({
   const bodyText = getCommentBodyText(comment.body)
   const [draft, setDraft] = useState(bodyText)
   const [saving, setSaving] = useState(false)
-  const name = authorLabel(author, false)
+  const name = authorLabel(author, false, comment.authorId)
 
   const handleSave = async () => {
     const trimmed = draft.trim()

@@ -10,6 +10,7 @@ import { db } from "@/db/connection"
 import * as schema from "@/db/auth-schema"
 import { parseOidcProviders, type OidcProviderConfig } from "@/lib/oidc-providers"
 import { isCloudInstance, maybePromoteNewUser } from "@/lib/bootstrap-cloud"
+import { ensurePersonalWorkspace } from "@/lib/auth/personal-workspace"
 import {
   emailEnabled,
   sendPasswordResetEmail,
@@ -204,6 +205,24 @@ export const auth = betterAuth({
           } catch (err) {
             console.error(
               `[auth] maybePromoteNewUser failed for ${user.email}:`,
+              err
+            )
+          }
+          // Every real account gets its personal workspace at signup so any
+          // client (web, mobile, desktop) sees a consistent state. Synthetic
+          // agent users are inserted directly via Drizzle and never hit this
+          // hook; the guard is defense-in-depth. Failures never block signup —
+          // workspaces.ensureDefault self-heals later.
+          try {
+            if (!(user as { isAgent?: boolean }).isAgent) {
+              await ensurePersonalWorkspace({
+                userId: user.id,
+                userName: user.name ?? null,
+              })
+            }
+          } catch (err) {
+            console.error(
+              `[auth] ensurePersonalWorkspace failed for ${user.email}:`,
               err
             )
           }

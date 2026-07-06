@@ -45,9 +45,8 @@ export function CreateWorkspaceDialog({
         navigate({ to: `/w/$workspaceSlug`, params: { workspaceSlug: newSlug } })
       }
     } catch (e) {
-      // The owned-workspace cap is an INVISIBLE abuse guard (masterplan §3.2)
-      // — never an upgrade nudge. Surface the server's "contact us" message
-      // inline like any other error.
+      // Admin-only mutation (the dialog is only mounted for admins) — surface
+      // any server error inline.
       setError(e instanceof Error ? e.message : `Failed to create workspace`)
     } finally {
       setSubmitting(false)

@@ -36,7 +36,7 @@ struct WorkspaceMembersSection: View {
                 let user = users.first { $0.id == member.userId }
                 HStack(spacing: 12) {
                     // Avatar
-                    let initial = (user?.name ?? user?.email ?? "?").prefix(1).uppercased()
+                    let initial = memberDisplayName(user, id: member.userId).prefix(1).uppercased()
                     Text(initial)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.white)
@@ -46,7 +46,7 @@ struct WorkspaceMembersSection: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 4) {
-                            Text(user?.name ?? "Unknown")
+                            Text(memberDisplayName(user, id: member.userId))
                                 .font(.subheadline)
                                 .foregroundStyle(.white)
                             if member.userId == currentUserId {
