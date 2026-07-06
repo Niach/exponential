@@ -23,7 +23,7 @@ export function TermsPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · issue tracker · last updated 2026-05-26
+            Exponential · issue tracker · last updated 2026-07-07
           </p>
 
           <p style={prose}>
@@ -61,10 +61,15 @@ export function TermsPage() {
 
           <h2 style={h2Style}>Cloud service</h2>
           <p style={prose}>
-            The hosted cloud instance at app.exponential.at is provided free
-            of charge during the current preview period. Availability, pricing,
-            and feature scope may change. Data stored on the cloud instance is
-            processed on infrastructure operated by the author; see the{` `}
+            The hosted cloud instance at app.exponential.at is offered on a
+            free tier and paid subscription plans (see{` `}
+            <a href="/pricing/" style={linkStyle}>
+              Pricing
+            </a>
+            ). Paid subscriptions are billed per seat through Creem, our
+            merchant of record. Availability, pricing, and feature scope may
+            change. Data stored on the cloud instance is processed on
+            infrastructure operated by the author; see the{` `}
             <a href="/privacy/" style={linkStyle}>
               Privacy Policy
             </a>{` `}
@@ -84,9 +89,9 @@ export function TermsPage() {
           <h2 style={h2Style}>Third-party integrations</h2>
           <p style={prose}>
             Exponential can optionally connect to third-party services such as
-            Google Calendar via OAuth, at the user’s explicit choice. Use of
-            those services is also governed by the third party’s own terms and
-            policies. See the{` `}
+            GitHub, via the Exponential GitHub App, at the user’s explicit
+            choice. Use of those services is also governed by the third party’s
+            own terms and policies. See the{` `}
             <a href="/privacy/" style={linkStyle}>
               Privacy Policy
             </a>{` `}
