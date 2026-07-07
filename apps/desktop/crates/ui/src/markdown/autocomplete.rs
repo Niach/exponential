@@ -12,6 +12,7 @@
 
 use std::rc::Rc;
 
+use domain::rows::Issue;
 use gpui::{App, SharedString};
 use sync::Store;
 
@@ -148,15 +149,8 @@ impl CompletionSource for StoreCompletionSource {
                 items
             }
             CompletionTrigger::IssueRef => {
-                let ident_needle = query.to_uppercase();
-                let title_needle = query.to_lowercase();
                 let mut issues = collections.issues_in_workspace(&self.workspace_id, cx);
-                issues.retain(|issue| {
-                    query.is_empty()
-                        || issue.identifier.to_uppercase().starts_with(&ident_needle)
-                        || issue.title.to_lowercase().starts_with(&title_needle)
-                });
-                issues.sort_by(|a, b| sync::cmp_identifiers(&a.identifier, &b.identifier));
+                filter_and_rank_issue_refs(&mut issues, query);
                 issues.truncate(MAX_ITEMS);
                 issues
                     .into_iter()
@@ -170,6 +164,29 @@ impl CompletionSource for StoreCompletionSource {
             }
         }
     }
+}
+
+/// Filter + rank `#` candidates the way the web `IssueRefProvider.search`
+/// does (iOS and Android mirror it): case-insensitive SUBSTRING match on
+/// identifier or title, newest-created first — so the empty query surfaces
+/// the most recent work. Ties (equal or missing `created_at`) fall back to
+/// the natural identifier order, highest number first, keeping the ranking
+/// deterministic.
+fn filter_and_rank_issue_refs(issues: &mut Vec<Issue>, query: &str) {
+    let needle = query.to_lowercase();
+    issues.retain(|issue| {
+        needle.is_empty()
+            || issue.identifier.to_lowercase().contains(&needle)
+            || issue.title.to_lowercase().contains(&needle)
+    });
+    // `Option<String>` on ISO-8601 timestamps: lexicographic == chronological,
+    // and `None` (no created_at) sorts before every `Some` — reversed here so
+    // undated rows land last.
+    issues.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| sync::cmp_identifiers(&b.identifier, &a.identifier))
+    });
 }
 
 #[cfg(test)]
@@ -238,5 +255,75 @@ mod tests {
     fn cursor_mid_multibyte_char_is_safe() {
         // "é" is 2 bytes; offset 2 is inside it.
         assert_eq!(detect_trigger("@é", 2), None);
+    }
+
+    // -- filter_and_rank_issue_refs (web IssueRefProvider.search parity) ----
+
+    fn issue(identifier: &str, title: &str, created_at: Option<&str>) -> Issue {
+        serde_json::from_value(serde_json::json!({
+            "id": identifier,
+            "project_id": "p1",
+            "number": 1,
+            "identifier": identifier,
+            "title": title,
+            "status": "todo",
+            "created_at": created_at,
+        }))
+        .expect("issue fixture")
+    }
+
+    fn identifiers(issues: &[Issue]) -> Vec<&str> {
+        issues.iter().map(|i| i.identifier.as_str()).collect()
+    }
+
+    #[test]
+    fn issue_refs_match_title_substring() {
+        let mut issues = vec![
+            issue("EXP-1", "Fix login flow", Some("2026-07-01T00:00:00Z")),
+            issue("EXP-2", "Broken image upload", Some("2026-07-02T00:00:00Z")),
+        ];
+        filter_and_rank_issue_refs(&mut issues, "login");
+        assert_eq!(identifiers(&issues), vec!["EXP-1"]);
+    }
+
+    #[test]
+    fn issue_refs_match_identifier_substring_case_insensitively() {
+        let mut issues = vec![
+            issue("EXP-1", "a", Some("2026-07-01T00:00:00Z")),
+            issue("EXP-12", "b", Some("2026-07-02T00:00:00Z")),
+            issue("EXP-3", "c", Some("2026-07-03T00:00:00Z")),
+        ];
+        filter_and_rank_issue_refs(&mut issues, "xp-1");
+        assert_eq!(identifiers(&issues), vec!["EXP-12", "EXP-1"]);
+    }
+
+    #[test]
+    fn issue_refs_rank_newest_first_and_empty_query_keeps_all() {
+        let mut issues = vec![
+            issue("EXP-1", "oldest", Some("2026-06-01T00:00:00Z")),
+            issue("EXP-2", "undated", None),
+            issue("EXP-3", "newest", Some("2026-07-06T00:00:00Z")),
+        ];
+        filter_and_rank_issue_refs(&mut issues, "");
+        assert_eq!(identifiers(&issues), vec!["EXP-3", "EXP-1", "EXP-2"]);
+    }
+
+    #[test]
+    fn issue_refs_tie_break_on_identifier_number_desc() {
+        let same = Some("2026-07-01T00:00:00Z");
+        let mut issues = vec![
+            issue("EXP-2", "a", same),
+            issue("EXP-10", "b", same),
+            issue("EXP-9", "c", same),
+        ];
+        filter_and_rank_issue_refs(&mut issues, "exp");
+        assert_eq!(identifiers(&issues), vec!["EXP-10", "EXP-9", "EXP-2"]);
+    }
+
+    #[test]
+    fn issue_refs_without_match_are_dropped() {
+        let mut issues = vec![issue("EXP-1", "Fix login flow", None)];
+        filter_and_rank_issue_refs(&mut issues, "zzz");
+        assert!(issues.is_empty());
     }
 }
