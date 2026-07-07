@@ -371,7 +371,7 @@ export function WorkspaceSidebar({
                   onClick={() => navigate({ to: `/account/notifications` })}
                 >
                   <Bell className="mr-2 h-4 w-4" />
-                  Notifications
+                  Account & notifications
                 </DropdownMenuItem>
                 {!showChrome && isAdminUser(session?.user) && (
                   <DropdownMenuItem onClick={() => setCreateWorkspaceOpen(true)}>

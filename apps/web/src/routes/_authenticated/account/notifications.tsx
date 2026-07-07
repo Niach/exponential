@@ -107,10 +107,10 @@ function AccountNotifications() {
             Back
           </Link>
         </Button>
-        <h1 className="text-2xl font-bold">Notifications</h1>
+        <h1 className="text-2xl font-bold">Account</h1>
         <p className="text-sm text-muted-foreground">
-          Choose which notifications also reach you by email. In-app and push
-          notifications are always on.
+          Email notification preferences and account management. In-app and
+          push notifications are always on.
         </p>
       </div>
 
