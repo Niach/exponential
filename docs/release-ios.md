@@ -105,6 +105,23 @@ app and its extension is rejected at upload).
 > `V6W7BVCSM8`) resolves the Distribution certificate + profile, unless you enable the
 > `match` stanza in the `Fastfile`.
 
+Three hard-won signing/upload gotchas (all hit on the first real upload, 2026-07-07):
+
+- **Cloud signing needs an Admin-role ASC key** — with a lesser role, export fails with
+  `Cloud signing permission error`. The `build` lane passes the key via
+  `-allowProvisioningUpdates -authenticationKey*` xcargs.
+- **Do NOT let Apple's cloud signer sign the binary if the account name has an umlaut**:
+  it writes the designated requirement with NFD-decomposed characters while the cert CN is
+  NFC, so validation fails with `Invalid Signature … not properly signed` (error 90035) for
+  every framework. Fix: keep a **local** Apple Distribution cert in the login keychain
+  (`fastlane cert --api_key_path <json> --development false`) — xcodebuild then signs
+  locally and the DR matches. Verify before uploading:
+  `codesign --verify --deep --strict -v Payload/Exponential.app` must say
+  *satisfies its Designated Requirement*.
+- **Upload from a release Xcode, not a beta** — App Store Connect rejects beta-SDK builds
+  (error 90534). If `xcode-select -p` points at Xcode-beta, run the lanes with
+  `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+
 ## Store screenshots (automated)
 
 `fastlane screenshots` captures the six store shots (board, issue detail, comments,
