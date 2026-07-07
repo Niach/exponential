@@ -63,11 +63,12 @@ v2/v3/v4 locked decisions L1–L18 stay binding except where amended below.
 | L23 | **One run-config system.** The `.exponential/config.json` preview-target system (WebTarget/AndroidTarget/IosTarget, `previewConfig.targets`, web "Run Targets" dialog section, desktop discovery promise) is deleted. `run_configs` (DB, per project, argv/cwd/env, Trust & Run) is the only model; **argv-direct spawn stays** (no shell — L8/L5 security posture unchanged); editors present the command as a single line via argv⇄line parsing. Run-config editing is **IDE-only** (web shows no run-config UI). | amends v3 preview-target scope |
 | L24 | **L17 amendment**: the "Create run configs with Claude" task is a `claude_task` **with a scoped `.mcp.json`** (expu_ key, same as coding sessions) so Claude can call the new run-config MCP tools. Still no `coding_sessions` row, no worktree, always visible. All *other* Claude tasks (conflict fixing) remain MCP-less. | |
 | L25 | **The Integrations menu dies everywhere** (web account page + nav links, desktop Account pane, iOS, Android). GitHub App install/manage lives solely in **workspace settings → Repositories** (UI already exists there). `github_installations` stays user-scoped in the DB — only the surface moves. | EXP-3/EXP-12 |
-| L26 | **Mobile is a pure companion**: no workspace creation, no project creation (including onboarding — replaced by a "set up on the web" screen), no integrations. Issue creation only inside a project. | EXP-12 |
+| L26 | ~~**Mobile is a pure companion**: no workspace creation, no project creation (including onboarding — replaced by a "set up on the web" screen), no integrations. Issue creation only inside a project.~~ **SUPERSEDED by L31 (2026-07-07)** — row kept for the record; do not execute its removals. | EXP-12 |
 | L27 | **Duplicate = status interception.** Selecting status `duplicate` anywhere opens the duplicate-search picker; confirming sets `duplicateOfId` (server keeps status in lockstep); cancelling reverts the status control. The standalone "Mark as duplicate…" menu entries are removed. "Unmark duplicate" + the banner stay. The create-issue dialog drops `duplicate` from its status options (creating a new issue as a duplicate is nonsense). | EXP-1 |
 | L28 | **Release = cloud + desktop + submitted stores.** Release day: production greenfield DB reset (v2 commitment), new pricing live, marketing site live, desktop downloads live (signed + notarized, stable latest URLs); iOS/Android are *submitted* to the stores but approval does not gate the release. Full desktop auto-update is post-release; an in-app "update available" banner (GitHub Releases API check) IS in scope. | |
 | L29 | **Anonymous public reads reach issue detail.** Public workspaces expose the full-page issue detail (read-only) to signed-out visitors; the users shape stays members-only by design (placeholder avatars are the accepted degradation). | EXP-7 |
 | L30 | **Default branch is resolved, never assumed.** No code path may assume `main`: connect-time resolution from GitHub, launch-time healing (exists), and the desktop consuming the healed value everywhere. | EXP-8 |
+| L31 | **Mobile ships FULL ONBOARDING** (amends L26; Danny, 2026-07-07). iOS + Android get the same first-run experience as web/desktop: a server-gated wizard (`onboardingCompletedAt` via `lib/auth/onboarding.ts` — never inferred locally from synced data) with guided create-first-project (name → auto-derived prefix → color → **mandatory repo picker**) and inline GitHub App connect (browser / Custom Tab install hop with foreground re-detect), plus regular in-app project creation and repo management. The cross-platform audit confirmed both apps already implement this — it is blessed behavior, not a violation. Boundaries that stand: L25 (no account-level Integrations menu — GitHub connect lives in the repo-picker / workspace-settings flow), L23 (run configs stay IDE-only), and workspace creation stays server-side (`workspaces.ensureDefault` personal-workspace path; `workspaces.create` remains instance-admin-only). | amends L26 (EXP-12) |
 
 ---
 
@@ -358,18 +359,24 @@ go only to `os.Logger`. Packet:
 
 ### 9.2 Both platforms
 
-- **Remove workspace creation** (L26): iOS empty-state "New workspace" button + sheet chain
-  (`HomeView.swift:40-52,78-89`, `CreateWorkspaceSheet.swift`); Android dead code
-  (`CreateWorkspaceSheet.kt`, unused `HomeViewModel.createWorkspace`).
+> **Amended 2026-07-07 (L31):** the L26 removals below are **rescinded — do not execute
+> them**. Mobile keeps full onboarding: the server-gated first-run wizard (welcome →
+> create-first-project with the mandatory repo picker + inline GitHub App connect) ships on
+> both platforms (iOS `UI/Onboarding/OnboardingView.swift` + `CreateProjectForm.swift` +
+> `UI/Settings/GithubRepoPicker.swift`; Android `ui/onboarding/OnboardingScreen.kt` +
+> `CreateProjectForm.kt` + `GithubRepoPickerSheet.kt`), plus in-app project creation (iOS
+> `WorkspaceProjectsSection.swift` / `IssuesHomeView.swift`; Android `CreateProjectSheet.kt`
+> from `IssueListScreen.kt` / `WorkspaceSettingsScreen.kt`). Workspace creation stays
+> off-device (`workspaces.ensureDefault` only). The Integrations-menu removal (L25) and the
+> other items below still stand.
+
+- ~~**Remove workspace creation** (L26)~~ / ~~**Remove project creation** (L26): onboarding
+  becomes a "set up on the web" screen~~ — **rescinded by L31 (2026-07-07)**, see the
+  amendment note above.
 - **Remove Integrations** (L25): iOS `SettingsView.swift:172-175` + `AppRoute.integrations` +
   `IntegrationsView.swift`; Android `SettingsScreen.kt:184-189` + `integrations` route +
-  `IntegrationsScreen.kt`. (Keep the repo-picker/integrations API clients used elsewhere.)
-- **Remove project creation** (L26): iOS Home toolbar + per-workspace "+" + `CreateProjectSheet`
-  (`HomeView.swift:101-165`); Android per-workspace "+" + `CreateProjectSheet.kt`
-  (`HomeScreen.kt:136-157,243-252`). **Onboarding on both becomes a single "Create your first
-  project on the web or desktop app" screen** (delete the project-creation steps in iOS
-  `OnboardingView.swift:129-255` / Android `OnboardingScreen.kt:101` +
-  `OnboardingViewModel.kt:89-98`).
+  `IntegrationsScreen.kt`. (Keep the repo-picker/integrations API clients used elsewhere —
+  the L31 onboarding wizard and repo pickers depend on them.)
 - **Feedback routing**: open `${baseUrl}/feedback` (server redirect = single source of truth)
   instead of the hardcoded `/w/feedback/projects/feedback` (iOS `SettingsView.swift:182-200`,
   Android `SettingsScreen.kt:197-216`).
@@ -539,8 +546,8 @@ grep for leftovers, exercise flows per `/verify`).
 | Packet | Scope |
 |---|---|
 | P3.a | **iOS sync**: device diagnosis → root-cause fix → diagnostics surfacing + migration fixture tests (§9.1) |
-| P3.b | iOS removals: workspace/project creation, Integrations, onboarding→"set up on web", feedback URL (§9.2) |
-| P3.c | Android removals: same set + dead code (§9.2) |
+| P3.b | iOS: Integrations removal + feedback URL (§9.2). ~~Workspace/project-creation + onboarding removals~~ rescinded by L31 (2026-07-07) — full onboarding stays |
+| P3.c | Android: same amended set + dead code (§9.2) |
 | P3.d | Android: crash repro + fix + MarkdownView hardening (§9.3) |
 | P3.e | Android: long-press rows; single FAB project-only (§9.3) |
 | P3.f | Both: duplicate interception parity (§9.2) |
@@ -569,9 +576,11 @@ grep for leftovers, exercise flows per `/verify`).
 5. Store submissions (iOS via Xcode, Android via Play Console) — approval NOT gating (L28).
 6. Marketing site live with real download URLs; announce.
 
-**Carried-over debts that ride along in P5 unless picked earlier** (unchanged from v4):
+**Carried-over debts that ride along in P5 unless picked earlier** (from v4):
 wss:// TLS in the desktop WS client + publisher auto-reconnect + relay-unreachable kill
-honoring; live relay-presence device pickers; native `#`-autocomplete; digest-batching cron.
+honoring; live relay-presence device pickers. (Native `#`-autocomplete and the
+digest-batching email cron both landed 2026-07-07 — the hourly push-first digest sweep in
+`apps/web/src/lib/notification-email-digest.ts` and `#`-autocomplete on all four clients.)
 
 ---
 
