@@ -28,6 +28,10 @@ jobs:
       - name: Typecheck web
         run: bun run typecheck
       - name: Web unit tests
+        env:
+          # Unit tests never query the DB, but db/connection.ts throws at
+          # import time without a URL — give it an unreachable dummy.
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:59999/ci
         run: bun run test
       - name: Widget unit tests
         run: bun run test:widget
