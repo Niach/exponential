@@ -210,7 +210,17 @@ struct LoginView: View {
     private func glassTextField(_ placeholder: String, text: Binding<String>, keyboardType: UIKeyboardType = .default, isSecure: Bool = false, accessibilityIdentifier: String = "") -> some View {
         Group {
             if isSecure {
-                SecureField(placeholder, text: text)
+                // Under -uiTesting (fastlane snapshot), use a PLAIN field: the
+                // system "Save Password?" sheet only triggers on secure text
+                // entry, appears seconds later at an unbeatable moment, and is
+                // hosted outside the app so XCUITest cannot reliably dismiss
+                // it (it photobombed the store shots repeatedly). No secure
+                // field ⇒ no sheet. Real users always get the SecureField.
+                if ProcessInfo.processInfo.arguments.contains("-uiTesting") {
+                    TextField(placeholder, text: text)
+                } else {
+                    SecureField(placeholder, text: text)
+                }
             } else {
                 TextField(placeholder, text: text)
                     .keyboardType(keyboardType)

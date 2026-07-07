@@ -44,27 +44,41 @@ final class StoreScreenshots: XCTestCase {
 
         signIn(app)
 
-        // ── 01: home issue list ─────────────────────────────────────────────
-        // Electric sync can take a while right after the first login.
+        // Wait for the board: Electric sync can take a while right after the
+        // first login. 01_board itself is captured LAST — the save-password
+        // sheet pops at an unpredictable moment several seconds after login
+        // (it photobombed the iPad board shot twice); by the end of the run
+        // it has provably appeared and been dismissed.
         let showcaseRowTitle = app.staticTexts[Self.showcaseTitle]
         XCTAssertTrue(
             showcaseRowTitle.waitForExistence(timeout: 120),
             "Issue list never synced (missing showcase issue \(Self.showcaseIdentifier))"
         )
-        settle(3)
-        snapshot("01_board")
+        dismissSavePasswordSheet(timeout: 3)
 
         // ── 02: issue detail (APP-5) ────────────────────────────────────────
-        let showcaseRow = app.buttons["issue-row-\(Self.showcaseIdentifier)"]
-        if showcaseRow.waitForExistence(timeout: 10) {
-            showcaseRow.tap()
-        } else {
-            showcaseRowTitle.tap()
-        }
         // The detail ScrollView renders its whole content tree, so the comment
         // header existing (even offscreen) means the detail is fully loaded.
+        // Retry the tap: a late springboard sheet can swallow the first one.
+        let showcaseRow = app.buttons["issue-row-\(Self.showcaseIdentifier)"]
         let commentsHeader = app.staticTexts["comment-thread-header"]
-        XCTAssertTrue(commentsHeader.waitForExistence(timeout: 30), "Issue detail did not open")
+        var detailOpened = false
+        for _ in 0..<3 {
+            if showcaseRow.waitForExistence(timeout: 10) {
+                showcaseRow.tap()
+            } else {
+                showcaseRowTitle.tap()
+            }
+            // 30s per attempt: the comment thread renders only once the
+            // comments shape has synced, which can lag the issues shape by
+            // tens of seconds right after the first login.
+            if commentsHeader.waitForExistence(timeout: 30) {
+                detailOpened = true
+                break
+            }
+            dismissSavePasswordSheet(timeout: 2)
+        }
+        XCTAssertTrue(detailOpened, "Issue detail did not open")
         settle(2)
         snapshot("02_issue-detail")
 
@@ -112,6 +126,16 @@ final class StoreScreenshots: XCTestCase {
         )
         settle(2)
         snapshot("06_inbox")
+
+        // ── 01: home issue list (captured last, see above) ──────────────────
+        app.buttons["tab-issues"].tap()
+        XCTAssertTrue(
+            showcaseRowTitle.waitForExistence(timeout: 15),
+            "Board did not come back for the final capture"
+        )
+        dismissSavePasswordSheet(timeout: 2)
+        settle(2)
+        snapshot("01_board")
     }
 
     // MARK: - Sign in
@@ -150,7 +174,10 @@ final class StoreScreenshots: XCTestCase {
         focus(emailField)
         emailField.typeText(Self.demoEmail)
 
-        let passwordField = app.secureTextFields["login-password-field"]
+        // Plain textField (not secureTextField): under -uiTesting the app
+        // renders the password field unsecured so the system save-password
+        // sheet can never appear (see LoginView.glassTextField).
+        let passwordField = app.textFields["login-password-field"]
         XCTAssertTrue(passwordField.waitForExistence(timeout: 10))
         focus(passwordField)
         passwordField.typeText(Self.demoPassword)
