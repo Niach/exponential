@@ -19,6 +19,10 @@ import {
   assertNotPublicWorkspace,
   getWorkspaceMember,
 } from "@/lib/workspace-membership"
+import {
+  cancelCreemSubscriptionsBestEffort,
+  findActiveSubscriptionsForWorkspaces,
+} from "@/lib/billing/creem-subscriptions"
 
 function slugify(input: string): string {
   return input
@@ -164,11 +168,25 @@ export const workspacesRouter = router({
         code: `BAD_REQUEST`,
       })
 
-      return await ctx.db.transaction(async (tx) => {
+      // Capture BEFORE the delete: creem_subscriptions.workspace_id goes
+      // `set null` when the workspace row is deleted, after which the remote
+      // Creem subscription would keep charging with nothing left to find it
+      // by (the paying-ghost bug).
+      const doomedSubscriptions = await findActiveSubscriptionsForWorkspaces([
+        input.workspaceId,
+      ])
+
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))
         return { ok: true, txId }
       })
+
+      // Best-effort AFTER commit: a Creem API failure logs loudly but never
+      // leaves the workspace half-deleted.
+      await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+
+      return result
     }),
 
   // Public read of minimal workspace metadata by slug. Used by the route guard

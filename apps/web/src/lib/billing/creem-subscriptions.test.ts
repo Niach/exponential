@@ -1,14 +1,53 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// The module's DB/Creem entry points import "@/db/connection"; stub it so the
-// pure helpers can be imported without a real Postgres connection.
-import { vi } from "vitest"
-vi.mock(`@/db/connection`, () => ({ db: {} }))
+// The module's DB/Creem entry points import "@/db/connection", the Creem SDK,
+// and isCloudInstance(); all three are mocked so the helpers can be exercised
+// without Postgres or the Creem API. `vi.hoisted` lets the mock factories
+// (hoisted above imports) share these recorders with the tests.
+const mocks = vi.hoisted(() => ({
+  cloud: { value: true },
+  selectRows: [] as unknown[],
+  selectCalls: { count: 0 },
+  cancel: vi.fn(),
+  updateCalls: [] as Array<{ values: unknown }>,
+}))
+
+vi.mock(`@/db/connection`, () => ({
+  db: {
+    select: () => ({
+      from: () => ({
+        where: async () => {
+          mocks.selectCalls.count += 1
+          return mocks.selectRows
+        },
+      }),
+    }),
+    update: () => ({
+      set: (values: unknown) => ({
+        where: async () => {
+          mocks.updateCalls.push({ values })
+          return []
+        },
+      }),
+    }),
+  },
+}))
+
+vi.mock(`@/lib/bootstrap-cloud`, () => ({
+  isCloudInstance: () => mocks.cloud.value,
+}))
+
+vi.mock(`@creem_io/better-auth/server`, () => ({
+  createCreemClient: () => ({ subscriptions: { cancel: mocks.cancel } }),
+}))
 
 import {
   assertSubscriptionMutable,
   buildSeatUpdateItems,
+  cancelCreemSubscriptionsBestEffort,
+  findActiveSubscriptionsForUser,
+  findActiveSubscriptionsForWorkspaces,
   SUBSCRIPTION_UPDATE_BEHAVIOR,
 } from "./creem-subscriptions"
 
@@ -89,5 +128,150 @@ describe(`SUBSCRIPTION_UPDATE_BEHAVIOR`, () => {
   // delta.
   it(`stays proration-none until Creem fixes increase proration`, () => {
     expect(SUBSCRIPTION_UPDATE_BEHAVIOR).toBe(`proration-none`)
+  })
+})
+
+// ── Cancel-on-delete (go-live audit) ─────────────────────────────────────────
+// Deleting a workspace/account must not leave a paying ghost subscription in
+// Creem. The capture helpers run BEFORE the local delete (the FKs make rows
+// unfindable afterwards) and the cancel runs AFTER commit, best-effort.
+
+const ORIGINAL_CREEM_API_KEY = process.env.CREEM_API_KEY
+
+describe(`cancel-on-delete`, () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    mocks.cloud.value = true
+    mocks.selectRows = []
+    mocks.selectCalls.count = 0
+    mocks.updateCalls.length = 0
+    mocks.cancel.mockReset()
+    process.env.CREEM_API_KEY = `creem_test_key`
+    errorSpy = vi.spyOn(console, `error`).mockImplementation(() => {})
+    warnSpy = vi.spyOn(console, `warn`).mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    errorSpy.mockRestore()
+    warnSpy.mockRestore()
+    if (ORIGINAL_CREEM_API_KEY === undefined) {
+      delete process.env.CREEM_API_KEY
+    } else {
+      process.env.CREEM_API_KEY = ORIGINAL_CREEM_API_KEY
+    }
+  })
+
+  describe(`findActiveSubscriptionsForWorkspaces`, () => {
+    it(`returns the workspace's active subscription rows`, async () => {
+      mocks.selectRows = [{ id: `row-1`, creemSubscriptionId: `sub_1` }]
+      await expect(
+        findActiveSubscriptionsForWorkspaces([`ws-1`])
+      ).resolves.toEqual([{ id: `row-1`, creemSubscriptionId: `sub_1` }])
+      expect(mocks.selectCalls.count).toBe(1)
+    })
+
+    it(`skips the query entirely for an empty workspace list`, async () => {
+      await expect(findActiveSubscriptionsForWorkspaces([])).resolves.toEqual(
+        []
+      )
+      expect(mocks.selectCalls.count).toBe(0)
+    })
+
+    it(`no-ops on self-hosted instances (no billing)`, async () => {
+      mocks.cloud.value = false
+      await expect(
+        findActiveSubscriptionsForWorkspaces([`ws-1`])
+      ).resolves.toEqual([])
+      expect(mocks.selectCalls.count).toBe(0)
+    })
+  })
+
+  describe(`findActiveSubscriptionsForUser`, () => {
+    it(`returns the subscriptions the user purchased`, async () => {
+      mocks.selectRows = [{ id: `row-1`, creemSubscriptionId: `sub_1` }]
+      await expect(findActiveSubscriptionsForUser(`user-1`)).resolves.toEqual([
+        { id: `row-1`, creemSubscriptionId: `sub_1` },
+      ])
+      expect(mocks.selectCalls.count).toBe(1)
+    })
+
+    it(`no-ops on self-hosted instances (no billing)`, async () => {
+      mocks.cloud.value = false
+      await expect(findActiveSubscriptionsForUser(`user-1`)).resolves.toEqual(
+        []
+      )
+      expect(mocks.selectCalls.count).toBe(0)
+    })
+  })
+
+  describe(`cancelCreemSubscriptionsBestEffort`, () => {
+    it(`cancels each subscription immediately and marks the local rows canceled`, async () => {
+      mocks.cancel.mockResolvedValue({})
+      await cancelCreemSubscriptionsBestEffort([
+        { id: `row-1`, creemSubscriptionId: `sub_1` },
+        { id: `row-2`, creemSubscriptionId: `sub_2` },
+      ])
+      expect(mocks.cancel).toHaveBeenCalledTimes(2)
+      expect(mocks.cancel).toHaveBeenNthCalledWith(1, `sub_1`, {
+        mode: `immediate`,
+      })
+      expect(mocks.cancel).toHaveBeenNthCalledWith(2, `sub_2`, {
+        mode: `immediate`,
+      })
+      expect(mocks.updateCalls).toHaveLength(2)
+      expect(mocks.updateCalls[0].values).toMatchObject({ status: `canceled` })
+    })
+
+    it(`continues past a failed remote cancel and never throws`, async () => {
+      mocks.cancel
+        .mockRejectedValueOnce(new Error(`Creem is down`))
+        .mockResolvedValueOnce({})
+      await expect(
+        cancelCreemSubscriptionsBestEffort([
+          { id: `row-1`, creemSubscriptionId: `sub_1` },
+          { id: `row-2`, creemSubscriptionId: `sub_2` },
+        ])
+      ).resolves.toBeUndefined()
+      expect(mocks.cancel).toHaveBeenCalledTimes(2)
+      // Only the successfully cancelled row is marked canceled locally.
+      expect(mocks.updateCalls).toHaveLength(1)
+      // The failure is logged loudly for manual dashboard cleanup.
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`sub_1`),
+        expect.any(Error)
+      )
+    })
+
+    it(`skips rows without a Creem subscription id (legacy rows)`, async () => {
+      await cancelCreemSubscriptionsBestEffort([
+        { id: `row-legacy`, creemSubscriptionId: null },
+      ])
+      expect(mocks.cancel).not.toHaveBeenCalled()
+      expect(mocks.updateCalls).toHaveLength(0)
+      expect(errorSpy).toHaveBeenCalled()
+    })
+
+    it(`no-ops on self-hosted instances (no billing)`, async () => {
+      mocks.cloud.value = false
+      await cancelCreemSubscriptionsBestEffort([
+        { id: `row-1`, creemSubscriptionId: `sub_1` },
+      ])
+      expect(mocks.cancel).not.toHaveBeenCalled()
+    })
+
+    it(`logs instead of throwing when CREEM_API_KEY is not configured`, async () => {
+      delete process.env.CREEM_API_KEY
+      await expect(
+        cancelCreemSubscriptionsBestEffort([
+          { id: `row-1`, creemSubscriptionId: `sub_1` },
+        ])
+      ).resolves.toBeUndefined()
+      expect(mocks.cancel).not.toHaveBeenCalled()
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`sub_1`)
+      )
+    })
   })
 })

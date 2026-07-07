@@ -2,9 +2,13 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure } from "@/lib/trpc"
 import { apikeys, users } from "@/db/auth-schema"
-import { workspaces, workspaceMembers } from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { getReadableUserIdsInWorkspaces } from "@/lib/workspace-membership"
+import { guardAndCleanupWorkspacesForUserDeletion } from "@/lib/account-deletion"
+import {
+  cancelCreemSubscriptionsBestEffort,
+  findActiveSubscriptionsForUser,
+} from "@/lib/billing/creem-subscriptions"
 import { and, desc, eq, inArray, sql } from "drizzle-orm"
 
 export const usersRouter = router({
@@ -124,62 +128,22 @@ export const usersRouter = router({
         }
       }
 
-      await ctx.db.transaction(async (tx) => {
-        // Workspaces where the caller is the ONLY owner but OTHER members
-        // exist would be orphaned by the user-row cascade: the caller's
-        // membership disappears, leaving members with no owner — invites,
-        // billing, and settings all become unreachable, violating the
-        // last-owner invariant workspaceMembers.remove/updateRole enforce.
-        // Fail closed: block deletion until ownership is transferred or the
-        // other members are removed. (Inside the tx so nothing is deleted
-        // when this throws.)
-        const stranded = await tx
-          .select({ id: workspaceMembers.workspaceId })
-          .from(workspaceMembers)
-          .groupBy(workspaceMembers.workspaceId)
-          .having(
-            sql`count(*) > 1 and bool_or(${workspaceMembers.userId} = ${userId} and ${workspaceMembers.role} = 'owner') and bool_and(${workspaceMembers.userId} = ${userId} or ${workspaceMembers.role} <> 'owner')`
-          )
-        if (stranded.length > 0) {
-          const rows = await tx
-            .select({ name: workspaces.name })
-            .from(workspaces)
-            .where(
-              inArray(
-                workspaces.id,
-                stranded.map((w) => w.id)
-              )
-            )
-          const names = rows.map((w) => `"${w.name}"`).join(`, `)
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `You are the only owner of ${names}, which still ${rows.length === 1 ? `has` : `have`} other members — transfer ownership or remove those members before deleting your account`,
-          })
-        }
+      // Subscriptions the caller purchased, captured BEFORE the delete — the
+      // buyer FK cascades with the users row, after which the remote Creem
+      // subscription would keep charging with nothing left to find it by.
+      const doomedSubscriptions = await findActiveSubscriptionsForUser(userId)
 
-        // Workspaces whose entire membership is just this user. bool_and
-        // guards a race where someone joins between select and delete; the
-        // is_public check keeps the bootstrap feedback board untouchable.
-        const solo = await tx
-          .select({ id: workspaceMembers.workspaceId })
-          .from(workspaceMembers)
-          .groupBy(workspaceMembers.workspaceId)
-          .having(
-            sql`count(*) = 1 and bool_and(${workspaceMembers.userId} = ${userId})`
-          )
-        if (solo.length > 0) {
-          await tx.delete(workspaces).where(
-            and(
-              inArray(
-                workspaces.id,
-                solo.map((w) => w.id)
-              ),
-              eq(workspaces.isPublic, false)
-            )
-          )
-        }
+      await ctx.db.transaction(async (tx) => {
+        // Fail closed when the caller is the sole owner of a workspace that
+        // still has other members, then delete their solo workspaces (shared
+        // with admin.deleteUser — see lib/account-deletion.ts).
+        await guardAndCleanupWorkspacesForUserDeletion(tx, userId, `self`)
         await tx.delete(users).where(eq(users.id, userId))
       })
+
+      // Best-effort AFTER commit: a Creem API failure logs loudly but never
+      // leaves the account half-deleted.
+      await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
 
       return { ok: true }
     }),

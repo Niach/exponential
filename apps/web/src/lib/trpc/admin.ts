@@ -6,6 +6,12 @@ import { users, accounts } from "@/db/auth-schema"
 import { workspaces, workspaceMembers, projects } from "@/db/schema"
 import { getWorkspacePlan } from "@/lib/billing"
 import { assertNotPublicWorkspace } from "@/lib/workspace-membership"
+import { guardAndCleanupWorkspacesForUserDeletion } from "@/lib/account-deletion"
+import {
+  cancelCreemSubscriptionsBestEffort,
+  findActiveSubscriptionsForUser,
+  findActiveSubscriptionsForWorkspaces,
+} from "@/lib/billing/creem-subscriptions"
 import type { db as Database } from "@/db/connection"
 
 export const adminRouter = router({
@@ -88,7 +94,26 @@ export const adminRouter = router({
         }
       }
 
-      await ctx.db.delete(users).where(eq(users.id, input.userId))
+      // Subscriptions the user purchased, captured BEFORE the delete — the
+      // buyer FK cascades with the users row, after which the remote Creem
+      // subscription would keep charging with nothing left to find it by.
+      const doomedSubscriptions = await findActiveSubscriptionsForUser(
+        input.userId
+      )
+
+      await ctx.db.transaction(async (tx) => {
+        // Same orphan safety as users.deleteAccount (lib/account-deletion.ts):
+        // fail closed when the user is the sole owner of a workspace that
+        // still has other members — an admin delete must not silently strand
+        // a team — and delete workspaces where they are the only member.
+        await guardAndCleanupWorkspacesForUserDeletion(tx, input.userId, `admin`)
+        await tx.delete(users).where(eq(users.id, input.userId))
+      })
+
+      // Best-effort AFTER commit: a Creem API failure logs loudly but never
+      // leaves the user half-deleted.
+      await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+
       return { ok: true }
     }),
 
@@ -177,11 +202,24 @@ export const adminRouter = router({
         message: `The public workspace cannot be deleted`,
         code: `BAD_REQUEST`,
       })
-      return await ctx.db.transaction(async (tx) => {
+
+      // Capture BEFORE the delete: creem_subscriptions.workspace_id goes
+      // `set null` when the workspace row is deleted.
+      const doomedSubscriptions = await findActiveSubscriptionsForWorkspaces([
+        input.workspaceId,
+      ])
+
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))
         return { ok: true, txId }
       })
+
+      // Best-effort AFTER commit: a Creem API failure logs loudly but never
+      // leaves the workspace half-deleted.
+      await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+
+      return result
     }),
 })
 

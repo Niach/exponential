@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { createCreemClient } from "@creem_io/better-auth/server"
 import { db } from "@/db/connection"
 import { creem_subscriptions } from "@/db/schema"
+import { isCloudInstance } from "@/lib/bootstrap-cloud"
 
 // Self-service subscription changes (seat count, plan switch) mutate the
 // EXISTING Creem subscription instead of running a new checkout — a second
@@ -162,4 +163,132 @@ export async function upgradeCreemSubscriptionProduct(
     productId,
     updateBehavior: SUBSCRIPTION_UPDATE_BEHAVIOR,
   })
+}
+
+// ── Cancel-on-delete (go-live audit) ─────────────────────────────────────────
+// Deleting a workspace (or an account) must not leave a paying ghost
+// subscription behind in Creem. The local FKs make the rows unfindable after
+// the delete — `workspace_id` goes `set null` on workspace delete and the
+// buyer FK (`reference_id`) CASCADES on user delete — so callers capture the
+// affected rows with the find* helpers BEFORE deleting, run the local delete,
+// and then cancel remotely with cancelCreemSubscriptionsBestEffort AFTER the
+// transaction commits. That ordering guarantees a Creem API failure can never
+// leave the workspace half-deleted (an orphaned REMOTE subscription is
+// recoverable from the Creem dashboard; it is logged loudly), and a failed
+// local delete never cancels a subscription the customer still uses.
+
+export type CancellableSubscription = Pick<
+  WorkspaceSubscriptionRow,
+  `id` | `creemSubscriptionId`
+>
+
+/**
+ * Active subscription rows bound to any of the given workspaces. Capture
+ * BEFORE deleting the workspaces (see the cancel-on-delete note above).
+ */
+export async function findActiveSubscriptionsForWorkspaces(
+  workspaceIds: string[]
+): Promise<CancellableSubscription[]> {
+  if (!isCloudInstance() || workspaceIds.length === 0) return []
+  return await db
+    .select({
+      id: creem_subscriptions.id,
+      creemSubscriptionId: creem_subscriptions.creemSubscriptionId,
+    })
+    .from(creem_subscriptions)
+    .where(
+      and(
+        inArray(creem_subscriptions.workspaceId, workspaceIds),
+        inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
+      )
+    )
+}
+
+/**
+ * Active subscription rows PURCHASED by the user (`referenceId` — the Creem
+ * customer is this user's email/card). Capture BEFORE deleting the user (see
+ * the cancel-on-delete note above). This covers the user's solo workspaces
+ * AND surviving workspaces they paid for: once the account is gone nobody can
+ * manage the subscription and the deleted user's card would keep being
+ * charged, so those cancel too (a remaining owner re-subscribes with their
+ * own payment method).
+ */
+export async function findActiveSubscriptionsForUser(
+  userId: string
+): Promise<CancellableSubscription[]> {
+  if (!isCloudInstance()) return []
+  return await db
+    .select({
+      id: creem_subscriptions.id,
+      creemSubscriptionId: creem_subscriptions.creemSubscriptionId,
+    })
+    .from(creem_subscriptions)
+    .where(
+      and(
+        eq(creem_subscriptions.referenceId, userId),
+        inArray(creem_subscriptions.status, ACTIVE_SUBSCRIPTION_STATUSES)
+      )
+    )
+}
+
+/**
+ * Best-effort remote cancellation for the delete paths. NEVER throws — every
+ * failure is logged with the Creem subscription id so it can be cancelled
+ * manually from the dashboard. Cancellation is immediate (not scheduled): the
+ * backing workspace/account no longer exists, so there is nothing to keep
+ * serving until period end.
+ */
+export async function cancelCreemSubscriptionsBestEffort(
+  subscriptions: CancellableSubscription[]
+): Promise<void> {
+  if (!isCloudInstance() || subscriptions.length === 0) return
+  if (!process.env.CREEM_API_KEY) {
+    console.error(
+      `[billing] cannot cancel ${subscriptions.length} Creem subscription(s) — CREEM_API_KEY is not configured. Cancel manually in the Creem dashboard: ${subscriptions
+        .map((s) => s.creemSubscriptionId ?? s.id)
+        .join(`, `)}`
+    )
+    return
+  }
+  let creem: ReturnType<typeof creemClient>
+  try {
+    creem = creemClient()
+  } catch (err) {
+    console.error(`[billing] could not create the Creem client:`, err)
+    return
+  }
+  for (const sub of subscriptions) {
+    if (!sub.creemSubscriptionId) {
+      // Legacy row with no remote id — nothing to cancel remotely.
+      console.error(
+        `[billing] subscription row ${sub.id} has no Creem subscription id — verify manually in the Creem dashboard`
+      )
+      continue
+    }
+    try {
+      await creem.subscriptions.cancel(sub.creemSubscriptionId, {
+        mode: `immediate`,
+      })
+    } catch (err) {
+      console.error(
+        `[billing] failed to cancel Creem subscription ${sub.creemSubscriptionId} — cancel manually in the Creem dashboard:`,
+        err
+      )
+      continue
+    }
+    try {
+      // Optimistic local write; the `subscription.canceled` webhook confirms
+      // it. On the account-deletion path the row is already gone (buyer FK
+      // cascade), so this is a harmless zero-row update.
+      await db
+        .update(creem_subscriptions)
+        .set({ status: `canceled`, updatedAt: new Date() })
+        .where(eq(creem_subscriptions.id, sub.id))
+    } catch (err) {
+      console.warn(
+        `[billing] could not mark subscription ${sub.id} canceled locally (webhook will confirm):`,
+        err
+      )
+    }
+  }
 }
