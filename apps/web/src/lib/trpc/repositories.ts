@@ -410,6 +410,16 @@ export const repositoriesRouter = router({
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
+      // Team coding: any member of the repo's workspace may mint a JIT token
+      // (assertRepoCapability = membership, moderator-clamped on PUBLIC
+      // workspaces only — so on the public feedback board it's owner/moderator
+      // exclusively, while in a normal private workspace every teammate passes).
+      // Per-installer attribution is intentionally NOT required here: the repo
+      // is only present in this workspace because a member legitimately
+      // connected it, and connectRepositoryInTx already enforced
+      // assertRepoInstallationAccess at connect time. The workspace's ownership
+      // of the repo row is the authorization; requiring the caller to also be
+      // the original installer would break coding for every other teammate.
       await assertRepoCapability(ctx.session.user.id, repo.workspaceId)
       if (!githubAppConfigured()) {
         throw new TRPCError({
@@ -417,13 +427,6 @@ export const repositoriesRouter = router({
           message: `GitHub App is not configured on this instance`,
         })
       }
-      // The App JWT can mint a token for ANY installation of the App, so
-      // workspace membership alone must never translate into an
-      // installation-scoped GitHub token: the caller has to be attributed to
-      // the repo's installation, the same check the connect path enforces.
-      // (Attribution is per-installer — teammates who never installed the App
-      // themselves don't pass; they need their own installation on the repo.)
-      await assertRepoInstallationAccess(ctx.session.user.id, repo.fullName)
 
       const token = await resolveRepoInstallationToken(repo.fullName)
       if (!token) {
