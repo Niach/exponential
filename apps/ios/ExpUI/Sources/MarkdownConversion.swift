@@ -137,7 +137,13 @@ public enum MarkdownConversion {
         }
         defer { cmark_parser_free(parser) }
 
-        for name in ["strikethrough", "table", "autolink"] {
+        // NOTE: no autolink extension — web (tiptap-markdown) and Android leave
+        // bare URLs/emails as plain text, so autolinking here would rewrite
+        // `https://x` to `[https://x](https://x)` and — worse — the email part
+        // of an `@<email>` mention to `@[email](mailto:email)` on every
+        // load→save cycle, breaking the byte-parity interchange contract (and
+        // the server's `@email` mention resolution with it).
+        for name in ["strikethrough", "table"] {
             if let ext = cmark_find_syntax_extension(name) {
                 cmark_parser_attach_syntax_extension(parser, ext)
             }

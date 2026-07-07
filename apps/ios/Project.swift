@@ -38,6 +38,11 @@ let expCoreTestSources: SourceFilesList = ["ExpCore/Tests/**"]
 // status/priority colors, WorkspaceAvatar, the block markdown editor core).
 // SwiftUI only; depends on ExpCore for the domain enums/entities it renders.
 let expUiSources: SourceFilesList = ["ExpUI/Sources/**"]
+// ExpUI unit tests — the editor interchange-contract gate: `@<email>` mentions
+// and `#<IDENTIFIER>` issue refs round-trip through the block editor's
+// markdown serialization as PLAIN GFM text (byte parity with the web,
+// mirroring apps/web/src/components/issue-editor/mention-tokens.test.ts).
+let expUiTestSources: SourceFilesList = ["ExpUI/Tests/**"]
 let expUiDependencies: [TargetDependency] = [
     .target(name: "ExpCore"),
     // The shared block-based markdown editor core (IssueEditorModel +
@@ -152,6 +157,16 @@ let project = Project(
             settings: .settings(base: baseSettings)
         ),
         .target(
+            name: "ExpUITests",
+            destinations: [.iPhone, .iPad],
+            product: .unitTests,
+            bundleId: "at.exponential.ui.tests",
+            deploymentTargets: .iOS("17.4"),
+            sources: expUiTestSources,
+            dependencies: [.target(name: "ExpUI")],
+            settings: .settings(base: baseSettings)
+        ),
+        .target(
             name: "Exponential",
             destinations: [.iPhone, .iPad],
             product: .app,
@@ -236,7 +251,8 @@ let project = Project(
         ),
         .scheme(
             name: "ExpUI",
-            buildAction: .buildAction(targets: ["ExpUI"])
+            buildAction: .buildAction(targets: ["ExpUI", "ExpUITests"]),
+            testAction: .targets(["ExpUITests"])
         ),
         .scheme(
             name: "Exponential",
