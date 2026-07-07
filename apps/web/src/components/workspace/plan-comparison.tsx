@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Check, X, CreditCard, Loader2, Minus, Plus } from "lucide-react"
+import { useId, useState } from "react"
+import { Check, CreditCard, Loader2, Minus, Plus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,8 @@ type TierInfo = {
   name: string
   // Per-seat monthly price, shown as the big number.
   pricePerSeat: string
+  // Unit caption next to the price.
+  priceUnit: string
   // Billing cadence caption under the price.
   cadence: string
   features: Feature[]
@@ -29,7 +31,8 @@ type TierInfo = {
 
 function commonFeatures(storage: string, widget: Feature): Feature[] {
   return [
-    { label: `Unlimited projects, repos & coding sessions`, enabled: true },
+    { label: `Unlimited projects & repos`, enabled: true },
+    { label: `Unlimited coding sessions`, enabled: true },
     { label: storage, enabled: true },
     widget,
     { label: `Push, email & remote steer`, enabled: true },
@@ -41,9 +44,10 @@ const TIERS: TierInfo[] = [
     tier: `free`,
     name: `Free`,
     pricePerSeat: `$0`,
-    cadence: `forever · 1 seat`,
+    priceUnit: `forever`,
+    cadence: `1 seat`,
     features: [
-      ...commonFeatures(`250 MB storage per workspace`, {
+      ...commonFeatures(`250 MB storage`, {
         label: `Feedback widget`,
         enabled: false,
       }),
@@ -53,10 +57,11 @@ const TIERS: TierInfo[] = [
     tier: `pro`,
     name: `Pro`,
     pricePerSeat: `$5`,
-    cadence: `per seat / month · billed yearly`,
+    priceUnit: `/seat/mo`,
+    cadence: `Billed yearly`,
     features: [
-      ...commonFeatures(`5 GB storage per workspace`, {
-        label: `1 feedback widget config`,
+      ...commonFeatures(`5 GB storage`, {
+        label: `1 feedback widget`,
         enabled: true,
       }),
     ],
@@ -65,9 +70,10 @@ const TIERS: TierInfo[] = [
     tier: `business`,
     name: `Business`,
     pricePerSeat: `$10`,
-    cadence: `per seat / month · monthly or yearly`,
+    priceUnit: `/seat/mo`,
+    cadence: `Billed monthly or yearly`,
     features: [
-      ...commonFeatures(`50 GB storage per workspace`, {
+      ...commonFeatures(`50 GB storage`, {
         label: `Unlimited feedback widgets`,
         enabled: true,
       }),
@@ -79,11 +85,11 @@ const TIERS: TierInfo[] = [
 
 function FeatureRow({ label, enabled }: Feature) {
   return (
-    <div className="flex items-center gap-2 text-sm">
+    <div className="flex items-start gap-2 text-[13px] leading-snug">
       {enabled ? (
-        <Check className="size-3.5 shrink-0 text-emerald-500" />
+        <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
       ) : (
-        <X className="size-3.5 shrink-0 text-muted-foreground/50" />
+        <X className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/50" />
       )}
       <span className={cn(!enabled && `text-muted-foreground/50`)}>{label}</span>
     </div>
@@ -98,14 +104,14 @@ function SeatStepper({
   onChange: (n: number) => void
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between gap-2">
       <Label className="text-xs text-muted-foreground">Seats</Label>
       <div className="flex items-center gap-1">
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="size-7"
+          className="size-7 shrink-0"
           onClick={() => onChange(Math.max(1, seats - 1))}
           disabled={seats <= 1}
           aria-label="Remove seat"
@@ -113,21 +119,21 @@ function SeatStepper({
           <Minus className="size-3" />
         </Button>
         <Input
-          type="number"
-          min={1}
+          type="text"
+          inputMode="numeric"
           value={seats}
           onChange={(e) => {
-            const n = Math.floor(Number(e.target.value))
+            const n = Number.parseInt(e.target.value.replace(/\D/g, ``), 10)
             onChange(Number.isFinite(n) && n >= 1 ? n : 1)
           }}
-          className="h-7 w-14 text-center"
+          className="h-7 w-11 px-1 text-center"
           aria-label="Seat count"
         />
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="size-7"
+          className="size-7 shrink-0"
           onClick={() => onChange(seats + 1)}
           aria-label="Add seat"
         >
@@ -161,6 +167,7 @@ export function PlanComparison({
   const [loading, setLoading] = useState<string | null>(null)
   const [seats, setSeats] = useState(1)
   const [businessYearly, setBusinessYearly] = useState(true)
+  const yearlyToggleId = useId()
 
   const startCheckout = async (productId: string, quantity: number) => {
     if (onCheckout) {
@@ -199,94 +206,98 @@ export function PlanComparison({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {TIERS.map((t) => {
-          const isCurrent = t.tier === currentPlan
-          const productId = getProductId(t.tier)
-          const canUpgrade =
-            !isCurrent && t.tier !== `free` && productId !== null
-          const showYearlyToggle =
-            t.tier === `business` && Boolean(businessYearlyProductId)
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {TIERS.map((t) => {
+        const isCurrent = t.tier === currentPlan
+        const productId = getProductId(t.tier)
+        const canUpgrade = !isCurrent && t.tier !== `free` && productId !== null
+        const showYearlyToggle =
+          t.tier === `business` && Boolean(businessYearlyProductId)
 
-          return (
-            <Card
-              key={t.tier}
-              className={cn(`relative`, isCurrent && `ring-2 ring-primary`)}
-            >
-              {isCurrent && (
-                <Badge className="absolute -top-2.5 left-4" variant="default">
-                  Current
-                </Badge>
-              )}
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">{t.name}</CardTitle>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold">{t.pricePerSeat}</span>
-                  {t.tier !== `free` && (
-                    <span className="text-sm text-muted-foreground">/seat</span>
+        return (
+          <Card
+            key={t.tier}
+            className={cn(
+              `flex h-full flex-col gap-4 py-4`,
+              isCurrent && `border-primary/40`
+            )}
+          >
+            <CardHeader className="gap-1.5 px-4">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">{t.name}</CardTitle>
+                {isCurrent && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    Current
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-semibold tracking-tight">
+                  {t.pricePerSeat}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t.priceUnit}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{t.cadence}</p>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col gap-4 px-4">
+              <div className="space-y-2">
+                {t.features.map((f) => (
+                  <FeatureRow key={f.label} label={f.label} enabled={f.enabled} />
+                ))}
+              </div>
+
+              {(showYearlyToggle || canUpgrade) && (
+                <div className="mt-auto space-y-2.5 border-t pt-3">
+                  {showYearlyToggle && (
+                    <div className="flex items-center justify-between gap-2">
+                      <Label
+                        htmlFor={yearlyToggleId}
+                        className="text-xs text-muted-foreground"
+                      >
+                        Bill yearly
+                      </Label>
+                      <Switch
+                        id={yearlyToggleId}
+                        checked={businessYearly}
+                        onCheckedChange={setBusinessYearly}
+                      />
+                    </div>
+                  )}
+
+                  {canUpgrade && (
+                    <>
+                      <SeatStepper seats={seats} onChange={setSeats} />
+                      <Button
+                        className="w-full"
+                        size="sm"
+                        onClick={() => handleCheckout(t.tier)}
+                        disabled={loading !== null}
+                      >
+                        {loading === t.tier ? (
+                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                        ) : (
+                          <CreditCard className="mr-1.5 size-3.5" />
+                        )}
+                        {loading === t.tier
+                          ? `Loading...`
+                          : `Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
+                      </Button>
+                    </>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">{t.cadence}</p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  {t.features.map((f) => (
-                    <FeatureRow
-                      key={f.label}
-                      label={f.label}
-                      enabled={f.enabled}
-                    />
-                  ))}
-                </div>
+              )}
 
-                {showYearlyToggle && (
-                  <div className="flex items-center justify-between">
-                    <Label
-                      htmlFor="business-yearly"
-                      className="text-xs text-muted-foreground"
-                    >
-                      Bill yearly
-                    </Label>
-                    <Switch
-                      id="business-yearly"
-                      checked={businessYearly}
-                      onCheckedChange={setBusinessYearly}
-                    />
-                  </div>
-                )}
-
-                {canUpgrade && (
-                  <>
-                    <SeatStepper seats={seats} onChange={setSeats} />
-                    <Button
-                      className="w-full"
-                      size="sm"
-                      onClick={() => handleCheckout(t.tier)}
-                      disabled={loading !== null}
-                    >
-                      {loading === t.tier ? (
-                        <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                      ) : (
-                        <CreditCard className="mr-1.5 size-3.5" />
-                      )}
-                      {loading === t.tier
-                        ? `Loading...`
-                        : `Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
-                    </Button>
-                  </>
-                )}
-
-                {isCurrent && t.tier !== `free` && (
-                  <p className="text-center text-xs text-muted-foreground">
-                    Your current plan
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
+              {isCurrent && t.tier !== `free` && (
+                <p className="mt-auto text-center text-xs text-muted-foreground">
+                  Your current plan
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })}
     </div>
   )
 }
