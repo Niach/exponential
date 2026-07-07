@@ -35,23 +35,12 @@ export const LINKS = {
 
 /* The real feedback widget, embedded live on the marketing site — visitors
    experience step 1 of the loop for real. The submission lands on the public
-   feedback board. Swap the placeholder key for the demo `expw_` config's real
-   key at launch (release checklist §13) — this const is the single source. */
+   feedback board. This is the cloud bootstrap's `Exponential App` config key
+   (a PUBLIC widget key by design — it ships in third-party page snippets).
+   Its domain allowlist is deliberately empty (= open key): the same config
+   backs the in-app FeedbackButton on self-host instances, whose origins are
+   arbitrary, so do NOT tighten the allowlist without accounting for those. */
 export const WIDGET = {
-  // ┌─────────────────────────────────────────────────────────────────────────┐
-  // │ TODO(launch §13) — LAUNCH BLOCKER: this is a PLACEHOLDER key.           │
-  // │ The live widget on exponential.at is broken until it is replaced        │
-  // │ (verified: /api/widget/config?key=expw_MARKETING_DEMO_KEY → 404).       │
-  // │                                                                         │
-  // │ To get the real key (it exists only in the app.exponential.at DB):      │
-  // │   1. Sign in to app.exponential.at as a global admin.                   │
-  // │   2. Open the public feedback workspace → Settings → "Feedback widget". │
-  // │   3. Copy the `expw_…` key of the `Exponential App` config (created by  │
-  // │      the cloud bootstrap) — or create a dedicated "Marketing site"      │
-  // │      config there and copy its key.                                     │
-  // │   4. Ensure exponential.at is on that config's domain allowlist.        │
-  // │   5. Paste the key below and redeploy the marketing site.               │
-  // └─────────────────────────────────────────────────────────────────────────┘
-  key: `expw_MARKETING_DEMO_KEY`,
+  key: `expw_ATLHZ5hFiV5CqApwbCawPh72bPkpbHUp`,
   loader: `${APP}/widget/v1/loader.js`,
 } as const
