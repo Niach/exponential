@@ -12,6 +12,9 @@ struct ServerDetailView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.dismiss) private var dismiss
     @State private var showRemoveConfirm = false
+    @State private var showDeleteAccountConfirm = false
+    @State private var deletingAccount = false
+    @State private var deleteAccountError: String?
     @State private var resyncing = false
 
     private var account: ServerAccount? {
@@ -50,6 +53,47 @@ struct ServerDetailView: View {
         } message: {
             Text("This will sign you out and delete cached data for this server. The server can be re-added at any time.")
         }
+        .alert(
+            "Delete your account?",
+            isPresented: $showDeleteAccountConfirm
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete account", role: .destructive) {
+                Task { await deleteAccount() }
+            }
+        } message: {
+            Text("This permanently deletes your account on \(account?.displayName ?? "this server"), including your personal workspaces, issues, and comments. This cannot be undone.")
+        }
+        .alert(
+            "Couldn't delete account",
+            isPresented: Binding(
+                get: { deleteAccountError != nil },
+                set: { if !$0 { deleteAccountError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { deleteAccountError = nil }
+        } message: {
+            Text(deleteAccountError ?? "")
+        }
+    }
+
+    /// Server-side deletion first; only on success tear down the local
+    /// account + cache (mirrors the "Remove server" path).
+    private func deleteAccount() async {
+        guard let account, !deletingAccount else { return }
+        deletingAccount = true
+        defer { deletingAccount = false }
+        do {
+            try await deps.usersApi.deleteAccount(accountId: account.id)
+        } catch {
+            deleteAccountError = error.localizedDescription
+            return
+        }
+        await deps.syncManager.signOut(accountId: account.id)
+        deps.auth.removeAccount(id: account.id)
+        deps.db.closePool(forAccountId: account.id)
+        DatabaseManager.deleteFiles(forAccountId: account.id)
+        dismiss()
     }
 
     private var identitySection: some View {
@@ -122,6 +166,20 @@ struct ServerDetailView: View {
                         )
                     }
                     .buttonStyle(.plain)
+
+                    // App Store guideline 5.1.1(v): account deletion must be
+                    // initiable in-app, not via email.
+                    Button {
+                        showDeleteAccountConfirm = true
+                    } label: {
+                        actionRow(
+                            icon: "person.crop.circle.badge.xmark",
+                            title: deletingAccount ? "Deleting account…" : "Delete account",
+                            tint: .red
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deletingAccount)
                 } else if let url = account?.instanceUrl {
                     Button {
                         deps.auth.setInstanceUrl(url)

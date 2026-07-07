@@ -167,8 +167,12 @@ export function PrivacyPage() {
             Your data is retained while your account is active. You can delete
             issues, comments, attachments, projects, and workspaces yourself
             inside the app — deletions are immediate and propagate to all
-            synced devices. To delete your entire account and all associated
-            data, email{` `}
+            synced devices. You can also delete your entire account and all
+            associated data directly in the product: on the web under Account →
+            Notifications → Danger Zone, and in the mobile apps under Settings
+            → your server → “Delete account”. Deletion is immediate and
+            removes your personal workspaces and everything you created.
+            Alternatively, email{` `}
             <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
               dennis@straehhuber.com
             </a>

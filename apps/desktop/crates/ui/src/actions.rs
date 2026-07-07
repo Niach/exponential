@@ -43,6 +43,9 @@ actions!(
         JoinWorkspace,
         /// Footer account dropdown: sign out (Phase 2 auth).
         SignOut,
+        /// Footer account dropdown: permanently delete the account (App
+        /// Store 5.1.1(v) analog) — the handler confirms before mutating.
+        DeleteAccount,
         /// Open the Source Control tool + changes screen (branch chip menu,
         /// commit button).
         OpenSourceControl,

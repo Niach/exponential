@@ -46,6 +46,7 @@ public struct PersonalApiKey: Decodable, Sendable, Identifiable {
 
 private struct NameInput: Encodable { let name: String? }
 private struct KeyIdInput: Encodable { let id: String }
+private struct ConfirmInput: Encodable { let confirm: Bool }
 
 public final class UsersApi: Sendable {
     private let trpc: TrpcClient
@@ -83,6 +84,18 @@ public final class UsersApi: Sendable {
             accountId: accountId,
             path: "users.revokePersonalApiKey",
             input: KeyIdInput(id: id)
+        )
+    }
+
+    /// Permanently delete the signed-in user's account on this server —
+    /// App Store guideline 5.1.1(v) (in-app account deletion). The server
+    /// cascades sessions, memberships, authored content, and solo workspaces;
+    /// the caller must follow up with local sign-out + cache wipe.
+    public func deleteAccount(accountId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "users.deleteAccount",
+            input: ConfirmInput(confirm: true)
         )
     }
 }

@@ -42,7 +42,8 @@ use gpui_component::{
 use sync::Store;
 
 use crate::actions::{
-    CreateWorkspace, OpenSearch, OpenSettings, SendFeedback, SignOut, SwitchWorkspace,
+    CreateWorkspace, DeleteAccount, OpenSearch, OpenSettings, SendFeedback, SignOut,
+    SwitchWorkspace,
 };
 use crate::board::BoardView;
 use crate::git_bar::GitBar;
@@ -370,7 +371,9 @@ impl RailView {
                         Box::new(CreateWorkspace),
                     );
                 }
-                menu.separator().menu("Sign out", Box::new(SignOut))
+                menu.separator()
+                    .menu("Sign out", Box::new(SignOut))
+                    .menu("Delete account…", Box::new(DeleteAccount))
             })
     }
 

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.UsersApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
@@ -60,8 +62,37 @@ class ServerDetailViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val databaseHolder: DatabaseHolder,
     private val syncManager: SyncManager,
+    private val usersApi: UsersApi,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
+
+    var deletingAccount by mutableStateOf(false)
+        private set
+    var deleteAccountError by mutableStateOf<String?>(null)
+
+    /**
+     * Store policy (Play "Delete account" / App Store 5.1.1(v)): deletion must
+     * be initiable in-app. Server-side deletion first; only on success tear
+     * down the local account + cache (mirrors the remove() path).
+     */
+    fun deleteAccount(accountId: String, onDeleted: () -> Unit) {
+        if (deletingAccount) return
+        deletingAccount = true
+        viewModelScope.launch {
+            try {
+                usersApi.deleteAccount(accountId)
+            } catch (e: Exception) {
+                deleteAccountError = e.message ?: "Account deletion failed"
+                deletingAccount = false
+                return@launch
+            }
+            syncManager.signOut(accountId)
+            auth.removeAccount(accountId)
+            databaseHolder.deleteFiles(accountId)
+            deletingAccount = false
+            onDeleted()
+        }
+    }
 
     fun signOut(accountId: String) {
         viewModelScope.launch {
@@ -101,6 +132,7 @@ fun ServerDetailScreen(
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val account = accounts.firstOrNull { it.id == accountId }
     var showRemoveConfirm by remember { mutableStateOf(false) }
+    var showDeleteAccountConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -180,6 +212,16 @@ fun ServerDetailScreen(
                             onBack()
                         },
                     )
+                    CardDivider()
+                    // Store policy (Play "Delete account" / App Store
+                    // 5.1.1(v)): account deletion must be initiable in-app.
+                    ActionRow(
+                        icon = Icons.Filled.PersonOff,
+                        title = if (viewModel.deletingAccount) "Deleting account…" else "Delete account",
+                        tint = MaterialTheme.colorScheme.error,
+                        enabled = !viewModel.deletingAccount,
+                        onClick = { showDeleteAccountConfirm = true },
+                    )
                 } else {
                     val url = account?.instanceUrl
                     ActionRow(
@@ -203,6 +245,41 @@ fun ServerDetailScreen(
                 )
             }
         }
+    }
+
+    if (showDeleteAccountConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAccountConfirm = false },
+            title = { Text("Delete your account?") },
+            text = {
+                Text(
+                    "This permanently deletes your account on ${account?.displayHost ?: "this server"}, " +
+                        "including your personal workspaces, issues, and comments. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteAccountConfirm = false
+                    viewModel.deleteAccount(accountId) { onBack() }
+                }) {
+                    Text("Delete account", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAccountConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    viewModel.deleteAccountError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { viewModel.deleteAccountError = null },
+            title = { Text("Couldn't delete account") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.deleteAccountError = null }) { Text("OK") }
+            },
+        )
     }
 
     if (showRemoveConfirm) {

@@ -1,9 +1,11 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
 import { router, authedProcedure } from "@/lib/trpc"
 import { apikeys, users } from "@/db/auth-schema"
+import { workspaces, workspaceMembers } from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { getReadableUserIdsInWorkspaces } from "@/lib/workspace-membership"
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 
 export const usersRouter = router({
   listByWorkspaceIds: authedProcedure.query(async ({ ctx }) => {
@@ -82,6 +84,71 @@ export const usersRouter = router({
             eq(apikeys.referenceId, ctx.session.user.id)
           )
         )
+      return { ok: true }
+    }),
+
+  // ── Self-service account deletion ─────────────────────────────────────────
+  // App Store guideline 5.1.1(v) requires in-app account deletion when the app
+  // supports account creation (email-only deletion is explicitly insufficient).
+  // Mirrors admin.deleteUser: the users row delete cascades sessions, accounts,
+  // apikeys, memberships, issues/comments authored, fcm tokens, notifications.
+  // Additionally removes workspaces where the caller is the ONLY member (their
+  // personal workspace + solo workspaces) so no orphaned data survives — the
+  // privacy policy promises deletion of "all associated data".
+  deleteAccount: authedProcedure
+    .input(z.object({ confirm: z.literal(true) }))
+    .mutation(async ({ ctx }) => {
+      const userId = ctx.session.user.id
+
+      const [me] = await ctx.db
+        .select({ isAdmin: users.isAdmin, isAgent: users.isAgent })
+        .from(users)
+        .where(eq(users.id, userId))
+      if (!me) throw new TRPCError({ code: `NOT_FOUND` })
+      if (me.isAgent) {
+        // Widget-helpdesk bot users own widget-created issues; deleting one
+        // cascades those issues away. They also never have interactive
+        // sessions — refuse defensively.
+        throw new TRPCError({ code: `FORBIDDEN` })
+      }
+      if (me.isAdmin) {
+        const [{ adminCount }] = await ctx.db
+          .select({ adminCount: sql<number>`count(*)::int` })
+          .from(users)
+          .where(eq(users.isAdmin, true))
+        if (adminCount <= 1) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `You are the last admin of this instance — promote another admin before deleting your account`,
+          })
+        }
+      }
+
+      await ctx.db.transaction(async (tx) => {
+        // Workspaces whose entire membership is just this user. bool_and
+        // guards a race where someone joins between select and delete; the
+        // is_public check keeps the bootstrap feedback board untouchable.
+        const solo = await tx
+          .select({ id: workspaceMembers.workspaceId })
+          .from(workspaceMembers)
+          .groupBy(workspaceMembers.workspaceId)
+          .having(
+            sql`count(*) = 1 and bool_and(${workspaceMembers.userId} = ${userId})`
+          )
+        if (solo.length > 0) {
+          await tx.delete(workspaces).where(
+            and(
+              inArray(
+                workspaces.id,
+                solo.map((w) => w.id)
+              ),
+              eq(workspaces.isPublic, false)
+            )
+          )
+        }
+        await tx.delete(users).where(eq(users.id, userId))
+      })
+
       return { ok: true }
     }),
 })

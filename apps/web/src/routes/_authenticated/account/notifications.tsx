@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc-client"
 import type { NotificationType } from "@/lib/domain"
 import type { DigestCadence } from "@/lib/notification-email-policy"
 import { Button } from "@/components/ui/button"
+import { DeleteAccountSection } from "@/components/account/delete-account-section"
 import {
   Card,
   CardContent,
@@ -191,6 +192,8 @@ function AccountNotifications() {
           </div>
         </CardContent>
       </Card>
+
+      <DeleteAccountSection />
     </div>
   )
 }
