@@ -59,6 +59,10 @@ class AuthApi @Inject constructor(
         return try {
             val response = client.post("$baseUrl/api/auth/sign-in/email") {
                 contentType(ContentType.Application.Json)
+                // Better Auth's CSRF check 403s POSTs without an Origin header
+                // (MISSING_OR_NULL_ORIGIN); send the instance's own origin like
+                // a same-origin browser request would.
+                header("Origin", baseUrl.trimEnd('/'))
                 setBody(SignInRequest(email = email, password = password))
             }
             if (!response.status.isSuccess()) {
@@ -68,7 +72,9 @@ class AuthApi @Inject constructor(
 
             // Better Auth's email sign-in returns either { token, user } when bearer
             // plugin is enabled, or { user } with a Set-Cookie header. Try both.
-            val parsed: SignInResponse = response.body()
+            // Decode from text: proxies/dev servers may drop Content-Type, which
+            // makes ktor's typed body() throw NoTransformationFoundException.
+            val parsed: SignInResponse = json.decodeFromString(response.bodyAsText())
             if (parsed.token != null && parsed.user != null) {
                 applyLogin(baseUrl, parsed.token, parsed.user.email, parsed.user.id, parsed.user.isAdmin)
                 return SignInResult.Success(parsed.token, parsed.user.email)

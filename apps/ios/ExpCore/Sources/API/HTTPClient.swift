@@ -103,6 +103,13 @@ public final class HTTPClient: Sendable {
         req.httpMethod = "POST"
         req.httpBody = body
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Better Auth's CSRF check 403s cross-origin POSTs that carry no
+        // Origin header (MISSING_OR_NULL_ORIGIN); send the instance's own
+        // origin like a same-origin browser request would.
+        if let scheme = url.scheme, let host = url.host {
+            let origin = url.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
+            req.setValue(origin, forHTTPHeaderField: "Origin")
+        }
         let (data, response) = try await session.data(for: req)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw HTTPError.invalidResponse

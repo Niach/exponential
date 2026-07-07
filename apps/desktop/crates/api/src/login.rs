@@ -144,6 +144,10 @@ impl AuthClient {
             .post(&format!("{base}/api/auth/sign-in/email"))
             .set("Accept", "application/json")
             .set("Content-Type", "application/json")
+            // Better Auth's CSRF check 403s POSTs without an Origin header
+            // (MISSING_OR_NULL_ORIGIN); send the instance's own origin like a
+            // same-origin browser request would.
+            .set("Origin", &base)
             .send_string(&payload.to_string())
             .map_err(from_ureq_unauthed)?;
 
