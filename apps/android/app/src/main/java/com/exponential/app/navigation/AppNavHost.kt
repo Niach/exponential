@@ -28,6 +28,7 @@ import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomNavBar
+import com.exponential.app.ui.feedback.FeedbackBoardScreen
 import com.exponential.app.ui.inbox.InboxScreen
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
@@ -278,8 +279,21 @@ private fun AuthenticatedNav(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
                 onOpenWorkspaceSettings = { navController.navigate("workspace-settings") },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
+                onOpenFeedbackBoard = { navController.navigate("feedback-board") },
                 onAddServer = { navController.navigate("add-server") },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("feedback-board") {
+            FeedbackBoardScreen(
+                onBack = { navController.popBackStack() },
+                onOpenBoard = { projectId ->
+                    // Replace the gate with the board's issue list so back
+                    // returns to Settings, not the spent join screen.
+                    navController.navigate("project/$projectId") {
+                        popUpTo("feedback-board") { inclusive = true }
+                    }
+                },
             )
         }
         composable("sync-diagnostics") {

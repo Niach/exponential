@@ -14,11 +14,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,7 +62,6 @@ class SettingsViewModel @Inject constructor(
     private val selection: WorkspaceSelection,
     multiAccountWorkspaces: MultiAccountWorkspaceRepository,
 ) : ViewModel() {
-    val instanceUrl: StateFlow<String?> = auth.instanceUrl
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
     val serverGroups: StateFlow<List<ServerWorkspaceGroup>> =
         multiAccountWorkspaces.serverGroups.stateIn(
@@ -96,14 +94,13 @@ fun SettingsScreen(
     onOpenServerDetail: (accountId: String) -> Unit,
     onOpenWorkspaceSettings: () -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
+    onOpenFeedbackBoard: () -> Unit,
     onAddServer: () -> Unit,
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val instanceUrl by viewModel.instanceUrl.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val serverGroups by viewModel.serverGroups.collectAsStateWithLifecycle()
-    val context = androidx.compose.ui.platform.LocalContext.current
 
     AppBackground {
         Scaffold(
@@ -185,27 +182,17 @@ fun SettingsScreen(
                             subtitle = "Live Electric shape status",
                             onClick = onOpenSyncDiagnostics,
                         )
-                        val base = instanceUrl
-                        if (base != null) {
-                            CardDivider()
-                            SettingsRow(
-                                icon = Icons.Filled.Email,
-                                title = "Send feedback",
-                                subtitle = "Open the feedback page",
-                                trailingIcon = Icons.AutoMirrored.Filled.OpenInNew,
-                                onClick = {
-                                    val url = "$base/feedback"
-                                    runCatching {
-                                        val intent = android.content.Intent(
-                                            android.content.Intent.ACTION_VIEW,
-                                            android.net.Uri.parse(url),
-                                        )
-                                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        context.startActivity(intent)
-                                    }
-                                },
-                            )
-                        }
+                        CardDivider()
+                        // In-app join gate for the public feedback board
+                        // (FeedbackBoardScreen); the screen itself falls back
+                        // to the old external `/feedback` URL when the active
+                        // server has no joinable public board.
+                        SettingsRow(
+                            icon = Icons.Filled.Forum,
+                            title = "Send feedback",
+                            subtitle = "Join the public feedback board",
+                            onClick = onOpenFeedbackBoard,
+                        )
                     }
                 }
             }
