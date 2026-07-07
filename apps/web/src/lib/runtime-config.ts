@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start"
 
 export type FeedbackWidgetConfig = {
-  // Absolute (self-hosted → cloud) or origin-relative (cloud) loader URL.
+  // Origin-relative loader URL (cloud-only — self-hosted instances never
+  // embed the widget; their FeedbackButton redirects to the cloud instead).
   scriptUrl: string
   widgetKey: string
 }
@@ -19,14 +20,20 @@ export function buildRuntimeConfig(): RuntimeConfig {
   const isCloud = process.env.SELF_HOSTED !== `true`
   const raw = process.env.PUBLIC_FEEDBACK_URL?.trim()
 
-  // Self-hosted instances point their in-app feedback widget at the cloud:
-  // both env vars set ⇒ widget on. On cloud the key is resolved from the
-  // bootstrap-created dogfood config instead (see getRuntimeConfig).
-  const scriptUrl = process.env.FEEDBACK_WIDGET_SCRIPT_URL?.trim()
-  const widgetKey = process.env.FEEDBACK_WIDGET_KEY?.trim()
+  // Self-hosted instances do NOT embed the cloud widget (its expw_ key is
+  // domain-allowlisted to the cloud): their FeedbackButton redirects to the
+  // cloud feedback board instead. PUBLIC_FEEDBACK_URL overrides the default
+  // cloud target. On cloud the widget key is resolved from the
+  // bootstrap-created dogfood config (see getRuntimeConfig).
+  const publicFeedbackUrl =
+    raw && raw.length > 0
+      ? raw.replace(/\/$/, ``)
+      : isCloud
+        ? null
+        : `https://app.exponential.at`
 
   return {
-    publicFeedbackUrl: raw && raw.length > 0 ? raw.replace(/\/$/, ``) : null,
+    publicFeedbackUrl,
     isCloud,
     creemProProductId: isCloud
       ? (process.env.CREEM_PRO_PRODUCT_ID ?? null)
@@ -37,8 +44,8 @@ export function buildRuntimeConfig(): RuntimeConfig {
     creemBusinessYearlyProductId: isCloud
       ? (process.env.CREEM_BUSINESS_YEARLY_PRODUCT_ID ?? null)
       : null,
-    feedbackWidget:
-      scriptUrl && widgetKey ? { scriptUrl, widgetKey } : null,
+    // Cloud-only — filled in from the DB by getRuntimeConfig.
+    feedbackWidget: null,
   }
 }
 

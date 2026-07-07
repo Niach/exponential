@@ -368,13 +368,11 @@ PUSH_RELAY_SECRET=<shared secret>
               <code>x-relay-secret</code> header) — must match the relay
               process&apos;s env.
             </EnvVar>
-            <EnvVar name="FEEDBACK_WIDGET_SCRIPT_URL">
-              Loader URL of the cloud feedback widget — powers the in-app
-              &quot;Send feedback&quot; button on self-hosted instances.
-            </EnvVar>
-            <EnvVar name="FEEDBACK_WIDGET_KEY">
-              <code>expw_</code> key of the cloud feedback widget config
-              (pairs with the script URL above).
+            <EnvVar name="PUBLIC_FEEDBACK_URL">
+              Where the in-app &quot;Send feedback&quot; button sends your
+              users — defaults to the Exponential cloud feedback board
+              (<code>https://app.exponential.at</code>), where issues about
+              Exponential itself belong.
             </EnvVar>
           </dl>
         </DocsSection>

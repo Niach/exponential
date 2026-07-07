@@ -60,24 +60,13 @@ const securityHeadersEnabled = process.env.SECURITY_HEADERS_ENABLED === `true`
 // Google OAuth redirects (image avatars from googleusercontent), and
 // Electric long-poll requests against the same origin. Tightening to
 // nonce-based scripts requires a Start-internal change and is left as
-// follow-up.
-// Self-hosted instances load the dogfooded feedback widget from the cloud
-// origin (FEEDBACK_WIDGET_SCRIPT_URL), which needs a script-src entry; on
-// cloud the widget is same-origin and 'self' covers it.
-const feedbackWidgetScriptOrigin = (() => {
-  const raw = process.env.FEEDBACK_WIDGET_SCRIPT_URL?.trim()
-  if (!raw) return null
-  try {
-    return new URL(raw).origin
-  } catch {
-    return null
-  }
-})()
-
+// follow-up. The dogfood feedback widget is cloud-only and same-origin
+// ('self' covers it); self-hosted instances redirect to the cloud feedback
+// board instead of embedding, so no external script-src entry is needed.
 const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy": [
     `default-src 'self'`,
-    `script-src 'self' 'unsafe-inline'${feedbackWidgetScriptOrigin ? ` ${feedbackWidgetScriptOrigin}` : ``}`,
+    `script-src 'self' 'unsafe-inline'`,
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `img-src 'self' data: blob: https://*.googleusercontent.com`,
     `font-src 'self' data: https://fonts.gstatic.com`,
