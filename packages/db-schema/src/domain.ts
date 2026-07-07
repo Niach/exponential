@@ -187,27 +187,3 @@ export function formatDateForMutation(date: Date | null | undefined) {
 
   return `${year}-${month}-${day}`
 }
-
-// ---------------------------------------------------------------------------
-// Project preview mirror
-// ---------------------------------------------------------------------------
-//
-// The `projects.preview_config` DB column (`ProjectPreviewMirror`) holds a small
-// slice of display-only metadata synced over Electric for the web settings UI.
-// It is NEVER executed. Run configs (build/run commands, argv/cwd/env) live in
-// the `run_configs` table and are edited IDE-side only — the committed
-// `.exponential/config.json` preview-target system (L23) has been removed.
-
-// The `projects.preview_config` DB mirror — display-only, never executed.
-export interface ProjectPreviewMirror {
-  // Where issues filed from a device preview are routed. Must point at a project
-  // in the same workspace (server-checked).
-  feedbackProjectId?: string
-}
-
-// --- Zod schemas ---
-
-// The web mutation writes only this DB mirror (display metadata, never executed).
-export const projectPreviewMirrorSchema = z.object({
-  feedbackProjectId: z.string().optional(),
-})

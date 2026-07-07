@@ -36,7 +36,6 @@ import {
   notificationTypeValues,
   prStateSchema,
   prStateValues,
-  type ProjectPreviewMirror,
   publicWritePolicyValues,
   recurrenceUnitSchema,
   recurrenceUnitValues,
@@ -225,11 +224,6 @@ export const projects = pgTable(
       .references(() => repositories.id, { onDelete: `restrict` }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
-    // Display-only mirror of the project's preview run targets + feedback issue
-    // routing target. The canonical build/run commands live in the committed
-    // `.exponential/config.json` working-tree file — this mirror is NEVER
-    // executed; it only feeds the web settings UI + pre-clone discovery.
-    previewConfig: jsonb(`preview_config`).$type<ProjectPreviewMirror>(),
     ...timestamps,
   },
   (table) => [
@@ -417,18 +411,6 @@ export const attachments = pgTable(
     index(`idx_attachments_workspace`).on(table.workspaceId),
   ]
 )
-
-export const pushSubscriptions = pgTable(`push_subscriptions`, {
-  id: uuidPk(),
-  userId: text(`user_id`)
-    .notNull()
-    .references(() => users.id, { onDelete: `cascade` }),
-  endpoint: text().notNull(),
-  p256dh: text().notNull(),
-  auth: text().notNull(),
-  userAgent: text(`user_agent`),
-  ...timestamps,
-})
 
 export const fcmTokens = pgTable(`fcm_tokens`, {
   id: uuidPk(),

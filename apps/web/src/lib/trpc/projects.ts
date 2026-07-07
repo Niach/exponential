@@ -13,7 +13,6 @@ import {
   assertCanManageRepos,
   connectRepositoryInTx,
 } from "@/lib/trpc/repositories"
-import type { ProjectPreviewMirror } from "@exp/db-schema/domain"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -60,15 +59,6 @@ async function assertRepositoryInWorkspace(
   }
   return repo.id
 }
-
-// The DB mirror is display-only metadata — it is never executed. It now holds a
-// single field: the feedback routing target. Run configs (build/run commands)
-// live in the `run_configs` table and are edited IDE-side only (L23).
-const previewMirrorInputSchema = z
-  .object({
-    feedbackProjectId: z.string().uuid().optional(),
-  })
-  .nullable()
 
 function slugify(name: string): string {
   return name
@@ -240,64 +230,6 @@ export const projectsRouter = router({
         const txId = await generateTxId(tx)
         await tx.delete(projects).where(eq(projects.id, input.projectId))
         return { ok: true, txId }
-      })
-    }),
-
-  // Writes ONLY the display mirror (`projects.preview_config`) — now just the
-  // feedback-routing target. Build/run commands live in the `run_configs` table
-  // and are edited IDE-side only (L23); nothing here is ever executed.
-  updatePreviewConfig: authedProcedure
-    .input(
-      z.object({
-        projectId: z.string().uuid(),
-        previewConfig: previewMirrorInputSchema,
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const projectRecord = await assertProjectMember(
-        ctx.session.user.id,
-        input.projectId
-      )
-      await assertWorkspaceOwner(
-        ctx.session.user.id,
-        projectRecord.workspaceId
-      )
-
-      let mirror: ProjectPreviewMirror | null = input.previewConfig
-      if (mirror) {
-        // feedbackProjectId routes filed issues; it must point at a project in
-        // the SAME workspace (server-checked — never trust the synced value).
-        if (mirror.feedbackProjectId) {
-          const [target] = await ctx.db
-            .select({ id: projects.id })
-            .from(projects)
-            .where(
-              and(
-                eq(projects.id, mirror.feedbackProjectId),
-                eq(projects.workspaceId, projectRecord.workspaceId)
-              )
-            )
-            .limit(1)
-          if (!target) {
-            throw new TRPCError({
-              code: `BAD_REQUEST`,
-              message: `feedbackProjectId must be a project in this workspace`,
-            })
-          }
-        }
-        mirror = mirror.feedbackProjectId
-          ? { feedbackProjectId: mirror.feedbackProjectId }
-          : {}
-      }
-
-      return await ctx.db.transaction(async (tx) => {
-        const txId = await generateTxId(tx)
-        const [project] = await tx
-          .update(projects)
-          .set({ previewConfig: mirror })
-          .where(eq(projects.id, input.projectId))
-          .returning()
-        return { project, txId }
       })
     }),
 })

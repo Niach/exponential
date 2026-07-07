@@ -206,38 +206,6 @@ async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
   })
 }
 
-// Dogfood: seed the public workspace's single Exponential project preview
-// mirror, so feedback routes back into this same project. The repo BINDING is
-// no longer set here — v4 collapses project↔repository to a single mandatory
-// `projects.repository_id`, wired at project creation (ensurePublicProject →
-// ensurePublicRepository). This path is now purely the preview mirror, cloud-
-// only + gated behind DOGFOOD_REPO. The project always exists by now
-// (ensurePublicProject runs first, unconditionally). Idempotent: seeds the
-// mirror once and never clobbers a hand-edited previewConfig later.
-async function ensureDogfoodProject(publicProjectId: string) {
-  const repo = process.env.DOGFOOD_REPO?.trim()
-  if (!repo) return
-
-  const [existing] = await db
-    .select({ previewConfig: projects.previewConfig })
-    .from(projects)
-    .where(eq(projects.id, publicProjectId))
-    .limit(1)
-  if (!existing) return
-
-  // Never overwrite a hand-edited mirror — only seed it if it's still missing.
-  if (!existing.previewConfig) {
-    await db
-      .update(projects)
-      .set({
-        previewConfig: {
-          feedbackProjectId: publicProjectId,
-        },
-      })
-      .where(eq(projects.id, publicProjectId))
-  }
-}
-
 // Pre-collapse cloud deployments carried TWO projects in the public workspace:
 // the seeded `feedback` project (the widget's target) and the DOGFOOD_REPO-
 // gated `exponential` project. Fold the legacy one away on already-bootstrapped
@@ -355,13 +323,11 @@ export function bootstrapCloud(): Promise<void> {
       if (isCloudInstance()) {
         const publicWorkspaceId = await ensurePublicWorkspace()
         await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
-        // Canonical project first — created regardless of DOGFOOD_REPO, and it
-        // upserts its mandatory backing repository row inline (v4). Then the
-        // optional dogfood preview mirror, then fold the legacy feedback project
-        // into the canonical one, then seed the widget config — which needs the
-        // Exponential project to exist as its target.
-        const publicProjectId = await ensurePublicProject(publicWorkspaceId)
-        await ensureDogfoodProject(publicProjectId)
+        // Canonical project first — it upserts its mandatory backing
+        // repository row inline (v4). Then fold the legacy feedback project
+        // into the canonical one, then seed the widget config — which needs
+        // the Exponential project to exist as its target.
+        await ensurePublicProject(publicWorkspaceId)
         await collapseLegacyFeedbackProject(publicWorkspaceId)
         await ensureFeedbackWidgetConfig(publicWorkspaceId)
       }

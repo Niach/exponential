@@ -29,6 +29,13 @@
       "when": 1783260688372,
       "tag": "0003_clumsy_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783414910566,
+      "tag": "0004_confused_firebrand",
+      "breakpoints": true
     }
   ]
 }
