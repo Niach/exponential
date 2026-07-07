@@ -3,6 +3,7 @@ import { authClient } from "@/lib/auth/client"
 import { Button } from "@/components/ui/button"
 
 export const GOOGLE_PROVIDER_KEY = `__google__`
+export const APPLE_PROVIDER_KEY = `__apple__`
 
 export interface OidcProviderOption {
   id: string
@@ -42,12 +43,34 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
     }
   }
 
-  return { pendingProvider, error, setError, signInWithOidc, signInWithGoogle }
+  const signInWithApple = async () => {
+    setPendingProvider(APPLE_PROVIDER_KEY)
+    setError(``)
+    try {
+      await authClient.signIn.social({
+        provider: `apple`,
+        callbackURL: redirectTo || `/`,
+      })
+    } catch {
+      setError(`An unexpected error occurred`)
+      setPendingProvider(null)
+    }
+  }
+
+  return {
+    pendingProvider,
+    error,
+    setError,
+    signInWithOidc,
+    signInWithGoogle,
+    signInWithApple,
+  }
 }
 
 interface OAuthProviderButtonsProps {
   oidcProviders: OidcProviderOption[]
   googleLoginEnabled: boolean
+  appleLoginEnabled: boolean
   /** Action verb shown on the buttons, e.g. "Sign in" or "Sign up". */
   verb: string
   pendingProvider: string | null
@@ -55,21 +78,39 @@ interface OAuthProviderButtonsProps {
   showDivider: boolean
   onOidc: (providerId: string) => void
   onGoogle: () => void
+  onApple: () => void
 }
 
 export function OAuthProviderButtons({
   oidcProviders,
   googleLoginEnabled,
+  appleLoginEnabled,
   verb,
   pendingProvider,
   showDivider,
   onOidc,
   onGoogle,
+  onApple,
 }: OAuthProviderButtonsProps) {
-  if (oidcProviders.length === 0 && !googleLoginEnabled) return null
+  if (oidcProviders.length === 0 && !googleLoginEnabled && !appleLoginEnabled)
+    return null
 
   return (
     <>
+      {appleLoginEnabled && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={pendingProvider !== null}
+          onClick={onApple}
+        >
+          {pendingProvider === APPLE_PROVIDER_KEY
+            ? `Redirecting...`
+            : `${verb} with Apple`}
+        </Button>
+      )}
+
       {oidcProviders.map((provider) => (
         <Button
           key={provider.id}

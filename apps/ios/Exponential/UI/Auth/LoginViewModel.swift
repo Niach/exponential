@@ -112,6 +112,15 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         launchWebAuth(url: url)
     }
 
+    func startAppleOAuthFlow() {
+        guard let instanceUrl = auth.instanceUrl,
+              let url = authApi.appleStartUrl(instanceUrl: instanceUrl) else {
+            error = "Could not build Apple OAuth URL"
+            return
+        }
+        launchWebAuth(url: url)
+    }
+
     func handleOAuthToken(_ token: String) async {
         await applyLogin(token: token, user: nil)
     }

@@ -303,6 +303,13 @@ GITHUB_APP_PRIVATE_KEY        # GitHub App PEM private key, base64-encoded (base
 GITHUB_WEBHOOK_SECRET         # GitHub App webhook HMAC secret (cloud PR-merge detection; App webhook → ${BETTER_AUTH_URL}/api/webhooks/github)
 GITHUB_POLLING                # 'true' to run the outbound merge cron (self-hosted behind NAT, unreachable by webhook); decoupled from SELF_HOSTED
 GOOGLE_LOGIN_ENABLED          # Show "Sign in with Google" on login/register (default: false)
+APPLE_CLIENT_ID               # Sign in with Apple *Services ID* (App Store guideline 4.8 — required alongside Google login on iOS)
+APPLE_PRIVATE_KEY             # SIWA .p8 key, base64-encoded — server mints the ≤6-month client-secret JWT fresh at every boot
+APPLE_KEY_ID                  # Key ID of the SIWA .p8 key
+APPLE_TEAM_ID                 # Apple Developer team ID
+APPLE_CLIENT_SECRET           # Optional static ES256 client-secret JWT — wins over key-based minting when set
+APPLE_LOGIN_ENABLED           # Show "Sign in with Apple" on all clients (default: false)
+APPLE_APP_BUNDLE_IDENTIFIER   # Optional: app bundle id for native SIWA idToken exchange (at.exponential)
 SELF_HOSTED                   # 'true' for self-hosted (disables billing, unlocks plan limits)
 CREEM_API_KEY                 # Creem billing API key (cloud-only)
 CREEM_WEBHOOK_SECRET          # Creem webhook signing secret (cloud-only)

@@ -94,6 +94,11 @@ class LoginViewModel @Inject constructor(
         return "$baseUrl/api/mobile-oauth-start?provider=google"
     }
 
+    fun appleStartUrl(): String? {
+        val baseUrl = auth.instanceUrl.value ?: return null
+        return "$baseUrl/api/mobile-oauth-start?provider=apple"
+    }
+
     private fun encode(s: String): String =
         java.net.URLEncoder.encode(s, "UTF-8")
 }

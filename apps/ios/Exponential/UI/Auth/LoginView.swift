@@ -75,8 +75,16 @@ struct LoginView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 VStack(spacing: 16) {
-                    // OAuth providers
+                    // OAuth providers. Sign in with Apple leads — App Store
+                    // guideline 4.8 requires it alongside Google, and the HIG
+                    // wants it placed no less prominently than other options.
                     if let config = vm.config {
+                        if config.appleLoginEnabled {
+                            oauthButton(label: "Continue with Apple", systemImage: "apple.logo") {
+                                vm.startAppleOAuthFlow()
+                            }
+                        }
+
                         if config.googleLoginEnabled {
                             oauthButton(label: "Continue with Google") {
                                 vm.startGoogleOAuthFlow()
@@ -89,7 +97,7 @@ struct LoginView: View {
                             }
                         }
 
-                        if (config.googleLoginEnabled || !config.oidcProviders.isEmpty) && config.passwordEnabled {
+                        if (config.appleLoginEnabled || config.googleLoginEnabled || !config.oidcProviders.isEmpty) && config.passwordEnabled {
                             divider
                         }
 
@@ -112,13 +120,19 @@ struct LoginView: View {
     }
 
     @ViewBuilder
-    private func oauthButton(label: String, action: @escaping () -> Void) -> some View {
+    private func oauthButton(label: String, systemImage: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+            HStack(spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.body.weight(.medium))
+                }
+                Text(label)
+            }
+            .font(.body.weight(.medium))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
         }
         .background(Color.white.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 10))

@@ -6,15 +6,28 @@ public struct AuthConfig: Codable, Sendable {
     public let passwordEnabled: Bool
     public let oidcProviders: [OidcProvider]
     public let googleLoginEnabled: Bool
+    public let appleLoginEnabled: Bool
 
     public init(
         passwordEnabled: Bool = true,
         oidcProviders: [OidcProvider] = [],
-        googleLoginEnabled: Bool = false
+        googleLoginEnabled: Bool = false,
+        appleLoginEnabled: Bool = false
     ) {
         self.passwordEnabled = passwordEnabled
         self.oidcProviders = oidcProviders
         self.googleLoginEnabled = googleLoginEnabled
+        self.appleLoginEnabled = appleLoginEnabled
+    }
+
+    // appleLoginEnabled is absent from pre-SIWA servers (self-hosted lag) —
+    // decode it as optional so the login screen keeps working against them.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        passwordEnabled = try c.decode(Bool.self, forKey: .passwordEnabled)
+        oidcProviders = try c.decode([OidcProvider].self, forKey: .oidcProviders)
+        googleLoginEnabled = try c.decode(Bool.self, forKey: .googleLoginEnabled)
+        appleLoginEnabled = try c.decodeIfPresent(Bool.self, forKey: .appleLoginEnabled) ?? false
     }
 }
 
@@ -136,6 +149,10 @@ public final class AuthApi: Sendable {
 
     public func googleStartUrl(instanceUrl: String) -> URL? {
         URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=google")
+    }
+
+    public func appleStartUrl(instanceUrl: String) -> URL? {
+        URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=apple")
     }
 }
 

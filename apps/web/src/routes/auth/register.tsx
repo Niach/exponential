@@ -42,15 +42,22 @@ export const Route = createFileRoute(`/auth/register`)({
 
 function RegisterPage() {
   const { redirect: redirectTo } = Route.useSearch()
-  const { oidcProviders, googleLoginEnabled } = Route.useLoaderData()
+  const { oidcProviders, googleLoginEnabled, appleLoginEnabled } =
+    Route.useLoaderData()
   const [oauthResumeUrl] = useState(captureOAuthResumeUrl)
   const destination = oauthResumeUrl || redirectTo
   const [name, setName] = useState(``)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
-  const { pendingProvider, error, setError, signInWithOidc, signInWithGoogle } =
-    useOAuthSignIn(destination)
+  const {
+    pendingProvider,
+    error,
+    setError,
+    signInWithOidc,
+    signInWithGoogle,
+    signInWithApple,
+  } = useOAuthSignIn(destination)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -101,11 +108,13 @@ function RegisterPage() {
         <OAuthProviderButtons
           oidcProviders={oidcProviders}
           googleLoginEnabled={googleLoginEnabled}
+          appleLoginEnabled={appleLoginEnabled}
           verb="Sign up"
           pendingProvider={pendingProvider}
           showDivider
           onOidc={signInWithOidc}
           onGoogle={signInWithGoogle}
+          onApple={signInWithApple}
         />
 
         <form onSubmit={handleSubmit} className="space-y-4">

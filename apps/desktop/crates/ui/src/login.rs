@@ -12,9 +12,10 @@
 //! **Exponential Cloud choice comes FIRST** (the Linux login was
 //!   missing the leading cloud button), then Self-hosted with a base-URL
 //!   `Input`,
-//! - `OAuthProviderButtons`: the configured OIDC providers then Google
-//!   (web order), each `outline` full-width, gated on `GET /api/auth-config`
-//!   of the chosen instance; an "or" divider when a password form follows,
+//! - `OAuthProviderButtons`: Apple first (HIG prominence), then the
+//!   configured OIDC providers, then Google (web order), each `outline`
+//!   full-width, gated on `GET /api/auth-config` of the chosen instance; an
+//!   "or" divider when a password form follows,
 //! - the email/password form (labels + inputs — the password `Input` carries
 //!   the web `PasswordInput` show/hide **eye toggle** — + full-width submit)
 //!   and the web footer **"Don't have an account? Register"** link (opens
@@ -245,6 +246,16 @@ impl LoginView {
         self.launch_oauth("google", instance, url, cx);
     }
 
+    fn sign_in_with_apple(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(instance) = self.effective_instance(cx) else {
+            self.error = Some("Enter your server URL first.".into());
+            cx.notify();
+            return;
+        };
+        let url = api::login::apple_oauth_start_url(&instance);
+        self.launch_oauth("apple", instance, url, cx);
+    }
+
     fn sign_in_with_oidc(&mut self, provider_id: String, cx: &mut gpui::Context<Self>) {
         let Some(instance) = self.effective_instance(cx) else {
             self.error = Some("Enter your server URL first.".into());
@@ -416,18 +427,36 @@ impl LoginView {
         section
     }
 
-    /// Web `OAuthProviderButtons`: OIDC providers then Google, each outline
-    /// full-width; "or" divider when the password form follows.
+    /// Web `OAuthProviderButtons`: Apple FIRST (the HIG wants it at least as
+    /// prominent as the other providers), then OIDC providers, then Google,
+    /// each outline full-width; "or" divider when the password form follows.
     fn render_oauth_buttons(
         &self,
         config: &api::AuthConfig,
         cx: &mut gpui::Context<Self>,
     ) -> Option<impl IntoElement> {
-        if config.oidc_providers.is_empty() && !config.google_login_enabled {
+        if config.oidc_providers.is_empty()
+            && !config.google_login_enabled
+            && !config.apple_login_enabled
+        {
             return None;
         }
 
         let mut section = v_flex().gap_3();
+        if config.apple_login_enabled {
+            let pending = self.pending_provider.as_deref() == Some("apple");
+            section = section.child(
+                Button::new("login-apple")
+                    .outline()
+                    .w_full()
+                    .label(if pending {
+                        "Waiting for your browser…"
+                    } else {
+                        "Sign in with Apple"
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.sign_in_with_apple(cx))),
+            );
+        }
         for provider in &config.oidc_providers {
             let pending = self.pending_provider.as_deref() == Some(provider.id.as_str());
             let label = if pending {

@@ -8,6 +8,7 @@ export type AuthConfig = {
   passwordResetEnabled: boolean
   oidcProviders: Array<{ id: string; name: string }>
   googleLoginEnabled: boolean
+  appleLoginEnabled: boolean
   githubEnabled: boolean
 }
 
@@ -22,6 +23,14 @@ export function buildAuthConfig(): AuthConfig {
     oidcProviders: parseOidcProviders().map(({ id, name }) => ({ id, name })),
     googleLoginEnabled:
       googleClientConfigured && process.env.GOOGLE_LOGIN_ENABLED === `true`,
+    appleLoginEnabled:
+      Boolean(
+        process.env.APPLE_CLIENT_ID &&
+          (process.env.APPLE_CLIENT_SECRET ||
+            (process.env.APPLE_PRIVATE_KEY &&
+              process.env.APPLE_KEY_ID &&
+              process.env.APPLE_TEAM_ID))
+      ) && process.env.APPLE_LOGIN_ENABLED === `true`,
     githubEnabled: Boolean(
       process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY
     ),

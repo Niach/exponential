@@ -98,7 +98,23 @@ fun LoginScreen(
 
             else -> {
                 val config = state.config!!
-                val hasOauth = config.oidcProviders.isNotEmpty() || config.googleLoginEnabled
+                val hasOauth = config.oidcProviders.isNotEmpty() ||
+                    config.googleLoginEnabled || config.appleLoginEnabled
+
+                if (config.appleLoginEnabled) {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.appleStartUrl()?.let { url ->
+                                CustomTabsIntent.Builder().build()
+                                    .launchUrl(context, Uri.parse(url))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Sign in with Apple")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
 
                 config.oidcProviders.forEach { provider ->
                     OutlinedButton(

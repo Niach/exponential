@@ -17,6 +17,8 @@ data class AuthConfig(
     val passwordEnabled: Boolean = true,
     val oidcProviders: List<OidcProvider> = emptyList(),
     val googleLoginEnabled: Boolean = false,
+    // Absent from pre-SIWA servers — the default keeps decoding tolerant.
+    val appleLoginEnabled: Boolean = false,
 )
 
 @Singleton

@@ -40,6 +40,8 @@ pub struct AuthConfig {
     #[serde(default)]
     pub google_login_enabled: bool,
     #[serde(default)]
+    pub apple_login_enabled: bool,
+    #[serde(default)]
     pub github_enabled: bool,
 }
 
@@ -270,6 +272,15 @@ pub fn google_oauth_start_url(instance_url: &str) -> String {
     )
 }
 
+/// Browser start URL for Apple sign-in (`provider=apple` → Better Auth
+/// `signInSocial`).
+pub fn apple_oauth_start_url(instance_url: &str) -> String {
+    format!(
+        "{}/api/mobile-oauth-start?provider=apple",
+        normalize_instance_url(instance_url)
+    )
+}
+
 /// Browser start URL for a generic OIDC provider (`providerId=…` → Better
 /// Auth `signInWithOAuth2`).
 pub fn oidc_oauth_start_url(instance_url: &str, provider_id: &str) -> String {
@@ -474,6 +485,10 @@ mod tests {
             "https://app.exponential.at/api/mobile-oauth-start?provider=google"
         );
         assert_eq!(
+            apple_oauth_start_url("app.exponential.at"),
+            "https://app.exponential.at/api/mobile-oauth-start?provider=apple"
+        );
+        assert_eq!(
             oidc_oauth_start_url("https://app.exponential.at/", "authentik prod"),
             "https://app.exponential.at/api/mobile-oauth-start?providerId=authentik%20prod"
         );
@@ -538,16 +553,18 @@ mod tests {
         let full: AuthConfig = serde_json::from_str(
             r#"{"passwordEnabled":false,"passwordResetEnabled":false,
                 "oidcProviders":[{"id":"authentik","name":"Authentik"}],
-                "googleLoginEnabled":true,"githubEnabled":true}"#,
+                "googleLoginEnabled":true,"appleLoginEnabled":true,"githubEnabled":true}"#,
         )
         .unwrap();
         assert!(!full.password_enabled);
         assert!(full.google_login_enabled);
+        assert!(full.apple_login_enabled);
         assert_eq!(full.oidc_providers[0].id, "authentik");
 
         // Tolerant: unknown/missing fields degrade to defaults.
         let sparse: AuthConfig = serde_json::from_str(r#"{"futureField":1}"#).unwrap();
         assert!(sparse.password_enabled); // defaults true like iOS
+        assert!(!sparse.apple_login_enabled);
         assert!(sparse.oidc_providers.is_empty());
     }
 
