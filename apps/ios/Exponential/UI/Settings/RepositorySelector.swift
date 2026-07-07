@@ -115,7 +115,7 @@ struct RepositorySelector: View {
     }
 
     private func isFullNameSelected(_ fullName: String) -> Bool {
-        if case let .fullName(name, _, _, _) = selection { return name == fullName }
+        if case let .fullName(name, _, _) = selection { return name == fullName }
         return false
     }
 

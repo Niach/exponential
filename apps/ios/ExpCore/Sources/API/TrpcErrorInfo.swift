@@ -39,7 +39,8 @@ public extension Error {
     /// tRPC error `message` from the JSON body; otherwise the localized
     /// description.
     var trpcUserMessage: String {
-        guard case let TrpcError.httpError(_, body) = self,
+        guard let trpcError = self as? TrpcError,
+              case let .httpError(_, body) = trpcError,
               let parsed = TrpcErrorBody.parse(body),
               !parsed.message.isEmpty
         else { return localizedDescription }
@@ -49,7 +50,8 @@ public extension Error {
     /// True when a tRPC failure is a plan-cap (`PRECONDITION_FAILED` + the
     /// "Your plan allows" message) — mirrors web `isPlanLimitError`.
     var isPlanLimitError: Bool {
-        guard case let TrpcError.httpError(_, body) = self,
+        guard let trpcError = self as? TrpcError,
+              case let .httpError(_, body) = trpcError,
               let parsed = TrpcErrorBody.parse(body) else { return false }
         return parsed.code == "PRECONDITION_FAILED"
             && parsed.message.hasPrefix(planLimitMessagePrefix)
