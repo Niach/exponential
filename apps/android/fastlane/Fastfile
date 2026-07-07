@@ -43,10 +43,11 @@ platform :android do
   end
 
   # Distribution runs through the CLOSED testing track (Google-Groups testers),
-  # not internal. The Play Console's default closed track is named "Beta" and
-  # its API identifier is `beta`; a custom closed track would use its exact
-  # name — override via PLAY_TRACK.
-  CLOSED_TRACK = ENV["PLAY_TRACK"] || "beta"
+  # not internal. This app's closed track is the console's default closed track
+  # "Alpha" — API identifier `alpha` (verified: build 15 lives there; `beta` is
+  # empty). A custom closed track would use its exact name — override via
+  # PLAY_TRACK.
+  CLOSED_TRACK = ENV["PLAY_TRACK"] || "alpha"
 
   desc "Build + upload the production .aab to the Play closed testing track."
   lane :closed do
