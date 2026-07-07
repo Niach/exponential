@@ -89,7 +89,10 @@ class StoreScreenshotsTest {
 
     @Test
     fun captureStoreScreenshots() {
-        // --- Instance picker: point the app at the seeded local backend.
+        // --- Instance picker: cloud is the primary path (EXP-14), so reveal
+        // the self-hosted URL field, then point the app at the seeded backend.
+        waitFor(hasText("Use a self-hosted instance"), NAV_TIMEOUT)
+        composeRule.onNode(hasText("Use a self-hosted instance")).performClick()
         waitFor(hasTestTag("instance-url-field"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("instance-url-field")).apply {
             performTextClearance()

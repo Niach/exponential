@@ -150,16 +150,22 @@ final class StoreScreenshots: XCTestCase {
         // survives the relaunch and the app boots straight into the main UI —
         // detect that and skip the sign-in flow entirely.
         let urlField = app.textFields["instance-url-field"]
+        let selfHostLink = app.buttons["instance-self-host-link"]
         let issuesTab = app.buttons["tab-issues"]
         let deadline = Date().addingTimeInterval(30)
-        while !urlField.exists && !issuesTab.exists && Date() < deadline {
+        while !selfHostLink.exists && !urlField.exists && !issuesTab.exists && Date() < deadline {
             usleep(500_000)
         }
         if issuesTab.exists {
             dismissSavePasswordSheet(timeout: 2)
             return
         }
-        XCTAssertTrue(urlField.exists, "Neither InstanceView nor the main UI appeared")
+        // Cloud is the primary path now (EXP-14) — reveal the self-hosted URL
+        // field before pointing the app at the local backend.
+        if selfHostLink.exists && !urlField.exists {
+            selfHostLink.tap()
+        }
+        XCTAssertTrue(urlField.waitForExistence(timeout: 5), "Neither InstanceView nor the main UI appeared")
         focus(urlField)
         clearText(of: urlField)
         urlField.typeText(instanceUrl)

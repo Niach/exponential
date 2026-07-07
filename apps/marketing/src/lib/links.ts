@@ -25,11 +25,10 @@ export const LINKS = {
     macos: `${REPO}/releases/latest/download/exp-desktop-production.zip`,
     windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.zip`,
     linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
-    // Mobile stores are placeholders until the apps are approved — see DownloadSection.
-    // TODO(launch): App Store URL
-    ios: `${REPO}/releases`,
-    // TODO(launch): Play Store URL
-    android: `${REPO}/releases`,
+    // Mobile ships as public betas until the store listings are approved.
+    // iOS: TestFlight external beta; Android: Google Play open (beta) track.
+    ios: `https://testflight.apple.com/join/JMpJKZEB`,
+    android: `https://play.google.com/store/apps/details?id=at.exponential`,
   },
 } as const
 

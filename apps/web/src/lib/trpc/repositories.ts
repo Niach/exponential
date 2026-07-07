@@ -211,6 +211,7 @@ export async function resolveProjectRepository(projectId: string) {
       repositoryId: repositories.id,
       fullName: repositories.fullName,
       defaultBranch: repositories.defaultBranch,
+      installationId: repositories.installationId,
     })
     .from(projects)
     .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
@@ -227,6 +228,7 @@ async function loadRepository(repositoryId: string) {
       workspaceId: repositories.workspaceId,
       fullName: repositories.fullName,
       defaultBranch: repositories.defaultBranch,
+      installationId: repositories.installationId,
     })
     .from(repositories)
     .where(eq(repositories.id, repositoryId))
@@ -394,7 +396,9 @@ export const repositoriesRouter = router({
       const cached = peekBranchDiff(repo.fullName, repo.defaultBranch, branch)
       if (cached) return cached
 
-      const token = await resolveRepoInstallationToken(repo.fullName)
+      const token = await resolveRepoInstallationToken(repo.fullName, {
+        fallbackInstallationId: repo.installationId,
+      })
       return fetchBranchDiff({
         repo: repo.fullName,
         base: repo.defaultBranch,
@@ -428,7 +432,12 @@ export const repositoriesRouter = router({
         })
       }
 
-      const token = await resolveRepoInstallationToken(repo.fullName)
+      // Fall back to the installation persisted at connect time when GitHub's
+      // per-repo lookup misses — see resolveRepoInstallationToken (fixes the
+      // spurious 412 when the repo IS covered by a known installation).
+      const token = await resolveRepoInstallationToken(repo.fullName, {
+        fallbackInstallationId: repo.installationId,
+      })
       if (!token) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,

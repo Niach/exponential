@@ -44,8 +44,11 @@ mkdir -p "$APPDIR/usr/bin" \
 cp "$BIN" "$APPDIR/usr/bin/exp-desktop"
 
 # --- Icon (rasterize the vector logo) -------------------------------------
+# Use the WHITE-on-transparent logo variant (EXP-16): the plain `logo.svg` is a
+# black disc that all but vanishes on the dark taskbars/launchers desktop Linux
+# defaults to. The white disc reads on both light and dark shelves.
 ICON_PNG="$APPDIR/usr/share/icons/hicolor/256x256/apps/${APP_ID}.png"
-LOGO_SVG="${DESKTOP_DIR}/assets/icons/logo.svg"
+LOGO_SVG="${DESKTOP_DIR}/assets/icons/logo-white.svg"
 if command -v rsvg-convert >/dev/null; then
   rsvg-convert -w 256 -h 256 "$LOGO_SVG" -o "$ICON_PNG"
 elif command -v convert >/dev/null; then
@@ -93,4 +96,15 @@ rm -f "$OUTPUT"
   --icon-file "$ICON_PNG" \
   --output appimage
 
+# The AppImage must be executable — and a browser/HTTP download of the raw
+# asset from a GitHub Release strips the +x bit. Ship a `.tar.gz` alongside the
+# raw `.AppImage` (EXP-16): tar preserves file mode, so `tar xzf …` yields a
+# ready-to-run AppImage with no manual `chmod +x`. The raw asset stays published
+# too, so existing `releases/latest/download/<name>.AppImage` links keep working.
+chmod +x "$OUTPUT"
+TARBALL="${OUTPUT}.tar.gz"
+rm -f "$TARBALL"
+tar -czf "$TARBALL" -C "$(dirname "$OUTPUT")" "$(basename "$OUTPUT")"
+
 echo "built: $OUTPUT"
+echo "built: $TARBALL"

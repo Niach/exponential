@@ -393,39 +393,40 @@ impl LoginView {
 
     // -- render pieces ----------------------------------------------------------
 
-    /// The native instance picker (§4.2): **cloud first**, then
-    /// self-hosted with the URL input.
-    fn render_instance_picker(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let cloud = self.choice == InstanceChoice::Cloud;
-        let mut section = v_flex().gap_2().child(
-            h_flex()
-                .gap_2()
-                .child(
-                    // The CLOUD button comes FIRST.
-                    Button::new("login-instance-cloud")
-                        .small()
-                        .flex_1()
-                        .label("Exponential Cloud")
-                        .map(|b| if cloud { b.primary() } else { b.outline() })
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.set_choice(InstanceChoice::Cloud, cx);
-                        })),
-                )
-                .child(
-                    Button::new("login-instance-self-hosted")
-                        .small()
-                        .flex_1()
-                        .label("Self-hosted")
-                        .map(|b| if cloud { b.outline() } else { b.primary() })
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.set_choice(InstanceChoice::SelfHosted, cx);
-                        })),
-                ),
-        );
-        if !cloud {
-            section = section.child(labeled(cx, "Server URL", Input::new(&self.server).small()));
+    /// The Server URL field, shown only in self-hosted mode (§4.2). Cloud is
+    /// the primary path, so it needs no picker chrome — the OAuth/password
+    /// methods for `app.exponential.at` render directly. Self-hosting is a
+    /// small text link (see [`Self::render_instance_toggle`]).
+    fn render_server_input(&self, cx: &mut gpui::Context<Self>) -> Option<impl IntoElement> {
+        if self.choice != InstanceChoice::SelfHosted {
+            return None;
         }
-        section
+        Some(labeled(cx, "Server URL", Input::new(&self.server).small()))
+    }
+
+    /// The small, muted instance toggle: most users are on the cloud, so
+    /// self-hosting is demoted to a subtle text link below the sign-in methods
+    /// (EXP-14) — "Use a self-hosted instance" in cloud mode, and the reverse
+    /// once the self-hosted URL field is showing.
+    fn render_instance_toggle(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let cloud = self.choice == InstanceChoice::Cloud;
+        let (label, next) = if cloud {
+            ("Use a self-hosted instance", InstanceChoice::SelfHosted)
+        } else {
+            ("Use Exponential Cloud", InstanceChoice::Cloud)
+        };
+        h_flex().justify_center().child(
+            div()
+                .id("login-instance-toggle")
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .cursor_pointer()
+                .hover(|style| style.text_decoration_1())
+                .child(label)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_choice(next, cx);
+                })),
+        )
     }
 
     /// Web `OAuthProviderButtons`: Apple FIRST (the HIG wants it at least as
@@ -623,8 +624,10 @@ impl Render for LoginView {
             );
         }
 
-        // -- instance picker (cloud FIRST) ---------------------------
-        form = form.child(self.render_instance_picker(cx));
+        // -- self-hosted URL field (cloud needs none) ----------------
+        if let Some(server_input) = self.render_server_input(cx) {
+            form = form.child(server_input);
+        }
 
         // -- OAuth provider buttons (per auth-config) ------------------------
         if let Some(oauth) = self.render_oauth_buttons(&config, cx) {
@@ -684,6 +687,9 @@ impl Render for LoginView {
                         ),
                 );
         }
+
+        // -- instance toggle (self-host demoted to a small link) -----
+        form = form.child(self.render_instance_toggle(cx));
 
         // Web `AuthFormShell`: logo + wordmark centered above the card.
         let brand = h_flex()

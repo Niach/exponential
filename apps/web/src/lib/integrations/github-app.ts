@@ -108,15 +108,57 @@ async function installationToken(installationId: number): Promise<string> {
 }
 
 // The main entry: a short-lived, repo-scoped token that can clone/push/open PRs
-// on `repo` ("owner/name"). Null when the App isn't configured or not installed
-// on that repo.
+// on `repo` ("owner/name"). Null when the App isn't configured or the repo
+// can't be resolved to any installation the App can mint a token for.
+//
+// `fallbackInstallationId` is the installation persisted on the `repositories`
+// row at connect time (`repositories.installation_id`, verified authoritative
+// by `connectRepositoryInTx`). GitHub's per-repo installation endpoint
+// (`GET /repos/{repo}/installation`) intermittently reports 404 "not installed"
+// even when the App still covers the repo through a known installation — e.g.
+// the App is installed on several accounts (org + user), or the repo's owner
+// login differs from the account the visible install is attributed to. Observed
+// in prod: workspace settings shows the repo connected, yet the desktop token
+// mint 412s. When the live lookup misses we fall back to minting against the
+// stored installation id; only when THAT also fails has the App genuinely lost
+// access (→ the caller's actionable "reconnect" 412).
 export async function resolveRepoInstallationToken(
-  repo: string
+  repo: string,
+  opts?: { fallbackInstallationId?: number | null }
 ): Promise<string | null> {
   if (!githubAppConfigured()) return null
-  const id = await installationIdForRepo(repo)
-  if (id == null) return null
-  return installationToken(id)
+  return resolveInstallationTokenWith(repo, opts?.fallbackInstallationId, {
+    resolveId: installationIdForRepo,
+    mintToken: installationToken,
+  })
+}
+
+// Pure resolution policy behind `resolveRepoInstallationToken`, with the two
+// GitHub round-trips injected so it stays unit-testable without a real App JWT.
+// Prefers GitHub's authoritative per-repo installation lookup (handles
+// transfers/renames/re-installs); falls back to a known installation id when
+// that lookup 404s. A throw on the LIVE path propagates (a transient GitHub
+// error must not masquerade as "not installed"); a throw on the FALLBACK mint
+// is swallowed to null — that path is only reached after the live lookup
+// already said "not installed", so a null (→ 412) is the correct outcome.
+export async function resolveInstallationTokenWith(
+  repo: string,
+  fallbackInstallationId: number | null | undefined,
+  ops: {
+    resolveId: (repo: string) => Promise<number | null>
+    mintToken: (installationId: number) => Promise<string>
+  }
+): Promise<string | null> {
+  const liveId = await ops.resolveId(repo)
+  if (liveId != null) return ops.mintToken(liveId)
+  if (fallbackInstallationId != null) {
+    try {
+      return await ops.mintToken(fallbackInstallationId)
+    } catch {
+      return null
+    }
+  }
+  return null
 }
 
 // GitHub's authoritative default branch for a repo ("owner/name"), or null if

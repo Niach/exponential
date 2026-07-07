@@ -100,12 +100,18 @@ jobs:
       - name: Package AppImage
         if: runner.os == 'Linux'
         run: apps/desktop/scripts/build-appimage.sh ${{ matrix.channel }}
+      # Publish BOTH the raw AppImage (marketing's stable
+      # releases/latest/download/<name>.AppImage link) and a .tar.gz of it
+      # (preserves the +x bit a raw HTTP download strips — EXP-16).
       - name: Upload AppImage
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
-          path: apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage
+          path: |
+            apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage
+            apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage.tar.gz
+          if-no-files-found: error
 
       # Windows → zip the bare exe. The exp:// protocol handler + single
       # instance are self-registered at first launch (HKCU, no installer

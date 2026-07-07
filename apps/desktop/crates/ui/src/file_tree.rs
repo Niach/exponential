@@ -74,6 +74,19 @@ pub(crate) fn window_trunk_root(window_id: WindowId, cx: &App) -> Option<PathBuf
         .and_then(|registry| registry.by_window.get(&window_id).cloned())
 }
 
+/// Publish a resolved trunk root for `window_id` from OUTSIDE the file tree.
+///
+/// The file viewer turns a trunk-relative `Screen::FileViewer { path }` into an
+/// absolute path via [`window_trunk_root`], which the file tree normally
+/// populates on load. The ⌘K search (`crate::search_sheet`) can open a file
+/// result before the Files rail was ever shown (so the tree never rendered and
+/// never published), so it resolves the trunk root itself and publishes it here
+/// before navigating. Idempotent — a later file-tree load overwrites it with
+/// the same value.
+pub(crate) fn publish_trunk_root(window_id: WindowId, root: PathBuf, cx: &mut App) {
+    set_window_trunk_root(window_id, root, cx);
+}
+
 fn set_window_trunk_root(window_id: WindowId, root: PathBuf, cx: &mut App) {
     cx.default_global::<TrunkRootRegistry>()
         .by_window
