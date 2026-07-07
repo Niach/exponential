@@ -104,6 +104,34 @@ public final class SyncManager: @unchecked Sendable {
         launchPipeline(accountId: accountId, pool: pool)
     }
 
+    /// Cancel + relaunch an account's shape pipeline WITHOUT wiping local
+    /// data. Used after a membership change (e.g. joining the public feedback
+    /// board): every shape's where clause is derived server-side from
+    /// membership, so in-flight live long-polls keep the old scope until they
+    /// drain (up to ~60s). Relaunching re-requests immediately — Electric
+    /// 409s each rotated shape and the client refetches atomically via the
+    /// needs_refetch path, so the new workspace appears in seconds. This is
+    /// the iOS analog of the web join gate's hard reload.
+    public func restartPipeline(accountId: String) async {
+        // Reuse the resync guard: a concurrent resync/restart would relaunch
+        // the pipeline over this one and orphan 14 uncancellable shape Tasks.
+        let alreadyBusy = lock.withLock { !resyncing.insert(accountId).inserted }
+        if alreadyBusy {
+            SyncDebug.shared.log("[restart] resync/restart already in flight, ignoring")
+            return
+        }
+        defer { lock.withLock { _ = resyncing.remove(accountId) } }
+
+        let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
+        for task in tasks { task.cancel() }
+        // Give any in-flight batch write a beat to drain before relaunching.
+        try? await Task.sleep(for: .milliseconds(250))
+        guard auth.accounts.first(where: { $0.id == accountId })?.token != nil,
+              let pool = try? db.pool(forAccountId: accountId) else { return }
+        SyncDebug.shared.log("[restart] relaunching pipeline (membership change)")
+        launchPipeline(accountId: accountId, pool: pool)
+    }
+
     /// Wait up to ~5s for the active account's workspaces shape to land its
     /// initial snapshot. Live sync runs automatically — this exists so UI
     /// loading indicators have a meaningful signal to wait on. Resolves the

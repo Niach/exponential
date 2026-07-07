@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var workspaceLoader: MultiAccountWorkspaceLoader?
     @State private var pendingWorkspace: WorkspaceNavTarget?
     @State private var showAddServer = false
+    @State private var showFeedbackGate = false
+    @State private var pendingFeedbackBoard: FeedbackBoardTarget?
 
     var body: some View {
         ZStack {
@@ -34,6 +36,10 @@ struct SettingsView: View {
             WorkspaceSettingsView(workspaceId: target.workspaceId)
                 .environment(\.accountId, target.accountId)
         }
+        .navigationDestination(item: $pendingFeedbackBoard) { target in
+            IssueListView(projectId: target.projectId)
+                .environment(\.accountId, target.accountId)
+        }
         .onAppear {
             if workspaceLoader == nil {
                 workspaceLoader = MultiAccountWorkspaceLoader(auth: deps.auth, db: deps.db)
@@ -46,6 +52,19 @@ struct SettingsView: View {
             InstanceView(showCancel: true) {
                 showAddServer = false
             }
+        }
+        .sheet(isPresented: $showFeedbackGate) {
+            FeedbackBoardGateSheet { target in
+                showFeedbackGate = false
+                // Let the sheet dismiss before pushing so the two transitions
+                // don't race each other.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    pendingFeedbackBoard = target
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationBackground(.ultraThinMaterial)
         }
     }
 
@@ -174,9 +193,9 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
 
-                if let url = feedbackUrl() {
+                if deps.auth.instanceUrl != nil {
                     Button {
-                        UIApplication.shared.open(url)
+                        showFeedbackGate = true
                     } label: {
                         settingsRow(icon: "envelope", title: "Send feedback")
                     }
@@ -184,14 +203,6 @@ struct SettingsView: View {
                 }
             }
         }
-    }
-
-    // The web `/feedback` route is the single source of truth — the server
-    // redirects it to the shared feedback workspace+project. Mobile opens that
-    // URL on the configured instance rather than hardcoding the destination.
-    private func feedbackUrl() -> URL? {
-        guard let baseUrl = deps.auth.instanceUrl else { return nil }
-        return URL(string: "\(baseUrl)/feedback")
     }
 
     @ViewBuilder
