@@ -94,7 +94,7 @@ const selfHostPlans: (Plan & { selfHost?: boolean; enterprise?: boolean })[] = [
     ],
     cta: {
       label: `Contact sales`,
-      href: `mailto:sales@exponential.at?subject=Exponential%20Enterprise`,
+      href: `mailto:dennis@straehhuber.com?subject=Exponential%20Enterprise`,
     },
   },
 ]
