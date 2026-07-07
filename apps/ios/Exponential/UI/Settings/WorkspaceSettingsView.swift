@@ -27,13 +27,6 @@ struct WorkspaceSettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // General — public toggle + write policy
-                    WorkspaceGeneralSection(
-                        accountId: accountId,
-                        workspace: workspace,
-                        workspacesApi: deps.workspacesApi
-                    )
-
                     // Projects section
                     WorkspaceProjectsSection(
                         projects: projects.filter { $0.archivedAt == nil },

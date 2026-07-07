@@ -457,8 +457,7 @@ fn delete_by_key(conn: &Connection, spec: &ShapeSpec, key: &RowKey) -> Result<()
 /// blanket `ToSql` (which JSON-re-encodes: `"First issue"` WITH quotes, JSON
 /// `null` as the TEXT `null`). Every scalar is normalized to its TEXT form —
 /// the ONE canonical storage form (§5.5); real SQL `NULL` for JSON null;
-/// arrays/objects (e.g. `projects.preview_config` jsonb, the stale fixture
-/// `description` object) as JSON text.
+/// arrays/objects (e.g. the stale fixture `description` object) as JSON text.
 fn bind_value(v: &Value) -> SqlValue {
     match v {
         Value::String(s) => SqlValue::Text(s.clone()), // the text, NO quotes

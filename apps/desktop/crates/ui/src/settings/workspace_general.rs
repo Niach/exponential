@@ -1,9 +1,11 @@
 //! Settings → General + Danger Zone (masterplan-v3 §4.2).
 //!
 //! Web parity: `components/workspace/general-section.tsx` (name `Input`,
-//! isPublic `Switch`, publicWritePolicy select, dirty-gated Save) and the
-//! Danger Zone card of `routes/w/$workspaceSlug/settings/index.tsx`
-//! (type-the-name-to-confirm delete, gated owner + non-public + team-only).
+//! dirty-gated Save; visibility is deliberately NOT configurable — v6 made
+//! `workspaces.update` reject isPublic/publicWritePolicy, the only public
+//! workspace is the bootstrap feedback board) and the Danger Zone card of
+//! `routes/w/$workspaceSlug/settings/index.tsx` (type-the-name-to-confirm
+//! delete, gated owner + non-public + team-only).
 //!
 //! Local state mirrors the web's `useState` + resync-on-workspace-change
 //! `useEffect`: an Electric echo that changes the synced row overwrites the
@@ -18,13 +20,9 @@ use gpui_component::{
     dialog::DialogButtonProps,
     h_flex,
     input::{Input, InputEvent, InputState},
-    menu::DropdownMenu as _,
-    switch::Switch,
-    v_flex, ActiveTheme as _, Disableable as _, IconName, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
 };
 use sync::Store;
-
-use domain::contract::{PUBLIC_WRITE_POLICY_EVERYONE, PUBLIC_WRITE_POLICY_MEMBERS};
 
 use crate::navigation::Navigation;
 
@@ -38,16 +36,12 @@ use super::{
 struct Snapshot {
     workspace_id: String,
     name: String,
-    is_public: bool,
-    policy: String,
 }
 
 pub struct GeneralPane {
     nav: Entity<Navigation>,
     name_input: Entity<InputState>,
     delete_input: Entity<InputState>,
-    is_public: bool,
-    policy: String,
     snapshot: Option<Snapshot>,
     saving: bool,
     error: Option<SharedString>,
@@ -86,8 +80,6 @@ impl GeneralPane {
             nav,
             name_input,
             delete_input,
-            is_public: false,
-            policy: PUBLIC_WRITE_POLICY_MEMBERS.to_string(),
             snapshot: None,
             saving: false,
             error: None,
@@ -106,11 +98,6 @@ impl GeneralPane {
         let snapshot = Snapshot {
             workspace_id: workspace.id.clone(),
             name: workspace.name.clone(),
-            is_public: workspace.is_public == Some(true),
-            policy: workspace
-                .public_write_policy
-                .clone()
-                .unwrap_or_else(|| PUBLIC_WRITE_POLICY_MEMBERS.to_string()),
         };
         if self.snapshot.as_ref() == Some(&snapshot) {
             return;
@@ -118,8 +105,6 @@ impl GeneralPane {
         self.name_input.update(cx, |state, cx| {
             state.set_value(snapshot.name.clone(), window, cx);
         });
-        self.is_public = snapshot.is_public;
-        self.policy = snapshot.policy.clone();
         self.snapshot = Some(snapshot);
         cx.notify();
     }
@@ -129,8 +114,6 @@ impl GeneralPane {
             return false;
         };
         self.name_input.read(cx).value().as_ref() != snapshot.name
-            || self.is_public != snapshot.is_public
-            || self.policy != snapshot.policy
     }
 
     fn save(&mut self, cx: &mut gpui::Context<Self>) {
@@ -153,8 +136,6 @@ impl GeneralPane {
         };
         let mut input = api::workspaces::WorkspacesUpdateInput::new(snapshot.workspace_id.clone());
         input.name = Some(name);
-        input.is_public = Some(self.is_public);
-        input.public_write_policy = Some(self.policy.clone());
 
         self.saving = true;
         self.error = None;
@@ -260,24 +241,19 @@ impl Render for GeneralPane {
             );
         };
         let solo = !show_workspace_chrome(cx, &workspace.id);
+        // Web parity: `if (solo) return null` — solo users don't see the
+        // "workspace" concept, so the name card (a name nobody else sees) is
+        // hidden. Visibility is deliberately not configurable (v6).
+        if solo {
+            return v_flex();
+        }
         let owner = is_owner(cx, &workspace.id);
         let dirty = self.dirty(cx);
         let saving = self.saving;
-        let is_public = self.is_public;
-        let policy = self.policy.clone();
 
-        let mut general = card(cx).child(card_header(
-            if solo { "Visibility" } else { "General" },
-            if solo {
-                "Visibility and contribution rules"
-            } else {
-                "Workspace name, visibility, and contribution rules"
-            },
-            cx,
-        ));
-
-        if !solo {
-            general = general.child(
+        let mut general = card(cx)
+            .child(card_header("General", "Workspace name", cx))
+            .child(
                 v_flex()
                     .gap_1()
                     .child(
@@ -288,100 +264,6 @@ impl Render for GeneralPane {
                     )
                     .child(Input::new(&self.name_input).small().disabled(!owner)),
             );
-        }
-
-        general = general.child(
-            h_flex()
-                .justify_between()
-                .items_center()
-                .gap_4()
-                .p_3()
-                .rounded(cx.theme().radius)
-                .border_1()
-                .border_color(cx.theme().border)
-                .child(
-                    v_flex()
-                        .gap_0p5()
-                        .child(div().text_sm().child("Public workspace"))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    "Anyone can view this workspace, including people who \
-                                     aren't signed in. Creating still requires login.",
-                                ),
-                        ),
-                )
-                .child(
-                    Switch::new("workspace-public")
-                        .checked(is_public)
-                        .disabled(!owner)
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.is_public = *checked;
-                            cx.notify();
-                        })),
-                ),
-        );
-
-        if is_public {
-            let policy_label: SharedString = if policy == PUBLIC_WRITE_POLICY_EVERYONE {
-                "Anyone signed in".into()
-            } else {
-                "Workspace members only".into()
-            };
-            let current = policy.clone();
-            general = general.child(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Who can create issues?"),
-                    )
-                    .child(
-                        Button::new("workspace-policy")
-                            .outline()
-                            .small()
-                            .label(policy_label)
-                            .icon(IconName::ChevronDown)
-                            .disabled(!owner)
-                            .dropdown_menu({
-                                let entity = cx.entity();
-                                move |menu, _, _| {
-                                    let mut menu = menu;
-                                    for (value, label) in [
-                                        (PUBLIC_WRITE_POLICY_MEMBERS, "Workspace members only"),
-                                        (PUBLIC_WRITE_POLICY_EVERYONE, "Anyone signed in"),
-                                    ] {
-                                        let entity = entity.clone();
-                                        menu = menu.item(
-                                            gpui_component::menu::PopupMenuItem::new(label)
-                                                .checked(current == value)
-                                                .on_click(move |_, _, cx| {
-                                                    entity.update(cx, |this, cx| {
-                                                        this.policy = value.to_string();
-                                                        cx.notify();
-                                                    });
-                                                }),
-                                        );
-                                    }
-                                    menu
-                                }
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                "Updating an issue is always limited to its creator, a \
-                                 workspace member, or an admin.",
-                            ),
-                    ),
-            );
-        }
 
         if let Some(error) = &self.error {
             general = general.child(
@@ -406,9 +288,10 @@ impl Render for GeneralPane {
 
         let mut pane = v_flex().gap_4().child(general);
 
-        // Danger Zone (web settings/index.tsx): owner + non-public + team-only.
+        // Danger Zone (web settings/index.tsx): owner + non-public + team-only
+        // (the solo case already returned above).
         let synced_public = workspace.is_public == Some(true);
-        if owner && !synced_public && !solo {
+        if owner && !synced_public {
             let workspace_id = workspace.id.clone();
             let workspace_name = workspace.name.clone();
             pane = pane.child(

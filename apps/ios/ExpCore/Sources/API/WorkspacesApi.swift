@@ -30,22 +30,6 @@ public struct CreateWorkspaceInput: Encodable, Sendable {
     }
 }
 
-public struct UpdateWorkspaceInput: Encodable, Sendable {
-    public let id: String
-    public var name: String?
-    public var isPublic: Bool?
-    public var publicWritePolicy: String?
-    public var iconUrl: String?
-
-    public init(id: String, name: String? = nil, isPublic: Bool? = nil, publicWritePolicy: String? = nil, iconUrl: String? = nil) {
-        self.id = id
-        self.name = name
-        self.isPublic = isPublic
-        self.publicWritePolicy = publicWritePolicy
-        self.iconUrl = iconUrl
-    }
-}
-
 public struct DeleteWorkspaceInput: Encodable, Sendable {
     public let workspaceId: String
 
@@ -63,7 +47,6 @@ public struct DeleteProjectInput: Encodable, Sendable {
 }
 
 private struct EmptyInput: Encodable {}
-private struct EmptyResult: Decodable {}
 
 public final class WorkspacesApi: Sendable {
     private let trpc: TrpcClient
@@ -80,10 +63,6 @@ public final class WorkspacesApi: Sendable {
     public func create(accountId: String, name: String, iconUrl: String? = nil) async throws -> WorkspaceResult {
         let result: EnsureDefaultResult = try await trpc.mutation(accountId: accountId, path: "workspaces.create", input: CreateWorkspaceInput(name: name, iconUrl: iconUrl))
         return result.workspace
-    }
-
-    public func update(accountId: String, _ input: UpdateWorkspaceInput) async throws {
-        let _: EmptyResult = try await trpc.mutation(accountId: accountId, path: "workspaces.update", input: input)
     }
 
     public func delete(accountId: String, workspaceId: String) async throws {

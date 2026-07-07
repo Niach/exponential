@@ -110,7 +110,6 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "repository_id",
             "sort_order",
             "archived_at",
-            "preview_config",
             "created_at",
             "updated_at",
         ],

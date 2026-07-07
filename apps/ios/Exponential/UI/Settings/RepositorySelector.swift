@@ -23,10 +23,6 @@ struct RepositorySelector: View {
     /// a selectable row and connected inline on create.
     @State private var addedRepo: GithubPickerRepo?
 
-    private var installBaseURL: URL? {
-        deps.auth.instanceBaseURL(forAccountId: accountId)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Repository (required)")
@@ -100,8 +96,7 @@ struct RepositorySelector: View {
         .sheet(isPresented: $showAddByName) {
             GithubRepoPicker(
                 accountId: accountId,
-                integrationsApi: deps.integrationsApi,
-                installBaseURL: installBaseURL
+                integrationsApi: deps.integrationsApi
             ) { repo in
                 addedRepo = repo
                 selection = .fullName(

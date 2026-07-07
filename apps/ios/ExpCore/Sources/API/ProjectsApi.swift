@@ -79,67 +79,6 @@ public struct ProjectResultData: Decodable, Sendable {
     }
 }
 
-// MARK: - Preview config mirror (projects.updatePreviewConfig)
-
-/// The display-only run-target mirror written to `projects.preview_config`.
-/// NEVER carries build/run commands (those live only in the repo file); this is
-/// safe display metadata + the feedback routing target. Mirrors the web
-/// `previewMirrorInputSchema`.
-public struct PreviewMirrorTarget: Codable, Sendable, Equatable {
-    public let id: String
-    public let name: String
-    public let platform: String
-
-    public init(id: String, name: String, platform: String) {
-        self.id = id
-        self.name = name
-        self.platform = platform
-    }
-}
-
-public struct PreviewMirrorInput: Encodable, Sendable {
-    public let targets: [PreviewMirrorTarget]
-    public let feedbackProjectId: String?
-
-    public init(targets: [PreviewMirrorTarget], feedbackProjectId: String?) {
-        self.targets = targets
-        self.feedbackProjectId = feedbackProjectId
-    }
-
-    enum CodingKeys: String, CodingKey { case targets, feedbackProjectId }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(targets, forKey: .targets)
-        // feedbackProjectId is `.optional()` server-side — omit when nil.
-        try c.encodeIfPresent(feedbackProjectId, forKey: .feedbackProjectId)
-    }
-}
-
-public struct UpdatePreviewConfigInput: Encodable, Sendable {
-    public let projectId: String
-    // nil clears the mirror (encoded as JSON null); a value replaces it.
-    public let previewConfig: PreviewMirrorInput?
-
-    public init(projectId: String, previewConfig: PreviewMirrorInput?) {
-        self.projectId = projectId
-        self.previewConfig = previewConfig
-    }
-
-    enum CodingKeys: String, CodingKey { case projectId, previewConfig }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(projectId, forKey: .projectId)
-        // previewConfig is `.nullable()` server-side — encode JSON null to clear.
-        if let previewConfig {
-            try c.encode(previewConfig, forKey: .previewConfig)
-        } else {
-            try c.encodeNil(forKey: .previewConfig)
-        }
-    }
-}
-
 public final class ProjectsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -163,18 +102,6 @@ public final class ProjectsApi: Sendable {
             accountId: accountId,
             path: "projects.setRepository",
             input: SetProjectRepositoryInput(projectId: projectId, repositoryId: repositoryId)
-        )
-    }
-
-    /// Write the display-only preview mirror (`projects.preview_config`):
-    /// the discovered run targets + the feedback routing target. Owner-gated
-    /// server-side (`assertWorkspaceOwner`); the desktop populates `targets`
-    /// after it clones + parses the repo file. Pass `previewConfig: nil` to clear.
-    public func updatePreviewConfig(accountId: String, _ input: UpdatePreviewConfigInput) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "projects.updatePreviewConfig",
-            input: input
         )
     }
 }

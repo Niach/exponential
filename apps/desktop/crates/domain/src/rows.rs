@@ -63,9 +63,6 @@ pub struct Project {
     pub sort_order: Option<f64>,
     #[serde(default)]
     pub archived_at: Option<String>,
-    /// jsonb on the server; stored/carried as raw JSON text.
-    #[serde(default)]
-    pub preview_config: Option<serde_json::Value>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

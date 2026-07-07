@@ -11,7 +11,6 @@ import SwiftUI
 struct GithubRepoPicker: View {
     let accountId: String
     let integrationsApi: IntegrationsApi
-    let installBaseURL: URL?
     /// Called with the picked repo; the sheet dismisses itself afterwards.
     var onPick: (GithubPickerRepo) -> Void
 
@@ -146,11 +145,12 @@ struct GithubRepoPicker: View {
         }
     }
 
+    // Web parity (github-repo-picker.tsx): only the server-provided GitHub App
+    // install URL — the old `/account/integrations` fallback was removed in v5
+    // (repo management lives in workspace settings → Repositories).
     private func openInstall(_ data: GithubReposResult) {
         if let urlString = data.installUrl, let url = URL(string: urlString) {
             Platform.open(url)
-        } else if let base = installBaseURL {
-            Platform.open(base.appending(path: "account/integrations"))
         }
     }
 

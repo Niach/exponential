@@ -10,7 +10,6 @@ import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.WorkspaceRepo
-import com.exponential.app.data.api.UpdateWorkspaceInput
 import com.exponential.app.data.api.WorkspaceInvitesApi
 import com.exponential.app.data.api.WorkspaceMembersApi
 import com.exponential.app.data.api.WorkspacesApi
@@ -264,29 +263,5 @@ class WorkspaceSettingsViewModel @Inject constructor(
         runCatching { repositoriesApi.setRepository(accountId, projectId, repositoryId) }
             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the repository") }
         refreshRepos()
-    }
-
-    fun setPublic(isPublic: Boolean) = viewModelScope.launch {
-        val accountId = auth.activeAccountId.value ?: return@launch
-        val workspaceId = selection.selectedId.value ?: return@launch
-        runCatching {
-            workspacesApi.update(
-                accountId,
-                UpdateWorkspaceInput(
-                    id = workspaceId,
-                    isPublic = isPublic,
-                    // Default policy when first enabling — matches the web flow.
-                    publicWritePolicy = if (isPublic) DomainContract.publicWritePolicyMembers else null,
-                )
-            )
-        }.onFailure { _transient.value = it.message }
-    }
-
-    fun setPublicWritePolicy(policy: String) = viewModelScope.launch {
-        val accountId = auth.activeAccountId.value ?: return@launch
-        val workspaceId = selection.selectedId.value ?: return@launch
-        runCatching {
-            workspacesApi.update(accountId, UpdateWorkspaceInput(id = workspaceId, publicWritePolicy = policy))
-        }.onFailure { _transient.value = it.message }
     }
 }

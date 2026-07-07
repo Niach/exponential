@@ -5,8 +5,8 @@
 //! `workspace-invites.ts`:
 //!
 //! - `workspaces.create({name, iconUrl?})` → `{workspace, txId}`
-//! - `workspaces.update({id, name?, isPublic?, publicWritePolicy?, iconUrl?})`
-//!   → `{workspace, txId}`
+//! - `workspaces.update({id, name?, iconUrl?})` → `{workspace, txId}` (v6:
+//!   isPublic/publicWritePolicy are rejected server-side — never sent)
 //! - `workspaces.delete({workspaceId})` → `{ok, txId}`
 //! - `workspaces.ensureDefault()` → `{workspace, txId}` (txId 0 when reused)
 //! - `workspaceMembers.updateRole({memberId, role})` → `{member}`
@@ -80,11 +80,6 @@ pub struct WorkspacesUpdateInput {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_public: Option<bool>,
-    /// A `publicWritePolicy` contract value (`domain::contract`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_write_policy: Option<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub icon_url: Patch<String>,
 }
@@ -94,8 +89,6 @@ impl WorkspacesUpdateInput {
         Self {
             id: id.into(),
             name: None,
-            is_public: None,
-            public_write_policy: None,
             icon_url: Patch::Omit,
         }
     }

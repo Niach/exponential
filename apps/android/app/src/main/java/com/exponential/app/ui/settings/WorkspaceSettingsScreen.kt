@@ -151,38 +151,6 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionHeader("Visibility")
-            Column(Modifier.fillMaxWidth().glassSection().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (state.workspace?.isPublic == true) "Public" else "Private",
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedButton(onClick = { viewModel.setPublic(state.workspace?.isPublic != true) }) {
-                        Text(if (state.workspace?.isPublic == true) "Make private" else "Make public")
-                    }
-                }
-                if (state.workspace?.isPublic == true) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(
-                            DomainContract.publicWritePolicyMembers to "Members",
-                            DomainContract.publicWritePolicyEveryone to "Anyone",
-                        ).forEach { (policy, label) ->
-                            val selected = state.workspace?.publicWritePolicy == policy
-                            OutlinedButton(onClick = { viewModel.setPublicWritePolicy(policy) }) {
-                                if (selected) {
-                                    Icon(Icons.Filled.Check, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                }
-                                Text(label)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader("Projects")
             Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
                 if (state.projects.isEmpty()) {
