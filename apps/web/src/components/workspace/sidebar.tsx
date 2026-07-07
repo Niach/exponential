@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   Bell,
+  Bot,
   Check,
   ChevronsUpDown,
   CircleUser,
@@ -16,7 +17,7 @@ import {
   Settings,
   Shield,
 } from "lucide-react"
-import { issueCollection } from "@/lib/collections"
+import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
@@ -85,6 +86,29 @@ function ReviewsCountBadge({ projects }: { projects: Project[] | undefined }) {
             )
         : undefined,
     [projectIds.join(`,`)]
+  )
+  const count = data?.length ?? 0
+  if (count === 0) return null
+  return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
+}
+
+// Live count of running coding sessions in the workspace, for the Agents
+// entry. Pure client-side counting over the already-synced coding_sessions
+// shape (workspace-scoped by the denormalized workspace_id).
+function AgentsRunningBadge({ workspaceId }: { workspaceId?: string }) {
+  const { data } = useLiveQuery(
+    (query) =>
+      workspaceId
+        ? query
+            .from({ sessions: codingSessionCollection })
+            .where(({ sessions }) =>
+              and(
+                eq(sessions.workspaceId, workspaceId),
+                eq(sessions.status, `running`)
+              )
+            )
+        : undefined,
+    [workspaceId]
   )
   const count = data?.length ?? 0
   if (count === 0) return null
@@ -275,6 +299,20 @@ export function WorkspaceSidebar({
                         </Link>
                       </SidebarMenuButton>
                       <ReviewsCountBadge projects={projects} />
+                    </SidebarMenuItem>
+                  )}
+                  {isAuthed && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link
+                          to="/w/$workspaceSlug/agents"
+                          params={{ workspaceSlug }}
+                        >
+                          <Bot className="h-4 w-4" />
+                          <span>Agents</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      <AgentsRunningBadge workspaceId={workspace?.id} />
                     </SidebarMenuItem>
                   )}
                 </SidebarMenu>

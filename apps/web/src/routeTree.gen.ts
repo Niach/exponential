@@ -57,6 +57,7 @@ import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$wor
 import { Route as WWorkspaceSlugReviewsIndexRouteImport } from './routes/w/$workspaceSlug/reviews/index'
 import { Route as WWorkspaceSlugMyIssuesIndexRouteImport } from './routes/w/$workspaceSlug/my-issues/index'
 import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$workspaceSlug/inbox/index'
+import { Route as WWorkspaceSlugAgentsIndexRouteImport } from './routes/w/$workspaceSlug/agents/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
@@ -314,6 +315,12 @@ const WWorkspaceSlugInboxIndexRoute =
     path: '/inbox/',
     getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
+const WWorkspaceSlugAgentsIndexRoute =
+  WWorkspaceSlugAgentsIndexRouteImport.update({
+    id: '/agents/',
+    path: '/agents/',
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
+  } as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
   id: '/api/issues/$issueId/images',
   path: '/api/issues/$issueId/images',
@@ -391,6 +398,7 @@ export interface FileRoutesByFullPath {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
   '/w/$workspaceSlug/reviews/': typeof WWorkspaceSlugReviewsIndexRoute
@@ -443,6 +451,7 @@ export interface FileRoutesByTo {
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/agents': typeof WWorkspaceSlugAgentsIndexRoute
   '/w/$workspaceSlug/inbox': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/my-issues': typeof WWorkspaceSlugMyIssuesIndexRoute
   '/w/$workspaceSlug/reviews': typeof WWorkspaceSlugReviewsIndexRoute
@@ -499,6 +508,7 @@ export interface FileRoutesById {
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
   '/w/$workspaceSlug/reviews/': typeof WWorkspaceSlugReviewsIndexRoute
@@ -555,6 +565,7 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/agents/'
     | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/my-issues/'
     | '/w/$workspaceSlug/reviews/'
@@ -607,6 +618,7 @@ export interface FileRouteTypes {
     | '/integrations/github/installed'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/agents'
     | '/w/$workspaceSlug/inbox'
     | '/w/$workspaceSlug/my-issues'
     | '/w/$workspaceSlug/reviews'
@@ -662,6 +674,7 @@ export interface FileRouteTypes {
     | '/_authenticated/integrations/github/installed'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/agents/'
     | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/my-issues/'
     | '/w/$workspaceSlug/reviews/'
@@ -1049,6 +1062,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceSlugInboxIndexRouteImport
       parentRoute: typeof WWorkspaceSlugRouteRoute
     }
+    '/w/$workspaceSlug/agents/': {
+      id: '/w/$workspaceSlug/agents/'
+      path: '/agents'
+      fullPath: '/w/$workspaceSlug/agents/'
+      preLoaderRoute: typeof WWorkspaceSlugAgentsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
+    }
     '/api/issues/$issueId/images': {
       id: '/api/issues/$issueId/images'
       path: '/api/issues/$issueId/images'
@@ -1129,6 +1149,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface WWorkspaceSlugRouteRouteChildren {
   WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
+  WWorkspaceSlugAgentsIndexRoute: typeof WWorkspaceSlugAgentsIndexRoute
   WWorkspaceSlugInboxIndexRoute: typeof WWorkspaceSlugInboxIndexRoute
   WWorkspaceSlugMyIssuesIndexRoute: typeof WWorkspaceSlugMyIssuesIndexRoute
   WWorkspaceSlugReviewsIndexRoute: typeof WWorkspaceSlugReviewsIndexRoute
@@ -1139,6 +1160,7 @@ interface WWorkspaceSlugRouteRouteChildren {
 
 const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
   WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
+  WWorkspaceSlugAgentsIndexRoute: WWorkspaceSlugAgentsIndexRoute,
   WWorkspaceSlugInboxIndexRoute: WWorkspaceSlugInboxIndexRoute,
   WWorkspaceSlugMyIssuesIndexRoute: WWorkspaceSlugMyIssuesIndexRoute,
   WWorkspaceSlugReviewsIndexRoute: WWorkspaceSlugReviewsIndexRoute,

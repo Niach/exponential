@@ -120,7 +120,9 @@ function fetchSteerConfigOnce(): Promise<SteerConfig> {
   return steerConfigPromise
 }
 
-function useSteerConfig(): SteerConfig | null {
+// Exported for the workspace Agents page, which gates its Watch controls on
+// the same relay availability signal.
+export function useSteerConfig(): SteerConfig | null {
   const [config, setConfig] = useState<SteerConfig | null>(null)
   useEffect(() => {
     let active = true
@@ -341,16 +343,23 @@ type ViewerPhase =
   // Unexpected socket loss — offer a manual Reconnect (fresh ticket).
   | { kind: `closed`; detail?: string }
 
-function SteerViewer({
+// Exported for the workspace Agents page, which renders the viewer per
+// SESSION row (this component is session-scoped; the SteerTerminal wrapper
+// above is issue-scoped). Callers are responsible for the membership +
+// config.enabled gating the wrapper does — the relay enforces both regardless.
+export function SteerViewer({
   session,
   currentUserId,
+  autoConnect = false,
 }: {
   session: CodingSession
   currentUserId: string
+  /** Dial immediately on mount instead of waiting for a "Watch live" click. */
+  autoConnect?: boolean
 }) {
   // Bumping `attempt` (re)runs the whole connect lifecycle with a fresh
   // ticket; 0 = not watching.
-  const [attempt, setAttempt] = useState(0)
+  const [attempt, setAttempt] = useState(autoConnect ? 1 : 0)
   const [phase, setPhase] = useState<ViewerPhase>({ kind: `idle` })
   const [perm, setPerm] = useState<`view` | `steer`>(`view`)
   const [viewers, setViewers] = useState<PresenceViewer[]>([])
