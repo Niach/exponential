@@ -124,7 +124,16 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           })
         }
 
-        const target = `${APP_DEEP_LINK}#token=${encodeURIComponent(token)}`
+        // Carry the token in BOTH the query AND the fragment (EXP-21). The
+        // handoff is a client-side `window.location.href = "exp://…"`, and when
+        // a browser hands a custom scheme to the OS it drops the URL #fragment
+        // (a client-only construct) — so on Linux the desktop app's xdg handler
+        // received a tokenless `exp://oauth-return` and never signed in. The
+        // query survives that hop; the desktop parser reads it. iOS's
+        // ASWebAuthenticationSession keeps the whole URL and reads the fragment,
+        // so keep the fragment too rather than switching to query-only.
+        const enc = encodeURIComponent(token)
+        const target = `${APP_DEEP_LINK}?token=${enc}#token=${enc}`
         // 200 HTML (not a 302 to exp://) so the browser tab renders a
         // confirmation instead of spinning on an uncompletable navigation.
         return new Response(renderReturnPage(target), {

@@ -239,6 +239,7 @@ dependencies = [
  "core-foundation 0.9.4",
  "dirs",
  "domain",
+ "embed-resource",
  "flume",
  "gpui",
  "gpui-component",

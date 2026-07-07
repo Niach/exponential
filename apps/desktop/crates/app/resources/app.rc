@@ -1,0 +1,7 @@
+// Windows application icon for exp-desktop.exe (EXP-20).
+//
+// Explorer, the taskbar and Alt-Tab use the lowest-numbered ICON resource as
+// the executable's icon, so this must stay resource id 1. The .ico is the white
+// brand logo (apps/desktop/assets/icons/logo-white.svg), matching the Linux
+// AppImage's white-on-transparent choice so it reads on dark taskbars.
+1 ICON "app.ico"

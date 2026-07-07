@@ -380,6 +380,7 @@ class IssueListViewModel @Inject constructor(
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                 )
             )
+            upsertCreatedLocally(accountId, created, labelIds)
 
             if (rawDescription != null && pendingImages.isNotEmpty()) {
                 val urlByPlaceholder = uploadPendingImages(accountId, created.id, pendingImages)
@@ -391,10 +392,13 @@ class IssueListViewModel @Inject constructor(
                     replacements = urlByPlaceholder,
                 )
                 if (finalDescription != strippedDescription.orEmpty() && finalDescription.isNotBlank()) {
-                    issuesApi.update(
+                    val updated = issuesApi.update(
                         accountId,
                         UpdateIssueInput(id = created.id, description = finalDescription)
                     )
+                    runCatching {
+                        holder.database(forAccountId = accountId).issueDao().upsert(updated)
+                    }
                 }
             }
             true
@@ -403,6 +407,46 @@ class IssueListViewModel @Inject constructor(
             false
         } finally {
             _busy.value = false
+        }
+    }
+
+    /**
+     * Mirror a freshly-created issue (and its label joins) into local Room
+     * immediately, instead of waiting for the Electric long-poll to deliver it.
+     * The share-intent path cold-starts the process, so its `issues` shape is
+     * usually still finishing its initial/catch-up sync when the issue is
+     * created and won't surface the new row until the next live poll (up to
+     * ~60s — the reported "shows up after a minute"). Electric re-delivers the
+     * same rows on its next cycle; every upsert here is idempotent (REPLACE),
+     * so this is purely a visibility head-start (EXP-19). Best-effort: a DB
+     * hiccup here must not fail the already-committed server create.
+     */
+    private suspend fun upsertCreatedLocally(
+        accountId: String,
+        issue: IssueEntity,
+        labelIds: List<String>,
+    ) {
+        runCatching {
+            val db = holder.database(forAccountId = accountId)
+            db.issueDao().upsert(issue)
+            if (labelIds.isNotEmpty()) {
+                // issue_labels carries a denormalized workspace_id (Electric
+                // shape scoping). Resolve it from the project; skip the joins if
+                // we can't (Electric still delivers them on its next poll).
+                val workspaceId = db.projectDao().getActiveById(issue.projectId)?.workspaceId
+                    ?: _project.value?.workspaceId
+                if (workspaceId != null) {
+                    for (labelId in labelIds) {
+                        db.issueLabelDao().upsert(
+                            IssueLabelEntity(
+                                issueId = issue.id,
+                                labelId = labelId,
+                                workspaceId = workspaceId,
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
 

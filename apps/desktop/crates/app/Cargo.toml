@@ -8,6 +8,13 @@ license.workspace = true
 name = "exp-desktop"
 path = "src/main.rs"
 
+# Windows: embed the app icon into exp-desktop.exe (EXP-20). embed-resource is
+# already in the tree as gpui's own build-dep, so this pulls in no new crate;
+# build.rs no-ops on every non-Windows target, so the dep stays unconditional
+# (a target-gated build-dep would make build.rs fail to compile off-Windows).
+[build-dependencies]
+embed-resource = "3"
+
 [features]
 # Staging/dev channel: targets next.exponential.at, installs a distinct
 # `.desktop` app id, and uses a separate data dir so a staging build can

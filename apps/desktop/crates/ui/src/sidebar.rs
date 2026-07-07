@@ -42,8 +42,7 @@ use gpui_component::{
 use sync::Store;
 
 use crate::actions::{
-    CreateWorkspace, DeleteAccount, OpenSearch, OpenSettings, SendFeedback, SignOut,
-    SwitchWorkspace,
+    CreateWorkspace, DeleteAccount, OpenSettings, SendFeedback, SignOut, SwitchWorkspace,
 };
 use crate::board::BoardView;
 use crate::git_bar::GitBar;
@@ -427,16 +426,22 @@ impl Render for RailView {
             .text_color(cx.theme().sidebar_foreground)
             .border_r_1()
             .border_color(cx.theme().sidebar_border)
-            // Search — the only pure action up here (opens the ⌘K sheet).
+            // Search — opens the ⌘K sheet. Call the opener directly via
+            // cx.listener (like the rail tool icons below) rather than
+            // dispatching OpenSearch: a rail button that dispatches to the
+            // App-global handler fires from inside the window's own update, and
+            // the handler's re-entrant active-window lookup makes the click
+            // silently no-op — the gear next to it was dead for exactly this
+            // reason (EXP-17). The ⌘K keybinding still routes through the action.
             .child(
                 Button::new("rail-search")
                     .ghost()
                     .small()
                     .icon(IconName::Search)
                     .tooltip("Search")
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(OpenSearch), cx)
-                    }),
+                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                        crate::search_sheet::open_search(window, cx)
+                    })),
             )
             .child(self.divider(cx))
             // Issue tool windows — Inbox on top, then My Issues, All Issues.
@@ -503,9 +508,14 @@ impl Render for RailView {
                     .small()
                     .icon(IconName::Settings)
                     .tooltip("Settings")
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(OpenSettings), cx)
-                    }),
+                    // Navigate directly (see the search button above): the
+                    // dispatch → App-global OpenSettings handler no-ops when
+                    // fired from a rail button, which is why the gear did
+                    // nothing (EXP-17). The account-dropdown "Settings" item and
+                    // the keymap still dispatch the action.
+                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                        navigate(window, cx, Screen::Settings)
+                    })),
             )
             .child(self.render_account_button(cx))
     }
