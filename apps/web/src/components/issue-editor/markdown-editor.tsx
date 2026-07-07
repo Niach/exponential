@@ -39,7 +39,17 @@ import {
 } from "lucide-react"
 import { MarkdownImage } from "@/lib/markdown-image"
 import { IssueRefExtension } from "@/lib/issue-ref-extension"
+import { MentionPillExtension } from "@/lib/mention-pill-extension"
+import {
+  EditorAutocompleteExtension,
+  type EditorAutocompleteActive,
+} from "@/lib/editor-autocomplete"
 import { useIssueRefs } from "@/components/issue-ref-provider"
+import { useMentions } from "@/components/mention-provider"
+import {
+  IssueCandidateRow,
+  UserCandidateRow,
+} from "@/components/autocomplete-rows"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 
@@ -375,12 +385,24 @@ export const MarkdownEditor = forwardRef<
     const imageUploadRef = useRef(imageUpload)
     imageUploadRef.current = imageUpload
 
-    // Optional workspace context (null outside a workspace layout) that
-    // resolves `#IDENTIFIER` tokens to issues for the pill decorations. Held
-    // in a ref so the extension (created once) always reads fresh data.
+    // Optional workspace contexts (null outside a workspace layout) that
+    // resolve `#IDENTIFIER` tokens to issues and `@email` tokens to members
+    // for the pill decorations + the caret autocomplete. Held in refs so the
+    // extensions (created once) always read fresh data.
     const issueRefs = useIssueRefs()
     const issueRefsRef = useRef(issueRefs)
     issueRefsRef.current = issueRefs
+    const mentions = useMentions()
+    const mentionsRef = useRef(mentions)
+    mentionsRef.current = mentions
+
+    // In-progress `@`/`#` token at the caret (reported by the autocomplete
+    // extension) driving the floating candidate menu below.
+    const [autocomplete, setAutocomplete] =
+      useState<EditorAutocompleteActive | null>(null)
+    const [activeIndex, setActiveIndex] = useState(0)
+    const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
+    const wrapperRef = useRef<HTMLDivElement>(null)
 
     const editor = useEditor({
       extensions: [
@@ -404,6 +426,16 @@ export const MarkdownEditor = forwardRef<
           getResolved: (identifier) =>
             issueRefsRef.current?.resolve(identifier) ?? null,
           onOpen: (identifier) => issueRefsRef.current?.open(identifier),
+        }),
+        MentionPillExtension.configure({
+          getResolved: (email) => mentionsRef.current?.resolve(email) ?? null,
+        }),
+        EditorAutocompleteExtension.configure({
+          onStateChange: (active) => {
+            setAutocomplete(active)
+            setActiveIndex(0)
+          },
+          onKeyDown: (event) => keyHandlerRef.current(event),
         }),
         Placeholder.configure({
           placeholder: placeholder ?? `Add description...`,
@@ -479,20 +511,132 @@ export const MarkdownEditor = forwardRef<
       editor?.setEditable(editable)
     }, [editable, editor])
 
-    // Re-run the issue-ref decorations when resolution data changes (issues
-    // sync in live) — a no-op transaction recomputes plugin decorations
-    // without touching the document (onUpdate only fires on doc changes).
+    // Re-run the issue-ref/mention decorations when resolution data changes
+    // (issues/members sync in live) — a no-op transaction recomputes plugin
+    // decorations without touching the document (onUpdate only fires on doc
+    // changes).
     useEffect(() => {
       if (!editor || editor.isDestroyed) return
       editor.view.dispatch(editor.state.tr)
-    }, [editor, issueRefs])
+    }, [editor, issueRefs, mentions])
+
+    // ── @mention / #issue autocomplete menu ──
+
+    const mentionCandidates =
+      autocomplete?.kind === `mention` && mentions
+        ? mentions.search(autocomplete.query)
+        : []
+    const issueCandidates =
+      autocomplete?.kind === `issueRef` && issueRefs
+        ? issueRefs.search(autocomplete.query, { limit: 6 })
+        : []
+    const candidateCount =
+      autocomplete?.kind === `mention`
+        ? mentionCandidates.length
+        : issueCandidates.length
+
+    // Replace the in-progress `@query`/`#query` token with the canonical
+    // plain-text interchange form (`@<email>` / `#<IDENTIFIER>`). insertText
+    // keeps it plain text — never a custom node — so the markdown round-trip
+    // stays untouched.
+    const insertToken = (token: string) => {
+      const range = autocomplete
+      if (!range || !editor) return
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          tr.insertText(`${token} `, range.from, range.to)
+          return true
+        })
+        .run()
+    }
+
+    const insertActive = (index: number) => {
+      if (autocomplete?.kind === `mention` && mentionCandidates[index]) {
+        insertToken(`@${mentionCandidates[index].email}`)
+      } else if (autocomplete?.kind === `issueRef` && issueCandidates[index]) {
+        insertToken(`#${issueCandidates[index].identifier}`)
+      }
+    }
+
+    keyHandlerRef.current = (event) => {
+      if (!autocomplete || candidateCount === 0) return false
+      if (event.key === `ArrowDown`) {
+        setActiveIndex((i) => (i + 1) % candidateCount)
+        return true
+      }
+      if (event.key === `ArrowUp`) {
+        setActiveIndex((i) => (i - 1 + candidateCount) % candidateCount)
+        return true
+      }
+      if (event.key === `Enter` || event.key === `Tab`) {
+        insertActive(activeIndex)
+        return true
+      }
+      if (event.key === `Escape`) {
+        setAutocomplete(null)
+        return true
+      }
+      return false
+    }
+
+    // Anchor the menu under the trigger char, clamped inside the wrapper
+    // (`.tiptap-wrapper` is position:relative). Recomputed per keystroke —
+    // every doc change re-reports the token with fresh positions.
+    const menuStyle = (() => {
+      if (!editor || !autocomplete || !wrapperRef.current) return null
+      if (candidateCount === 0) return null
+      try {
+        const coords = editor.view.coordsAtPos(autocomplete.from)
+        const wrapperRect = wrapperRef.current.getBoundingClientRect()
+        const menuWidth = 288 // w-72
+        const left = Math.max(
+          0,
+          Math.min(
+            coords.left - wrapperRect.left,
+            wrapperRect.width - menuWidth
+          )
+        )
+        return { left, top: coords.bottom - wrapperRect.top + 4 }
+      } catch {
+        return null
+      }
+    })()
 
     return (
-      <div className="tiptap-wrapper">
+      <div ref={wrapperRef} className="tiptap-wrapper">
         {editable ? (
           <StaticToolbar editor={editor} imageUpload={imageUpload} />
         ) : null}
         <EditorContent editor={editor} />
+        {editable && autocomplete && menuStyle ? (
+          <div
+            className="absolute z-20 w-72 overflow-hidden rounded-md border bg-popover shadow-md"
+            style={menuStyle}
+          >
+            {autocomplete.kind === `mention` &&
+              mentionCandidates.map((user, i) => (
+                <UserCandidateRow
+                  key={user.id}
+                  user={user}
+                  active={i === activeIndex}
+                  onSelect={() => insertActive(i)}
+                  onHover={() => setActiveIndex(i)}
+                />
+              ))}
+            {autocomplete.kind === `issueRef` &&
+              issueCandidates.map((issue, i) => (
+                <IssueCandidateRow
+                  key={issue.id}
+                  issue={issue}
+                  active={i === activeIndex}
+                  onSelect={() => insertActive(i)}
+                  onHover={() => setActiveIndex(i)}
+                />
+              ))}
+          </div>
+        ) : null}
       </div>
     )
   }

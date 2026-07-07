@@ -1,9 +1,10 @@
 import { useRef, useState } from "react"
 import type { User } from "@/db/schema"
-import { getInitials } from "@/lib/utils"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
-import { StatusIcon } from "@/components/issue-properties/status-dropdown"
+import {
+  IssueCandidateRow,
+  UserCandidateRow,
+} from "@/components/autocomplete-rows"
 import {
   useIssueRefs,
   type ResolvedIssueRef,
@@ -159,50 +160,23 @@ export function MentionTextarea({
         <div className="absolute bottom-full z-20 mb-1 w-72 overflow-hidden rounded-md border bg-popover shadow-md">
           {menu.kind === `mention` &&
             mentionCandidates.map((u, i) => (
-              <button
+              <UserCandidateRow
                 key={u.id}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  insertMention(u)
-                }}
-                onMouseEnter={() => setActive(i)}
-                className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
-                  i === active ? `bg-accent` : ``
-                }`}
-              >
-                <Avatar className="size-5">
-                  {u.image && <AvatarImage src={u.image} alt={u.name} />}
-                  <AvatarFallback className="text-[0.5625rem]">
-                    {getInitials(u.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="truncate">{u.name}</span>
-                <span className="ml-auto truncate text-xs text-muted-foreground">
-                  {u.email}
-                </span>
-              </button>
+                user={u}
+                active={i === active}
+                onSelect={() => insertMention(u)}
+                onHover={() => setActive(i)}
+              />
             ))}
           {menu.kind === `issueRef` &&
             issueCandidates.map((issue, i) => (
-              <button
+              <IssueCandidateRow
                 key={issue.id}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  insertIssueRef(issue)
-                }}
-                onMouseEnter={() => setActive(i)}
-                className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
-                  i === active ? `bg-accent` : ``
-                }`}
-              >
-                <StatusIcon status={issue.status} className="size-4 shrink-0" />
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {issue.identifier}
-                </span>
-                <span className="truncate">{issue.title}</span>
-              </button>
+                issue={issue}
+                active={i === active}
+                onSelect={() => insertIssueRef(issue)}
+                onHover={() => setActive(i)}
+              />
             ))}
         </div>
       )}

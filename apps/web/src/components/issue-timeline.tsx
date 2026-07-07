@@ -142,6 +142,7 @@ export function IssueTimeline({
             author={author}
             comment={comment}
             canModify={canModify}
+            users={users}
             editing={editingCommentId === comment.id}
             onCancelEdit={() => setEditingCommentId(null)}
             onDelete={() => void handleDelete(comment.id)}

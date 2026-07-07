@@ -3,24 +3,17 @@ import { db } from "@/db/connection"
 import { issues, projects, workspaceMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { extractIssueRefs } from "@/lib/issue-refs"
+import { extractMentionEmails } from "@/lib/mention-refs"
 
-export { extractIssueRefs }
+export { extractIssueRefs, extractMentionEmails }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 // Mentions are written as `@<email>` in the comment/markdown source — typeable
 // by hand and inserted by the editor's @-autocomplete. This is the single
 // interchange form across all clients (it round-trips trivially as plain GFM
-// text). The captured group is the bare email after the leading `@`.
-const MENTION_RE = /@([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g
-
-export function extractMentionEmails(text: string): string[] {
-  return [
-    ...new Set(
-      [...text.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase())
-    ),
-  ]
-}
+// text). The token contract lives in the client-safe lib/mention-refs.ts so
+// the TipTap pill renderer and autocomplete share the exact same regex.
 
 // Resolve `@email` mentions in a piece of text to the user ids of workspace
 // members (so a mention only fires for someone who can actually see the issue).

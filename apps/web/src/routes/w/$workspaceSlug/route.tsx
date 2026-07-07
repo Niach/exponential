@@ -14,6 +14,7 @@ import { WorkspaceSidebar } from "@/components/workspace/sidebar"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
+import { MentionProvider } from "@/components/mention-provider"
 import { WorkspaceJoinGate } from "@/components/workspace/join-gate"
 import {
   useWorkspaceBySlug,
@@ -107,39 +108,42 @@ function WorkspaceLayout() {
 
   return (
     <SidebarProvider>
-      {/* Workspace-scoped `#IDENTIFIER` resolution for pill rendering, the
-          composer autocomplete and the duplicate-of picker. */}
+      {/* Workspace-scoped `#IDENTIFIER` + `@email` resolution for pill
+          rendering, the editor/composer autocompletes and the duplicate-of
+          picker. */}
       <IssueRefProvider
         workspaceId={workspace?.id}
         workspaceSlug={workspaceSlug}
       >
-        <FeedbackWidgetProvider />
-        <WorkspaceSidebar
-          workspaceSlug={workspaceSlug}
-          workspace={workspace}
-          projects={projects}
-          onOpenSearch={() => setSearchOpen(true)}
-        />
-
-        <main className="flex-1 flex flex-col min-h-screen">
-          <WorkspaceMobileTopbar
+        <MentionProvider workspaceId={workspace?.id}>
+          <FeedbackWidgetProvider />
+          <WorkspaceSidebar
             workspaceSlug={workspaceSlug}
-            projects={projects ?? []}
-            workspaceId={workspace?.id}
+            workspace={workspace}
+            projects={projects}
+            onOpenSearch={() => setSearchOpen(true)}
           />
-          <div className="flex-1">
-            <Outlet />
-          </div>
-        </main>
 
-        {workspace && (
-          <IssueSearchSheet
-            open={searchOpen}
-            onOpenChange={setSearchOpen}
-            workspaceId={workspace.id}
-            workspaceSlug={workspaceSlug}
-          />
-        )}
+          <main className="flex-1 flex flex-col min-h-screen">
+            <WorkspaceMobileTopbar
+              workspaceSlug={workspaceSlug}
+              projects={projects ?? []}
+              workspaceId={workspace?.id}
+            />
+            <div className="flex-1">
+              <Outlet />
+            </div>
+          </main>
+
+          {workspace && (
+            <IssueSearchSheet
+              open={searchOpen}
+              onOpenChange={setSearchOpen}
+              workspaceId={workspace.id}
+              workspaceSlug={workspaceSlug}
+            />
+          )}
+        </MentionProvider>
       </IssueRefProvider>
     </SidebarProvider>
   )

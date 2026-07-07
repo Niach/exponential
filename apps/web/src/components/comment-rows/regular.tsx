@@ -5,7 +5,7 @@ import { getCommentBodyText } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import { MentionTextarea } from "@/components/mention-textarea"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import {
   DropdownMenu,
@@ -24,6 +24,8 @@ export interface RegularCommentRowProps {
   onEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: (text: string) => Promise<void>
+  // Workspace members for the edit composer's @-mention autocomplete.
+  users: User[]
 }
 
 export function RegularCommentRow({
@@ -35,6 +37,7 @@ export function RegularCommentRow({
   onEdit,
   onCancelEdit,
   onSaveEdit,
+  users,
 }: RegularCommentRowProps) {
   const bodyText = getCommentBodyText(comment.body)
   const [draft, setDraft] = useState(bodyText)
@@ -91,10 +94,11 @@ export function RegularCommentRow({
         </div>
         {editing ? (
           <div className="mt-1 space-y-2">
-            <Textarea
+            <MentionTextarea
               autoFocus
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onValueChange={setDraft}
+              users={users}
               className="min-h-16 text-sm"
               disabled={saving}
             />

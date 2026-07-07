@@ -421,6 +421,25 @@ html {
   border-color: var(--ring);
 }
 
+/* Inline `@email` mention pills (a decoration — the underlying text stays the
+   plain token; see lib/mention-pill-extension.ts). Read-only editors hide the
+   raw email and show a `@Name` widget instead; editable editors keep the
+   email visible so the caret always sits on real characters. */
+.tiptap-content .mention-pill {
+  background: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent-foreground);
+  white-space: nowrap;
+}
+
+.tiptap-content .mention-pill-source {
+  display: none;
+}
+
 .tiptap-content hr {
   border-color: var(--border);
   margin: 0.5rem 0;
