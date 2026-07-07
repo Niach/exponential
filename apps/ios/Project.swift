@@ -100,6 +100,12 @@ let sharedInfoPlist: [String: Plist.Value] = [
     ]),
     "UIBackgroundModes": .array([.string("remote-notification")]),
     "ITSAppUsesNonExemptEncryption": .boolean(false),
+    // Self-hosted instances are a product feature and commonly live on plain
+    // HTTP inside a LAN (and http://localhost:5173 in dev/screenshot runs) —
+    // allow local networking only; everything else stays ATS-default (HTTPS).
+    "NSAppTransportSecurity": .dictionary([
+        "NSAllowsLocalNetworking": .boolean(true),
+    ]),
 ]
 let baseSettings: SettingsDictionary = [
     "SWIFT_VERSION": "6.0",
@@ -177,6 +183,20 @@ let project = Project(
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
         ),
+        // ExponentialUITests: fastlane snapshot (automated App Store screenshots).
+        // Drives the production app target through the sign-in + capture flow in
+        // ExponentialUITests/StoreScreenshots.swift; run via `bundle exec fastlane
+        // screenshots` (apps/ios/fastlane/Snapfile).
+        .target(
+            name: "ExponentialUITests",
+            destinations: [.iPhone, .iPad],
+            product: .uiTests,
+            bundleId: "at.exponential.uitests",
+            deploymentTargets: .iOS("17.4"),
+            sources: ["ExponentialUITests/**"],
+            dependencies: [.target(name: "Exponential")],
+            settings: .settings(base: baseSettings)
+        ),
         .target(
             name: "ShareExtension",
             destinations: [.iPhone, .iPad],
@@ -221,6 +241,9 @@ let project = Project(
         .scheme(
             name: "Exponential",
             buildAction: .buildAction(targets: ["Exponential"]),
+            // fastlane snapshot builds-for-testing + runs the UI test bundle
+            // through this scheme's test action.
+            testAction: .targets(["ExponentialUITests"]),
             runAction: .runAction(configuration: .debug),
             archiveAction: .archiveAction(configuration: .release)
         ),

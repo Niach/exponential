@@ -31,7 +31,9 @@ struct MobileTabBar: View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 tab(glyph: .system("list.bullet"), label: "Issues", active: issuesActive, action: onIssues)
+                    .accessibilityIdentifier("tab-issues")
                 tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
+                    .accessibilityIdentifier("tab-search")
                 tab(
                     glyph: .asset("tab-robot"),
                     label: "Agents",
@@ -40,6 +42,7 @@ struct MobileTabBar: View {
                     badgeColor: DesignTokens.Semantic.green,
                     action: onAgents
                 )
+                .accessibilityIdentifier("tab-agents")
                 tab(
                     glyph: .system("tray"),
                     label: "Inbox",
@@ -48,6 +51,7 @@ struct MobileTabBar: View {
                     badgeColor: Accent.indigo,
                     action: onInbox
                 )
+                .accessibilityIdentifier("tab-inbox")
             }
             .padding(5)
             .background(.ultraThinMaterial, in: Capsule())
@@ -72,6 +76,7 @@ struct MobileTabBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("New issue")
+                .accessibilityIdentifier("compose-button")
             }
         }
         .padding(.horizontal, 20)

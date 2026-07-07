@@ -157,9 +157,17 @@ dependencies {
     implementation(libs.firebase.messaging)
 
     debugImplementation(libs.compose.ui.tooling)
+    // ui-test-manifest contributes the activity used by createComposeRule; harmless
+    // in normal debug builds, required for the screengrab instrumentation run.
+    debugImplementation(libs.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    // fastlane screengrab: Screengrab.screenshot() + LocaleTestRule for the
+    // automated Play Store screenshot run (fastlane/Screengrabfile).
+    androidTestImplementation(libs.screengrab)
 }

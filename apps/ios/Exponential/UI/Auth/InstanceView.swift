@@ -112,6 +112,7 @@ struct InstanceView: View {
                             )
                             .foregroundStyle(.white)
                             .focused($focused)
+                            .accessibilityIdentifier("instance-url-field")
                             .onSubmit {
                                 if canSubmit {
                                     deps.auth.setInstanceUrl(input)
@@ -129,6 +130,7 @@ struct InstanceView: View {
                             .padding(.vertical, 14)
                     }
                     .disabled(!canSubmit)
+                    .accessibilityIdentifier("instance-continue-button")
                     .background(canSubmit ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(

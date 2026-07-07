@@ -46,6 +46,7 @@ struct CreateIssueSheet: View {
                             .textFieldStyle(.plain)
                             .foregroundStyle(.white)
                             .focused($titleFocused)
+                            .accessibilityIdentifier("issue-title-field")
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(Color.white.opacity(0.04))

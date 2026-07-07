@@ -355,6 +355,7 @@ struct IssueListView: View {
             .glassRow()
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
     }
 
     @ViewBuilder

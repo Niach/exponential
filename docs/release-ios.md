@@ -97,11 +97,38 @@ app and its extension is rejected at upload).
 | `build`   | `tuist generate` → `gym` archive (`Exponential`, Release, `app-store`) → `build/Exponential.ipa`. |
 | `beta`    | `build` → `pilot` upload to TestFlight. Needs `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PATH`. |
 | `release` | `build` → `deliver` upload to App Store Connect (`submit_for_review: false`). Same ASC env. |
+| `screenshots` | `tuist generate` → `snapshot`: drives `ExponentialUITests/StoreScreenshots` on iPhone 17 Pro Max + iPad Pro 13-inch (M5) against a seeded local backend → `fastlane/screenshots/en-US/`. See *Store screenshots* below. |
 
 > `gym` requires a **signed** archive — do not pass `CODE_SIGNING_ALLOWED=NO` (that flag is
 > only for the simulator parity check in MEMORY). Xcode managed signing (team
 > `V6W7BVCSM8`) resolves the Distribution certificate + profile, unless you enable the
 > `match` stanza in the `Fastfile`.
+
+## Store screenshots (automated)
+
+`fastlane screenshots` captures the six store shots (board, issue detail, comments,
+new issue, search, inbox) by signing into the real app from a UI test
+(`ExponentialUITests/StoreScreenshots.swift`). Prereqs, from the repo root:
+
+```bash
+bun run backend:up                                  # Postgres + Electric
+bun dev                                             # web dev server on :5173
+cd apps/web && bun run seed:screenshots             # demo user + "Acme" workspace
+cd ../ios && fastlane screenshots                   # both simulators, en-US
+```
+
+Notes:
+- The seed script (`apps/web/scripts/seed-screenshots.ts`) is idempotent and prints
+  the demo login. It recreates the demo **users** each run on purpose: the vite dev
+  bridge strips the `electric-*` headers from the shape proxies, so shapes can never
+  advance past their snapshot in local dev — fresh user/workspace ids force fresh
+  shapes with fresh snapshots. Re-run it right before capturing.
+- The Snapfile **erases both simulators** first (a leftover keychain session would
+  skip the sign-in flow) and overrides the status bar (9:41, full battery).
+- The instance URL defaults to `http://localhost:5173`; override with the
+  `SNAPSHOT_INSTANCE_URL` launch environment variable if needed.
+- Use the Homebrew `fastlane` (`brew install fastlane`), not `bundle exec` — the
+  committed `Gemfile.lock` pins a bundler version the system Ruby doesn't ship.
 
 ## Manual fallback (Xcode Organizer)
 

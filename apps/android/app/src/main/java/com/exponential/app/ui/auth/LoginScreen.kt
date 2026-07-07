@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -159,7 +160,9 @@ fun LoginScreen(
                         singleLine = true,
                         placeholder = { Text("Email") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("login-email-field"),
                     )
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
@@ -169,13 +172,17 @@ fun LoginScreen(
                         placeholder = { Text("Password") },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("login-password-field"),
                     )
                     Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = { viewModel.signIn(email = email, password = password) },
                         enabled = !state.loading && email.isNotBlank() && password.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("login-submit-button"),
                     ) {
                         Text(if (state.loading) "Signing in…" else "Sign in")
                     }

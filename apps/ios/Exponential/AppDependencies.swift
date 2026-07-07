@@ -114,6 +114,11 @@ final class AppDependencies: @unchecked Sendable {
         // on the previous account's database.
         syncManager.start()
         notificationDelegate.setup()
-        notificationDelegate.requestPermission()
+        // UI-test/screenshot runs (fastlane snapshot launches with -uiTesting)
+        // must never trigger the system push-permission alert — it would sit on
+        // top of every capture.
+        if !ProcessInfo.processInfo.arguments.contains("-uiTesting") {
+            notificationDelegate.requestPermission()
+        }
     }
 }

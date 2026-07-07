@@ -60,6 +60,7 @@ struct CommentThreadView: View {
                 Text(humanComments.isEmpty ? "Comments" : "Comments (\(humanComments.count))")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .accessibilityIdentifier("comment-thread-header")
                 Spacer()
             }
 

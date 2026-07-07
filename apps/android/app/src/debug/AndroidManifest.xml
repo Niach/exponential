@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only permissions required by fastlane screengrab (automated Play Store
+     screenshots — see fastlane/Screengrabfile + StoreScreenshotsTest). Merged into
+     debug builds only; release manifests are untouched. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Allows unlocking the device and keeping the screen on during the test run. -->
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Allows screengrab to store and retrieve the captured screenshots. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <!-- Allows the LocaleTestRule to switch device locales. -->
+    <uses-permission android:name="android.permission.CHANGE_CONFIGURATION" />
+
+</manifest>

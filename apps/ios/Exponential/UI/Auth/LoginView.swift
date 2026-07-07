@@ -162,14 +162,14 @@ struct LoginView: View {
             glassTextField("Email", text: Binding(
                 get: { vm.email },
                 set: { vm.email = $0 }
-            ), keyboardType: .emailAddress)
+            ), keyboardType: .emailAddress, accessibilityIdentifier: "login-email-field")
                 .focused($focusedField, equals: .email)
                 .onSubmit { focusedField = .password }
 
             glassTextField("Password", text: Binding(
                 get: { vm.password },
                 set: { vm.password = $0 }
-            ), isSecure: true)
+            ), isSecure: true, accessibilityIdentifier: "login-password-field")
                 .focused($focusedField, equals: .password)
                 .onSubmit {
                     Task { await vm.signIn() }
@@ -192,6 +192,7 @@ struct LoginView: View {
                 .padding(.vertical, 14)
             }
             .disabled(vm.loading || vm.email.isEmpty || vm.password.isEmpty)
+            .accessibilityIdentifier("login-submit-button")
             .background(
                 (vm.email.isEmpty || vm.password.isEmpty || vm.loading)
                     ? Color.white.opacity(0.06)
@@ -206,7 +207,7 @@ struct LoginView: View {
     }
 
     @ViewBuilder
-    private func glassTextField(_ placeholder: String, text: Binding<String>, keyboardType: UIKeyboardType = .default, isSecure: Bool = false) -> some View {
+    private func glassTextField(_ placeholder: String, text: Binding<String>, keyboardType: UIKeyboardType = .default, isSecure: Bool = false, accessibilityIdentifier: String = "") -> some View {
         Group {
             if isSecure {
                 SecureField(placeholder, text: text)
@@ -215,6 +216,7 @@ struct LoginView: View {
                     .keyboardType(keyboardType)
             }
         }
+        .accessibilityIdentifier(accessibilityIdentifier)
         .textFieldStyle(.plain)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()

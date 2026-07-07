@@ -1,0 +1,41 @@
+# screengrab configuration for automated Play Store screenshots.
+#
+# Prereqs (see StoreScreenshotsTest.kt):
+#   1. A running, seeded local backend reachable from the emulator:
+#        bun run backend:up && bun dev
+#        bun --filter @exp/web exec tsx scripts/seed-screenshots.ts   (from apps/web)
+#   2. An English-locale phone emulator booted (only one device attached).
+#   3. Both APKs built: bundle exec fastlane screenshots does this for you.
+#
+# Output lands in fastlane/metadata/android/en-US/images/phoneScreenshots/
+# (1_board.png … 6_inbox.png), replacing the previous set — the exact files
+# `supply` uploads to the Play listing.
+
+# The production flavor's applicationId (debug build keeps the same id).
+app_package_name("at.exponential")
+tests_package_name("at.exponential.test")
+
+# Only run the screenshot flow, not any other instrumentation tests.
+use_tests_in_classes(["com.exponential.app.StoreScreenshotsTest"])
+
+locales(["en-US"])
+
+# Wipe the old screenshots for the captured locales before writing new ones.
+clear_previous_screenshots(true)
+
+# Stable filenames (1_board.png, …) so the Play metadata set stays diffable.
+use_timestamp_suffix(false)
+
+# Reinstall to clear app data between runs — the test drives the full
+# first-launch flow (instance picker → login) and needs a signed-out app.
+reinstall_app(true)
+
+# productionDebug variant, built via `fastlane screenshots` (paths are relative
+# to apps/android, where fastlane runs).
+app_apk_path("app/build/outputs/apk/production/debug/app-production-debug.apk")
+tests_apk_path("app/build/outputs/apk/androidTest/production/debug/app-production-debug-androidTest.apk")
+
+# screengrab's default output root; screenshots nest under <locale>/images/….
+output_directory("fastlane/metadata/android")
+
+test_instrumentation_runner("androidx.test.runner.AndroidJUnitRunner")

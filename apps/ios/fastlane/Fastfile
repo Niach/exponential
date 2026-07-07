@@ -39,6 +39,17 @@ platform :ios do
     )
   end
 
+  desc "Regenerate the Tuist project and capture App Store screenshots (snapshot)."
+  desc "Needs the seeded local backend (apps/web/scripts/seed-screenshots.ts) at"
+  desc "http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL."
+  lane :screenshots do
+    sh("cd .. && tuist generate --no-open")
+    # The sign-in flow types into text fields — make sure the simulators show
+    # the software keyboard instead of assuming a connected hardware keyboard.
+    sh("defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true")
+    snapshot
+  end
+
   desc "Build + upload to TestFlight (pilot)."
   lane :beta do
     build

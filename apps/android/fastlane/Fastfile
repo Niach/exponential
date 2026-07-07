@@ -64,6 +64,29 @@ platform :android do
     )
   end
 
+  desc "Capture Play Store screenshots on a booted emulator via screengrab. " \
+       "Needs the seeded local backend running (see fastlane/Screengrabfile); " \
+       "override the instance URL with SCREENGRAB_INSTANCE_URL."
+  lane :screenshots do
+    gradle(
+      tasks: [":app:assembleProductionDebug", ":app:assembleProductionDebugAndroidTest"],
+    )
+
+    # The test reads the backend URL from the `instanceUrl` instrumentation
+    # argument; default is http://10.0.2.2:5173 (host loopback from the emulator).
+    launch_arguments = ENV["SCREENGRAB_INSTANCE_URL"]&.then do |url|
+      ["instanceUrl #{url}"]
+    end
+
+    # Everything else (APK paths, package name, locales, output dir) comes from
+    # fastlane/Screengrabfile.
+    if launch_arguments
+      screengrab(launch_arguments: launch_arguments)
+    else
+      screengrab
+    end
+  end
+
   desc "Promote the current closed-testing build to the production track (no new binary)."
   lane :production do
     upload_to_play_store(

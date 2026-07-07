@@ -139,6 +139,34 @@ subsequent release goes through the lanes below.
 | `build`      | Signed `.aab` + APK for the `production` flavor (unsigned fallback when `RELEASE_STORE_FILE` unset). |
 | `closed`     | `build` → `supply` upload to the **closed** testing track (draft; `PLAY_TRACK` overrides the track name, default `beta`). Needs `SUPPLY_JSON_KEY`. |
 | `production` | Promote **closed → production** + push listing metadata. Needs `SUPPLY_JSON_KEY`. |
+| `screenshots` | `assembleProductionDebug(+AndroidTest)` → `screengrab`: drives `StoreScreenshotsTest` on a booted emulator against a seeded local backend → `fastlane/metadata/android/en-US/images/phoneScreenshots/`. See *Store screenshots* below. |
+
+### Store screenshots (automated)
+
+`fastlane screenshots` captures the six Play shots (board, issue detail, comments,
+new issue, search, inbox) by signing into the real app from an instrumentation test
+(`app/src/androidTest/.../StoreScreenshotsTest.kt`). Prereqs, from the repo root:
+
+```bash
+bun run backend:up                                  # Postgres + Electric
+bun dev                                             # web dev server on :5173
+cd apps/web && bun run seed:screenshots             # demo user + "Acme" workspace
+~/Library/Android/sdk/emulator/emulator -avd <avd>  # boot an English phone emulator
+cd apps/android && PATH="$PATH:$HOME/Library/Android/sdk/platform-tools" fastlane screenshots
+```
+
+Notes:
+- The emulator reaches the host's dev server via `http://10.0.2.2:5173` (the default;
+  override with `SCREENGRAB_INSTANCE_URL`). The local web `.env` must list
+  `http://10.0.2.2:5173` in `BETTER_AUTH_TRUSTED_ORIGINS` or sign-in 403s.
+- The seed script is idempotent and recreates the demo users each run on purpose —
+  fresh ids force fresh Electric shapes, sidestepping the dev bridge stripping the
+  `electric-*` headers (shapes can't advance past their snapshot in local dev).
+  Re-run it right before capturing.
+- Output **overwrites** the store screenshots that `closed`/`production` upload when
+  `skip_upload_screenshots` is flipped off; review the PNGs before pushing metadata.
+- `adb` must be on PATH (screengrab shells out to it) and the run reinstalls the app
+  (clears state) so the sign-in flow always executes.
 
 ### CI (optional)
 

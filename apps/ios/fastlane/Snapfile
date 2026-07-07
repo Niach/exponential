@@ -1,0 +1,40 @@
+# fastlane snapshot config — automated App Store screenshots.
+#
+# Run via `bundle exec fastlane screenshots` from apps/ios (regenerates the Tuist
+# project first). Requires the seeded local backend at http://localhost:5173
+# (apps/web/scripts/seed-screenshots.ts); override the target instance with the
+# SNAPSHOT_INSTANCE_URL env var (read by ExponentialUITests/StoreScreenshots.swift).
+
+# One 6.9" iPhone + one 13" iPad — the two required App Store screenshot slots.
+# Names must match simulators from `xcrun simctl list devices available`.
+devices([
+  "iPhone 17 Pro Max",
+  "iPad Pro 13-inch (M5)",
+])
+
+languages(["en-US"])
+
+workspace("Exponential.xcworkspace")
+scheme("Exponential")
+
+# Relative to apps/ios (fastlane's working dir) → apps/ios/fastlane/screenshots.
+output_directory("fastlane/screenshots")
+clear_previous_screenshots(true)
+
+# Clean 9:41 status bar in every shot.
+override_status_bar(true)
+
+# The flow signs into a live backend and waits on Electric sync — run devices
+# one at a time and retry flaky runs instead of parallelizing.
+concurrent_simulators(false)
+number_of_retries(3)
+
+# Accounts live in the device keychain, which survives app reinstalls — erase
+# the simulator so every run starts on the fresh InstanceView sign-in flow.
+erase_simulator(true)
+
+# The app forces dark mode; keep the simulator chrome consistent with it.
+dark_mode(true)
+
+stop_after_first_error(true)
+skip_open_summary(true)
