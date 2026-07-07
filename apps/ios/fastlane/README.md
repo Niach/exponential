@@ -41,7 +41,19 @@ http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL.
 [bundle exec] fastlane ios beta
 ```
 
-Build + upload to TestFlight (pilot).
+Build + upload to TestFlight (pilot). Internal-only by default (fast: skips the
+
+processing wait). `fastlane beta external:true` also distributes to the external
+
+group (TESTFLIGHT_EXTERNAL_GROUP, default 'External Testers') — this waits for
+
+build processing, attaches the What-to-Test changelog (TESTFLIGHT_CHANGELOG env,
+
+falling back to metadata/en-US/release_notes.txt), and auto-submits the build for
+
+Beta App Review. The external group + TestFlight Test Information must already
+
+exist in App Store Connect (see docs/release-ios.md → External TestFlight).
 
 ### ios sync_store
 

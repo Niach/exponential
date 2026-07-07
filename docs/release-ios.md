@@ -79,6 +79,10 @@ app and its extension is rejected at upload).
    `Exponential` scheme, `app-store` export) and `pilot`-uploads to TestFlight using the
    ASC API key from `ASC_*`. Install via TestFlight on a device and smoke-test.
 
+   That default is **internal-only** (App Store Connect team members). To also push the
+   build to external testers, run `bundle exec fastlane beta external:true` — see
+   *External TestFlight* below.
+
 3. **Submit for App Store review** (uploads the build + listing metadata; does **not**
    auto-submit):
 
@@ -95,7 +99,7 @@ app and its extension is rejected at upload).
 | Lane | Does |
 |------|------|
 | `build`   | `tuist generate` → `gym` archive (`Exponential`, Release, `app-store`) → `build/Exponential.ipa`. |
-| `beta`    | `build` → `pilot` upload to TestFlight. Needs `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PATH`. |
+| `beta`    | `build` → `pilot` upload to TestFlight (internal-only, skips the processing wait). `beta external:true` additionally waits for processing, distributes to the external group, and submits for Beta App Review. Needs `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PATH`. |
 | `release` | `build` → `deliver` upload to App Store Connect (`submit_for_review: false`). Same ASC env. |
 | `sync_store` | `deliver` with `skip_binary_upload` — pushes `fastlane/metadata/` (listing texts, categories, review info) + `fastlane/screenshots/` to App Store Connect without building. Same ASC env. |
 | `screenshots` | `tuist generate` → `snapshot`: drives `ExponentialUITests/StoreScreenshots` on iPhone 17 Pro Max + iPad Pro 13-inch (M5) against a seeded local backend → `fastlane/screenshots/en-US/`. See *Store screenshots* below. |
@@ -121,6 +125,41 @@ Three hard-won signing/upload gotchas (all hit on the first real upload, 2026-07
 - **Upload from a release Xcode, not a beta** — App Store Connect rejects beta-SDK builds
   (error 90534). If `xcode-select -p` points at Xcode-beta, run the lanes with
   `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+
+## External TestFlight
+
+External testers (anyone with an email invite or the public link, up to 10k) get builds via
+
+```bash
+cd apps/ios
+bundle exec fastlane beta external:true
+```
+
+which uploads, **waits for build processing** (unlike the internal path — pilot can only
+assign external groups to a processed build), distributes to the external group, and
+auto-submits the build for **Beta App Review**. The What-to-Test changelog comes from the
+`TESTFLIGHT_CHANGELOG` env var, falling back to
+`fastlane/metadata/en-US/release_notes.txt`. The group name defaults to
+`External Testers`; override with `TESTFLIGHT_EXTERNAL_GROUP`.
+
+One-time setup in App Store Connect (the lane does **not** create these):
+
+1. **Create the external group** — the app → TestFlight → sidebar **External Testing → +**
+   → name it `External Testers` (or set `TESTFLIGHT_EXTERNAL_GROUP` to whatever you pick).
+   Optionally enable the group's **public link** to recruit testers without collecting
+   emails; testers can otherwise be added by email on the group page.
+2. **Fill in Test Information** (TestFlight → Test Information): beta app description,
+   feedback email, and the **Beta App Review contact + demo sign-in account** — the first
+   external submission is rejected without them. Reuse the review info from
+   `fastlane/metadata/review_information/`.
+
+Review expectations: the **first** external build goes through a full Beta App Review
+(typically up to ~24–48h); subsequent builds of the same marketing version are usually
+approved automatically within minutes. Bumping `appMarketingVersion` triggers a fresh
+review. Internal groups are never review-gated, so `fastlane beta` (without
+`external:true`) stays the fast smoke-test path. Export compliance never blocks
+distribution — `ITSAppUsesNonExemptEncryption` is already declared `false` in
+`Project.swift` (standard HTTPS/TLS only).
 
 ## Store screenshots (automated)
 

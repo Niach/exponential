@@ -61,15 +61,36 @@ platform :ios do
     snapshot
   end
 
-  desc "Build + upload to TestFlight (pilot)."
-  lane :beta do
+  desc "Build + upload to TestFlight (pilot). Internal-only by default (fast: skips the"
+  desc "processing wait). `fastlane beta external:true` also distributes to the external"
+  desc "group (TESTFLIGHT_EXTERNAL_GROUP, default 'External Testers') — this waits for"
+  desc "build processing, attaches the What-to-Test changelog (TESTFLIGHT_CHANGELOG env,"
+  desc "falling back to metadata/en-US/release_notes.txt), and auto-submits the build for"
+  desc "Beta App Review. The external group + TestFlight Test Information must already"
+  desc "exist in App Store Connect (see docs/release-ios.md → External TestFlight)."
+  lane :beta do |options|
     build
-    pilot(
+    pilot_args = {
       api_key: asc_api_key,
       ipa: IPA_PATH,
-      skip_waiting_for_build_processing: true,
-      distribute_external: false,
-    )
+    }
+    if options[:external]
+      pilot_args.merge!(
+        distribute_external: true,
+        groups: [ENV.fetch("TESTFLIGHT_EXTERNAL_GROUP", "External Testers")],
+        # Apple requires a What-to-Test changelog on externally distributed builds.
+        changelog: ENV["TESTFLIGHT_CHANGELOG"] ||
+          File.read("fastlane/metadata/en-US/release_notes.txt").strip,
+        # No skip_waiting_for_build_processing here: pilot can only assign the
+        # external group (and submit for Beta App Review) once processing finishes.
+      )
+    else
+      pilot_args.merge!(
+        skip_waiting_for_build_processing: true,
+        distribute_external: false,
+      )
+    end
+    pilot(**pilot_args)
   end
 
   desc "Upload listing metadata + screenshots to App Store Connect WITHOUT building."
