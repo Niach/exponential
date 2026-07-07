@@ -43,6 +43,16 @@ http://localhost:5173 — override with SNAPSHOT_INSTANCE_URL.
 
 Build + upload to TestFlight (pilot).
 
+### ios sync_store
+
+```sh
+[bundle exec] fastlane ios sync_store
+```
+
+Upload listing metadata + screenshots to App Store Connect WITHOUT building.
+
+Metadata lives in fastlane/metadata/, screenshots in fastlane/screenshots/.
+
 ### ios release
 
 ```sh

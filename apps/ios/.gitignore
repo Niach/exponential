@@ -21,6 +21,8 @@ fastlane/test_output
 *.xcarchive
 # App Store Connect API key (.p8) — path comes from ASC_KEY_PATH; never commit a key
 fastlane/*.p8
+# Review contact phone number stays local-only (deliver reads it; ASC requires it)
+fastlane/metadata/review_information/phone_number.txt
 .bundle/
 vendor/bundle/
 
