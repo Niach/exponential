@@ -28,8 +28,8 @@ use gpui::{
     canvas, deferred, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry, Context,
     ElementId, Entity, FontStyle, FontWeight, HighlightStyle, InteractiveElement as _,
     InteractiveText, IntoElement, ParentElement as _, Pixels, Render, SharedString,
-    StrikethroughStyle, Styled as _, StyledImage as _, StyledText, Subscription, TextRun,
-    UnderlineStyle, Window,
+    StatefulInteractiveElement as _, StrikethroughStyle, Styled as _, StyledImage as _, StyledText,
+    Subscription, TextRun, UnderlineStyle, Window,
 };
 use gpui_component::input::{self, Input, InputEvent, InputState, Position};
 use gpui_component::text::TextView;
@@ -226,6 +226,7 @@ fn sniff_format(content_type: &str, bytes: &[u8]) -> gpui::ImageFormat {
 }
 
 fn render_image_slot(
+    id: impl Into<ElementId>,
     images: Option<&Entity<ImageCache>>,
     url: &str,
     alt: &str,
@@ -235,12 +236,31 @@ fn render_image_slot(
         .map(|images| images.update(cx, |cache, cx| cache.slot(url, cx)))
         .unwrap_or_else(|| ImageSlot::Failed(std::time::Instant::now()));
     match slot {
-        ImageSlot::Ready(image) => img(image)
-            .max_w_full()
-            .h(px(260.))
-            .object_fit(gpui::ObjectFit::ScaleDown)
-            .rounded(px(4.))
-            .into_any_element(),
+        ImageSlot::Ready(image) => {
+            let rendered = img(image)
+                .max_w_full()
+                .h(px(260.))
+                .object_fit(gpui::ObjectFit::ScaleDown)
+                .rounded(px(4.));
+            // Click-to-open (EXP-4.2): the canonical relative
+            // `/api/attachments/{id}` resolves against the instance base and
+            // opens in the system browser — the same action as markdown
+            // links. Unresolvable (signed out / `draft://` staging) stays
+            // inert.
+            match crate::queries::absolute_api_url(cx, url) {
+                Some(open_url) => div()
+                    .id(id.into())
+                    .cursor_pointer()
+                    .on_click(move |_, _, _| {
+                        if let Err(error) = api::opener::open_in_browser(&open_url) {
+                            log::warn!("open attachment failed: {error}");
+                        }
+                    })
+                    .child(rendered)
+                    .into_any_element(),
+                None => rendered.into_any_element(),
+            }
+        }
         ImageSlot::Loading => placeholder_box("Loading image…", cx),
         ImageSlot::Failed(_) => placeholder_box(
             &if alt.is_empty() {
@@ -1189,7 +1209,13 @@ impl MarkdownEditor {
                 }
                 EditorBlock::Image { id, url, alt, .. } => {
                     let block_id = *id;
-                    let image = render_image_slot(Some(&images), url, alt, cx);
+                    let image = render_image_slot(
+                        ElementId::from(("md-image-open", index)),
+                        Some(&images),
+                        url,
+                        alt,
+                        cx,
+                    );
                     elements.push(
                         div()
                             .relative()
@@ -1203,6 +1229,9 @@ impl MarkdownEditor {
                                         .icon(Icon::new(IconName::Close))
                                         .tooltip("Remove image")
                                         .on_click(cx.listener(move |this, _, window, cx| {
+                                            // Never also fire the image's
+                                            // open-in-browser click beneath.
+                                            cx.stop_propagation();
                                             let Some(index) = this
                                                 .blocks
                                                 .iter()
@@ -1354,7 +1383,16 @@ impl gpui::RenderOnce for MarkdownView {
         for (block_index, block) in blocks.iter().enumerate() {
             match block {
                 ContentBlock::Image { url, alt, .. } => {
-                    children.push(render_image_slot(self.images.as_ref(), url, alt, cx));
+                    children.push(render_image_slot(
+                        ElementId::from(SharedString::from(format!(
+                            "{}-image-{block_index}",
+                            self.id
+                        ))),
+                        self.images.as_ref(),
+                        url,
+                        alt,
+                        cx,
+                    ));
                 }
                 ContentBlock::Text { content, .. } => {
                     if content.is_empty() {

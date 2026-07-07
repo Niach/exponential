@@ -49,8 +49,8 @@ pub(crate) fn start(instance_url: String, start_url: String, cx: &mut App) -> Re
 }
 
 /// The `on_open_urls` sink (call from the app shell's foreground drain).
-/// Routes OAuth callbacks and the §4.2 `exp://invite/<token>` deep link;
-/// anything else is ignored.
+/// Routes OAuth callbacks, the §4.2 `exp://invite/<token>` deep link and the
+/// EXP-4 `exp://issue/<IDENTIFIER>` deep link; anything else is ignored.
 pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     for url in urls {
         if let Some(token) = api::login::parse_oauth_callback(&url) {
@@ -67,7 +67,52 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             }
             continue;
         }
+        if let Some(identifier) = parse_issue_deep_link(&url) {
+            open_issue_deep_link(&identifier, cx);
+            continue;
+        }
         log::info!("[ui] open-urls: unhandled URL {url}");
+    }
+}
+
+/// `exp://issue/<IDENTIFIER>` → `Some(identifier)` (e.g. `EXP-42` — the EXP-4
+/// deep-link form; mirror of [`crate::join_workspace::parse_invite_deep_link`]).
+pub(crate) fn parse_issue_deep_link(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("exp://issue/")?;
+    let identifier = rest
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('/');
+    (!identifier.is_empty()).then(|| identifier.to_string())
+}
+
+/// Resolve an issue deep link and navigate to its detail. Unlike the
+/// workspace-scoped `#IDENT` pill path
+/// (`description_editor::open_issue_by_identifier`), a deep link carries only
+/// the identifier — so it resolves case-insensitively across ALL synced
+/// issues. Unknown / not-yet-synced identifiers log and no-op, consistent
+/// with unhandled deep links.
+fn open_issue_deep_link(identifier: &str, cx: &mut App) {
+    let issue_id = Store::global(cx)
+        .collections()
+        .issues
+        .read(cx)
+        .iter()
+        .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+        .map(|issue| issue.id.clone());
+    let Some(issue_id) = issue_id else {
+        log::info!("[ui] open-urls: issue deep link {identifier} matches no synced issue — ignored");
+        return;
+    };
+    if let Some(window) = crate::navigation::active_or_primary_window(cx) {
+        let _ = window.update(cx, |_, window, cx| {
+            crate::navigation::navigate(
+                window,
+                cx,
+                crate::navigation::Screen::IssueDetail { issue_id },
+            );
+        });
     }
 }
 
@@ -126,4 +171,29 @@ fn complete(token: String, cx: &mut App) {
         });
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_deep_link_parses_identifier() {
+        assert_eq!(
+            parse_issue_deep_link("exp://issue/EXP-42"),
+            Some("EXP-42".to_string())
+        );
+        assert_eq!(
+            parse_issue_deep_link("exp://issue/EXP-42/"),
+            Some("EXP-42".to_string())
+        );
+        assert_eq!(
+            parse_issue_deep_link("exp://issue/EXP-42?utm=x#frag"),
+            Some("EXP-42".to_string())
+        );
+        assert_eq!(parse_issue_deep_link("exp://issue/"), None);
+        assert_eq!(parse_issue_deep_link("exp://invite/abc123"), None);
+        assert_eq!(parse_issue_deep_link("exp://oauth-return#token=t"), None);
+        assert_eq!(parse_issue_deep_link("https://x/issue/EXP-42"), None);
+    }
 }

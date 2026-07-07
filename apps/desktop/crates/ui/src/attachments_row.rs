@@ -17,7 +17,10 @@
 //! dialog's rail (create_issue_dialog.rs) reuses [`image_chip`] with a
 //! remove ✕ exactly like web.
 
-use gpui::{div, App, IntoElement, ParentElement, SharedString, Styled};
+use gpui::{
+    div, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement as _, Styled,
+};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
@@ -171,9 +174,17 @@ pub(crate) fn attachments_row(issue_id: &str, cx: &App) -> Option<impl IntoEleme
                     .gap_1p5()
                     .overflow_hidden()
                     .children(occurrences.iter().enumerate().map(|(ix, occurrence)| {
-                        // Detail chips are read-only in v1: removal edits the
-                        // description markdown, which is the §4.5 editor's job.
-                        image_chip(occurrence_label(occurrence, ix), None, cx)
+                        // Detail chips carry no remove ✕ in v1: removal edits
+                        // the description markdown, which is the §4.5
+                        // editor's job. Clicking opens the attachment
+                        // (EXP-4.2).
+                        image_chip(
+                            ElementId::from(("attachment-chip", ix)),
+                            occurrence_label(occurrence, ix),
+                            &occurrence.url,
+                            None,
+                            cx,
+                        )
                     })),
             )
             .child(
@@ -195,12 +206,22 @@ pub(crate) type ChipRemove = (
 /// One attachment chip (web chip layout: thumbnail + truncating label + the
 /// optional remove ✕). Desktop v1 shows the image glyph in the thumbnail
 /// slot; `on_remove` renders the web's ✕ button when given.
+///
+/// Clicking the chip body opens the attachment in the system browser
+/// (EXP-4.2): `url` resolves against the instance base via
+/// [`crate::queries::absolute_api_url`] — unresolvable URLs (signed out,
+/// `draft://` staging) leave the chip inert. The ✕ stops propagation so a
+/// remove never also opens.
 pub(crate) fn image_chip(
+    id: impl Into<ElementId>,
     label: String,
+    url: &str,
     on_remove: Option<ChipRemove>,
     cx: &App,
 ) -> gpui::AnyElement {
+    let open_url = crate::queries::absolute_api_url(cx, url);
     let mut row = h_flex()
+        .id(id.into())
         .flex_shrink_0()
         .gap_1()
         .px_1p5()
@@ -225,6 +246,14 @@ pub(crate) fn image_chip(
                 .child(SharedString::from(label)),
         );
 
+    if let Some(open_url) = open_url {
+        row = row.cursor_pointer().on_click(move |_, _, _| {
+            if let Err(error) = api::opener::open_in_browser(&open_url) {
+                log::warn!("[ui] attachments: open in browser failed: {error}");
+            }
+        });
+    }
+
     if let Some((id, on_click)) = on_remove {
         row = row.child(
             Button::new(id)
@@ -235,7 +264,11 @@ pub(crate) fn image_chip(
                         .xsmall()
                         .text_color(cx.theme().muted_foreground),
                 )
-                .on_click(on_click),
+                .on_click(move |event, window, cx| {
+                    // The ✕ must never also fire the chip-open click.
+                    cx.stop_propagation();
+                    on_click(event, window, cx);
+                }),
         );
     }
     row.into_any_element()

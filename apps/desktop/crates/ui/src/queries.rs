@@ -152,6 +152,22 @@ pub(crate) fn attachment_transport(
     )))
 }
 
+/// Resolve a relative `/api/...` URL (the canonical stored form of
+/// attachment URLs) against the active account's instance base — the same
+/// base `HttpAttachmentTransport` fetches through. Absolute URLs pass
+/// through; `None` when signed out or the URL is unopenable (e.g. a
+/// create-dialog `draft://` staging URL).
+pub(crate) fn absolute_api_url(cx: &App, url: &str) -> Option<String> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return Some(url.to_string());
+    }
+    if !url.starts_with('/') {
+        return None;
+    }
+    let account = active_account(cx)?;
+    Some(format!("{}{url}", account.instance_url.trim_end_matches('/')))
+}
+
 /// An issue's workspace (issue → project → `workspace_id`) — the scoping
 /// join the editors/autocomplete need (§4.6). `None` while the chain has not
 /// synced.

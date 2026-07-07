@@ -932,7 +932,9 @@ impl CreateIssueDialogView {
                                 )
                             });
                         attachments_row::image_chip(
+                            gpui::ElementId::from(("create-attachment-chip", ix)),
                             attachments_row::occurrence_label(occurrence, ix),
+                            &occurrence.url,
                             remove,
                             cx,
                         )
