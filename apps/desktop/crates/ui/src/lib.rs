@@ -31,6 +31,7 @@ mod create_workspace_dialog;
 mod debug_board;
 mod description_editor;
 pub mod diff;
+mod feedback;
 mod file_tree;
 mod file_viewer;
 mod filter_bar;
@@ -98,24 +99,11 @@ pub fn init(cx: &mut App) {
     // §4.2 accept-invite fallback: "Join workspace…" in the footer account
     // menu (the exp://invite/<token> deep link routes through oauth.rs).
     join_workspace::init(cx);
-    // The sidebar Feedback item opens the public feedback project
-    // in the system browser (the §4.8 browser-path decision; the embedded JS
-    // widget is an explicit desktop non-goal for v1). `/feedback` redirects
-    // server-side to the current feedback project.
-    cx.on_action(|_: &SendFeedback, cx| {
-        let url = queries::active_account(cx)
-            .map(|account| {
-                format!("{}/feedback", account.instance_url.trim_end_matches('/'))
-            })
-            .unwrap_or_else(|| "https://app.exponential.at/feedback".to_string());
-        cx.background_executor()
-            .spawn(async move {
-                if let Err(err) = api::opener::open_in_browser(&url) {
-                    log::warn!("[ui] feedback: browser open failed: {err}");
-                }
-            })
-            .detach();
-    });
+    // The sidebar Feedback item joins + opens the public feedback board
+    // IN-APP (v6 self-service `workspaceMembers.join`, mirroring the web join
+    // gate), falling back to the cloud `/feedback` page in the system browser
+    // when the board is unavailable (signed out / self-hosted instance).
+    feedback::init(cx);
     register_panel(cx, workspace::CENTER_PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| workspace::CenterPanel::new(window, cx)))
     });

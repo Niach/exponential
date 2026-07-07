@@ -9,6 +9,11 @@
 //!   isPublic/publicWritePolicy are rejected server-side — never sent)
 //! - `workspaces.delete({workspaceId})` → `{ok, txId}`
 //! - `workspaces.ensureDefault()` → `{workspace, txId}` (txId 0 when reused)
+//! - `workspaces.getBySlug({slug})` → workspace metadata + caller membership
+//!   (public query — the v6 join-gate lookup; NOT_FOUND for private
+//!   workspaces the caller can't access)
+//! - `workspaceMembers.join({workspaceId})` → `{member, txId}` (self-service,
+//!   PUBLIC workspaces only — private ones answer FORBIDDEN; idempotent)
 //! - `workspaceMembers.updateRole({memberId, role})` → `{member}`
 //! - `workspaceMembers.remove({memberId})` → `{ok}` (also "Leave workspace")
 //! - `workspaceInvites.create({workspaceId, role})` → `{invite, token}`
@@ -118,6 +123,41 @@ pub fn workspaces_ensure_default(trpc: &TrpcClient) -> Result<WorkspaceTxOutput,
     trpc.mutation_no_input("workspaces.ensureDefault")
 }
 
+/// `workspaces.getBySlug` output — the minimal metadata the web route guard /
+/// join gate reads (`components/workspace/join-gate.tsx`). `membership` is
+/// the caller's role (`owner`/`member`), `None` for non-members.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBySlugOut {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub is_public: Option<bool>,
+    #[serde(default)]
+    pub public_write_policy: Option<String>,
+    #[serde(default)]
+    pub membership: Option<String>,
+}
+
+/// `workspaces.getBySlug` — public query. NOT_FOUND (`ApiError::Http` 404)
+/// covers both unknown slugs and private workspaces the caller can't access
+/// (existence is never leaked).
+pub fn workspaces_get_by_slug(
+    trpc: &TrpcClient,
+    slug: &str,
+) -> Result<WorkspaceBySlugOut, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        slug: &'a str,
+    }
+    trpc.query_with_input("workspaces.getBySlug", &Input { slug })
+}
+
 // ---------------------------------------------------------------------------
 // workspaceMembers.* (Settings → Members)
 // ---------------------------------------------------------------------------
@@ -133,6 +173,31 @@ pub struct WorkspaceMemberOut {
     pub user_id: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberJoinOutput {
+    #[serde(default)]
+    pub member: Option<WorkspaceMemberOut>,
+    #[serde(default)]
+    pub tx_id: Option<i64>,
+}
+
+/// `workspaceMembers.join` — self-service join, restricted to PUBLIC
+/// workspaces server-side (private workspaces answer FORBIDDEN — invites are
+/// the only path in). Idempotent: re-joining returns the existing member row,
+/// so callers can retry safely.
+pub fn workspace_members_join(
+    trpc: &TrpcClient,
+    workspace_id: &str,
+) -> Result<MemberJoinOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        workspace_id: &'a str,
+    }
+    trpc.mutation("workspaceMembers.join", &Input { workspace_id })
 }
 
 /// `workspaceMembers.updateRole` — mutation (Make owner / Make member).
@@ -334,6 +399,42 @@ mod tests {
         assert_eq!(out.tx_id, Some(0));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/workspaces.ensureDefault HTTP/1.1"));
+    }
+
+    #[test]
+    fn get_by_slug_is_a_get_query_and_decodes_membership() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"id":"w-pub","name":"Feedback","slug":"feedback","iconUrl":null,"isPublic":true,"publicWritePolicy":"authenticated","membership":null}}}"#,
+        );
+        let workspace = workspaces_get_by_slug(&client(&base), "feedback").unwrap();
+        assert_eq!(workspace.id, "w-pub");
+        assert_eq!(workspace.is_public, Some(true));
+        assert_eq!(workspace.membership, None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/workspaces.getBySlug?input="));
+
+        // A member's role rides along for the already-joined fast path.
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"id":"w-pub","name":"Feedback","slug":"feedback","isPublic":true,"membership":"member"}}}"#,
+        );
+        let workspace = workspaces_get_by_slug(&client(&base), "feedback").unwrap();
+        assert_eq!(workspace.membership.as_deref(), Some("member"));
+    }
+
+    #[test]
+    fn join_posts_workspace_id_and_decodes_member() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"member":{"id":"m-1","workspaceId":"w-pub","userId":"u-1","role":"member"},"txId":7}}}"#,
+        );
+        let out = workspace_members_join(&client(&base), "w-pub").unwrap();
+        assert_eq!(out.tx_id, Some(7));
+        assert_eq!(out.member.unwrap().role.as_deref(), Some("member"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/workspaceMembers.join HTTP/1.1"));
+        assert!(request.ends_with(r#"{"workspaceId":"w-pub"}"#));
     }
 
     #[test]
