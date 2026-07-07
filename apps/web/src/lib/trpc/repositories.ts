@@ -7,10 +7,12 @@ import { issues, projects, repositories } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
+  isWorkspaceModerator,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
 import {
   fetchBranchDiff,
+  githubAppConfigured,
   peekBranchDiff,
   resolveRepoDefaultBranch,
   resolveRepoDefaultBranchCached,
@@ -52,10 +54,27 @@ const fullNameSchema = z
   .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`)
 
 // Repo management (add/remove/retarget) is owner-or-admin, mirroring member
-// management. Reads (list/forIssue/branchDiff/installationToken) are member-gated.
+// management. Reads (list/forIssue/branchDiff) and token minting are
+// member-gated — and moderator-only on public workspaces (below).
 export async function assertCanManageRepos(userId: string, workspaceId: string) {
   if (await isUserAdmin(userId)) return
   await assertWorkspaceMember(userId, workspaceId, [`owner`])
+}
+
+// Repo-backed capabilities (list/forIssue/branchDiff reads, JIT token minting)
+// reach into the backing GitHub repo, so on a PUBLIC workspace — where
+// membership is an open self-service join — they are moderator-only: a plain
+// self-joined member must never see private-repo contents or hold an
+// installation token. In a private workspace every member passes
+// (isWorkspaceModerator semantics).
+async function assertRepoCapability(userId: string, workspaceId: string) {
+  await assertWorkspaceMember(userId, workspaceId)
+  if (!(await isWorkspaceModerator(userId, workspaceId))) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `Repository access on a public workspace is restricted to moderators`,
+    })
+  }
 }
 
 type Db = typeof db
@@ -219,12 +238,13 @@ async function loadRepository(repositoryId: string) {
 }
 
 export const repositoriesRouter = router({
-  // Member-readable: the workspace's repos + the projects each one backs (for
-  // the settings "in use by" chips and mobile pickers).
+  // Member-readable (moderator-only on public workspaces): the workspace's
+  // repos + the projects each one backs (for the settings "in use by" chips
+  // and mobile pickers).
   list: authedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, input.workspaceId)
 
       const rawRepos = await ctx.db
         .select()
@@ -337,12 +357,12 @@ export const repositoriesRouter = router({
     }),
 
   // The launcher's clone-target resolution: issue → project → repositoryId.
-  // Member-readable.
+  // Member-readable (moderator-only on public workspaces).
   forIssue: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const issueCtx = await getIssueWorkspaceContext(input.issueId)
-      await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, issueCtx.workspaceId)
       return resolveProjectRepository(issueCtx.projectId)
     }),
 
@@ -354,7 +374,7 @@ export const repositoriesRouter = router({
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const issueCtx = await getIssueWorkspaceContext(input.issueId)
-      await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, issueCtx.workspaceId)
 
       const [issue] = await ctx.db
         .select({ identifier: issues.identifier })
@@ -390,7 +410,20 @@ export const repositoriesRouter = router({
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
-      await assertWorkspaceMember(ctx.session.user.id, repo.workspaceId)
+      await assertRepoCapability(ctx.session.user.id, repo.workspaceId)
+      if (!githubAppConfigured()) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not configured on this instance`,
+        })
+      }
+      // The App JWT can mint a token for ANY installation of the App, so
+      // workspace membership alone must never translate into an
+      // installation-scoped GitHub token: the caller has to be attributed to
+      // the repo's installation, the same check the connect path enforces.
+      // (Attribution is per-installer — teammates who never installed the App
+      // themselves don't pass; they need their own installation on the repo.)
+      await assertRepoInstallationAccess(ctx.session.user.id, repo.fullName)
 
       const token = await resolveRepoInstallationToken(repo.fullName)
       if (!token) {

@@ -13,6 +13,17 @@ import {
   listInstallationRepos,
   type InstallationRepo,
 } from "@/lib/integrations/github-app"
+import { mintGithubSetupState } from "@/lib/integrations/github-setup-state"
+
+// Every install link carries a signed single-use state token bound to the
+// requesting user — the setup redirect only attributes an installation when
+// that token round-trips through GitHub and matches the callback's session
+// (see github-setup-state.ts). `dialog: true` makes the redirect land on the
+// self-closing /integrations/github/installed page, which every client flow
+// (web popup, native external browser) wants.
+function installUrlFor(userId: string): string | null {
+  return githubAppInstallUrl(mintGithubSetupState(userId, { dialog: true }))
+}
 
 // Short-lived in-process cache of a user's installable repos so re-opening the
 // project dialog doesn't hammer GitHub (and its secondary rate limits).
@@ -49,8 +60,9 @@ let fallbackCache: {
 // users: an installation grants access to its account's repos (browse via
 // `repos`, connect via projects.create), so showing someone else's
 // installation is a cross-user repo leak. The in-app install flow attributes
-// reliably — the setup redirect upserts user_id whenever the browser carries
-// a session, even over an earlier webhook insert.
+// via the signed state token round-trip (github-setup-state.ts); the setup
+// redirect only ever fills a NULL user_id — it never reattributes a row that
+// already has an owner.
 //
 // Instance ADMINS additionally see unattributed rows and (empty-table only)
 // the App-API fallback: they operate the GitHub App anyway, and this keeps
@@ -167,7 +179,7 @@ export const integrationsRouter = router({
       return {
         configured: true as const,
         installed: installs.length > 0,
-        installUrl: githubAppInstallUrl(),
+        installUrl: installUrlFor(ctx.session.user.id),
         accounts: installs
           .map((r) => r.accountLogin)
           .filter((a): a is string => Boolean(a)),
@@ -200,7 +212,7 @@ export const integrationsRouter = router({
           return {
             configured: true as const,
             installed: false,
-            installUrl: githubAppInstallUrl(`dialog`),
+            installUrl: installUrlFor(userId),
             repos: [] as InstallationRepo[],
             hasMore: false,
           }
@@ -211,7 +223,7 @@ export const integrationsRouter = router({
           return {
             configured: true as const,
             installed: true,
-            installUrl: githubAppInstallUrl(`dialog`),
+            installUrl: installUrlFor(userId),
             repos: cached.repos,
             hasMore: cached.hasMore,
           }
@@ -245,7 +257,7 @@ export const integrationsRouter = router({
         return {
           configured: true as const,
           installed: true,
-          installUrl: githubAppInstallUrl(`dialog`),
+          installUrl: installUrlFor(userId),
           repos: merged,
           hasMore,
         }

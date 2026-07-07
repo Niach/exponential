@@ -125,6 +125,38 @@ export const usersRouter = router({
       }
 
       await ctx.db.transaction(async (tx) => {
+        // Workspaces where the caller is the ONLY owner but OTHER members
+        // exist would be orphaned by the user-row cascade: the caller's
+        // membership disappears, leaving members with no owner — invites,
+        // billing, and settings all become unreachable, violating the
+        // last-owner invariant workspaceMembers.remove/updateRole enforce.
+        // Fail closed: block deletion until ownership is transferred or the
+        // other members are removed. (Inside the tx so nothing is deleted
+        // when this throws.)
+        const stranded = await tx
+          .select({ id: workspaceMembers.workspaceId })
+          .from(workspaceMembers)
+          .groupBy(workspaceMembers.workspaceId)
+          .having(
+            sql`count(*) > 1 and bool_or(${workspaceMembers.userId} = ${userId} and ${workspaceMembers.role} = 'owner') and bool_and(${workspaceMembers.userId} = ${userId} or ${workspaceMembers.role} <> 'owner')`
+          )
+        if (stranded.length > 0) {
+          const rows = await tx
+            .select({ name: workspaces.name })
+            .from(workspaces)
+            .where(
+              inArray(
+                workspaces.id,
+                stranded.map((w) => w.id)
+              )
+            )
+          const names = rows.map((w) => `"${w.name}"`).join(`, `)
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `You are the only owner of ${names}, which still ${rows.length === 1 ? `has` : `have`} other members — transfer ownership or remove those members before deleting your account`,
+          })
+        }
+
         // Workspaces whose entire membership is just this user. bool_and
         // guards a race where someone joins between select and delete; the
         // is_public check keeps the bootstrap feedback board untouchable.

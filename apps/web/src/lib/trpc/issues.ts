@@ -536,12 +536,23 @@ export const issuesRouter = router({
   mergePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
-      const { workspaceId, projectId } = await getIssueWorkspaceContext(
-        input.issueId
+      // Full issue-write moderation gate (NOT bare membership): on a PUBLIC
+      // workspace membership is an open self-service join, so plain members
+      // must never be able to merge into the backing repo. assertIssueAccess
+      // (write) still admits the issue CREATOR there — that exists so
+      // reporters can edit their own submissions — but merging is a moderator
+      // action, so clamp that case too.
+      const { workspaceId, projectId } = await assertIssueAccess(
+        ctx.session.user.id,
+        input.issueId,
+        `write`
       )
-      // Any workspace member may merge (consistent with mutate-issue rights);
-      // anonymous public-workspace visitors can never reach this.
-      await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+      if (await isModerationRestricted(ctx.session.user.id, workspaceId)) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Merging pull requests on a public workspace is restricted to moderators`,
+        })
+      }
 
       const [row] = await ctx.db
         .select({
@@ -651,6 +662,14 @@ export const issuesRouter = router({
     .query(async ({ ctx, input }) => {
       const { workspaceId } = await getIssueWorkspaceContext(input.issueId)
       await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+      // PR diffs can expose private-repo file contents — on a PUBLIC
+      // workspace (open self-service join) that read is moderator-only.
+      if (await isModerationRestricted(ctx.session.user.id, workspaceId)) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Pull request files on a public workspace are restricted to moderators`,
+        })
+      }
 
       const [row] = await ctx.db
         .select({

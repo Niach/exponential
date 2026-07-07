@@ -86,14 +86,13 @@ export function WorkspaceRepositoriesSection({
 
   const openInstall = () => {
     if (!githubStatus?.installUrl) return
-    // status returns the plain install URL. Appending state=dialog reproduces
-    // githubAppInstallUrl(`dialog`): the setup redirect then lands on the
-    // self-closing /integrations/github/installed page, and the focus
-    // listener above re-detects the install — the picker's popup convention.
-    const url = githubStatus.installUrl
-    const sep = url.includes(`?`) ? `&` : `?`
+    // The install URL already carries a signed per-user state token (it drives
+    // both install attribution and the self-closing /integrations/github/
+    // installed landing page) — never append query params to it. The focus
+    // listener above re-detects the install when the popup hands focus back,
+    // the picker's popup convention.
     window.open(
-      `${url}${sep}state=dialog`,
+      githubStatus.installUrl,
       `gh-install`,
       `popup,width=980,height=820`
     )
