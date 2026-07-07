@@ -563,7 +563,8 @@ export function IssueDetailView({
                 {timeline}
               </div>
             ) : (
-              <div className="mx-auto max-w-3xl">{changesContent}</div>
+              // Wider than Details: diff lines need the room (desktop-IDE parity).
+              <div className="mx-auto max-w-5xl">{changesContent}</div>
             )}
           </div>
         </div>

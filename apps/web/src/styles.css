@@ -337,6 +337,64 @@ html {
   font-weight: 600;
 }
 
+/* The same highlight.js palette, scoped for the diff view's per-line
+   highlighting (components/diff-view.tsx renders lowlight output under a
+   `.diff-code` wrapper). */
+.diff-code .hljs-comment,
+.diff-code .hljs-quote {
+  color: var(--hljs-comment);
+  font-style: italic;
+}
+.diff-code .hljs-keyword,
+.diff-code .hljs-selector-tag,
+.diff-code .hljs-literal,
+.diff-code .hljs-meta {
+  color: var(--hljs-keyword);
+}
+.diff-code .hljs-string,
+.diff-code .hljs-doctag,
+.diff-code .hljs-regexp,
+.diff-code .hljs-attr {
+  color: var(--hljs-string);
+}
+.diff-code .hljs-number,
+.diff-code .hljs-symbol,
+.diff-code .hljs-built_in,
+.diff-code .hljs-bullet {
+  color: var(--hljs-number);
+}
+.diff-code .hljs-title,
+.diff-code .hljs-section,
+.diff-code .hljs-function,
+.diff-code .hljs-title.function_,
+.diff-code .hljs-title.class_ {
+  color: var(--hljs-title);
+}
+.diff-code .hljs-variable,
+.diff-code .hljs-name,
+.diff-code .hljs-params,
+.diff-code .hljs-property {
+  color: var(--hljs-variable);
+}
+.diff-code .hljs-tag,
+.diff-code .hljs-selector-class,
+.diff-code .hljs-selector-id,
+.diff-code .hljs-type {
+  color: var(--hljs-tag);
+}
+.diff-code .hljs-deletion {
+  color: var(--hljs-deletion);
+}
+.diff-code .hljs-addition {
+  color: var(--hljs-addition);
+}
+.diff-code .hljs-emphasis {
+  font-style: italic;
+}
+.diff-code .hljs-strong {
+  font-weight: 600;
+}
+
 .tiptap-content a,
 .tiptap-content .editor-link {
   color: var(--link);
