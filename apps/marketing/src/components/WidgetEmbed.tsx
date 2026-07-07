@@ -5,7 +5,9 @@ import { WIDGET } from "../lib/links"
    GA-style loader snippet (mirrors apps/web widget-section.tsx and the widget
    demo page). The loader is served from app.exponential.at, so the widget's
    API origin resolves to the cloud automatically and submissions land on the
-   public feedback board. Renders nothing — it only wires the runtime. */
+   public feedback board. Renders nothing — it only wires the runtime.
+   Mounted once per page via SiteHeader; the `ExponentialWidget` guard below
+   makes any accidental second mount a no-op. */
 export function WidgetEmbed() {
   useEffect(() => {
     type WidgetApi = {
@@ -33,7 +35,7 @@ export function WidgetEmbed() {
     document.head.appendChild(s)
 
     api.init({ key: WIDGET.key, position: `bottom-right` })
-    api.setCustomData({ source: `marketing`, page: `home` })
+    api.setCustomData({ source: `marketing`, page: window.location.pathname })
   }, [])
 
   return null

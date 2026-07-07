@@ -1,3 +1,4 @@
+import { useCallback, useRef } from "react"
 import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react"
 import { ArrowUp, ChevronRight, LoaderCircle, X } from "lucide-react"
 import type { User } from "@/db/schema"
@@ -116,6 +117,21 @@ export function IssueEditorDialogShell({
   const isMobile = useIsMobile()
   const closeBlocked = closeDisabled === true
 
+  // Local handle on the markdown editor (merged with the caller's optional
+  // `editorRef`) so Tab in the title can move the caret into the description.
+  const internalEditorRef = useRef<MarkdownEditorRef | null>(null)
+  const assignEditorRef = useCallback(
+    (instance: MarkdownEditorRef | null) => {
+      internalEditorRef.current = instance
+      if (typeof editorRef === `function`) {
+        editorRef(instance)
+      } else if (editorRef) {
+        editorRef.current = instance
+      }
+    },
+    [editorRef]
+  )
+
   const projectPill = (
     <div className="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
       <div
@@ -132,6 +148,17 @@ export function IssueEditorDialogShell({
       value={title}
       onBlur={onTitleBlur}
       onChange={(event) => onTitleChange(event.target.value)}
+      onKeyDown={(event) => {
+        // Tab jumps straight into the description editor instead of cycling
+        // the formatting-toolbar buttons (which are tabIndex={-1}); handling
+        // it here means TipTap never sees the Tab, so it can't be swallowed
+        // by indent/format keymaps. Shift+Tab keeps its default (backward)
+        // behavior. (EXP-10)
+        if (event.key === `Tab` && !event.shiftKey && !disabled) {
+          event.preventDefault()
+          internalEditorRef.current?.focus()
+        }
+      }}
       placeholder="Issue title"
       autoFocus={autoFocus}
       disabled={disabled}
@@ -141,7 +168,7 @@ export function IssueEditorDialogShell({
 
   const editor = (
     <MarkdownEditor
-      ref={editorRef}
+      ref={assignEditorRef}
       markdown={description}
       editable={!disabled}
       onChange={onDescriptionChange}

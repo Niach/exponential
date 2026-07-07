@@ -11,12 +11,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -30,12 +34,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.exponential.app.R
 
 @Composable
 fun LoginScreen(
@@ -112,6 +119,15 @@ fun LoginScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
+                        // Monochrome Apple mark, tinted with the current content
+                        // color (the Compose "currentColor").
+                        Icon(
+                            painter = painterResource(R.drawable.ic_apple),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current,
+                        )
+                        Spacer(Modifier.width(10.dp))
                         Text("Sign in with Apple")
                     }
                     Spacer(Modifier.height(8.dp))
@@ -142,6 +158,15 @@ fun LoginScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
+                        // Official multi-color "G" — tint must stay Unspecified so
+                        // the brand colors aren't overridden.
+                        Icon(
+                            painter = painterResource(R.drawable.ic_google),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = Color.Unspecified,
+                        )
+                        Spacer(Modifier.width(10.dp))
                         Text("Sign in with Google")
                     }
                     Spacer(Modifier.height(8.dp))

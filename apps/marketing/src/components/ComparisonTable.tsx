@@ -7,6 +7,17 @@ import { ExpLogo } from "./icons"
 function Cell({ cell, isExp }: { cell: CompareCell; isExp?: boolean }) {
   return (
     <div className={`cmp-cell${isExp ? ` is-exp` : ``}`}>
+      {/* Mobile-only brand tag — the head row is hidden on small screens,
+          so each stacked cell identifies its column itself. */}
+      <span className="cmp-cell-brand">
+        {isExp ? (
+          <>
+            <ExpLogo size={11} /> Exponential
+          </>
+        ) : (
+          `Linear`
+        )}
+      </span>
       <span className="cmp-value">
         {isExp && cell.good ? (
           <Check size={13} strokeWidth={2.6} className="cmp-check" />

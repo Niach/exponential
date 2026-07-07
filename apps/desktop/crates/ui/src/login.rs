@@ -450,6 +450,9 @@ impl LoginView {
                 Button::new("login-apple")
                     .outline()
                     .w_full()
+                    // Apple's mark is monochrome by design — the standard
+                    // tinted-Icon pipeline is exactly right (EXP-9).
+                    .icon(Icon::from(ExpIcon::Apple))
                     .label(if pending {
                         "Waiting for your browser…"
                     } else {
@@ -482,11 +485,22 @@ impl LoginView {
                 Button::new("login-google")
                     .outline()
                     .w_full()
-                    .label(if pending {
-                        "Waiting for your browser…"
-                    } else {
-                        "Sign in with Google"
-                    })
+                    // The official multi-color "G" (EXP-9). `Button::icon`/
+                    // gpui's `svg()` is an alpha-mask tinted with ONE color,
+                    // so the brand mark goes through gpui's full-color `img()`
+                    // path instead (same embedded-asset registry) as button
+                    // children — mirroring the icon+label markup Button emits.
+                    .child(gpui::img("icons/google.svg").size_4().flex_none())
+                    .child(
+                        div()
+                            .flex_none()
+                            .line_height(gpui::relative(1.))
+                            .child(if pending {
+                                "Waiting for your browser…"
+                            } else {
+                                "Sign in with Google"
+                            }),
+                    )
                     .on_click(cx.listener(|this, _, _, cx| this.sign_in_with_google(cx))),
             );
         }

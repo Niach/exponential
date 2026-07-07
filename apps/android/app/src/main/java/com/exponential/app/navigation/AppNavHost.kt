@@ -87,6 +87,11 @@ fun AppNavHost() {
                 workspaceSelection.setPendingShare(target)
                 navController.navigate("share-pick") { launchSingleTop = true }
             }
+            is DeepLinkBus.Target.GithubConnected ->
+                // Not a navigation target — the open GithubRepoPicker sheet
+                // consumes it and re-fetches. Leave it in the bus (a later deep
+                // link simply overwrites it if no picker is up).
+                return@LaunchedEffect
         }
         deepLinkBus.consume()
     }

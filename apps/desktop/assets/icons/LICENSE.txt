@@ -3,6 +3,14 @@ copied so the desktop app's ExpIcon set is self-contained (masterplan-v3
 §4.7 — several glyphs the app needs are not in gpui-component's bundled
 icon set). File names match the Lucide glyph names one-to-one.
 
+Exceptions — two sign-in brand marks (EXP-9), not Lucide glyphs:
+- apple.svg  — Apple logo glyph (path from Simple Icons, CC0), rendered
+  monochrome on the "Sign in with Apple" button.
+- google.svg — the official multi-color Google "G" from Google's
+  sign-in branding assets, rendered full-color on the "Sign in with
+  Google" button. Both are used nominatively to label their providers'
+  sign-in buttons.
+
 ISC License
 
 Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as

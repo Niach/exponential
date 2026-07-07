@@ -15,11 +15,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// First-run flow: a welcome page, then a create-first-project page (name → prefix
-// → color → required repository, with inline GitHub connect). On load it resolves
+// First-run flow (shared iOS/Android spec): welcome → create-first-project (name
+// + required repository, with inline GitHub connect) → done. On load it resolves
 // the user's default workspace (`workspaces.ensureDefault`) so the create form has
-// a workspaceId. A successful create marks onboarding complete (server + local
-// flag) and remembers the project as last-used so the Issues tab opens on it.
+// a workspaceId. A successful create marks onboarding complete server-side and
+// remembers the project as last-used so the Issues tab opens on it; the local
+// flag lands in finish() — the done step's single action — which drops into the
+// app.
 //
 // The server also backfills onboardingCompletedAt on session reads for users who
 // already have a project in a non-public workspace (lib/auth/onboarding.ts), so a
@@ -88,7 +90,15 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** After the project is created: mark onboarding complete and remember it as last-used. */
+    /**
+     * After the project is created: persist completion server-side and remember
+     * the project as last-used. The LOCAL flag is deliberately deferred to
+     * [finish] (the done step's button): flipping it changes the authenticated
+     * nav graph's startDestination, which resets the back stack straight to home
+     * and would skip the done step. If the app dies on the done step the next
+     * launch self-heals — the server flag is already set, so reconcile()'s
+     * session read reports completedAt and exits the wizard.
+     */
     fun onProjectCreated(projectId: String) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
@@ -96,8 +106,11 @@ class OnboardingViewModel @Inject constructor(
                 runCatching { onboardingApi.complete(accountId) }
                 selection.rememberLastProject(accountId, projectId)
             }
-            auth.markOnboardingCompleted(java.time.Instant.now().toString())
-            _done.value = true
         }
+    }
+
+    /** Done-step action: set the local onboarding flag; the screen navigates home. */
+    fun finish() {
+        auth.markOnboardingCompleted(java.time.Instant.now().toString())
     }
 }

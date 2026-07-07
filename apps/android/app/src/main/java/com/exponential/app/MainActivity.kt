@@ -67,6 +67,10 @@ class MainActivity : ComponentActivity() {
             "oauth-return" -> handleOauthReturn(data)
             "issue" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openIssue(it) }
             "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }
+            // Fired by the server's post-GitHub-App-install page: closes the
+            // Custom Tab (singleTask clear-top) and lands back on the repo
+            // picker, which consumes this and re-fetches the repo list.
+            "github-connected" -> deepLinkBus.openGithubConnected()
         }
     }
 

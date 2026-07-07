@@ -2,9 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   CHANGES,
-  CODING_SCRIPT,
   COMMITS,
   INBOX_ITEMS,
+  codingScriptFor,
+  getIssue,
   type Change,
   type Commit,
   type FilterTab,
@@ -172,6 +173,8 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [commits, setCommits] = useState<Commit[]>(COMMITS)
   const [ahead, setAhead] = useState(0)
   const [coding, setCoding] = useState<CodingState>(`idle`)
+  const [codingIssueId, setCodingIssueId] = useState<string | null>(null)
+  const [codedIssues, setCodedIssues] = useState<Set<string>>(new Set())
   const [runId, setRunId] = useState(0)
   const [scriptPos, setScriptPos] = useState<ScriptPos>({ done: 0, chars: 0 })
   const [dockOpen, setDockOpen] = useState(false)
@@ -189,23 +192,33 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     [],
   )
 
-  /* Typed-out claude session. Instant when prefers-reduced-motion. */
+  /* The scripted agent session for whichever issue is being coded. */
+  const codingScript = useMemo(
+    () => (codingIssueId ? codingScriptFor(getIssue(codingIssueId)) : []),
+    [codingIssueId],
+  )
+
+  /* Typed-out agent session. Instant when prefers-reduced-motion. */
   useEffect(() => {
-    if (coding !== `running`) return undefined
+    if (coding !== `running` || !codingIssueId) return undefined
+    const finish = () => {
+      setCoding(`ended`)
+      setCodedIssues((prev) => new Set(prev).add(codingIssueId))
+    }
     if (prefersReducedMotion()) {
-      setScriptPos({ done: CODING_SCRIPT.length, chars: 0 })
-      const t = window.setTimeout(() => setCoding(`ended`), 500)
+      setScriptPos({ done: codingScript.length, chars: 0 })
+      const t = window.setTimeout(finish, 500)
       return () => window.clearTimeout(t)
     }
     let done = 0
     let chars = 0
     let t: number
     const tick = () => {
-      if (done >= CODING_SCRIPT.length) {
-        setCoding(`ended`)
+      if (done >= codingScript.length) {
+        finish()
         return
       }
-      const line = CODING_SCRIPT[done]
+      const line = codingScript[done]
       if (line.kind === `cmd` && chars < line.text.length) {
         chars += 1
         setScriptPos({ done, chars })
@@ -215,14 +228,14 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
       done += 1
       chars = 0
       setScriptPos({ done, chars: 0 })
-      const next = CODING_SCRIPT[done]
+      const next = codingScript[done]
       const delay = !next ? 700 : next.kind === `cmd` ? 500 : next.kind === `claude` ? 550 : 420
       t = window.setTimeout(tick, delay)
     }
     setScriptPos({ done: 0, chars: 0 })
     t = window.setTimeout(tick, 450)
     return () => window.clearTimeout(t)
-  }, [coding, runId])
+  }, [coding, runId, codingIssueId, codingScript])
 
   const openTab = (tab: Tab) => {
     setTabs((prev) => (prev.some((t) => t.key === tab.key) ? prev : [...prev, tab]))
@@ -292,7 +305,11 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
       )
     },
     coding,
-    startCoding: () => {
+    codingIssueId,
+    codingScript,
+    codedIssues,
+    startCoding: (issueId) => {
+      setCodingIssueId(issueId)
       setCoding(`running`)
       setRunId((n) => n + 1)
       setDockOpen(true)

@@ -127,7 +127,7 @@ export const INBOX_ITEMS: InboxItem[] = [
     type: `pr_opened`,
     issueId: `EXP-8`,
     title: `Live-steer terminal reconnect`,
-    sentence: `Claude opened pull request #214 for EXP-8`,
+    sentence: `Your coding agent opened pull request #214 for EXP-8`,
     time: `2m`,
     unread: true,
   },
@@ -214,9 +214,9 @@ export const ISSUE_BODY: Record<string, Inline[][]> = {
       { t: ` stream from the last acked offset.` },
     ],
     [
-      { t: `Repro: kill the relay while a ` },
-      { t: `claude`, code: true },
-      { t: ` session is streaming — the xterm freezes until a full page reload.` },
+      {
+        t: `Repro: kill the relay while an agent session is streaming — the xterm freezes until a full page reload.`,
+      },
     ],
   ],
 }
@@ -421,21 +421,34 @@ export const PACKAGE_JSON = `{
   "packageManager": "bun@1.2.19"
 }`
 
-/* ─── "Start coding" scripted claude session (~8 lines) ─── */
+/* ─── "Start coding" scripted agent session (~8 lines), per issue ─── */
 
 export type ScriptLineKind = `ok` | `cmd` | `claude`
 export type ScriptLine = { kind: ScriptLineKind; text: string }
 
-export const CODING_SCRIPT: ScriptLine[] = [
-  { kind: `ok`, text: `Created worktree .worktrees/EXP-8 on branch exp/EXP-8` },
-  { kind: `cmd`, text: `claude --dangerously-skip-permissions` },
-  { kind: `claude`, text: `Reading issue EXP-8 — Live-steer terminal reconnect` },
-  { kind: `claude`, text: `Plan: reconnect with exponential backoff, resume stream` },
+/* Issues with an open PR fixture keep their number; anyone else gets a
+   plausible one derived from the issue number. */
+const prNumberFor = (issue: Issue): number =>
+  REVIEWS.find((r) => r.issueId === issue.id)?.prNumber ??
+  200 + Number(issue.id.split(`-`)[1] ?? `0`)
+
+/* EXP-8 keeps its bespoke plan line (it matches the diff fixture); every
+   other issue plays the same canned change so the terminal script and the
+   Changes-tab diff stay consistent. */
+const PLAN_LINES: Record<string, string> = {
+  [`EXP-8`]: `Plan: reconnect with exponential backoff, resume stream`,
+}
+
+export const codingScriptFor = (issue: Issue): ScriptLine[] => [
+  { kind: `ok`, text: `Created worktree .worktrees/${issue.id} on branch exp/${issue.id}` },
+  { kind: `ok`, text: `Handing ${issue.id} to your coding agent` },
+  { kind: `claude`, text: `Reading issue ${issue.id} — ${issue.title}` },
+  { kind: `claude`, text: PLAN_LINES[issue.id] ?? `Plan: implement the change, verify, open a PR` },
   { kind: `claude`, text: `Edited apps/web/src/components/steer-terminal.tsx (+24 -6)` },
-  { kind: `cmd`, text: `git push -u origin exp/EXP-8` },
-  { kind: `claude`, text: `Opened PR #214 — Live-steer terminal reconnect` },
+  { kind: `cmd`, text: `git push -u origin exp/${issue.id}` },
+  { kind: `claude`, text: `Opened PR #${prNumberFor(issue)} — ${issue.title}` },
   { kind: `ok`, text: `Session finished · 1 file changed` },
 ]
 
 export const SHELL_TAB_TITLE = `~/E/r/N/exponential`
-export const CLAUDE_TAB_TITLE = `claude · EXP-8`
+export const agentTabTitle = (issueId: string): string => `agent · ${issueId}`

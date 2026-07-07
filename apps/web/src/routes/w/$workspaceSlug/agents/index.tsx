@@ -2,6 +2,7 @@ import { Fragment, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { Bot, MonitorPlay, X } from "lucide-react"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
+import { DesktopDownloadCard } from "@/components/desktop-download-card"
 import { EmptyState } from "@/components/empty-state"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SteerViewer, useSteerConfig } from "@/components/steer-terminal"
@@ -178,6 +179,10 @@ function AgentsPage() {
             </span>
           )}
         </h1>
+      </div>
+
+      <div className="mb-4">
+        <DesktopDownloadCard />
       </div>
 
       <div className="flex-1 overflow-y-auto">

@@ -49,7 +49,20 @@ public final class IntegrationsApi: Sendable {
     }
 
     /// Repos the user's GitHub App is installed on, for the connect-repo picker.
-    public func githubRepos(accountId: String) async throws -> GithubReposResult {
-        try await trpc.query(accountId: accountId, path: "integrations.github.repos")
+    /// `platform: "mobile"` marks the caller so the server returns an install
+    /// URL whose post-install page renders phone-sized and deep-links back into
+    /// the app via `exp://github-connected` (instead of stranding the user in
+    /// the browser). `refresh` bypasses the server's per-user repo cache — pass
+    /// it when re-querying right after an install so new repos show immediately.
+    public func githubRepos(accountId: String, refresh: Bool = false) async throws -> GithubReposResult {
+        struct Input: Encodable {
+            let platform: String
+            let refresh: Bool?
+        }
+        return try await trpc.query(
+            accountId: accountId,
+            path: "integrations.github.repos",
+            input: Input(platform: "mobile", refresh: refresh ? true : nil)
+        )
     }
 }

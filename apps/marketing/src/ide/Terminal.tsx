@@ -1,11 +1,6 @@
-/* ─── Bottom terminal dock: 29px collapsed strip, session tabs, typed claude script ─── */
+/* ─── Bottom terminal dock: 29px collapsed strip, session tabs, typed agent script ─── */
 import { useEffect, useRef } from "react"
-import {
-  CLAUDE_TAB_TITLE,
-  CODING_SCRIPT,
-  SHELL_TAB_TITLE,
-  type ScriptLine,
-} from "./data"
+import { SHELL_TAB_TITLE, agentTabTitle, type ScriptLine } from "./data"
 import { useIde } from "./state"
 import { IcChevDown, IcChevUp, IcPlus, IcSquareTerminal, IcX } from "./icons"
 
@@ -29,6 +24,8 @@ export function TerminalDock() {
     dockTab,
     setDockTab,
     coding,
+    codingIssueId,
+    codingScript,
     scriptPos,
     interactive,
   } = useIde()
@@ -57,8 +54,8 @@ export function TerminalDock() {
   }
 
   const typingLine =
-    coding === `running` && scriptPos.done < CODING_SCRIPT.length && scriptPos.chars > 0
-      ? CODING_SCRIPT[scriptPos.done]
+    coding === `running` && scriptPos.done < codingScript.length && scriptPos.chars > 0
+      ? codingScript[scriptPos.done]
       : null
 
   const claudeVisible = dockTab === `claude` && coding !== `idle`
@@ -84,7 +81,7 @@ export function TerminalDock() {
             onClick={interactive ? () => setDockTab(`claude`) : undefined}
           >
             <span className="ide-dock-star">✳</span>
-            {CLAUDE_TAB_TITLE}
+            {agentTabTitle(codingIssueId ?? ``)}
             {coding === `ended` && <span className="ide-exitbadge">0</span>}
             <span className="ide-dock-x" aria-hidden>
               <IcX size={10} />
@@ -106,7 +103,7 @@ export function TerminalDock() {
       </div>
       {claudeVisible ? (
         <div className="ide-term" ref={termRef}>
-          {CODING_SCRIPT.slice(0, scriptPos.done).map((line, i) => (
+          {codingScript.slice(0, scriptPos.done).map((line, i) => (
             <TermLine key={i} line={line} />
           ))}
           {typingLine && <TermLine line={typingLine} partial={scriptPos.chars} />}

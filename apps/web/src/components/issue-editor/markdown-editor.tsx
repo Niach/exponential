@@ -38,6 +38,7 @@ import {
   Heading3,
 } from "lucide-react"
 import { MarkdownImage } from "@/lib/markdown-image"
+import { MarkdownParagraph } from "@/components/issue-editor/markdown-paragraph"
 import { IssueRefExtension } from "@/lib/issue-ref-extension"
 import { MentionPillExtension } from "@/lib/mention-pill-extension"
 import {
@@ -122,6 +123,11 @@ function ToolbarButton({
   return (
     <button
       type="button"
+      // Keep the whole formatting toolbar out of the tab order — Tab from the
+      // title must land in the editor content, not cycle these buttons
+      // (EXP-10). They stay mouse/toolbar-accessible; the underlying actions
+      // all have keyboard shortcuts inside the editor.
+      tabIndex={-1}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={active ? `is-active` : ``}
@@ -187,6 +193,7 @@ function LinkControl({ editor }: { editor: Editor }) {
         />
         <button
           type="button"
+          tabIndex={-1}
           onMouseDown={(e) => e.preventDefault()}
           onClick={apply}
           title="Apply link"
@@ -196,6 +203,7 @@ function LinkControl({ editor }: { editor: Editor }) {
         {editor.isActive(`link`) ? (
           <button
             type="button"
+            tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onClick={remove}
             title="Remove link"
@@ -410,7 +418,11 @@ export const MarkdownEditor = forwardRef<
           heading: { levels: [1, 2, 3] },
           // Replaced below by CodeBlockLowlight for syntax highlighting.
           codeBlock: false,
+          // Replaced below by MarkdownParagraph so intentional blank lines
+          // round-trip through GFM (EXP-7).
+          paragraph: false,
         }),
+        MarkdownParagraph,
         CodeBlockLowlight.configure({
           lowlight,
           defaultLanguage: `plaintext`,

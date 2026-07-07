@@ -227,25 +227,59 @@
   flex: none;
 }
 
+/* Brand tag inside each cell — desktop has the head row, so hide it there. */
+.cmp-cell-brand {
+  display: none;
+}
+
+/* Mobile: two side-by-side value columns don't fit a phone, so each row
+   becomes a stacked card — label on top, then one line per product, each
+   self-labelled (the head row disappears). */
 @media (max-width: 720px) {
+  .cmp-head {
+    display: none;
+  }
   .cmp-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
   .cmp-label {
-    grid-column: 1 / -1;
-    padding-bottom: 0;
+    padding: 14px 16px 4px;
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--fg-dim);
-  }
-  .cmp-head .cmp-label {
-    display: none;
   }
   .cmp-cell {
     border-left: 0;
+    padding: 5px 16px;
+    align-items: flex-start;
+  }
+  .cmp-cell:last-child {
+    padding-bottom: 14px;
   }
   .cmp-cell.is-exp {
-    border-right: 1px solid var(--border);
+    background: none;
+  }
+  .cmp-cell-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    width: 104px;
+    padding-top: 3px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .cmp-value {
+    flex: 1;
+    min-width: 0;
+    align-items: flex-start;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .cmp-value svg {
+    margin-top: 3px;
   }
 }

@@ -1,6 +1,6 @@
 /* ─── Shared IDE demo state: context, types, helpers ─── */
 import { createContext, useContext } from "react"
-import type { Change, Commit, FilterTab } from "./data"
+import type { Change, Commit, FilterTab, ScriptLine } from "./data"
 
 export type Tool =
   | `issues`
@@ -60,7 +60,10 @@ export type IdeApi = {
   mergeReview: (issueId: string) => void
 
   coding: CodingState
-  startCoding: () => void
+  codingIssueId: string | null
+  codingScript: ScriptLine[]
+  codedIssues: Set<string>
+  startCoding: (issueId: string) => void
   stopCoding: () => void
   scriptPos: ScriptPos
 

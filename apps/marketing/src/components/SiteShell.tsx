@@ -2,34 +2,41 @@ import type { ReactNode } from "react"
 import { LINKS } from "../lib/links"
 import { DownloadIconRow } from "./DownloadSection"
 import { ExpLogo, IcArrow, IcGithub } from "./icons"
+import { WidgetEmbed } from "./WidgetEmbed"
 
 export function SiteHeader() {
   return (
-    <header className="topbar">
-      <div className="shell topbar-inner">
-        <a className="brand" href="/">
-          <ExpLogo size={22} />
-          <span>Exponential</span>
-        </a>
-        <nav className="nav">
-          <a href="/#product">Product</a>
-          <a href="/pricing/">Pricing</a>
-          <a href="/docs/">Docs</a>
-          <a href={LINKS.downloadPage}>Download</a>
-        </nav>
-        <div className="topbar-right">
-          <a className="btn btn-ghost btn-sm" href={LINKS.github.repo}>
-            <IcGithub size={14} /> GitHub
+    <>
+      {/* Every page renders SiteHeader exactly once, so this puts the
+          feedback widget on all routes (WidgetEmbed renders nothing and
+          guards against double-injection). */}
+      <WidgetEmbed />
+      <header className="topbar">
+        <div className="shell topbar-inner">
+          <a className="brand" href="/">
+            <ExpLogo size={22} />
+            <span>Exponential</span>
           </a>
-          <a className="btn btn-ghost btn-sm" href={LINKS.app.login}>
-            Sign in
-          </a>
-          <a className="btn btn-primary btn-sm" href={LINKS.app.register}>
-            Get started free
-          </a>
+          <nav className="nav">
+            <a href="/#product">Product</a>
+            <a href="/pricing/">Pricing</a>
+            <a href="/docs/">Docs</a>
+            <a href={LINKS.downloadPage}>Download</a>
+          </nav>
+          <div className="topbar-right">
+            <a className="btn btn-ghost btn-sm" href={LINKS.github.repo}>
+              <IcGithub size={14} /> GitHub
+            </a>
+            <a className="btn btn-ghost btn-sm" href={LINKS.app.login}>
+              Sign in
+            </a>
+            <a className="btn btn-primary btn-sm" href={LINKS.app.register}>
+              Get started free
+            </a>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+    </>
   )
 }
 

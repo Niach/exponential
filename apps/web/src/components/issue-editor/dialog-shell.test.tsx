@@ -1,7 +1,9 @@
-import { forwardRef, type ReactNode } from "react"
+import { forwardRef, useImperativeHandle, type ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { IssueEditorDialogShell } from "@/components/issue-editor/dialog-shell"
+
+const editorFocus = vi.fn()
 
 vi.mock(`@/components/ui/dialog`, () => ({
   Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -40,8 +42,14 @@ vi.mock(`@/components/issue-editor/markdown-editor`, () => ({
       onBlur?: () => void
       onChange: (markdown: string) => void
     },
-    _ref
+    ref
   ) {
+    useImperativeHandle(ref, () => ({
+      focus: editorFocus,
+      setMarkdown: vi.fn(),
+      getMarkdown: () => markdown,
+      insertImage: vi.fn(),
+    }))
     return (
       <textarea
         aria-label="Markdown"
@@ -94,6 +102,37 @@ vi.mock(`@/components/option-dropdown-menu`, () => ({
     </div>
   ),
 }))
+
+function baseShellProps() {
+  return {
+    open: true,
+    onOpenChange: vi.fn(),
+    projectPrefix: `APP`,
+    projectColor: `#6366f1`,
+    headerContent: <span>New issue</span>,
+    title: `Initial title`,
+    onTitleChange: vi.fn(),
+    description: `Initial description`,
+    onDescriptionChange: vi.fn(),
+    status: `backlog` as const,
+    onStatusChange: vi.fn(),
+    priority: `none` as const,
+    onPriorityChange: vi.fn(),
+    workspaceId: `workspace-1`,
+    selectedLabelIds: [],
+    onToggleLabel: vi.fn(),
+    users: [],
+    assigneeId: null,
+    onAssigneeChange: vi.fn(),
+    dueDate: undefined,
+    onDueDateSelect: vi.fn(),
+    dueTime: null,
+    endTime: null,
+    onDueTimeChange: vi.fn(),
+    onEndTimeChange: vi.fn(),
+    footer: <div>Footer content</div>,
+  }
+}
 
 describe(`IssueEditorDialogShell`, () => {
   it(`renders the shared shell and forwards key callbacks`, () => {
@@ -156,5 +195,31 @@ describe(`IssueEditorDialogShell`, () => {
     expect(onToggleLabel).toHaveBeenCalledWith(`label-1`)
     expect(onAssigneeChange).toHaveBeenCalledWith(`user-2`)
     expect(onDueDateSelect).toHaveBeenCalled()
+  })
+
+  // EXP-10: Tab in the title jumps focus into the description editor instead
+  // of cycling through the formatting-toolbar buttons.
+  it(`moves focus from the title into the description editor on Tab`, () => {
+    editorFocus.mockClear()
+    render(<IssueEditorDialogShell {...baseShellProps()} />)
+
+    const titleInput = screen.getByPlaceholderText(`Issue title`)
+
+    fireEvent.keyDown(titleInput, { key: `Tab` })
+    expect(editorFocus).toHaveBeenCalledTimes(1)
+
+    // Shift+Tab keeps its default backward behavior — no editor focus.
+    fireEvent.keyDown(titleInput, { key: `Tab`, shiftKey: true })
+    expect(editorFocus).toHaveBeenCalledTimes(1)
+  })
+
+  it(`does not hijack Tab while the dialog is disabled`, () => {
+    editorFocus.mockClear()
+    render(<IssueEditorDialogShell {...baseShellProps()} disabled />)
+
+    fireEvent.keyDown(screen.getByPlaceholderText(`Issue title`), {
+      key: `Tab`,
+    })
+    expect(editorFocus).not.toHaveBeenCalled()
   })
 })

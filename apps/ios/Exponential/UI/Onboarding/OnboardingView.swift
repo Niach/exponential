@@ -2,11 +2,12 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// First-run wizard (web onboarding parity, wizard.tsx): a welcome page, then a
-/// create-first-project page (name → auto-derived prefix → color → REQUIRED
-/// repository, connected inline). `onboarding.complete` (and the local
-/// `needsOnboarding` flag) is flipped after the project is created so the nav
-/// gate in AppNavigator stops showing this screen. The server also backfills
+/// First-run wizard (shared mobile onboarding spec, EXP-8): a clean linear flow —
+/// Step 1 welcome (app name + one-line value prop + "Get started"), Step 2
+/// create-first-project (name + REQUIRED repository with inline GitHub connect),
+/// Step 3 done → drops into the app. `onboarding.complete` (and the local
+/// `needsOnboarding` flag) is flipped on the final step so the nav gate in
+/// AppNavigator stops showing this screen. The server also backfills
 /// onboardingCompletedAt on session reads for users who already have a project
 /// in a non-public workspace (lib/auth/onboarding.ts), so a stale account
 /// self-heals via reconcileWithServer before the user ever creates anything.
@@ -25,10 +26,10 @@ struct OnboardingView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    if page == 0 {
-                        welcomePage
-                    } else {
-                        projectPage
+                    switch page {
+                    case 0: welcomePage
+                    case 1: projectPage
+                    default: donePage
                     }
                 }
                 .padding(.horizontal, 32)
@@ -39,35 +40,25 @@ struct OnboardingView: View {
         .task { await reconcileWithServer() }
     }
 
-    // MARK: - Welcome
+    // MARK: - Step 1: Welcome
 
     private var welcomePage: some View {
         VStack(spacing: 0) {
-            Text("Welcome to Exponential")
-                .font(.system(size: 28, weight: .bold))
+            Spacer().frame(height: 64)
+
+            Text("Exponential")
+                .font(.system(size: 34, weight: .bold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
-            Spacer().frame(height: 24)
+            Spacer().frame(height: 12)
 
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.title2)
-                        .foregroundStyle(.white)
-                    Text("Create your first project")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                }
+            Text("Track issues and ship with your team.")
+                .font(.body)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .multilineTextAlignment(.center)
 
-                Text("A project is backed by a GitHub repository, so the issues you track can be coded on right away. Let's set one up.")
-                    .font(.body)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .padding(24)
-            .glassCard()
-
-            Spacer().frame(height: 24)
+            Spacer().frame(height: 48)
 
             primaryButton("Get started", enabled: true) {
                 page = 1
@@ -75,13 +66,20 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Create project
+    // MARK: - Step 2: Create your first project
 
     private var projectPage: some View {
         VStack(spacing: 0) {
             Text("Create your first project")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 8)
+
+            Text("Every project is backed by a GitHub repository.")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .multilineTextAlignment(.center)
 
             Spacer().frame(height: 24)
@@ -91,7 +89,8 @@ struct OnboardingView: View {
                     CreateProjectForm(
                         accountId: deps.auth.activeAccountId ?? "",
                         workspaceId: workspaceId,
-                        onCreated: { _ in Task { await finish() } }
+                        minimal: true,
+                        onCreated: { _ in page = 2 }
                     )
                     .padding(24)
                     .glassCard()
@@ -119,6 +118,38 @@ struct OnboardingView: View {
             }
         }
         .task { await prepareWorkspace() }
+    }
+
+    // MARK: - Step 3: Done
+
+    private var donePage: some View {
+        VStack(spacing: 0) {
+            Spacer().frame(height: 64)
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(DesignTokens.Semantic.green)
+
+            Spacer().frame(height: 20)
+
+            Text("You're all set")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 12)
+
+            Text("Your first project is ready.")
+                .font(.body)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 48)
+
+            primaryButton(finishing ? "Opening…" : "Open Exponential", enabled: !finishing) {
+                Task { await finish() }
+            }
+        }
     }
 
     private func primaryButton(_ title: String, enabled: Bool, action: @escaping () -> Void) -> some View {

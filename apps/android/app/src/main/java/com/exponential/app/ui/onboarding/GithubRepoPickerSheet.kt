@@ -50,10 +50,12 @@ import com.exponential.app.ui.theme.glassRow
 
 // Installed-repo picker (web github-repo-picker.tsx / iOS GithubRepoPicker): lists
 // the repos the user's GitHub App is installed on and returns the chosen one. When
-// the App isn't installed it offers an inline connect that opens the install URL in
-// a Chrome Custom Tab; on returning (lifecycle RESUMED) it re-queries so a mid-flow
-// install reflects immediately. The repo is connected server-side by
-// `projects.create`'s `repository: { fullName }` path.
+// the App isn't installed it offers an inline connect that opens the (mobile-marked)
+// install URL in a Chrome Custom Tab; the server's post-install page fires
+// exp://github-connected, which closes the tab, returns here, and re-fetches
+// (see GithubRepoPickerViewModel). Returning any other way (older server, tab
+// dismissed by hand) still re-queries on lifecycle RESUME. The repo is connected
+// server-side by `projects.create`'s `repository: { fullName }` path.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GithubRepoPickerSheet(
@@ -149,7 +151,7 @@ private fun NotInstalled(data: GithubReposResult, onConnect: () -> Unit) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Connect the Exponential GitHub App to pick a repository, then come back.",
+            "Connect the Exponential GitHub App to pick a repository. You'll be brought back here when it's done.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )

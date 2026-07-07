@@ -80,20 +80,30 @@ struct LoginView: View {
                     // wants it placed no less prominently than other options.
                     if let config = vm.config {
                         if config.appleLoginEnabled {
-                            oauthButton(label: "Continue with Apple", systemImage: "apple.logo") {
+                            oauthButton(label: "Continue with Apple", action: {
                                 vm.startAppleOAuthFlow()
+                            }) {
+                                Image(systemName: "apple.logo")
+                                    .font(.body.weight(.medium))
                             }
                         }
 
                         if config.googleLoginEnabled {
-                            oauthButton(label: "Continue with Google") {
+                            oauthButton(label: "Continue with Google", action: {
                                 vm.startGoogleOAuthFlow()
+                            }) {
+                                // SF Symbols has no Google mark — the official
+                                // multi-color G is drawn in GoogleLogoMark.
+                                GoogleLogoMark()
+                                    .frame(width: 17, height: 17)
                             }
                         }
 
                         ForEach(config.oidcProviders) { provider in
-                            oauthButton(label: "Continue with \(provider.name)") {
+                            oauthButton(label: "Continue with \(provider.name)", action: {
                                 vm.startOAuthFlow(providerId: provider.id)
+                            }) {
+                                EmptyView()
                             }
                         }
 
@@ -120,13 +130,10 @@ struct LoginView: View {
     }
 
     @ViewBuilder
-    private func oauthButton(label: String, systemImage: String? = nil, action: @escaping () -> Void) -> some View {
+    private func oauthButton(label: String, action: @escaping () -> Void, @ViewBuilder icon: () -> some View) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.body.weight(.medium))
-                }
+                icon()
                 Text(label)
             }
             .font(.body.weight(.medium))

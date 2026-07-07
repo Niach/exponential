@@ -20,9 +20,17 @@ import { mintGithubSetupState } from "@/lib/integrations/github-setup-state"
 // that token round-trips through GitHub and matches the callback's session
 // (see github-setup-state.ts). `dialog: true` makes the redirect land on the
 // self-closing /integrations/github/installed page, which every client flow
-// (web popup, native external browser) wants.
-function installUrlFor(userId: string): string | null {
-  return githubAppInstallUrl(mintGithubSetupState(userId, { dialog: true }))
+// (web popup, native external browser) wants. `mobile: true` (requested via
+// the repos query's `platform: "mobile"` input) additionally marks the state
+// so the setup redirect serves the exp://github-connected deep-link page that
+// hands the user back to the native app.
+function installUrlFor(
+  userId: string,
+  opts?: { mobile?: boolean }
+): string | null {
+  return githubAppInstallUrl(
+    mintGithubSetupState(userId, { dialog: true, mobile: opts?.mobile })
+  )
 }
 
 // Short-lived in-process cache of a user's installable repos so re-opening the
@@ -190,11 +198,22 @@ export const integrationsRouter = router({
     // deduped. Backs the repo-first project create flow. `hasMore` signals the
     // result was truncated so the UI can point at "manage repos on GitHub".
     // `refresh` bypasses the per-user cache so returning from a GitHub App
-    // install (new repos granted) reflects immediately.
+    // install (new repos granted) reflects immediately. `platform: "mobile"`
+    // (native clients only) marks the returned installUrl's state so the setup
+    // redirect deep-links back into the app; web callers omit it and keep the
+    // web landing page.
     repos: authedProcedure
-      .input(z.object({ refresh: z.boolean().optional() }).optional())
+      .input(
+        z
+          .object({
+            refresh: z.boolean().optional(),
+            platform: z.enum([`web`, `mobile`]).optional(),
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
         const userId = ctx.session.user.id
+        const mobile = input?.platform === `mobile`
         if (input?.refresh) invalidateRepoCache(userId)
         if (!githubAppConfigured()) {
           return {
@@ -212,7 +231,7 @@ export const integrationsRouter = router({
           return {
             configured: true as const,
             installed: false,
-            installUrl: installUrlFor(userId),
+            installUrl: installUrlFor(userId, { mobile }),
             repos: [] as InstallationRepo[],
             hasMore: false,
           }
@@ -223,7 +242,7 @@ export const integrationsRouter = router({
           return {
             configured: true as const,
             installed: true,
-            installUrl: installUrlFor(userId),
+            installUrl: installUrlFor(userId, { mobile }),
             repos: cached.repos,
             hasMore: cached.hasMore,
           }
@@ -257,7 +276,7 @@ export const integrationsRouter = router({
         return {
           configured: true as const,
           installed: true,
-          installUrl: installUrlFor(userId),
+          installUrl: installUrlFor(userId, { mobile }),
           repos: merged,
           hasMore,
         }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest"
 import {
   consumeGithubSetupState,
   githubSetupStateWantsDialog,
+  githubSetupStateWantsMobile,
   mintGithubSetupState,
 } from "@/lib/integrations/github-setup-state"
 
@@ -68,5 +69,40 @@ describe(`github setup state token`, () => {
     expect(githubSetupStateWantsDialog(plainState)).toBe(false)
     expect(githubSetupStateWantsDialog(`dialog`)).toBe(false)
     expect(githubSetupStateWantsDialog(null)).toBe(false)
+  })
+
+  it(`carries the mobile flag readably without verification`, () => {
+    const mobileState = mintGithubSetupState(`user-1`, {
+      dialog: true,
+      mobile: true,
+    })!
+    const dialogState = mintGithubSetupState(`user-1`, { dialog: true })!
+    const plainState = mintGithubSetupState(`user-1`)!
+    expect(githubSetupStateWantsMobile(mobileState)).toBe(true)
+    expect(githubSetupStateWantsMobile(dialogState)).toBe(false)
+    expect(githubSetupStateWantsMobile(plainState)).toBe(false)
+    expect(githubSetupStateWantsMobile(`mobile`)).toBe(false)
+    expect(githubSetupStateWantsMobile(null)).toBe(false)
+    // The marker never weakens the flags it rides alongside.
+    expect(githubSetupStateWantsDialog(mobileState)).toBe(true)
+  })
+
+  it(`reads the mobile flag even from an expired token`, () => {
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000
+    const state = mintGithubSetupState(`user-1`, { mobile: true }, twoHoursAgo)!
+    expect(consumeGithubSetupState(state, `user-1`)).toBeNull()
+    expect(githubSetupStateWantsMobile(state)).toBe(true)
+  })
+
+  it(`still round-trips consumption with the mobile flag set`, () => {
+    const state = mintGithubSetupState(`user-1`, {
+      dialog: true,
+      mobile: true,
+    })!
+    expect(consumeGithubSetupState(state, `user-1`)).toEqual({
+      userId: `user-1`,
+    })
+    // Single-use holds regardless of markers.
+    expect(consumeGithubSetupState(state, `user-1`)).toBeNull()
   })
 })

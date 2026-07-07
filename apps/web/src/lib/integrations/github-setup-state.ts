@@ -21,6 +21,7 @@ const STATE_TTL_MS = 60 * 60 * 1000
 interface SetupStatePayload {
   u: string // initiating user id
   d?: boolean // launched from an in-app dialog → self-closing landing page
+  m?: boolean // launched from a native mobile client → exp:// deep-link page
   n: string // single-use nonce
   exp: number // unix ms expiry
 }
@@ -45,7 +46,7 @@ function pruneConsumedNonces(now: number) {
 
 export function mintGithubSetupState(
   userId: string,
-  opts?: { dialog?: boolean },
+  opts?: { dialog?: boolean; mobile?: boolean },
   now: number = Date.now()
 ): string | undefined {
   const key = secret()
@@ -53,6 +54,7 @@ export function mintGithubSetupState(
   const payload: SetupStatePayload = {
     u: userId,
     ...(opts?.dialog ? { d: true } : {}),
+    ...(opts?.mobile ? { m: true } : {}),
     n: crypto.randomBytes(16).toString(`base64url`),
     exp: now + STATE_TTL_MS,
   }
@@ -86,6 +88,16 @@ function decodePayload(state: string): SetupStatePayload | null {
 export function githubSetupStateWantsDialog(state: string | null): boolean {
   if (!state) return false
   return decodePayload(state)?.d === true
+}
+
+// Same landing-page-choice contract as the dialog flag: whether the install
+// was launched from a native mobile client, which wants a 200 page firing the
+// exp:// deep link instead of a web redirect. Never security-relevant — read
+// without requiring a valid signature so even an expired token still hands
+// the user back to the app.
+export function githubSetupStateWantsMobile(state: string | null): boolean {
+  if (!state) return false
+  return decodePayload(state)?.m === true
 }
 
 // Verify + consume: returns the initiating user id only when the signature,

@@ -71,6 +71,14 @@ struct AppNavigator: View {
                 NotificationCenter.default.post(name: .oauthTokenReceived, object: nil, userInfo: ["token": token])
             }
         }
+        // exp://github-connected — the GitHub App install flow finished (fired
+        // by the server's post-install page). The in-app install surface
+        // (ASWebAuthenticationSession) normally consumes this as its callback;
+        // this path covers installs that finish in an external browser. The
+        // repo picker listens and re-queries.
+        if url.host == "github-connected" {
+            NotificationCenter.default.post(name: .githubConnected, object: nil)
+        }
         // exp://issue/<issueId>
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToIssue(String(issueId))
@@ -396,4 +404,6 @@ struct MainNavigator: View {
 
 extension Notification.Name {
     static let oauthTokenReceived = Notification.Name("oauthTokenReceived")
+    /// `exp://github-connected` arrived — a GitHub App install just completed.
+    static let githubConnected = Notification.Name("githubConnected")
 }

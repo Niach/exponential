@@ -54,10 +54,14 @@ private fun derivePrefix(name: String): String =
         .uppercase()
         .take(5)
 
-// Reusable create-first-project form: name (auto-derives the prefix until the
-// user edits it), prefix, color, and the required backing repository. Used by
-// onboarding page 2 and the empty-state create sheets. Owns its own
+// Reusable create-project form: name (auto-derives the prefix until the user
+// edits it), prefix, color, and the required backing repository. Used by
+// onboarding step 2 and the empty-state create sheets. Owns its own
 // [CreateProjectViewModel] for repo loading + the create call.
+//
+// `minimal` (the onboarding wizard, per the shared iOS/Android onboarding spec)
+// reduces the form to name + repository: the prefix keeps auto-deriving from
+// the name and the color stays at the default — both editable later.
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CreateProjectForm(
@@ -66,6 +70,7 @@ fun CreateProjectForm(
     onCreated: (projectId: String) -> Unit,
     modifier: Modifier = Modifier,
     submitLabel: String = "Create project",
+    minimal: Boolean = false,
     viewModel: CreateProjectViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -95,40 +100,42 @@ fun CreateProjectForm(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        OutlinedTextField(
-            value = prefix,
-            onValueChange = {
-                prefixEdited = true
-                prefix = it.uppercase().take(10)
-            },
-            singleLine = true,
-            label = { Text("Prefix") },
-            placeholder = { Text("e.g. API") },
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (!minimal) {
+            OutlinedTextField(
+                value = prefix,
+                onValueChange = {
+                    prefixEdited = true
+                    prefix = it.uppercase().take(10)
+                },
+                singleLine = true,
+                label = { Text("Prefix") },
+                placeholder = { Text("e.g. API") },
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Color", style = MaterialTheme.typography.labelMedium, color = secondary)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                LabelPalette.colors.forEach { swatch ->
-                    val selected = swatch.equals(color, ignoreCase = true)
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .background(parseColor(swatch), CircleShape)
-                            .then(
-                                if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                else Modifier,
-                            )
-                            .clickable { color = swatch },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (selected) {
-                            Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Color", style = MaterialTheme.typography.labelMedium, color = secondary)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    LabelPalette.colors.forEach { swatch ->
+                        val selected = swatch.equals(color, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(parseColor(swatch), CircleShape)
+                                .then(
+                                    if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                    else Modifier,
+                                )
+                                .clickable { color = swatch },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (selected) {
+                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
                         }
                     }
                 }

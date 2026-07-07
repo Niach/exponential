@@ -34,9 +34,16 @@ vi.mock(`@/lib/admin`, () => ({
   isUserAdmin: vi.fn(async () => false),
 }))
 
+// Captures the signed setup-state token passed into each minted install URL
+// so the platform tests can decode its markers.
+const installUrlStates: (string | undefined)[] = []
+
 vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => true,
-  githubAppInstallUrl: () => `https://install.example`,
+  githubAppInstallUrl: (state?: string) => {
+    installUrlStates.push(state)
+    return `https://install.example`
+  },
   listAppInstallations: vi.fn(async () => []),
   listInstallationRepos: () => listInstallationRepos(),
 }))
@@ -45,6 +52,10 @@ import {
   integrationsRouter,
   invalidateRepoCache,
 } from "@/lib/trpc/integrations"
+import {
+  githubSetupStateWantsDialog,
+  githubSetupStateWantsMobile,
+} from "@/lib/integrations/github-setup-state"
 
  
 function callerFor(userId: string) {
@@ -90,5 +101,34 @@ describe(`integrations.github.repos cache`, () => {
 
     await caller.github.repos()
     expect(listInstallationRepos).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe(`integrations.github.repos install URL platform marker`, () => {
+  beforeEach(() => {
+    process.env.BETTER_AUTH_SECRET = `test-secret-test-secret-test-secret!`
+    installUrlStates.length = 0
+  })
+
+  it(`marks the minted state mobile only when platform is "mobile"`, async () => {
+    const caller = callerFor(`user-platform`)
+
+    await caller.github.repos({ platform: `mobile` })
+    const mobileState = installUrlStates.at(-1) ?? null
+    expect(githubSetupStateWantsMobile(mobileState)).toBe(true)
+    // The mobile marker rides alongside the dialog flag, never instead of it.
+    expect(githubSetupStateWantsDialog(mobileState)).toBe(true)
+
+    // Cached serve (same user, within TTL) still mints per-request, so a web
+    // call right after a mobile one must NOT inherit the mobile marker.
+    await caller.github.repos()
+    const webState = installUrlStates.at(-1) ?? null
+    expect(githubSetupStateWantsMobile(webState)).toBe(false)
+    expect(githubSetupStateWantsDialog(webState)).toBe(true)
+
+    await caller.github.repos({ platform: `web` })
+    expect(githubSetupStateWantsMobile(installUrlStates.at(-1) ?? null)).toBe(
+      false
+    )
   })
 })

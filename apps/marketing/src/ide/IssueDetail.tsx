@@ -200,7 +200,7 @@ function PropsPanel({ issue }: { issue: Issue }) {
 }
 
 export function IssueDetail({ issueId }: { issueId: string }) {
-  const { interactive, coding, startCoding, stopCoding } = useIde()
+  const { interactive, coding, codingIssueId, codedIssues, startCoding, stopCoding } = useIde()
   const issue = getIssue(issueId)
   const isExp8 = issue.id === `EXP-8`
   const [detailTab, setDetailTab] = useState<`details` | `changes`>(`details`)
@@ -210,7 +210,9 @@ export function IssueDetail({ issueId }: { issueId: string }) {
 
   const baseActivity = ISSUE_ACTIVITY[issue.id] ?? []
   const activity = [...baseActivity, ...extraComments]
-  const codingHere = isExp8 && coding === `running`
+  const codingHere = coding === `running` && codingIssueId === issue.id
+  /* EXP-8 ships with its diff fixture; other issues earn one by finishing a run. */
+  const hasChanges = isExp8 || codedIssues.has(issue.id)
 
   const submitComment = () => {
     const body = draft.trim()
@@ -248,9 +250,9 @@ export function IssueDetail({ issueId }: { issueId: string }) {
           </button>
         ) : (
           <button
-            className={`ide-ghost ide-headbtn${interactive && isExp8 ? ` is-click` : ``}`}
+            className={`ide-ghost ide-headbtn${interactive ? ` is-click` : ``}`}
             type="button"
-            onClick={interactive && isExp8 ? startCoding : undefined}
+            onClick={interactive ? () => startCoding(issue.id) : undefined}
           >
             <IcPlay size={14} className="ide-c-green" />
             Start coding
@@ -326,7 +328,7 @@ export function IssueDetail({ issueId }: { issueId: string }) {
         </div>
       ) : (
         <div className="ide-issue-changes">
-          {isExp8 ? (
+          {hasChanges ? (
             <DiffView />
           ) : (
             <div className="ide-diff-empty">No changes yet. Start coding to open a PR.</div>

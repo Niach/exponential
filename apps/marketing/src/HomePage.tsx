@@ -1,6 +1,5 @@
 import { motion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
-import { WidgetEmbed } from "./components/WidgetEmbed"
 import { IcArrow, IcGithub } from "./components/icons"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { LINKS } from "./lib/links"
@@ -12,7 +11,6 @@ import { MobileDemo } from "./mobile/MobileDemo"
 export function HomePage() {
   return (
     <>
-      <WidgetEmbed />
       <SiteHeader />
 
       {/* ── Hero ─────────────────────────────── */}

@@ -17,6 +17,12 @@ class DeepLinkBus @Inject constructor() {
         data class Issue(val id: String) : Target
         data class Invite(val token: String) : Target
 
+        // exp://github-connected — the GitHub App install finished in the Custom
+        // Tab and the server's post-install page deep-linked back into the app.
+        // Not a navigation target: the open repo-picker sheet consumes it and
+        // re-fetches (refresh=true) so the new installation shows up.
+        data object GithubConnected : Target
+
         // Content shared into the app from another app (ACTION_SEND). Image URIs
         // are stable file:// cache URIs (see ShareIntentParser). Same-process, so
         // holding Uri in a singleton-held data class is fine.
@@ -36,6 +42,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openInvite(token: String) {
         _target.value = Target.Invite(token)
+    }
+
+    fun openGithubConnected() {
+        _target.value = Target.GithubConnected
     }
 
     fun openShare(text: String?, subject: String?, imageUris: List<android.net.Uri>) {

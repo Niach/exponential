@@ -9,6 +9,11 @@ import SwiftUI
 struct CreateProjectForm: View {
     let accountId: String
     let workspaceId: String
+    /// Onboarding renders the minimal spec form (shared mobile onboarding
+    /// spec): just Project name + Repository. The prefix stays auto-derived
+    /// from the name and the color keeps its default — the full form (prefix +
+    /// color fields) remains for the regular create-project sheets.
+    var minimal = false
     /// Called with the new project id once `projects.create` succeeds. The
     /// caller owns what happens next (finish onboarding, dismiss a sheet, …).
     let onCreated: (String) -> Void
@@ -51,27 +56,29 @@ struct CreateProjectForm: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("Prefix")
-                TextField("e.g. API", text: Binding(
-                    get: { prefix },
-                    set: { onPrefixChange($0) }
-                ))
-                .font(.subheadline.monospaced())
-                .textFieldStyle(.plain)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.characters)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.white.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
+            if !minimal {
+                VStack(alignment: .leading, spacing: 8) {
+                    fieldLabel("Prefix")
+                    TextField("e.g. API", text: Binding(
+                        get: { prefix },
+                        set: { onPrefixChange($0) }
+                    ))
+                    .font(.subheadline.monospaced())
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.characters)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
 
-            // Color
-            VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("Color")
-                ColorSwatchGrid(selection: $color)
+                // Color
+                VStack(alignment: .leading, spacing: 8) {
+                    fieldLabel("Color")
+                    ColorSwatchGrid(selection: $color)
+                }
             }
 
             // Repository (required) — the selector renders its own label.

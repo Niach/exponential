@@ -46,7 +46,15 @@ data class GithubReposResult(
 private object IntegrationsEmptyInput
 
 @Serializable
-private data class ReposInput(val refresh: Boolean? = null)
+private data class ReposInput(
+    val refresh: Boolean? = null,
+    // Marks the caller as a mobile client so the server hands back a
+    // mobile-marked installUrl: the post-install page then fires the
+    // exp://github-connected deep link back into the app instead of
+    // continuing in the browser. (Servers predating the marker just
+    // ignore the extra field.)
+    val platform: String? = null,
+)
 
 @Singleton
 class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
@@ -60,12 +68,19 @@ class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = GithubStatusResult.serializer(),
         )
 
-    /** `refresh` bypasses the server cache so returning from an install reflects new repos. */
+    /**
+     * `refresh` bypasses the server cache so returning from an install reflects new
+     * repos. Always sends `platform: "mobile"` so the returned installUrl finishes
+     * with the exp://github-connected deep link instead of staying in the browser.
+     */
     suspend fun githubRepos(accountId: String, refresh: Boolean = false): GithubReposResult =
         trpc.query(
             accountId,
             path = "integrations.github.repos",
-            input = ReposInput(refresh = if (refresh) true else null),
+            input = ReposInput(
+                refresh = if (refresh) true else null,
+                platform = "mobile",
+            ),
             inputSerializer = ReposInput.serializer(),
             outputSerializer = GithubReposResult.serializer(),
         )
