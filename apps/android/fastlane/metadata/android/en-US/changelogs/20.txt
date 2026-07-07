@@ -1,0 +1,1 @@
+• Redesigned sign-in: continue with Apple or Google right on the first screen; self-hosting is now a small link below.
