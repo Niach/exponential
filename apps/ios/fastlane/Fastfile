@@ -28,6 +28,16 @@ platform :ios do
     # `sh` runs from the fastlane/ dir, so step up to apps/ios to regenerate the project.
     sh("cd .. && tuist generate --no-open")
 
+    # Hand the ASC API key to xcodebuild so automatic signing can mint the
+    # cloud-managed Distribution certificate + App Store profiles headlessly
+    # (first run on a fresh Mac has neither).
+    auth_xcargs = [
+      "-allowProvisioningUpdates",
+      "-authenticationKeyPath #{File.expand_path(ENV.fetch('ASC_KEY_PATH'))}",
+      "-authenticationKeyID #{ENV.fetch('ASC_KEY_ID')}",
+      "-authenticationKeyIssuerID #{ENV.fetch('ASC_ISSUER_ID')}",
+    ].join(" ")
+
     gym(
       workspace: WORKSPACE,
       scheme: SCHEME,
@@ -36,6 +46,7 @@ platform :ios do
       clean: true,
       output_directory: "build",
       output_name: "Exponential.ipa",
+      xcargs: auth_xcargs, # gym forwards these to -exportArchive too
     )
   end
 

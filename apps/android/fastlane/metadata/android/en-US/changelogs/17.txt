@@ -1,5 +1,7 @@
-• Sign in with Apple
+Sign in with Apple is here, plus a smarter editor.
+
 • Reference other issues with #ABC-12 autocomplete in descriptions and comments
+• Add labels while creating an issue
 • Join the public feedback board right in the app
 • Delete your account from Settings
 • Fixed password sign-in against self-hosted instances
