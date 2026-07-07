@@ -17,7 +17,25 @@ permissions:
   packages: write
 
 jobs:
+  # Gate: the production image must never ship on a red typecheck/test run.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Typecheck web
+        run: bun run typecheck
+      - name: Web unit tests
+        run: bun run test
+      - name: Widget unit tests
+        run: bun run test:widget
+      - name: Steer relay + ticket tests
+        run: bun run test:steer-relay
+
   build:
+    needs: test
     runs-on: ubuntu-latest
 
     steps:

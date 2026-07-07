@@ -250,6 +250,10 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Desktop MUST own releases/latest: the marketing download links
+          # (`releases/latest/download/<asset>`) and the in-app update check
+          # both resolve `latest` (android releases set make_latest: false).
+          make_latest: true
           files: dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true

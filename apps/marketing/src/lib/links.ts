@@ -38,7 +38,20 @@ export const LINKS = {
    feedback board. Swap the placeholder key for the demo `expw_` config's real
    key at launch (release checklist §13) — this const is the single source. */
 export const WIDGET = {
-  // TODO(launch §13): replace with the marketing-demo widget config's real key.
+  // ┌─────────────────────────────────────────────────────────────────────────┐
+  // │ TODO(launch §13) — LAUNCH BLOCKER: this is a PLACEHOLDER key.           │
+  // │ The live widget on exponential.at is broken until it is replaced        │
+  // │ (verified: /api/widget/config?key=expw_MARKETING_DEMO_KEY → 404).       │
+  // │                                                                         │
+  // │ To get the real key (it exists only in the app.exponential.at DB):      │
+  // │   1. Sign in to app.exponential.at as a global admin.                   │
+  // │   2. Open the public feedback workspace → Settings → "Feedback widget". │
+  // │   3. Copy the `expw_…` key of the `Exponential App` config (created by  │
+  // │      the cloud bootstrap) — or create a dedicated "Marketing site"      │
+  // │      config there and copy its key.                                     │
+  // │   4. Ensure exponential.at is on that config's domain allowlist.        │
+  // │   5. Paste the key below and redeploy the marketing site.               │
+  // └─────────────────────────────────────────────────────────────────────────┘
   key: `expw_MARKETING_DEMO_KEY`,
   loader: `${APP}/widget/v1/loader.js`,
 } as const

@@ -68,6 +68,10 @@ jobs:
             echo "No keystore secret — building unsigned."
           fi
 
+      - name: Run unit tests
+        working-directory: apps/android
+        run: ./gradlew :app:testProductionDebugUnitTest --no-daemon
+
       - name: Build debug APKs
         working-directory: apps/android
         run: ./gradlew :app:assembleDebug --no-daemon
@@ -110,6 +114,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/android-v')
         uses: softprops/action-gh-release@v2
         with:
+          # Never claim releases/latest — the marketing download links and the
+          # desktop in-app update check both resolve `latest` and expect a
+          # desktop-v* release (build-desktop.yml pins make_latest: true).
+          make_latest: false
           name: Android ${{ steps.version.outputs.VERSION }}
           body: |
             Built from ${{ github.sha }}.
