@@ -4,10 +4,14 @@ import {
   buildUnsubscribeUrl,
   defaultEmailPrefs,
   emailTypeAllowed,
+  isDigestDue,
   isResolutionStatus,
-  shouldSendImmediateEmail,
+  planEmailDigest,
   shouldSendReporterResolution,
+  type DigestCandidate,
+  type EmailPrefsLike,
 } from "@/lib/notification-email-policy"
+import type { NotificationType } from "@/lib/domain"
 
 describe(`emailTypeAllowed`, () => {
   it(`defaults to allowed when no prefs row exists (missing row = defaults)`, () => {
@@ -54,34 +58,197 @@ describe(`emailTypeAllowed`, () => {
   })
 })
 
-describe(`shouldSendImmediateEmail`, () => {
-  it(`sends immediately with defaults (missing row or digest off)`, () => {
-    expect(shouldSendImmediateEmail(null, `issue_assigned`)).toBe(true)
-    expect(shouldSendImmediateEmail(defaultEmailPrefs(), `issue_assigned`)).toBe(
-      true
-    )
+// ---------------------------------------------------------------------------
+// Push-first hourly digest (item q)
+// ---------------------------------------------------------------------------
+
+const NOW = new Date(`2026-07-07T12:00:00Z`)
+
+function minutesAgo(minutes: number): Date {
+  return new Date(NOW.getTime() - minutes * 60 * 1000)
+}
+
+function candidate(overrides: {
+  id: string
+  userId: string
+  ageMinutes: number
+  type?: NotificationType
+  readAt?: Date | null
+}): DigestCandidate {
+  return {
+    notificationId: overrides.id,
+    userId: overrides.userId,
+    type: overrides.type ?? `issue_comment`,
+    createdAt: minutesAgo(overrides.ageMinutes),
+    readAt: overrides.readAt ?? null,
+  }
+}
+
+function plan(
+  candidates: DigestCandidate[],
+  opts?: {
+    prefsByUser?: Map<string, EmailPrefsLike | null>
+    lastDigestByUser?: Map<string, Date | null>
+  }
+) {
+  return planEmailDigest({
+    candidates,
+    prefsByUser: opts?.prefsByUser ?? new Map(),
+    lastDigestByUser: opts?.lastDigestByUser ?? new Map(),
+    now: NOW,
+  })
+}
+
+describe(`isDigestDue`, () => {
+  it(`is due with no prior digest, whatever the cadence`, () => {
+    expect(isDigestDue(null, null, NOW)).toBe(true)
+    expect(
+      isDigestDue({ ...defaultEmailPrefs(), digest: `daily` }, undefined, NOW)
+    ).toBe(true)
   })
 
-  it(`digest != off skips the immediate send but keeps the type allowed`, () => {
+  it(`hourly (off) cadence: not due right after a digest, due ~an hour later`, () => {
+    expect(isDigestDue(defaultEmailPrefs(), minutesAgo(10), NOW)).toBe(false)
+    expect(isDigestDue(defaultEmailPrefs(), minutesAgo(55), NOW)).toBe(true)
+  })
+
+  it(`daily cadence: at most one digest per ~day`, () => {
     const prefs = { ...defaultEmailPrefs(), digest: `daily` }
-    expect(shouldSendImmediateEmail(prefs, `issue_comment`)).toBe(false)
-    // …the rows are left for the future digest cron, not blocked outright:
-    expect(emailTypeAllowed(prefs, `issue_comment`)).toBe(true)
+    expect(isDigestDue(prefs, minutesAgo(60 * 5), NOW)).toBe(false)
+    expect(isDigestDue(prefs, minutesAgo(60 * 23), NOW)).toBe(true)
+  })
+})
+
+describe(`planEmailDigest`, () => {
+  it(`emails only notifications that stayed unread past the 1h window`, () => {
+    const result = plan([
+      candidate({ id: `n-old`, userId: `u1`, ageMinutes: 90 }),
+      candidate({ id: `n-fresh`, userId: `u1`, ageMinutes: 30 }),
+      candidate({ id: `n-read`, userId: `u1`, ageMinutes: 90, readAt: NOW }),
+    ])
+    expect(result.batches).toHaveLength(1)
+    expect(result.batches[0].items.map((i) => i.notificationId)).toEqual([
+      `n-old`,
+    ])
+    // Fresh + read rows are deferred/dropped, never claimed:
+    expect(result.claimOnly).toHaveLength(0)
   })
 
-  it(`respects the master switch and per-type opt-outs`, () => {
-    expect(
-      shouldSendImmediateEmail(
-        { ...defaultEmailPrefs(), emailEnabled: false },
-        `pr_merged`
-      )
-    ).toBe(false)
-    expect(
-      shouldSendImmediateEmail(
-        { ...defaultEmailPrefs(), typePrefs: { pr_merged: false } },
-        `pr_merged`
-      )
-    ).toBe(false)
+  it(`never emails rows past the 24h backstop floor`, () => {
+    const result = plan([
+      candidate({ id: `n-ancient`, userId: `u1`, ageMinutes: 60 * 25 }),
+    ])
+    expect(result.batches).toHaveLength(0)
+    expect(result.claimOnly).toHaveLength(0)
+  })
+
+  it(`groups into ONE batch per user, items oldest-first, batches by userId`, () => {
+    const result = plan([
+      candidate({ id: `b-newer`, userId: `u2`, ageMinutes: 70 }),
+      candidate({ id: `a-1`, userId: `u1`, ageMinutes: 90 }),
+      candidate({ id: `b-older`, userId: `u2`, ageMinutes: 120 }),
+    ])
+    expect(result.batches.map((b) => b.userId)).toEqual([`u1`, `u2`])
+    expect(result.batches[1].items.map((i) => i.notificationId)).toEqual([
+      `b-older`,
+      `b-newer`,
+    ])
+  })
+
+  it(`missing prefs row means defaults: emailed`, () => {
+    const result = plan([candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })])
+    expect(result.batches).toHaveLength(1)
+  })
+
+  it(`master email switch off → rows are claimed without an email`, () => {
+    const result = plan(
+      [
+        candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 }),
+        candidate({ id: `n2`, userId: `u1`, ageMinutes: 120 }),
+      ],
+      {
+        prefsByUser: new Map([
+          [`u1`, { ...defaultEmailPrefs(), emailEnabled: false }],
+        ]),
+      }
+    )
+    expect(result.batches).toHaveLength(0)
+    expect(result.claimOnly.map((r) => r.notificationId).sort()).toEqual([
+      `n1`,
+      `n2`,
+    ])
+  })
+
+  it(`per-type opt-out claims that type but still emails the rest`, () => {
+    const result = plan(
+      [
+        candidate({
+          id: `n-status`,
+          userId: `u1`,
+          ageMinutes: 90,
+          type: `issue_status_changed`,
+        }),
+        candidate({
+          id: `n-mention`,
+          userId: `u1`,
+          ageMinutes: 90,
+          type: `issue_mention`,
+        }),
+      ],
+      {
+        prefsByUser: new Map([
+          [
+            `u1`,
+            {
+              ...defaultEmailPrefs(),
+              typePrefs: { issue_status_changed: false as const },
+            },
+          ],
+        ]),
+      }
+    )
+    expect(result.batches).toHaveLength(1)
+    expect(result.batches[0].items.map((i) => i.notificationId)).toEqual([
+      `n-mention`,
+    ])
+    expect(result.claimOnly.map((r) => r.notificationId)).toEqual([`n-status`])
+  })
+
+  it(`cadence gate defers (does NOT claim) rows for users not yet due`, () => {
+    const result = plan(
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      { lastDigestByUser: new Map([[`u1`, minutesAgo(10)]]) }
+    )
+    // Deferred entirely — the next sweep reconsiders it once the user is due.
+    expect(result.batches).toHaveLength(0)
+    expect(result.claimOnly).toHaveLength(0)
+  })
+
+  it(`daily cadence bundles a day of unread rows into one email once due`, () => {
+    const prefs = new Map<string, EmailPrefsLike | null>([
+      [`u1`, { ...defaultEmailPrefs(), digest: `daily` }],
+    ])
+    const notDue = plan(
+      [candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 })],
+      {
+        prefsByUser: prefs,
+        lastDigestByUser: new Map([[`u1`, minutesAgo(60 * 3)]]),
+      }
+    )
+    expect(notDue.batches).toHaveLength(0)
+
+    const due = plan(
+      [
+        candidate({ id: `n1`, userId: `u1`, ageMinutes: 90 }),
+        candidate({ id: `n2`, userId: `u1`, ageMinutes: 60 * 12 }),
+      ],
+      {
+        prefsByUser: prefs,
+        lastDigestByUser: new Map([[`u1`, minutesAgo(60 * 23)]]),
+      }
+    )
+    expect(due.batches).toHaveLength(1)
+    expect(due.batches[0].items).toHaveLength(2)
   })
 })
 

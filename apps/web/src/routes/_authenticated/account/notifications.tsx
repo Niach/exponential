@@ -123,8 +123,9 @@ function AccountNotifications() {
             <div className="flex-1">
               <CardTitle>Email notifications</CardTitle>
               <CardDescription>
-                Emails deep-link straight to the issue, so nothing gets lost
-                while you're away.
+                Email is the catch-up channel: notifications still unread an
+                hour after the push are bundled into one digest email, with
+                deep links straight to each issue.
               </CardDescription>
             </div>
             <Switch
@@ -173,7 +174,7 @@ function AccountNotifications() {
             <div className="flex-1">
               <Label>Delivery</Label>
               <p className="text-xs text-muted-foreground">
-                Send each email immediately, or hold them for a daily digest.
+                How often unread notifications are bundled into one email.
               </p>
             </div>
             <Select
@@ -185,7 +186,7 @@ function AccountNotifications() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="off">Immediately</SelectItem>
+                <SelectItem value="off">Hourly digest</SelectItem>
                 <SelectItem value="daily">Daily digest</SelectItem>
               </SelectContent>
             </Select>

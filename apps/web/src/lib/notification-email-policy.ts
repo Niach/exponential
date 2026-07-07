@@ -1,13 +1,13 @@
-// Pure email-notification policy — no DB, no transport. Answers "should this
-// user get an immediate email for this notification?" from their (possibly
-// missing) user_notification_prefs row, plus the one-way helpdesk resolution
-// guards. Unit-tested in notification-email-policy.test.ts.
+// Pure email-notification policy — no DB, no transport. Home of the
+// push-first digest planner (which notifications get bundled into which
+// user's digest email) plus the per-type allow policy and the one-way
+// helpdesk resolution guards. Unit-tested in notification-email-policy.test.ts.
 
 import type { IssueStatus, NotificationType } from "@/lib/domain"
 
-// Digest cadence. Only `off` sends immediately; anything else is left for a
-// future digest cron (the pref + skip-immediate branch ship now, the cron
-// later — no schema change needed).
+// Digest cadence. Email is push-first: NOTHING is emailed per-event anymore.
+// `off` (the default) means the standard hourly digest of still-unread
+// notifications; `daily` batches at most one digest email per day.
 export const digestValues = [`off`, `daily`] as const
 export type DigestCadence = (typeof digestValues)[number]
 
@@ -35,15 +35,108 @@ export function emailTypeAllowed(
   return prefs.typePrefs[type] !== false
 }
 
-// Should deliver() send the IMMEDIATE email? Digest != 'off' opts out of
-// immediate sends (the rows stay unread for the future digest cron).
-export function shouldSendImmediateEmail(
+// ---------------------------------------------------------------------------
+// Push-first email digest (item q)
+// ---------------------------------------------------------------------------
+//
+// Push fires immediately on notification create; email never does. An hourly
+// sweep bundles every notification that is still UNREAD ~1h after creation
+// into ONE digest email per user — reading the notification in time (the push
+// did its job) means no email at all, which keeps transactional volume low.
+
+// A notification only qualifies for email once it has stayed unread this long.
+export const DIGEST_MIN_UNREAD_AGE_MS = 60 * 60 * 1000
+// Backstop floor: rows older than this are never digested. Protects the first
+// deploy from emailing months of pre-existing unread backlog, and bounds the
+// sweep's scan window.
+export const DIGEST_MAX_AGE_MS = 24 * 60 * 60 * 1000
+// Per-user minimum gap between digest emails, by cadence. `off` (hourly) sits
+// a bit under an hour so a sweep firing slightly early never skips a user for
+// a whole extra cycle; `daily` sits under 24h for the same reason.
+const DIGEST_MIN_GAP_MS: Record<DigestCadence, number> = {
+  off: 50 * 60 * 1000,
+  daily: 22 * 60 * 60 * 1000,
+}
+
+export function digestCadence(
+  prefs: EmailPrefsLike | null | undefined
+): DigestCadence {
+  return prefs?.digest === `daily` ? `daily` : `off`
+}
+
+// Is this user due a digest email now, given when their last one was sent?
+export function isDigestDue(
   prefs: EmailPrefsLike | null | undefined,
-  type: NotificationType
+  lastDigestSentAt: Date | null | undefined,
+  now: Date
 ): boolean {
-  if (!emailTypeAllowed(prefs, type)) return false
-  const digest = prefs?.digest ?? `off`
-  return digest === `off`
+  if (!lastDigestSentAt) return true
+  return (
+    now.getTime() - lastDigestSentAt.getTime() >=
+    DIGEST_MIN_GAP_MS[digestCadence(prefs)]
+  )
+}
+
+// The minimal row shape the planner needs. The DB runner passes richer rows
+// (recipient address, issue deep-link data) through generically.
+export interface DigestCandidate {
+  notificationId: string
+  userId: string
+  type: NotificationType
+  createdAt: Date
+  readAt: Date | null
+}
+
+export interface DigestPlan<T extends DigestCandidate> {
+  // One digest email per entry; items oldest-first, batches ordered by userId.
+  batches: { userId: string; items: T[] }[]
+  // Stamp emailed_at WITHOUT sending: rows whose user opted out of email
+  // entirely or of that row's type — parity with the old immediate-send
+  // world, where such rows simply never produced an email.
+  claimOnly: T[]
+}
+
+// Pure grouping/gating core of the digest sweep. Rows returned in NEITHER
+// bucket are deferred untouched (still too young, already read, outside the
+// backstop window, or their user's cadence isn't due yet) — the next sweep
+// reconsiders them.
+export function planEmailDigest<T extends DigestCandidate>(args: {
+  candidates: T[]
+  prefsByUser: ReadonlyMap<string, EmailPrefsLike | null>
+  lastDigestByUser: ReadonlyMap<string, Date | null>
+  now: Date
+}): DigestPlan<T> {
+  const { candidates, prefsByUser, lastDigestByUser, now } = args
+
+  const byUser = new Map<string, T[]>()
+  for (const candidate of candidates) {
+    // Read in time → the push worked, no email. Too fresh → wait for the next
+    // sweep. Past the backstop → never emailed.
+    if (candidate.readAt) continue
+    const age = now.getTime() - candidate.createdAt.getTime()
+    if (age < DIGEST_MIN_UNREAD_AGE_MS || age > DIGEST_MAX_AGE_MS) continue
+    const list = byUser.get(candidate.userId)
+    if (list) list.push(candidate)
+    else byUser.set(candidate.userId, [candidate])
+  }
+
+  const batches: { userId: string; items: T[] }[] = []
+  const claimOnly: T[] = []
+  const userIds = [...byUser.keys()].sort()
+  for (const userId of userIds) {
+    const prefs = prefsByUser.get(userId) ?? null
+    const allowed: T[] = []
+    for (const row of byUser.get(userId)!) {
+      if (emailTypeAllowed(prefs, row.type)) allowed.push(row)
+      else claimOnly.push(row)
+    }
+    if (allowed.length === 0) continue
+    // Cadence gate: not due yet → leave the rows unclaimed for a later sweep.
+    if (!isDigestDue(prefs, lastDigestByUser.get(userId), now)) continue
+    allowed.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    batches.push({ userId, items: allowed })
+  }
+  return { batches, claimOnly }
 }
 
 // ---------------------------------------------------------------------------

@@ -451,10 +451,19 @@ export const notifications = pgTable(
     body: text(),
     readAt: timestamp(`read_at`, { withTimezone: true }),
     pushedAt: timestamp(`pushed_at`, { withTimezone: true }),
+    // Stamped once the hourly email digest has handled this row (bundled into
+    // a digest email OR claimed as email-opted-out). NULL = the digest hasn't
+    // considered it yet. Server-only delivery bookkeeping — excluded from the
+    // notifications shape via its columns allowlist.
+    emailedAt: timestamp(`emailed_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
     index(`idx_notifications_user_unread`).on(table.userId, table.readAt),
+    // The hourly digest sweep's scan: unread, never-emailed rows by age.
+    index(`idx_notifications_digest_pending`)
+      .on(table.createdAt)
+      .where(sql`read_at IS NULL AND emailed_at IS NULL`),
   ]
 )
 

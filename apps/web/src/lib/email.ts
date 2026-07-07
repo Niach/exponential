@@ -197,27 +197,71 @@ export async function sendVerificationEmail(args: {
   })
 }
 
-// The third delivery channel of deliver() — one notification, one email, with
-// a deep-link action button and a one-click unsubscribe (RFC 8058 headers).
-export async function sendNotificationEmail(args: {
+// One bundled item of the push-first digest email. `url` deep-links to the
+// item's issue (null for notifications without one).
+export interface DigestEmailItem {
+  title: string
+  body: string | null
+  url: string | null
+}
+
+// The email leg of the push-first notification pipeline (item q): push fires
+// immediately on create; anything still unread ~1h later lands here — ONE
+// email per user bundling every pending notification, with per-item deep
+// links and a one-click unsubscribe (RFC 8058 headers).
+export async function sendNotificationDigestEmail(args: {
   to: string
-  subject: string
-  heading: string
-  body: string
-  actionUrl: string
+  items: DigestEmailItem[]
+  appUrl: string
   unsubscribeUrl: string
 }): Promise<EmailSendResult> {
+  const count = args.items.length
+  const subject =
+    count === 1
+      ? `1 unread notification in Exponential`
+      : `${count} unread notifications in Exponential`
+
+  const itemsHtml = args.items
+    .map((item) => {
+      const title = escapeHtml(item.title)
+      const titleHtml = item.url
+        ? `<a href="${item.url}" style="color:#18181b;font-weight:600;text-decoration:none;">${title}</a>`
+        : `<span style="font-weight:600;">${title}</span>`
+      const bodyHtml = item.body
+        ? `<div style="margin-top:2px;font-size:13px;line-height:1.5;color:#71717a;">${escapeHtml(item.body)}</div>`
+        : ``
+      return `<div style="padding:12px 0;border-bottom:1px solid #f4f4f5;font-size:14px;line-height:1.5;">${titleHtml}${bodyHtml}</div>`
+    })
+    .join(``)
+
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:32px 16px;background:#fafafa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
+    <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
+      <h1 style="margin:0 0 4px;font-size:18px;">${escapeHtml(subject)}</h1>
+      <p style="margin:0 0 8px;font-size:13px;line-height:1.6;color:#71717a;">A catch-up on what you haven't seen yet.</p>
+      ${itemsHtml}
+      <a href="${args.appUrl}"
+         style="display:inline-block;margin-top:20px;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px;">
+        Open Exponential
+      </a>
+      <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:#a1a1aa;">
+        You receive these emails because notifications are enabled for your account.
+        <a href="${args.unsubscribeUrl}" style="color:#71717a;">Unsubscribe from email notifications</a>
+      </p>
+    </div>
+  </body>
+</html>`
+
+  const textItems = args.items
+    .map((item) => `- ${item.title}${item.url ? ` (${item.url})` : ``}`)
+    .join(`\n`)
+
   return await sendEmail({
     to: args.to,
-    subject: args.subject,
-    html: actionEmailHtml({
-      heading: args.heading,
-      body: args.body,
-      actionLabel: `Open in Exponential`,
-      actionUrl: args.actionUrl,
-      unsubscribeUrl: args.unsubscribeUrl,
-    }),
-    text: `${args.heading}\n\n${args.body}\n\nOpen in Exponential: ${args.actionUrl}\n\nUnsubscribe from email notifications: ${args.unsubscribeUrl}`,
+    subject,
+    html,
+    text: `${subject}\n\n${textItems}\n\nOpen Exponential: ${args.appUrl}\n\nUnsubscribe from email notifications: ${args.unsubscribeUrl}`,
     headers: {
       "List-Unsubscribe": `<${args.unsubscribeUrl}>`,
       "List-Unsubscribe-Post": `List-Unsubscribe=One-Click`,

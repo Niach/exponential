@@ -54,19 +54,17 @@ describe(`sendEmail with no transport`, () => {
     stderrSpy.mockRestore()
   })
 
-  it(`notification + reporter emails degrade the same way (self-host §6.6)`, async () => {
+  it(`digest + reporter emails degrade the same way (self-host §6.6)`, async () => {
     const email = await importEmail({})
     const stderrSpy = vi
       .spyOn(process.stderr, `write`)
       .mockImplementation(() => true)
 
     await expect(
-      email.sendNotificationEmail({
+      email.sendNotificationDigestEmail({
         to: `user@example.com`,
-        subject: `s`,
-        heading: `h`,
-        body: `b`,
-        actionUrl: `https://app.example.com/w/a/projects/b/issues/A-1`,
+        items: [{ title: `t`, body: `b`, url: null }],
+        appUrl: `https://app.example.com`,
         unsubscribeUrl: `https://app.example.com/api/email/unsubscribe?token=t`,
       })
     ).resolves.toMatchObject({ delivered: false })
@@ -82,20 +80,29 @@ describe(`sendEmail with no transport`, () => {
   })
 })
 
-describe(`sendNotificationEmail over the Resend transport (mocked)`, () => {
-  it(`sends the deep link, unsubscribe footer, and one-click headers`, async () => {
+describe(`sendNotificationDigestEmail over the Resend transport (mocked)`, () => {
+  it(`bundles the items with per-item deep links, unsubscribe footer, and one-click headers`, async () => {
     const email = await importEmail({ RESEND_API_KEY: `re_test` })
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: `msg_1` }), { status: 200 })
     )
     vi.stubGlobal(`fetch`, fetchMock)
 
-    const result = await email.sendNotificationEmail({
+    const result = await email.sendNotificationDigestEmail({
       to: `user@example.com`,
-      subject: `Dana assigned you MET-12`,
-      heading: `Dana assigned you MET-12`,
-      body: `Fix the login flow`,
-      actionUrl: `https://app.example.com/w/metric/projects/web/issues/MET-12`,
+      items: [
+        {
+          title: `Dana assigned you MET-12`,
+          body: `Fix the login flow`,
+          url: `https://app.example.com/w/metric/projects/web/issues/MET-12`,
+        },
+        {
+          title: `Dana commented on MET-9`,
+          body: null,
+          url: `https://app.example.com/w/metric/projects/web/issues/MET-9`,
+        },
+      ],
+      appUrl: `https://app.example.com`,
       unsubscribeUrl: `https://app.example.com/api/email/unsubscribe?token=tok-1`,
     })
 
@@ -115,6 +122,7 @@ describe(`sendNotificationEmail over the Resend transport (mocked)`, () => {
       headers: Record<string, string>
     }
     expect(payload.to).toEqual([`user@example.com`])
+    expect(payload.subject).toBe(`2 unread notifications in Exponential`)
     expect(payload.headers[`List-Unsubscribe`]).toBe(
       `<https://app.example.com/api/email/unsubscribe?token=tok-1>`
     )
@@ -125,9 +133,32 @@ describe(`sendNotificationEmail over the Resend transport (mocked)`, () => {
       `https://app.example.com/w/metric/projects/web/issues/MET-12`
     )
     expect(payload.html).toContain(
+      `https://app.example.com/w/metric/projects/web/issues/MET-9`
+    )
+    expect(payload.html).toContain(
       `https://app.example.com/api/email/unsubscribe?token=tok-1`
     )
+    expect(payload.text).toContain(`Dana assigned you MET-12`)
     expect(payload.text).toContain(`Unsubscribe`)
+  })
+
+  it(`uses a singular subject for a single pending notification`, async () => {
+    const email = await importEmail({ RESEND_API_KEY: `re_test` })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: `msg_s` }), { status: 200 })
+    )
+    vi.stubGlobal(`fetch`, fetchMock)
+
+    await email.sendNotificationDigestEmail({
+      to: `user@example.com`,
+      items: [{ title: `t`, body: null, url: null }],
+      appUrl: `https://app.example.com`,
+      unsubscribeUrl: `https://app.example.com/u`,
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const payload = JSON.parse(init.body as string) as { subject: string }
+    expect(payload.subject).toBe(`1 unread notification in Exponential`)
   })
 
   it(`escapes user content in the rendered html`, async () => {
@@ -137,12 +168,16 @@ describe(`sendNotificationEmail over the Resend transport (mocked)`, () => {
     )
     vi.stubGlobal(`fetch`, fetchMock)
 
-    await email.sendNotificationEmail({
+    await email.sendNotificationDigestEmail({
       to: `user@example.com`,
-      subject: `x`,
-      heading: `<script>alert(1)</script>`,
-      body: `a & b <img>`,
-      actionUrl: `https://app.example.com/x`,
+      items: [
+        {
+          title: `<script>alert(1)</script>`,
+          body: `a & b <img>`,
+          url: null,
+        },
+      ],
+      appUrl: `https://app.example.com`,
       unsubscribeUrl: `https://app.example.com/u`,
     })
 

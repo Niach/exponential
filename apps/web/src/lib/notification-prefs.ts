@@ -1,17 +1,16 @@
-// user_notification_prefs access (SERVER-ONLY table — tRPC + the deliver()
-// email leg read it; it is never an Electric shape). A missing row means all
-// defaults (email on, every type on, no digest); rows are minted lazily with a
-// random unsubscribeToken on first read/write/send.
+// user_notification_prefs access (SERVER-ONLY table — tRPC + the email digest
+// sweep read it; it is never an Electric shape). A missing row means all
+// defaults (email on, every type on, hourly digest); rows are minted lazily
+// with a random unsubscribeToken on first read/write/send.
 
 import { randomUUID } from "node:crypto"
 import { eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { userNotificationPrefs, users } from "@/db/schema"
+import { userNotificationPrefs } from "@/db/schema"
 import type { NotificationType } from "@/lib/domain"
-import {
-  shouldSendImmediateEmail,
-  type DigestCadence,
-  type EmailPrefsLike,
+import type {
+  DigestCadence,
+  EmailPrefsLike,
 } from "@/lib/notification-email-policy"
 
 export interface EmailPrefs extends EmailPrefsLike {
@@ -77,52 +76,30 @@ export async function unsubscribeByToken(token: string): Promise<boolean> {
   return updated.length > 0
 }
 
-export interface EmailRecipient {
-  userId: string
-  email: string
-  unsubscribeToken: string
-}
-
-// The email fan-out set for deliver(): joins users (address; bot users have no
-// inbox and are dropped) with prefs (minting missing rows first so every
-// outgoing email has an unsubscribe token) and filters by the per-type policy.
-// Digest != 'off' users are skipped here — their rows wait for the digest cron.
-export async function emailRecipients(
-  userIds: string[],
-  type: NotificationType
-): Promise<EmailRecipient[]> {
-  if (userIds.length === 0) return []
+// Prefs for a set of users keyed by userId — the digest sweep's prefs source.
+// Missing rows are minted first so every outgoing digest email has an
+// unsubscribe token.
+export async function getEmailPrefsMap(
+  userIds: string[]
+): Promise<Map<string, EmailPrefs>> {
+  if (userIds.length === 0) return new Map()
   await ensurePrefsRows(userIds)
 
   const rows = await db
-    .select({
-      userId: users.id,
-      email: users.email,
-      isAgent: users.isAgent,
-      emailEnabled: userNotificationPrefs.emailEnabled,
-      typePrefs: userNotificationPrefs.typePrefs,
-      digest: userNotificationPrefs.digest,
-      unsubscribeToken: userNotificationPrefs.unsubscribeToken,
-    })
-    .from(users)
-    .innerJoin(userNotificationPrefs, eq(userNotificationPrefs.userId, users.id))
-    .where(inArray(users.id, userIds))
+    .select()
+    .from(userNotificationPrefs)
+    .where(inArray(userNotificationPrefs.userId, userIds))
 
-  return rows
-    .filter((row) => !row.isAgent && Boolean(row.email))
-    .filter((row) =>
-      shouldSendImmediateEmail(
-        {
-          emailEnabled: row.emailEnabled,
-          typePrefs: row.typePrefs,
-          digest: row.digest,
-        },
-        type
-      )
-    )
-    .map((row) => ({
-      userId: row.userId,
-      email: row.email,
-      unsubscribeToken: row.unsubscribeToken,
-    }))
+  return new Map(
+    rows.map((row) => [
+      row.userId,
+      {
+        userId: row.userId,
+        emailEnabled: row.emailEnabled,
+        typePrefs: row.typePrefs,
+        digest: row.digest,
+        unsubscribeToken: row.unsubscribeToken,
+      },
+    ])
+  )
 }

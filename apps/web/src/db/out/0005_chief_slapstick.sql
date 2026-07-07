@@ -1,0 +1,2 @@
+ALTER TABLE "notifications" ADD COLUMN "emailed_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "idx_notifications_digest_pending" ON "notifications" USING btree ("created_at") WHERE read_at IS NULL AND emailed_at IS NULL;

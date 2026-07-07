@@ -27,6 +27,7 @@ import { resolveWebsocketHooks } from "nitro/~internal/runtime/app"
 import { hasWebSocket } from "#nitro-internal-virtual/feature-flags"
 import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
+import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 
 // Fire-and-forget: seed the public workspace and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
@@ -39,6 +40,12 @@ bootstrapCloud().catch(() => {
 // Self-hosted only: start the outbound PR-merge poller (no-op on cloud, which
 // uses the GitHub webhook at /api/webhooks/github instead).
 bootstrapSelfHosted()
+
+// Push-first email digest: periodic sweep bundling notifications still unread
+// ~1h after the push went out into one email per user (no-op without an email
+// transport). In-process guard only — see the module for the multi-instance
+// story.
+startEmailDigestScheduler()
 
 const port =
   Number.parseInt(process.env.NITRO_PORT || process.env.PORT || ``) || 3000

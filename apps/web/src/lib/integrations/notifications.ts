@@ -10,16 +10,8 @@ import {
   workspaces,
 } from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
+import { emailEnabled, sendReporterResolutionEmail } from "@/lib/email"
 import {
-  emailEnabled,
-  sendNotificationEmail,
-  sendReporterResolutionEmail,
-} from "@/lib/email"
-import { emailRecipients } from "@/lib/notification-prefs"
-import {
-  appBaseUrl,
-  buildIssueDeepLinkPath,
-  buildUnsubscribeUrl,
   isResolutionStatus,
   shouldSendReporterResolution,
 } from "@/lib/notification-email-policy"
@@ -103,10 +95,13 @@ async function subscriberRecipients(
   return [...ids]
 }
 
-// Fan out one logical event on all three channels: the in-app notification row
-// is written ALWAYS, then push and email fire off the same deduped delivered
-// set. Push and email are free delivery channels — neither is plan-gated.
-// Recipients are de-duped and bot-filtered.
+// Fan out one logical event, push-first: the in-app notification row is
+// written ALWAYS, then push fires immediately off the deduped delivered set.
+// Email is deliberately NOT sent here — the hourly digest sweep
+// (lib/notification-email-digest.ts) bundles whatever is still unread ~1h
+// later into one email per user, so a notification read in time (the push did
+// its job) never produces an email. Push and email are free delivery channels
+// — neither is plan-gated. Recipients are de-duped and bot-filtered.
 //
 // Idempotency: the fire-and-forget callers can run twice for one logical event
 // (e.g. concurrent comment creations fanning out to the same subscribers), and
@@ -114,8 +109,8 @@ async function subscriberRecipients(
 // migration (out of scope here), so the insert dedupes in-query instead:
 // INSERT … SELECT … WHERE NOT EXISTS an identical recent row (same recipient,
 // issue, type, title and body within a short window). RETURNING tells us which
-// rows actually landed, so the push AND email fan-outs skip deduped recipients
-// too (email additionally claims a per-notification email_deliveries row, so a
+// rows actually landed, so the push fan-out skips deduped recipients too (the
+// digest additionally claims notifications.emailed_at atomically, so a
 // notification row can never produce two emails). Two transactions racing in
 // the same instant can still both pass the NOT EXISTS check (it can't see
 // uncommitted rows) — a unique partial index would close that residual window —
@@ -163,124 +158,22 @@ async function deliver(args: {
   }))
   if (delivered.length === 0) return
 
-  // Push and email fan out independently — a failure on one channel never
-  // blocks the other, and neither ever throws out of deliver().
-  await Promise.all([
-    Promise.all(
-      delivered.map((d) =>
-        sendToUser(d.userId, {
-          title: args.title,
-          body: args.body ?? args.issue.title,
-          data: {
-            type: args.pushType,
-            issueId: args.issue.id,
-            identifier: args.issue.identifier,
-          },
-        }).catch((err) => {
-          console.error(`[notify] push to ${d.userId} failed:`, err)
-        })
-      )
-    ),
-    fanOutEmails({
-      delivered,
-      issue: args.issue,
-      type: args.type,
-      title: args.title,
-      body: args.body,
-    }).catch((err) => {
-      console.error(`[notify] email fan-out failed:`, err)
-    }),
-  ])
-}
-
-// The third delivery leg: for each delivered in-app notification, resolve
-// email eligibility (user_notification_prefs; missing row = defaults) and send
-// one email with a deep link into the app. Every send writes an
-// email_deliveries ledger row keyed on the notification id (unique), which is
-// claimed BEFORE sending — so re-runs can never double-email. Never throws;
-// per-recipient failures are logged.
-async function fanOutEmails(args: {
-  delivered: { notificationId: string; userId: string }[]
-  issue: IssueMeta
-  type: NotificationType
-  title: string
-  body: string | null
-}): Promise<void> {
-  if (!emailEnabled) return
-
-  const notificationByUser = new Map(
-    args.delivered.map((d) => [d.userId, d.notificationId])
-  )
-  const recipients = await emailRecipients(
-    [...notificationByUser.keys()],
-    args.type
-  )
-  if (recipients.length === 0) return
-
-  const base = appBaseUrl()
-  const actionUrl = `${base}${buildIssueDeepLinkPath({
-    workspaceSlug: args.issue.workspaceSlug,
-    projectSlug: args.issue.projectSlug,
-    identifier: args.issue.identifier,
-  })}`
-
+  // Push only — email waits for the digest sweep. Per-recipient push failures
+  // never throw out of deliver().
   await Promise.all(
-    recipients.map(async (recipient) => {
-      try {
-        const notificationId = notificationByUser.get(recipient.userId)
-        if (!notificationId) return
-
-        // Claim the per-notification ledger row first (unique on
-        // notification_id) — idempotency even across concurrent re-runs.
-        const claimed = await db
-          .insert(emailDeliveries)
-          .values({
-            userId: recipient.userId,
-            toEmail: recipient.email,
-            notificationId,
-            issueId: args.issue.id,
-            kind: `notification`,
-          })
-          .onConflictDoNothing({ target: emailDeliveries.notificationId })
-          .returning({ id: emailDeliveries.id })
-        if (claimed.length === 0) return
-
-        try {
-          const result = await sendNotificationEmail({
-            to: recipient.email,
-            subject: args.title,
-            heading: args.title,
-            body: args.body ?? args.issue.title,
-            actionUrl,
-            unsubscribeUrl: buildUnsubscribeUrl(
-              base,
-              recipient.unsubscribeToken
-            ),
-          })
-          await db
-            .update(emailDeliveries)
-            .set({
-              status: result.delivered ? `sent` : `failed`,
-              provider: result.provider,
-              providerMessageId: result.messageId,
-              sentAt: result.delivered ? new Date() : null,
-              error: result.delivered ? null : `no email transport configured`,
-            })
-            .where(eq(emailDeliveries.id, claimed[0].id))
-        } catch (sendErr) {
-          await db
-            .update(emailDeliveries)
-            .set({
-              status: `failed`,
-              error: String(sendErr).slice(0, 1000),
-            })
-            .where(eq(emailDeliveries.id, claimed[0].id))
-          throw sendErr
-        }
-      } catch (err) {
-        console.error(`[notify] email to ${recipient.email} failed:`, err)
-      }
-    })
+    delivered.map((d) =>
+      sendToUser(d.userId, {
+        title: args.title,
+        body: args.body ?? args.issue.title,
+        data: {
+          type: args.pushType,
+          issueId: args.issue.id,
+          identifier: args.issue.identifier,
+        },
+      }).catch((err) => {
+        console.error(`[notify] push to ${d.userId} failed:`, err)
+      })
+    )
   )
 }
 
