@@ -1,0 +1,1 @@
+issue tracker,bug,feedback,kanban,project,tasks,developer,git,pull request,agile,scrum,team

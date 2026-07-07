@@ -1,0 +1,6 @@
+Initial App Store release.
+
+• Real-time issue boards that sync live across all your devices
+• Rich Markdown issue descriptions and comments with @mentions, task lists, and inline images
+• Push notifications for mentions, assignments, and PR activity
+• Sign in with Apple and Google

@@ -1,0 +1,3 @@
+No demo credentials are required. On the first screen, tap the "Exponential Cloud" option, then "Continue with Apple" (or "Continue with Google") — signing in with any Apple ID automatically creates an account and a personal workspace, ready to use.
+
+The instance URL field on the same screen exists because Exponential is open source and can be self-hosted; the cloud option is the default consumer path.

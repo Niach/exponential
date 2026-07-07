@@ -61,6 +61,22 @@ platform :ios do
     )
   end
 
+  desc "Upload listing metadata + screenshots to App Store Connect WITHOUT building."
+  desc "Metadata lives in fastlane/metadata/, screenshots in fastlane/screenshots/."
+  lane :sync_store do
+    deliver(
+      api_key: asc_api_key,
+      skip_binary_upload: true,
+      skip_metadata: false,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      force: true, # skip the interactive HTML preview
+      run_precheck_before_submit: false,
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+
   desc "Build + upload to App Store Connect (deliver). Does NOT auto-submit for review."
   lane :release do
     build

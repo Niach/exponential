@@ -1,0 +1,1 @@
+From user feedback to a shipped fix — one loop. Track issues in real time, everywhere, and let Claude open the pull request.

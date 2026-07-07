@@ -97,6 +97,7 @@ app and its extension is rejected at upload).
 | `build`   | `tuist generate` → `gym` archive (`Exponential`, Release, `app-store`) → `build/Exponential.ipa`. |
 | `beta`    | `build` → `pilot` upload to TestFlight. Needs `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PATH`. |
 | `release` | `build` → `deliver` upload to App Store Connect (`submit_for_review: false`). Same ASC env. |
+| `sync_store` | `deliver` with `skip_binary_upload` — pushes `fastlane/metadata/` (listing texts, categories, review info) + `fastlane/screenshots/` to App Store Connect without building. Same ASC env. |
 | `screenshots` | `tuist generate` → `snapshot`: drives `ExponentialUITests/StoreScreenshots` on iPhone 17 Pro Max + iPad Pro 13-inch (M5) against a seeded local backend → `fastlane/screenshots/en-US/`. See *Store screenshots* below. |
 
 > `gym` requires a **signed** archive — do not pass `CODE_SIGNING_ALLOWED=NO` (that flag is
@@ -163,8 +164,12 @@ App Store Connect → the app version → complete before **Submit for Review**:
 - [ ] Sign-in info for the review team if login is required (a demo account)
 - [ ] Export compliance answered
 
-Listing metadata + screenshots can live under `apps/ios/fastlane/metadata/` /
-`apps/ios/fastlane/screenshots/` and `deliver` (the `release` lane) uploads them, replacing
-the hand-entry above. Seed the tree with `bundle exec fastlane deliver init` once, then keep
-it version-controlled. The archive/upload steps are already `bundle exec fastlane beta`
-(TestFlight) and `bundle exec fastlane release` (App Store).
+Listing metadata lives under `apps/ios/fastlane/metadata/` (name, subtitle, description,
+keywords, promo text, release notes, support/marketing/privacy URLs, categories, copyright,
+review information incl. sign-in instructions for the review team) and is version-controlled.
+`fastlane sync_store` uploads it together with `fastlane/screenshots/` — no build needed —
+so most checklist items above are covered by editing the files and re-running the lane.
+Still manual in App Store Connect: App Privacy nutrition label, age rating questionnaire,
+pricing/availability, review contact **phone number**, export compliance, and the final
+"Submit for Review" tap. The archive/upload steps are `fastlane beta` (TestFlight) and
+`fastlane release` (App Store binary + metadata).
