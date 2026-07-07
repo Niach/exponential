@@ -1,9 +1,11 @@
-//! The tooling doctor (masterplan-v3 §7.7): runs `claude --version`
-//! and `git --version` (using the configured Claude path) and captures
-//! success + version string or the spawn error.
+//! The tooling doctor (masterplan-v3 §7.7): runs `<agent> --version`
+//! and `git --version` (the agent binary comes from the active
+//! [`crate::agent::Agent`] — the configured Claude path by default, the
+//! codex path under the experimental codex opt-in) and captures success +
+//! version string or the spawn error.
 //!
 //! The doctor **blocks Start coding when EITHER tool is missing** — the
-//! launcher's enabled state ANDs `claude.ok && git.ok` (§7.1 step 1), which
+//! launcher's enabled state ANDs `agent.ok && git.ok` (§7.1 step 1), which
 //! prevents the "falsely proceed then crash at git clone" pattern.
 //! Errors are actionable per the spec copy: "claude not found on PATH — set
 //! an absolute path" / "git not found on PATH".
@@ -11,15 +13,18 @@
 //! Blocking `std::process` calls — callers run this off the foreground
 //! executor (settings "Check tools" button, onboarding, launch step 0).
 
+use crate::agent::Agent;
 use crate::settings::Settings;
 use std::fmt;
 use std::process::Command;
 
-/// The two local binaries the launcher ever shells out to (§7.1 step 3:
-/// argv `git` + `claude`, never `gh`).
+/// The local binaries the launcher ever shells out to (§7.1 step 3:
+/// argv `git` + the coding agent, never `gh`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     Claude,
+    /// EXPERIMENTAL — the OpenAI Codex CLI (v5 "codex-support" opt-in).
+    Codex,
     Git,
 }
 
@@ -27,6 +32,7 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Tool::Claude => "claude",
+            Tool::Codex => "codex",
             Tool::Git => "git",
         }
     }
@@ -35,6 +41,7 @@ impl Tool {
     fn not_found_message(self) -> &'static str {
         match self {
             Tool::Claude => "claude not found on PATH — set an absolute path",
+            Tool::Codex => "codex not found on PATH — set an absolute path",
             Tool::Git => "git not found on PATH",
         }
     }
@@ -55,33 +62,38 @@ pub struct ToolCheck {
     pub error: Option<String>,
 }
 
-/// `{ claude, git }` — the §7.7 report.
+/// `{ agent, git }` — the §7.7 report. `agent` is whichever coding agent is
+/// active per the settings (claude by default).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DoctorReport {
-    pub claude: ToolCheck,
+    pub agent: ToolCheck,
     pub git: ToolCheck,
 }
 
 impl DoctorReport {
     /// The Start-coding gate (§7.1 step 1): BOTH tools must resolve.
     pub fn ok(&self) -> bool {
-        self.claude.ok && self.git.ok
+        self.agent.ok && self.git.ok
     }
 
     /// The first failing check, for `DisabledReason::DoctorFailed` (names
     /// which tool failed).
     pub fn first_failure(&self) -> Option<&ToolCheck> {
-        [&self.claude, &self.git]
+        [&self.agent, &self.git]
             .into_iter()
             .find(|check| !check.ok)
     }
 }
 
-/// Run both checks. `claude` uses the configured path (default `claude`,
-/// absolute override allowed); `git` is always plain `git` from PATH.
+/// Run both checks. The agent binary comes from the active
+/// [`Agent`] (claude's configured/probed path by default, the codex path
+/// under the experimental opt-in — checking the binary that will actually be
+/// spawned, never falsely blocking on the other one); `git` is always plain
+/// `git` from PATH.
 pub fn run_doctor(settings: &Settings) -> DoctorReport {
+    let agent = Agent::from_settings(settings);
     DoctorReport {
-        claude: check_tool(Tool::Claude, &settings.resolved_claude_path()),
+        agent: check_tool(agent.tool(), &agent.program(settings)),
         git: check_tool(Tool::Git, "git"),
     }
 }
@@ -130,12 +142,12 @@ pub fn check_tool(tool: Tool, program: &str) -> ToolCheck {
 
 /// First non-empty line of `--version` output, with the tool's own noise
 /// prefix stripped (`git version 2.39.5 …` → `2.39.5 …`; claude's
-/// `1.0.35 (Claude Code)` passes through).
+/// `1.0.35 (Claude Code)` and codex's version line pass through).
 pub fn parse_version_output(tool: Tool, stdout: &str) -> Option<String> {
     let line = first_line(stdout)?;
     let stripped = match tool {
         Tool::Git => line.strip_prefix("git version ").unwrap_or(line),
-        Tool::Claude => line,
+        Tool::Claude | Tool::Codex => line,
     };
     let trimmed = stripped.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -188,8 +200,41 @@ mod tests {
             check.error.as_deref(),
             Some("claude not found on PATH — set an absolute path")
         );
+        let check = check_tool(Tool::Codex, "definitely-not-a-real-binary-exp");
+        assert_eq!(
+            check.error.as_deref(),
+            Some("codex not found on PATH — set an absolute path")
+        );
         let check = check_tool(Tool::Git, "definitely-not-a-real-binary-exp");
         assert_eq!(check.error.as_deref(), Some("git not found on PATH"));
+    }
+
+    /// The doctor checks the binary that will actually be spawned: under the
+    /// experimental codex opt-in the agent row is `codex` at the configured
+    /// codex path — a missing `claude` must never block a codex launch (and
+    /// vice versa: a missing codex binary blocks it with the codex copy).
+    #[test]
+    fn codex_opt_in_doctors_the_codex_binary() {
+        let mut settings = crate::settings::Settings {
+            claude_path: "definitely-not-a-real-binary-exp".to_string(),
+            coding_agent: "codex".to_string(),
+            // A real binary answering `--version` (same trick as the
+            // launcher tests): the codex slot goes green while claude is dead.
+            codex_path: "git".to_string(),
+            ..crate::settings::Settings::default()
+        };
+        let report = run_doctor(&settings);
+        assert_eq!(report.agent.tool, Tool::Codex);
+        assert!(report.agent.ok, "codex check: {:?}", report.agent.error);
+        assert!(report.ok(), "claude's absence must not gate a codex launch");
+
+        settings.codex_path = "definitely-not-a-real-binary-exp".to_string();
+        let report = run_doctor(&settings);
+        assert!(!report.ok());
+        assert_eq!(
+            report.first_failure().and_then(|c| c.error.as_deref()),
+            Some("codex not found on PATH — set an absolute path")
+        );
     }
 
     #[test]
@@ -212,17 +257,17 @@ mod tests {
             version: None,
             error: Some("claude not found on PATH — set an absolute path".into()),
         };
-        let report = DoctorReport { claude: bad.clone(), git: good.clone() };
+        let report = DoctorReport { agent: bad.clone(), git: good.clone() };
         assert!(!report.ok());
         assert_eq!(report.first_failure(), Some(&bad));
 
-        let report = DoctorReport { claude: good.clone(), git: good.clone() };
+        let report = DoctorReport { agent: good.clone(), git: good.clone() };
         assert!(report.ok());
         assert_eq!(report.first_failure(), None);
 
         // git missing must ALSO block (§7.1 step 1 ANDs both).
         let bad_git = ToolCheck { tool: Tool::Git, ok: false, version: None, error: None };
-        let report = DoctorReport { claude: good, git: bad_git.clone() };
+        let report = DoctorReport { agent: good, git: bad_git.clone() };
         assert!(!report.ok());
         assert_eq!(report.first_failure(), Some(&bad_git));
     }

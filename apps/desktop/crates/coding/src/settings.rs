@@ -1,4 +1,4 @@
-//! Coding-side settings (masterplan-v3 §7.7, DC-3) — the three launcher knobs:
+//! Coding-side settings (masterplan-v3 §7.7, DC-3) — the launcher knobs:
 //!
 //! | Setting            | Default              | Used by                      |
 //! |--------------------|----------------------|------------------------------|
@@ -6,6 +6,8 @@
 //! | Repos root         | `~/Exponential/repos`| §7.1 step 3 worktree layout  |
 //! | Branch prefix      | `exp/`               | `<prefix><IDENTIFIER>` branch|
 //! | Claude model       | `opus`               | §7.1 step 7 `--model` argv   |
+//! | Coding agent       | `claude`             | [`crate::agent::Agent`] pick |
+//! | Codex CLI path     | `codex`              | codex spawn + doctor (exp.)  |
 //!
 //! Persisted to a small `settings.json` in the app data dir — **local,
 //! per-install, never synced**. Saving merges into the existing JSON object
@@ -28,6 +30,13 @@ pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
 /// -always so the user's `claude` CLI default (possibly a scarcer model like
 /// Fable) is never silently consumed by coding sessions or E2E tests.
 pub const DEFAULT_CLAUDE_MODEL: &str = "opus";
+/// The default coding agent — Claude. `codex` is the EXPERIMENTAL opt-in
+/// (v5 "codex-support"); anything else parses back to Claude
+/// ([`crate::agent::Agent::from_setting`]).
+pub const DEFAULT_CODING_AGENT: &str = "claude";
+/// Default Codex CLI program (PATH-resolved; only used when the coding agent
+/// is `codex`).
+pub const DEFAULT_CODEX_PATH: &str = "codex";
 
 /// The resolved coding settings. `repos_root` is stored in its raw
 /// (possibly `~`-prefixed) form and tilde-expanded at use
@@ -45,6 +54,14 @@ pub struct Settings {
     /// The Claude model, passed verbatim as `--model <value>` on every spawn
     /// (§7.7 — explicit-always; free text, common values opus/sonnet/haiku/fable).
     pub claude_model: String,
+    /// Which agent "Start coding" launches: `claude` (default) or `codex`
+    /// (EXPERIMENTAL — OpenAI Codex CLI). Any other value falls back to
+    /// claude ([`crate::agent::Agent::from_setting`]), so this can never
+    /// brick the launcher.
+    pub coding_agent: String,
+    /// Program name or absolute path of the Codex CLI — used verbatim, and
+    /// only when `coding_agent` is `codex`.
+    pub codex_path: String,
 }
 
 impl Default for Settings {
@@ -54,6 +71,8 @@ impl Default for Settings {
             repos_root: DEFAULT_REPOS_ROOT.to_string(),
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
+            coding_agent: DEFAULT_CODING_AGENT.to_string(),
+            codex_path: DEFAULT_CODEX_PATH.to_string(),
         }
     }
 }
@@ -86,6 +105,12 @@ impl Settings {
         }
         if settings.claude_model.trim().is_empty() {
             settings.claude_model = defaults.claude_model;
+        }
+        if settings.coding_agent.trim().is_empty() {
+            settings.coding_agent = defaults.coding_agent;
+        }
+        if settings.codex_path.trim().is_empty() {
+            settings.codex_path = defaults.codex_path;
         }
         settings
     }
@@ -229,6 +254,10 @@ mod tests {
         assert_eq!(settings.repos_root, "~/Exponential/repos");
         assert_eq!(settings.branch_prefix, "exp/");
         assert_eq!(settings.claude_model, "opus");
+        // Claude is the DEFAULT agent — codex is strictly opt-in (v5
+        // "codex-support", experimental).
+        assert_eq!(settings.coding_agent, "claude");
+        assert_eq!(settings.codex_path, "codex");
     }
 
     #[test]
@@ -252,7 +281,7 @@ mod tests {
         let path = dir.0.join("settings.json");
         fs::write(
             &path,
-            r#"{"claudePath":"","reposRoot":"  ","branchPrefix":"","claudeModel":"  "}"#,
+            r#"{"claudePath":"","reposRoot":"  ","branchPrefix":"","claudeModel":"  ","codingAgent":"","codexPath":" "}"#,
         )
         .unwrap();
         assert_eq!(Settings::load(&path), Settings::default());
@@ -267,11 +296,15 @@ mod tests {
             repos_root: "~/code/repos".to_string(),
             branch_prefix: "feat/".to_string(),
             claude_model: "sonnet".to_string(),
+            coding_agent: "codex".to_string(),
+            codex_path: "/usr/local/bin/codex".to_string(),
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"claudePath\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudeModel\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"codingAgent\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"codexPath\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 

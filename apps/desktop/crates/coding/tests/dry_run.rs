@@ -207,6 +207,7 @@ fn main() {
             repos_root: repos_root.to_string_lossy().into_owned(),
             branch_prefix: "exp/".to_string(),
             claude_model: "opus".to_string(),
+            ..Settings::default()
         },
         issue_seed: Arc::new(|_| {
             Some(IssueSeed {

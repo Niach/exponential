@@ -34,12 +34,13 @@ use terminal::pty::SpawnSpec;
 use terminal::tab::{TabId, TabKind};
 use terminal::TerminalManager;
 
+use crate::agent::Agent;
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_worktree::{
     branch_name, create_worktree, ensure_clone, fetch_base, set_token_remote, GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
-use crate::prompt::{write_prompt, SEED_LINE};
+use crate::prompt::write_rendered_prompt;
 use crate::settings::Settings;
 
 /// Where the launch came from (§7.1). Both origins run the SAME sequence —
@@ -241,7 +242,8 @@ pub struct PreparedLaunch {
     pub worktree: PathBuf,
     /// The real git branch (keeps its `/`), e.g. `exp/EXP-42`.
     pub branch: String,
-    /// `claude --dangerously-skip-permissions` in the worktree (§7.1 step 7).
+    /// The agent invocation in the worktree (§7.1 step 7) — by default
+    /// `claude --dangerously-skip-permissions`; per [`Agent`] otherwise.
     pub spawn: SpawnSpec,
     /// Tab strip default title (`claude · EXP-42`).
     pub tab_title: String,
@@ -271,16 +273,23 @@ pub enum LaunchOutcome {
 
 /// Steps 1–6 of §7.1 (blocking; run on the background executor):
 ///
-/// 0. doctor — both `claude` AND `git` must resolve (§7.7: a machine
+/// 0. doctor — both the coding agent AND `git` must resolve (§7.7: a machine
 ///    with git missing is blocked here, not allowed to crash at clone);
 /// 1. `repositories.forIssue` — null ⇒ [`DisabledReason::NoRepositoryLinked`];
 /// 2. `repositories.installationToken` — JIT, session-gated, never persisted;
 /// 3. git: clone/worktree/`exp/<IDENTIFIER>` branch + token remote re-set
 ///    (the personal-key read/mint races this on a side thread, §7.2);
-/// 4. `.mcp.json` (the ONLY place the raw `expu_` key lands on disk);
-/// 5. `PROMPT.md` (plan-first seed, templated from the sync store);
+/// 4. `.mcp.json` (the ONLY place the raw `expu_` key lands on disk) —
+///    SKIPPED for agents that declare no MCP ([`Agent::uses_mcp`]);
+/// 5. `PROMPT.md` (plan-first seed, templated from the sync store, flavored
+///    per agent);
 /// 6. `codingSessions.start` — BEFORE spawn; its id keys tab + steer room.
 pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
+    // The AgentAdapter: every per-agent difference (binary, argv, MCP,
+    // prompt flavor, env) resolves here — claude unless the settings opt
+    // into the experimental codex support.
+    let agent = Agent::from_settings(&deps.settings);
+
     // Step 0/1a — the doctor gate. Cheap relative to clone/mint and
     // structural: the relay origin has no button whose disabled state could
     // have gated this.
@@ -315,13 +324,14 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
     };
 
     // §7.2 — the personal-key read/mint races the git prep on a side thread;
-    // only step 4 (.mcp.json) needs the result.
-    let key_handle = {
+    // only step 4 (.mcp.json) needs the result, so a no-MCP agent skips the
+    // mint entirely (nothing would ever consume the key).
+    let key_handle = agent.uses_mcp().then(|| {
         let trpc = Arc::clone(&deps.trpc);
         let store = Arc::clone(&deps.token_store);
         let account_id = deps.account_id.clone();
         std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
-    };
+    });
 
     // Step 3 — git via argv (never gh): clone → token remote → worktree.
     let branch = branch_name(&deps.settings.branch_prefix, &req.issue_identifier);
@@ -334,22 +344,29 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
         &url,
     )?;
 
-    let personal_key = key_handle
-        .join()
-        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
+    // Step 4 — .mcp.json (authenticates the spawned claude as the real
+    // user). A no-MCP agent (codex) never gets the personal key on disk —
+    // its MCP config is a global file the launcher must not touch.
+    if let Some(key_handle) = key_handle {
+        let personal_key = key_handle
+            .join()
+            .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
+        write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
+            .map_err(|e| CodingError::Io(format!("write .mcp.json: {e}")))?;
+    }
 
-    // Step 4 — .mcp.json (authenticates the spawned claude as the real user).
-    write_mcp_json(&worktree, deps.trpc.base_url(), &personal_key)
-        .map_err(|e| CodingError::Io(format!("write .mcp.json: {e}")))?;
-
-    // Step 5 — PROMPT.md (plan-first; title/description from the sync store).
+    // Step 5 — PROMPT.md (plan-first; title/description from the sync store;
+    // template flavored per agent — the no-MCP variant names no MCP tools).
     let seed = (deps.issue_seed)(&req.issue_id);
     let (title, description) = match &seed {
         Some(seed) => (seed.title.as_str(), seed.description.as_deref()),
         None => (req.issue_identifier.as_str(), None),
     };
-    write_prompt(&worktree, &req.issue_identifier, title, description)
-        .map_err(|e| CodingError::Io(format!("write PROMPT.md: {e}")))?;
+    write_rendered_prompt(
+        &worktree,
+        &agent.render_prompt(&req.issue_identifier, title, description),
+    )
+    .map_err(|e| CodingError::Io(format!("write PROMPT.md: {e}")))?;
 
     // Step 6 — codingSessions.start BEFORE spawn (the id keys everything).
     let session =
@@ -361,21 +378,20 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
             Err(err) => return Err(err.into()),
         };
 
-    // Step 7's spawn spec — program from settings (§7.7), argv-direct. The
-    // model is passed explicitly-ALWAYS (never the user's `claude` CLI default,
-    // which may be a scarcer model like Fable) so coding sessions never silently
-    // consume it (§7.7, locked 2026-07-03).
-    // The seed line rides argv as the positional prompt: bytes typed into
-    // the PTY before claude's TUI enters raw mode get swallowed during
-    // startup, so the prompt must never be delivered via stdin.
-    let spawn = SpawnSpec::new(&deps.settings.resolved_claude_path())
-        .args([
-            "--model",
-            deps.settings.claude_model.as_str(),
-            "--dangerously-skip-permissions",
-            SEED_LINE,
-        ])
+    // Step 7's spawn spec — program + argv + env from the [`Agent`] adapter
+    // (§7.7), argv-direct. For claude that is byte-for-byte the pre-adapter
+    // invocation: `--model <model>` explicitly-ALWAYS (never the user's CLI
+    // default, which may be a scarcer model like Fable — §7.7, locked
+    // 2026-07-03) plus the skip flag. The seed line rides argv as the
+    // positional prompt for EVERY agent: bytes typed into the PTY before a
+    // TUI enters raw mode get swallowed during startup, so the prompt must
+    // never be delivered via stdin.
+    let mut spawn = SpawnSpec::new(&agent.program(&deps.settings))
+        .args(agent.coding_args(&deps.settings))
         .cwd(&worktree);
+    for (key, value) in agent.env() {
+        spawn = spawn.env(key, value);
+    }
 
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
@@ -383,7 +399,7 @@ pub fn prepare_launch(req: &LaunchRequest, deps: &CodingDeps) -> Result<Prepared
         worktree,
         branch,
         spawn,
-        tab_title: format!("claude · {}", req.issue_identifier),
+        tab_title: format!("{} · {}", agent.label(), req.issue_identifier),
     }))
 }
 
@@ -610,6 +626,7 @@ mod tests {
                 repos_root: data_dir.join("repos").to_string_lossy().into_owned(),
                 branch_prefix: "exp/".to_string(),
                 claude_model: "opus".to_string(),
+                ..Settings::default()
             },
             issue_seed: Arc::new(|_| {
                 Some(IssueSeed {
@@ -802,6 +819,99 @@ mod tests {
         assert!(prompt.contains("**EXP-42: Fix login flicker**"));
         assert!(prompt.contains("Steps in the issue."));
         assert!(prompt.contains("`exponential_pr_open`"));
+    }
+
+    // ---- The experimental codex agent (opt-in via `codingAgent`) ----
+
+    /// The full prepare sequence under the codex opt-in: NO `.mcp.json`, NO
+    /// personal-key mint (the canned server holds exactly the three non-mint
+    /// responses — a mint request would consume `codingSessions.start`'s
+    /// canned reply and fail the launch), the centralized codex argv with the
+    /// seed line positional-last, the no-MCP prompt flavor, and a
+    /// `codex · <IDENTIFIER>` tab title.
+    #[test]
+    fn codex_opt_in_skips_mcp_and_spawns_the_codex_argv() {
+        let dir = temp_dir("codex");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = deps(&base, &dir.0, worktrees);
+        deps.settings.coding_agent = "codex".to_string();
+        deps.settings.codex_path = "git".to_string(); // doctor-green stand-in
+        // No stored key: with MCP skipped there must be NO runtime mint.
+        deps.token_store.delete("acct", SecretKind::PersonalApiKey);
+
+        let prepared = match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
+        };
+
+        assert_eq!(prepared.session_id, "sess-1");
+        assert_eq!(prepared.tab_title, "codex · EXP-42");
+        // The codex invocation: the ONE centralized flag constant, then the
+        // seed line as the positional prompt — never claude's flags.
+        assert_eq!(prepared.spawn.program, "git"); // test codex_path
+        let mut expected: Vec<String> = crate::agent::CODEX_CODING_ARGS
+            .iter()
+            .map(|a| a.to_string())
+            .collect();
+        expected.push(crate::prompt::SEED_LINE.to_string());
+        assert_eq!(prepared.spawn.args, expected);
+        assert!(prepared.spawn.env.is_empty());
+
+        // Step 4 skipped: no .mcp.json, no key minted into the store.
+        assert!(!worktree.join(".mcp.json").exists(), "codex must not get .mcp.json");
+        assert_eq!(deps.token_store.get("acct", SecretKind::PersonalApiKey), None);
+
+        // Step 5: the no-MCP prompt flavor.
+        let prompt = fs::read_to_string(worktree.join("PROMPT.md")).unwrap();
+        assert!(prompt.contains("**EXP-42: Fix login flicker**"));
+        assert!(!prompt.contains("exponential_"), "prompt: {prompt}");
+    }
+
+    /// A stale/unknown `codingAgent` value falls back to claude byte-for-byte
+    /// — the experimental adapter can never engage by accident.
+    #[test]
+    fn unknown_agent_setting_falls_back_to_the_claude_invocation() {
+        let dir = temp_dir("agent-fallback");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let mut deps = deps(&base, &dir.0, worktrees);
+        deps.settings.coding_agent = "some-future-agent".to_string();
+
+        match prepare_launch(&request("EXP-42"), &deps).unwrap() {
+            Prepared::Ready(prepared) => {
+                assert_eq!(prepared.tab_title, "claude · EXP-42");
+                assert_eq!(
+                    prepared.spawn.args,
+                    vec![
+                        "--model",
+                        "opus",
+                        "--dangerously-skip-permissions",
+                        "Read PROMPT.md in this directory, then follow it.",
+                    ]
+                );
+                assert!(worktree.join(".mcp.json").exists());
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
     }
 
     // ---- The hidden key auto-mints on the FIRST coding session ----

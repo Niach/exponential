@@ -5,14 +5,16 @@
 //! | Setting              | Default               |
 //! |----------------------|-----------------------|
 //! | Claude CLI path      | `claude`              |
+//! | Coding agent         | `claude` (`codex` = experimental) |
+//! | Codex CLI path       | `codex`               |
 //! | Repos & worktrees root | `~/Exponential/repos` |
 //! | Branch prefix        | `exp/`                |
 //! | Tooling doctor       | "Check tools"         |
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
-//! against the new claude path, and the doctor's report is exactly what
-//! gates the Start-coding button (§7.1 step 1 ANDs `claude.ok && git.ok`).
+//! against the new agent path, and the doctor's report is exactly what
+//! gates the Start-coding button (§7.1 step 1 ANDs `agent.ok && git.ok`).
 //! The doctor auto-runs when the hub first exists (the §7.7 onboarding rule:
 //! clear errors BEFORE Start coding is usable — the red rows here carry the
 //! actionable copy: "claude not found on PATH — set an absolute path" /
@@ -48,6 +50,8 @@ use super::{card, card_header, error_notice};
 pub struct CodingPane {
     claude_input: Entity<InputState>,
     model_input: Entity<InputState>,
+    agent_input: Entity<InputState>,
+    codex_input: Entity<InputState>,
     repos_input: Entity<InputState>,
     prefix_input: Entity<InputState>,
     /// The hub settings the inputs were last synced from (dirty baseline).
@@ -62,6 +66,10 @@ impl CodingPane {
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
         let model_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_MODEL));
+        let agent_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODING_AGENT));
+        let codex_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
         let repos_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_REPOS_ROOT));
         let prefix_input =
@@ -76,7 +84,14 @@ impl CodingPane {
                 cx.notify();
             }),
         ];
-        for input in [&claude_input, &model_input, &repos_input, &prefix_input] {
+        for input in [
+            &claude_input,
+            &model_input,
+            &agent_input,
+            &codex_input,
+            &repos_input,
+            &prefix_input,
+        ] {
             subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify(); // live dirty tracking on the Save button
@@ -87,6 +102,8 @@ impl CodingPane {
         let mut this = Self {
             claude_input,
             model_input,
+            agent_input,
+            codex_input,
             repos_input,
             prefix_input,
             synced: None,
@@ -110,6 +127,12 @@ impl CodingPane {
         });
         self.model_input.update(cx, |input, cx| {
             input.set_value(settings.claude_model.clone(), window, cx)
+        });
+        self.agent_input.update(cx, |input, cx| {
+            input.set_value(settings.coding_agent.clone(), window, cx)
+        });
+        self.codex_input.update(cx, |input, cx| {
+            input.set_value(settings.codex_path.clone(), window, cx)
         });
         self.repos_input.update(cx, |input, cx| {
             input.set_value(settings.repos_root.clone(), window, cx)
@@ -137,6 +160,8 @@ impl CodingPane {
         Settings {
             claude_path: value(&self.claude_input, &defaults.claude_path),
             claude_model: value(&self.model_input, &defaults.claude_model),
+            coding_agent: value(&self.agent_input, &defaults.coding_agent),
+            codex_path: value(&self.codex_input, &defaults.codex_path),
             repos_root: value(&self.repos_input, &defaults.repos_root),
             branch_prefix: value(&self.prefix_input, &defaults.branch_prefix),
         }
@@ -249,7 +274,7 @@ impl CodingPane {
             }
             Some(report) => {
                 body = body
-                    .child(Self::doctor_row(&report.claude, cx))
+                    .child(Self::doctor_row(&report.agent, cx))
                     .child(Self::doctor_row(&report.git, cx));
             }
         }
@@ -290,6 +315,18 @@ impl Render for CodingPane {
                 "Claude model",
                 "Passed as --model on every coding session — never your CLI default. Try opus, sonnet, haiku, or fable.",
                 &self.model_input,
+                cx,
+            ))
+            .child(Self::labeled_input(
+                "Coding agent (experimental)",
+                "claude (default) or codex — codex launches OpenAI's Codex CLI instead and is EXPERIMENTAL: no Exponential MCP tools, so it stops at commit + push. Anything else falls back to claude.",
+                &self.agent_input,
+                cx,
+            ))
+            .child(Self::labeled_input(
+                "Codex CLI path",
+                "Command name or absolute path of the Codex CLI — only used when the coding agent is codex.",
+                &self.codex_input,
                 cx,
             ))
             .child(Self::labeled_input(

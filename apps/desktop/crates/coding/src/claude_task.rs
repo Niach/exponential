@@ -112,6 +112,7 @@ mod tests {
             repos_root: "~/repos".to_string(),
             branch_prefix: "exp/".to_string(),
             claude_model: "opus".to_string(),
+            ..Settings::default()
         }
     }
 

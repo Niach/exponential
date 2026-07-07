@@ -7,6 +7,10 @@
 //! coding settings (repos root / branch prefix / claude path — never
 //! a manual API-key field), and the
 //! `claude --dangerously-skip-permissions` spawn into the embedded terminal.
+//! v5 adds the [`agent`] **AgentAdapter**: every per-agent difference
+//! (binary, argv, MCP mechanism, prompt flavor, env) lives in
+//! [`agent::Agent`] — claude is the default and behavior-preserving; the
+//! EXPERIMENTAL codex adapter is opt-in via the `codingAgent` setting.
 //!
 //! ## The one entry point (§7.1)
 //!
@@ -30,6 +34,7 @@
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 
+pub mod agent;
 pub mod claude_task;
 pub mod clone_manager;
 pub mod doctor;
@@ -42,6 +47,7 @@ pub mod scm;
 pub mod settings;
 pub mod trunk_state;
 
+pub use agent::{Agent, CODEX_CODING_ARGS};
 pub use claude_task::{
     claude_task, create_run_configs_prompt, fix_conflicts_prompt, resolve_pr_prompt, ClaudeTask,
 };
@@ -60,7 +66,10 @@ pub use launcher::{
     WorktreeProvider,
 };
 pub use mcp_json::{render_mcp_json, write_mcp_json, MCP_JSON_FILE};
-pub use prompt::{render_prompt, write_prompt, PROMPT_FILE, SEED_LINE};
+pub use prompt::{
+    render_prompt, render_prompt_no_mcp, write_prompt, write_rendered_prompt, PROMPT_FILE,
+    SEED_LINE,
+};
 pub use run_launch::{
     format_argv_line, format_env_lines, parse_argv_line, parse_env_lines, play_state, run_root,
     run_spawn_spec, shell_cwd, PlayState, STOP_GRACE,

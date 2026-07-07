@@ -21,10 +21,7 @@ pub const SEED_LINE: &str = "Read PROMPT.md in this directory, then follow it.";
 /// Render `PROMPT.md`: the §7.1 step-5 instruction paragraph verbatim, then
 /// the issue context block it tells Claude to read.
 pub fn render_prompt(identifier: &str, title: &str, description: Option<&str>) -> String {
-    let body = match description {
-        Some(text) if !text.trim().is_empty() => text.trim_end(),
-        _ => "(no description)",
-    };
+    let body = issue_body(description);
     format!(
         "You are working on **{identifier}: {title}** in this repository. Read the issue \
 context below. **First, propose a concise plan and WAIT for explicit go-ahead before \
@@ -42,17 +39,54 @@ issue status with `exponential_issues_update_status` (`in_progress` when you sta
     )
 }
 
-/// Write `PROMPT.md` into the worktree root (overwritten every launch so a
-/// re-edited issue reseeds correctly).
+/// The no-MCP `PROMPT.md` variant, for agents without `/api/mcp` access
+/// (v5 "codex-support": the codex adapter declares "no MCP"). Same plan-first
+/// posture and issue context, but it must not name the `exponential_*` MCP
+/// tools — the agent ends at commit + push, and the PR is opened on GitHub
+/// afterwards (the branch-name webhook links it to the issue).
+pub fn render_prompt_no_mcp(identifier: &str, title: &str, description: Option<&str>) -> String {
+    let body = issue_body(description);
+    format!(
+        "You are working on **{identifier}: {title}** in this repository. Read the issue \
+context below. **First, propose a concise plan and WAIT for explicit go-ahead before \
+writing code.** Once approved, implement the change, then commit and push your branch. \
+Do not use `gh` and do not try to open a pull request yourself — a pull request opened \
+for this branch on GitHub is linked to the issue automatically.
+
+## Issue context
+
+### {identifier}: {title}
+
+{body}
+"
+    )
+}
+
+/// The issue-context body both templates share.
+fn issue_body(description: Option<&str>) -> &str {
+    match description {
+        Some(text) if !text.trim().is_empty() => text.trim_end(),
+        _ => "(no description)",
+    }
+}
+
+/// Write an already-rendered prompt into the worktree root (overwritten
+/// every launch so a re-edited issue reseeds correctly). The launcher
+/// renders per-agent via [`crate::agent::Agent::render_prompt`].
+pub fn write_rendered_prompt(worktree: &Path, content: &str) -> io::Result<PathBuf> {
+    let path = worktree.join(PROMPT_FILE);
+    write_private(&path, content)?;
+    Ok(path)
+}
+
+/// [`write_rendered_prompt`] with the default (Claude/MCP) template.
 pub fn write_prompt(
     worktree: &Path,
     identifier: &str,
     title: &str,
     description: Option<&str>,
 ) -> io::Result<PathBuf> {
-    let path = worktree.join(PROMPT_FILE);
-    write_private(&path, &render_prompt(identifier, title, description))?;
-    Ok(path)
+    write_rendered_prompt(worktree, &render_prompt(identifier, title, description))
 }
 
 #[cfg(test)]
@@ -98,9 +132,27 @@ The login page flickers on slow connections.
     }
 
     #[test]
+    fn no_mcp_variant_stays_plan_first_but_names_no_mcp_tools() {
+        let prompt = render_prompt_no_mcp("EXP-4", "T", Some("body"));
+        // Same plan-first + gh-ban posture as the MCP template…
+        assert!(prompt.contains("WAIT for explicit go-ahead"));
+        assert!(prompt.contains("Do not use `gh`"));
+        assert!(prompt.contains("**EXP-4: T**"));
+        assert!(prompt.contains("body"));
+        assert!(prompt.contains("commit and push your branch"));
+        // …but no MCP tool references (the agent has no /api/mcp access) and
+        // no self-opened PR — the branch-name webhook links it instead.
+        assert!(!prompt.contains("exponential_"));
+        assert!(!prompt.contains("MCP tool"));
+        assert!(prompt.contains("linked to the issue automatically"));
+    }
+
+    #[test]
     fn missing_or_blank_description_gets_a_placeholder() {
         for description in [None, Some(""), Some("   \n  ")] {
             let prompt = render_prompt("EXP-2", "Title", description);
+            assert!(prompt.contains("(no description)"), "for {description:?}");
+            let prompt = render_prompt_no_mcp("EXP-2", "Title", description);
             assert!(prompt.contains("(no description)"), "for {description:?}");
         }
     }
