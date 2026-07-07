@@ -24,23 +24,49 @@ use crate::prompt::{render_prompt, render_prompt_no_mcp, SEED_LINE};
 use crate::settings::Settings;
 
 /// EXPERIMENTAL — the fixed Codex CLI argv, before the positional seed
-/// prompt. Centralized as ONE constant because the exact invocation is NOT
-/// verified against a pinned codex release; the assumptions:
+/// prompt. Centralized as ONE constant; verified 2026-07-07 against the
+/// official CLI reference
+/// (<https://developers.openai.com/codex/cli/reference>) and the
+/// `openai/codex` source on `main` (no local codex binary — docs + source
+/// only, never an actual run):
 ///
-/// - `codex [OPTIONS] [PROMPT]` — the interactive TUI takes its initial
-///   prompt as a positional argument (the same delivery claude uses: bytes
-///   typed into the PTY before a TUI enters raw mode get swallowed, so the
-///   prompt must never ride stdin);
-/// - `--full-auto` is codex's documented low-friction preset
-///   (workspace-write sandbox, auto-executes commands) — the closest analog
-///   to claude's `--dangerously-skip-permissions` that keeps codex's own
-///   sandbox on;
+/// - `codex [OPTIONS] [PROMPT]` — CONFIRMED: the interactive TUI takes an
+///   optional positional initial prompt (reference: "Optional text
+///   instruction to start the session"; upstream `override_usage` in
+///   `codex-rs/cli/src/main.rs` is literally `codex [OPTIONS] [PROMPT]`),
+///   so the seed rides argv exactly like claude's (bytes typed into the
+///   PTY before a TUI enters raw mode get swallowed, so the prompt must
+///   never ride stdin) — no `codex exec` subcommand needed or wanted (exec
+///   is the non-interactive stream-to-stdout mode, not a TUI);
+/// - `--full-auto` NO LONGER PARSES at the top level — upstream test
+///   `full_auto_no_longer_parses_at_top_level` asserts `codex --full-auto`
+///   is a hard clap error, and the reference lists it only under
+///   `codex exec` as "Deprecated compatibility flag. Prefer `--sandbox
+///   workspace-write`". The documented interactive replacement used here:
+///   `--sandbox workspace-write` (auto-executes inside codex's workspace
+///   sandbox) + `--ask-for-approval on-request` (the reference's
+///   recommendation "for interactive runs"; `on-failure` was removed —
+///   the enum is untrusted | on-request | never). Escalations the sandbox
+///   blocks (e.g. network for `git push`) prompt in the tab instead of
+///   hard-failing, and pinning both flags explicitly (mirroring the claude
+///   side's always-explicit `--model`) keeps the launch posture immune to
+///   the user's `config.toml`. Still the closest analog to claude's
+///   `--dangerously-skip-permissions` that keeps codex's own sandbox on
+///   (`--yolo` would drop the sandbox entirely — not what we want);
 /// - NO model flag: `Settings::claude_model` values (opus/sonnet/…) are
-///   Claude model names — codex runs with the user's own configured default.
+///   Claude model names — codex runs with the user's own configured default;
+/// - `codex --version` exits 0 (clap `version` attr on the upstream
+///   multitool CLI), so the doctor's `<program> --version` probe is valid
+///   for codex.
 ///
 /// If a codex release changes its flag surface, fix it HERE — nothing else
 /// in the launcher encodes codex specifics.
-pub const CODEX_CODING_ARGS: &[&str] = &["--full-auto"];
+pub const CODEX_CODING_ARGS: &[&str] = &[
+    "--sandbox",
+    "workspace-write",
+    "--ask-for-approval",
+    "on-request",
+];
 
 /// Which coding agent "Start coding" drives. Default: [`Agent::Claude`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -209,6 +235,16 @@ mod tests {
         // codex flag.
         assert!(!args.iter().any(|a| a == "--model" || a == "opus"));
         assert!(!args.iter().any(|a| a == "--dangerously-skip-permissions"));
+        // `--full-auto` was REMOVED from codex's top level (upstream test
+        // `full_auto_no_longer_parses_at_top_level`; exec-only + deprecated
+        // since) — it must never sneak back into the interactive argv.
+        assert!(!args.iter().any(|a| a == "--full-auto"));
+        // The verified interactive low-friction preset (see the constant's
+        // doc): workspace-write sandbox, on-request approvals.
+        assert_eq!(
+            fixed,
+            ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"]
+        );
     }
 
     #[test]
