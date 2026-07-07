@@ -236,18 +236,20 @@ class IssueDetailViewModel @Inject constructor(
     // ── Issue-reference pills (masterplan §5e) ────────────────────────────────
 
     /**
-     * Uppercased identifier → target for inline `#IDENTIFIER` pills in the
-     * description + comments. Resolution is scoped to this issue's workspace
-     * (same-prefix identifiers from another synced workspace never leak in),
-     * mirroring the web IssueRefProvider.
+     * This workspace's synced issues, newest-first — drives inline
+     * `#IDENTIFIER` pill resolution in the description + comments AND the
+     * editors' #-autocomplete (identifier/title search, empty query = most
+     * recent). Scoped to this issue's workspace (same-prefix identifiers from
+     * another synced workspace never leak in), mirroring the web
+     * IssueRefProvider.
      */
-    val issueRefTargets: StateFlow<Map<String, IssueRefTarget>> = combine(
+    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
         _project,
     ) { issues, projects, project ->
         if (project == null) {
-            emptyMap()
+            emptyList()
         } else {
             val workspaceProjectIds = projects
                 .filter { it.workspaceId == project.workspaceId }
@@ -255,9 +257,10 @@ class IssueDetailViewModel @Inject constructor(
                 .toSet()
             issues
                 .filter { it.projectId in workspaceProjectIds }
-                .associate { it.identifier.uppercase() to IssueRefTarget(it.id, it.identifier) }
+                .sortedByDescending { it.createdAt }
+                .map { IssueRefTarget(it.id, it.identifier, it.title) }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Atomically set duplicateOfId + status='duplicate'. */
     fun markDuplicate(canonicalId: String) {

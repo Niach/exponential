@@ -16,7 +16,7 @@ import org.junit.Test
 class MarkdownAnnotateTest {
 
     private fun refs(vararg ids: String) = IssueRefHandler(
-        targets = ids.associate { it.uppercase() to IssueRefTarget("id-$it", it) },
+        candidates = ids.map { IssueRefTarget("id-$it", it) },
         onOpen = {},
     )
 

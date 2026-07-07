@@ -3,34 +3,70 @@ package com.exponential.app.ui.markdown
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
 
-// Inline `#IDENTIFIER` issue references (masterplan §5e) — the render-only
-// Android counterpart of apps/web/src/lib/issue-refs.ts (+ the TipTap
-// decoration in issue-ref-extension.ts). The token is the single GFM
-// interchange form (`#MET-115` stays plain text in the stored markdown, like
-// `@email` mentions), so detection happens only at render time: MarkdownView
-// pills a token when it resolves to a synced issue in the same workspace and
-// leaves unknown identifiers as plain text. The parser/serializer never see
-// these — GFM byte-parity is untouched.
+// Inline `#IDENTIFIER` issue references (masterplan §5e) — the Android
+// counterpart of apps/web/src/lib/issue-refs.ts (+ the TipTap decoration in
+// issue-ref-extension.ts and the workspace IssueRefProvider). The token is the
+// single GFM interchange form (`#MET-115` stays plain text in the stored
+// markdown, like `@email` mentions), so detection happens only at render time:
+// MarkdownView pills a token when it resolves to a synced issue in the same
+// workspace and leaves unknown identifiers as plain text, and the editor's
+// #-autocomplete (BlockTextField) inserts the plain token. The
+// parser/serializer never see these — GFM byte-parity is untouched.
 
 /** An identifier resolved to a visible (Room-synced) issue. */
 @Immutable
-data class IssueRefTarget(val issueId: String, val identifier: String)
+data class IssueRefTarget(
+    val issueId: String,
+    val identifier: String,
+    val title: String = "",
+)
 
-/** Workspace-scoped resolver + tap navigation for `#IDENTIFIER` pills. */
+/**
+ * Workspace-scoped resolver + tap navigation + autocomplete search for
+ * `#IDENTIFIER` tokens. Mirrors the web IssueRefProvider: [candidates] is the
+ * workspace's visible issues newest-first, so an empty-query search surfaces
+ * fresh work.
+ */
 @Immutable
 class IssueRefHandler(
-    /** Uppercased identifier → target (built from the Room issues table). */
-    private val targets: Map<String, IssueRefTarget>,
+    /** Visible issues in the workspace, newest-first (from the Room issues table). */
+    val candidates: List<IssueRefTarget>,
     val onOpen: (IssueRefTarget) -> Unit,
 ) {
+    /** Uppercased identifier → target (last wins on duplicates, like the web Map). */
+    private val targets: Map<String, IssueRefTarget> =
+        candidates.associateBy { it.identifier.uppercase() }
+
     /** Resolve an identifier (case-insensitive) to a visible issue, or null. */
     fun resolve(identifier: String): IssueRefTarget? = targets[identifier.uppercase()]
+
+    /**
+     * Identifier/title substring search for the editor's `#` autocomplete;
+     * empty query = most recent. Mirrors web IssueRefProvider.search.
+     */
+    fun search(query: String, limit: Int = 6): List<IssueRefTarget> {
+        val q = query.trim().lowercase()
+        val out = ArrayList<IssueRefTarget>(limit)
+        for (candidate in candidates) {
+            if (
+                q.isNotEmpty() &&
+                !candidate.identifier.lowercase().contains(q) &&
+                !candidate.title.lowercase().contains(q)
+            ) {
+                continue
+            }
+            out.add(candidate)
+            if (out.size >= limit) break
+        }
+        return out
+    }
 }
 
 /**
  * Provided by screens that can resolve + navigate (issue detail covers the
- * description read view and the comment thread); null (the default) keeps
- * every token plain text.
+ * description read view, the comment thread, and every embedded editor's
+ * #-autocomplete; the create screen provides it for autocomplete only); null
+ * (the default) keeps every token plain text and disables the affordance.
  */
 val LocalIssueRefs = compositionLocalOf<IssueRefHandler?> { null }
 

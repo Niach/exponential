@@ -116,14 +116,15 @@ fun IssueDetailScreen(
         }
     }
 
-    // Inline `#IDENTIFIER` pills (masterplan §5e): resolve against this
-    // workspace's synced issues; a tap navigates to the referenced issue. The
-    // CompositionLocal reaches every MarkdownView below (description read view
-    // + comment thread).
-    val issueRefTargets by viewModel.issueRefTargets.collectAsStateWithLifecycle()
+    // Inline `#IDENTIFIER` pills + editor #-autocomplete (masterplan §5e):
+    // resolve against this workspace's synced issues; a tap navigates to the
+    // referenced issue. The CompositionLocal reaches every MarkdownView below
+    // (description read view + comment thread) and every embedded editor
+    // (description, comment composer, comment edit).
+    val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
-    val issueRefHandler = remember(issueRefTargets) {
-        IssueRefHandler(issueRefTargets) { target -> currentOnOpenIssue(target.issueId) }
+    val issueRefHandler = remember(issueRefCandidates) {
+        IssueRefHandler(issueRefCandidates) { target -> currentOnOpenIssue(target.issueId) }
     }
 
     CompositionLocalProvider(LocalIssueRefs provides issueRefHandler) {

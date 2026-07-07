@@ -36,10 +36,12 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -55,6 +57,10 @@ import com.exponential.app.ui.markdown.model.ParagraphAttrs
 // In-progress mention `@query` at the caret (after start-of-text or whitespace);
 // the query stops at whitespace. Mirrors apps/web/src/components/mention-textarea.tsx.
 private val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
+
+// In-progress issue reference `#query` at the caret — same shape as the web
+// ISSUE_REF_AT_CARET (mention-textarea.tsx / editor-autocomplete.ts).
+private val ISSUE_REF_AT_CARET = Regex("(?:^|\\s)#([A-Za-z0-9-]*)$")
 
 /**
  * One editable paragraph line, backed by a [BasicTextField]. Per-paragraph
@@ -131,6 +137,34 @@ fun BlockTextField(
         model.updateSelection(row.id, newCaret..newCaret)
     }
 
+    // #issue-ref autocomplete (masterplan §5e): detect an in-progress `#query`
+    // before the caret and offer same-workspace issues from [LocalIssueRefs]
+    // (identifier + title substring, newest first, empty query = most recent —
+    // web IssueRefProvider.search parity). Tapping inserts the plain
+    // `#IDENTIFIER ` interchange token, never a custom span, so the GFM
+    // round-trip stays byte-identical. Mention detection wins when both could
+    // match (web checks @ first).
+    val issueRefs = LocalIssueRefs.current
+    val refMatch =
+        if (issueRefs != null && mentionMatch == null) ISSUE_REF_AT_CARET.find(beforeCaret) else null
+    val refQuery = refMatch?.groupValues?.get(1)
+    val refCandidates =
+        if (refQuery != null && issueRefs != null) issueRefs.search(refQuery, limit = 6)
+        else emptyList()
+
+    fun insertIssueRef(target: IssueRefTarget) {
+        val caret = value.selection.start
+        val q = refQuery ?: return
+        val start = caret - q.length - 1
+        if (start < 0) return
+        val newText =
+            value.text.substring(0, start) + "#" + target.identifier + " " + value.text.substring(caret)
+        val newCaret = start + target.identifier.length + 2
+        value = TextFieldValue(newText, TextRange(newCaret))
+        model.updatePara(row.id, newText, newCaret)
+        model.updateSelection(row.id, newCaret..newCaret)
+    }
+
     val attrs = row.attrs
     val textStyle = paragraphTextStyle(attrs)
     val marks = row.marks
@@ -184,7 +218,7 @@ fun BlockTextField(
         },
     )
 
-    if (mentionCandidates.isNotEmpty()) {
+    if (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty()) {
         val provider = remember {
             object : PopupPositionProvider {
                 override fun calculatePosition(
@@ -221,6 +255,31 @@ fun BlockTextField(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
+                            )
+                        }
+                    }
+                    refCandidates.forEach { target ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { insertIssueRef(target) }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                target.identifier,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                target.title,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }

@@ -2,9 +2,13 @@ package com.exponential.app.ui.issue
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -15,10 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
@@ -37,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,12 +69,16 @@ import com.exponential.app.domain.statusIcon
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.formatDueDate
+import com.exponential.app.ui.markdown.IssueRefHandler
+import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
+import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.share.SharePrefill
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
+import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassSection
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -77,7 +88,7 @@ import kotlinx.coroutines.launch
 // title field, description editor, and stacked glassSection metadata rows.
 // Reuses the same pickers, payload and createIssue path the bottom sheet used —
 // only the container and layout changed (a route screen, not a ModalBottomSheet).
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CreateIssueScreen(
     onBack: () -> Unit,
@@ -99,6 +110,7 @@ fun CreateIssueScreen(
     var endTime by remember { mutableStateOf<String?>(null) }
     var recurrenceInterval by remember { mutableStateOf<Int?>(null) }
     var recurrenceUnit by remember { mutableStateOf<String?>(null) }
+    var selectedLabelIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var createMore by remember { mutableStateOf(false) }
     var statusMenuOpen by remember { mutableStateOf(false) }
     var priorityMenuOpen by remember { mutableStateOf(false) }
@@ -107,6 +119,7 @@ fun CreateIssueScreen(
     var dueTimePickerOpen by remember { mutableStateOf(false) }
     var endTimePickerOpen by remember { mutableStateOf(false) }
     var recurrenceSheetOpen by remember { mutableStateOf(false) }
+    var labelSheetOpen by remember { mutableStateOf(false) }
 
     val initialPendingImages = remember { sharePrefill?.pendingImages ?: emptyMap() }
     val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
@@ -157,6 +170,9 @@ fun CreateIssueScreen(
                 endTime = endTime,
                 recurrenceInterval = recurrenceInterval,
                 recurrenceUnit = recurrenceUnit,
+                // Drop selections for labels deleted while drafting — the
+                // server rejects the whole create on an unknown label id.
+                labelIds = selectedLabelIds.filter { id -> state.labels.any { it.id == id } },
                 pendingImages = pendingImages.toMap(),
             )
             if (ok) {
@@ -166,6 +182,7 @@ fun CreateIssueScreen(
                 if (createMore) {
                     title = ""
                     description = ""
+                    selectedLabelIds = emptySet()
                     pendingImages.clear()
                 } else {
                     onBack()
@@ -174,6 +191,16 @@ fun CreateIssueScreen(
         }
     }
 
+    // #issue-ref autocomplete in the description editor (masterplan §5e):
+    // same-workspace candidates, newest first, from the target project's
+    // workspace. onOpen is a no-op — the editor shows the plain token while
+    // editing (pills are read-mode only), so a tap can never happen here.
+    val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
+    val issueRefHandler = remember(issueRefCandidates) {
+        IssueRefHandler(issueRefCandidates) { }
+    }
+
+    CompositionLocalProvider(LocalIssueRefs provides issueRefHandler) {
     ProvideMarkdownToolbar {
         Scaffold(
             topBar = {
@@ -306,6 +333,65 @@ fun CreateIssueScreen(
                     }
                 }
 
+                // Labels (masterplan §3 client parity: every client supports
+                // labels at create). All workspace labels as colored-dot toggle
+                // chips + a "+ Label" chip opening the shared picker sheet —
+                // the same pattern as the post-create IssueMetadataEditor,
+                // toggling a local selection instead of issueLabels mutations.
+                // Not moderator-gated: issues.create lets any creator set
+                // title/description/labels (web create dialog parity).
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                    Text(
+                        "Labels",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        state.labels.forEach { label ->
+                            val selected = label.id in selectedLabelIds
+                            Row(
+                                modifier = Modifier
+                                    .glassButton(active = selected)
+                                    .clickable {
+                                        selectedLabelIds =
+                                            if (selected) selectedLabelIds - label.id
+                                            else selectedLabelIds + label.id
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(modifier = Modifier.size(8.dp).background(parseColor(label.color), CircleShape))
+                                Spacer(Modifier.width(5.dp))
+                                Text(label.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .glassButton()
+                                .clickable { labelSheetOpen = true }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Label",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
+                    }
+                }
+
                 if (state.error != null) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -320,6 +406,7 @@ fun CreateIssueScreen(
                 Spacer(Modifier.height(8.dp))
             }
         }
+    }
     }
 
     if (statusMenuOpen && isModerator) {
@@ -399,6 +486,27 @@ fun CreateIssueScreen(
                 recurrenceSheetOpen = false
             },
             onDismiss = { recurrenceSheetOpen = false },
+        )
+    }
+
+    if (labelSheetOpen) {
+        LabelPickerSheet(
+            workspaceLabels = state.labels,
+            selectedLabelIds = selectedLabelIds,
+            onToggle = { id, selected ->
+                selectedLabelIds = if (selected) selectedLabelIds - id else selectedLabelIds + id
+            },
+            // A label created here is real immediately (labels.create); only
+            // its assignment waits for the issue to exist — pre-select it so
+            // the create carries it via labelIds.
+            onCreate = { name, color ->
+                scope.launch {
+                    viewModel.createLabel(name, color)?.let { created ->
+                        selectedLabelIds = selectedLabelIds + created.id
+                    }
+                }
+            },
+            onDismiss = { labelSheetOpen = false },
         )
     }
 

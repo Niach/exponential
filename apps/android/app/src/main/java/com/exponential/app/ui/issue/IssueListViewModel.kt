@@ -4,8 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateIssueInput
+import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -25,6 +27,7 @@ import com.exponential.app.domain.deriveTab
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.matchesFilters
 import com.exponential.app.domain.statuses
+import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
 import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -76,6 +79,7 @@ class IssueListViewModel @Inject constructor(
     private val holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
+    private val labelsApi: LabelsApi,
     private val issueImagesApi: IssueImagesApi,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
@@ -148,6 +152,30 @@ class IssueListViewModel @Inject constructor(
             memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
+
+    /**
+     * The target project's workspace issues, newest-first — drives the create
+     * screen's `#IDENTIFIER` autocomplete (masterplan §5e). Same scoping as
+     * IssueDetailViewModel.issueRefCandidates / the web IssueRefProvider.
+     */
+    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.projectDao().observeAll() },
+        _project,
+    ) { issues, projects, project ->
+        if (project == null) {
+            emptyList()
+        } else {
+            val workspaceProjectIds = projects
+                .filter { it.workspaceId == project.workspaceId }
+                .map { it.id }
+                .toSet()
+            issues
+                .filter { it.projectId in workspaceProjectIds }
+                .sortedByDescending { it.createdAt }
+                .map { IssueRefTarget(it.id, it.identifier, it.title) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // The heavy filter/group/sort pipeline. Recomputes only when one of its
     // *meaningful* data inputs changes (project, issues, labels, joins,
@@ -291,6 +319,21 @@ class IssueListViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Create a workspace label from the create screen's picker sheet and return
+     * it (so the caller can pre-select it on the issue being drafted), or null
+     * on failure. Suspends — the create screen awaits it on its own scope.
+     */
+    suspend fun createLabel(name: String, color: String): LabelEntity? {
+        val workspaceId = _project.value?.workspaceId ?: return null
+        val accountId = auth.activeAccountId.value ?: return null
+        return runCatching {
+            labelsApi.create(accountId, CreateLabelInput(workspaceId, name.trim(), color))
+        }.onFailure { error ->
+            _error.value = error.message ?: "Failed to create label"
+        }.getOrNull()
+    }
+
 
     // Suspends until the issue (and any image upload/patch) is committed, then
     // returns success. The caller awaits this before navigating away — the create
@@ -307,6 +350,7 @@ class IssueListViewModel @Inject constructor(
         endTime: String? = null,
         recurrenceInterval: Int? = null,
         recurrenceUnit: String? = null,
+        labelIds: List<String> = emptyList(),
         pendingImages: Map<String, android.net.Uri> = emptyMap(),
     ): Boolean {
         if (title.isBlank()) return false
@@ -333,6 +377,7 @@ class IssueListViewModel @Inject constructor(
                     endTime = endTime,
                     recurrenceInterval = recurrenceInterval,
                     recurrenceUnit = recurrenceUnit,
+                    labelIds = labelIds.takeIf { it.isNotEmpty() },
                 )
             )
 

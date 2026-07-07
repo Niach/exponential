@@ -23,6 +23,9 @@ data class CreateIssueInput(
     @SerialName("endTime") val endTime: String? = null,
     @SerialName("recurrenceInterval") val recurrenceInterval: Int? = null,
     @SerialName("recurrenceUnit") val recurrenceUnit: String? = null,
+    // Workspace label ids assigned at create (issues.create inserts the
+    // issue_labels joins in the same transaction). Null = none.
+    @SerialName("labelIds") val labelIds: List<String>? = null,
 )
 
 @Serializable

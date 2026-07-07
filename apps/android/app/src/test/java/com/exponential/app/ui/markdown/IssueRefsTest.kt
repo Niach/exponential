@@ -82,11 +82,49 @@ class IssueRefsTest {
     @Test
     fun resolveIsCaseInsensitiveAndUnknownStaysNull() {
         val handler = IssueRefHandler(
-            targets = mapOf("MET-115" to IssueRefTarget("issue-1", "MET-115")),
+            candidates = listOf(IssueRefTarget("issue-1", "MET-115", "Fix login")),
             onOpen = {},
         )
         assertEquals("issue-1", handler.resolve("met-115")?.issueId)
         assertEquals("issue-1", handler.resolve("MET-115")?.issueId)
         assertNull(handler.resolve("MET-999"))
+    }
+
+    // --- #-autocomplete search (mirrors web IssueRefProvider.search) ---
+
+    private val searchHandler = IssueRefHandler(
+        // Newest-first, as the ViewModels provide them.
+        candidates = listOf(
+            IssueRefTarget("i3", "MET-3", "Polish the login screen"),
+            IssueRefTarget("i2", "MET-2", "Crash on startup"),
+            IssueRefTarget("i1", "APP-1", "Login button dead"),
+        ),
+        onOpen = {},
+    )
+
+    @Test
+    fun searchMatchesIdentifierSubstringCaseInsensitively() {
+        assertEquals(listOf("MET-3", "MET-2"), searchHandler.search("met").map { it.identifier })
+        assertEquals(listOf("MET-2"), searchHandler.search("MET-2").map { it.identifier })
+    }
+
+    @Test
+    fun searchMatchesTitleSubstringCaseInsensitively() {
+        assertEquals(listOf("MET-3", "APP-1"), searchHandler.search("LOGIN").map { it.identifier })
+    }
+
+    @Test
+    fun emptyQueryReturnsMostRecentFirst() {
+        assertEquals(listOf("MET-3", "MET-2", "APP-1"), searchHandler.search("").map { it.identifier })
+    }
+
+    @Test
+    fun searchHonorsTheLimit() {
+        assertEquals(listOf("MET-3"), searchHandler.search("", limit = 1).map { it.identifier })
+    }
+
+    @Test
+    fun searchWithNoMatchIsEmpty() {
+        assertEquals(emptyList<IssueRefTarget>(), searchHandler.search("zzz"))
     }
 }

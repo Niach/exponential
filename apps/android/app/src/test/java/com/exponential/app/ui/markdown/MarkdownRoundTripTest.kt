@@ -99,4 +99,23 @@ class MarkdownRoundTripTest {
 
     @Test fun thematicBreakBetweenParagraphs() =
         assertEquals("before\n\n---\n\nafter", roundTrip("before\n\n---\n\nafter"))
+
+    // --- Interchange tokens stay plain text (masterplan §5e): `#IDENTIFIER`
+    // issue refs and `@email` mentions pill only at render time — the parser/
+    // serializer must never touch or escape them. ---
+
+    @Test fun issueRefStaysPlainText() =
+        assertStable("duplicate of #MET-115, closing")
+
+    @Test fun issueRefAtLineStartIsNotAHeading() =
+        assertStable("#EXP-7 needs review")
+
+    @Test fun issueRefInsideListItem() =
+        assertStable("- fix #EXP-42 first\n- then #EXP-43")
+
+    @Test fun issueRefNextToMarks() =
+        assertStable("**urgent** see #MET-1 and `#MET-2`")
+
+    @Test fun mentionStaysPlainText() =
+        assertStable("ping @dev@example.com about #APP-9")
 }
