@@ -1,4 +1,6 @@
-import { Sparkles } from "lucide-react"
+import { useState } from "react"
+import { Sparkles, Users } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -7,6 +9,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { PlanComparison } from "@/components/workspace/plan-comparison"
+import { AdjustSeatsDialog } from "@/components/workspace/adjust-seats-dialog"
+import { useBillingPlan } from "@/hooks/use-billing"
 
 export function UpgradeDialog({
   open,
@@ -29,6 +33,14 @@ export function UpgradeDialog({
   // billing.createSeatCheckout is the only checkout).
   workspaceId: string
 }) {
+  // An already-subscribed workspace hitting a limit must switch plans on its
+  // EXISTING subscription, not run a second checkout (which would stack a
+  // second full-price subscription) — resolve the real plan + subscription.
+  const billingPlan = useBillingPlan(open ? workspaceId : undefined)
+  const [seatDialogOpen, setSeatDialogOpen] = useState(false)
+  const subscription = billingPlan?.subscription ?? null
+  const canAdjustSeats = Boolean(subscription && !subscription.cancelAtPeriodEnd)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* `sm:` prefix required — the base DialogContent class has `sm:max-w-lg`
@@ -42,13 +54,44 @@ export function UpgradeDialog({
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        {canAdjustSeats && subscription && (
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+            <p className="text-sm text-muted-foreground">
+              Your plan has {subscription.seats} seat
+              {subscription.seats === 1 ? `` : `s`} — add more without
+              switching plans.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => setSeatDialogOpen(true)}
+            >
+              <Users className="mr-1.5 size-3.5" />
+              Adjust seats
+            </Button>
+          </div>
+        )}
+
         <PlanComparison
-          currentPlan="free"
+          currentPlan={billingPlan?.plan ?? `free`}
           proProductId={proProductId}
           businessProductId={businessProductId}
           businessYearlyProductId={businessYearlyProductId}
           workspaceId={workspaceId}
+          subscription={subscription}
         />
+
+        {subscription && (
+          <AdjustSeatsDialog
+            workspaceId={workspaceId}
+            currentSeats={subscription.seats}
+            memberCount={billingPlan?.usage.members ?? 0}
+            periodEnd={subscription.periodEnd}
+            open={seatDialogOpen}
+            onOpenChange={setSeatDialogOpen}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )

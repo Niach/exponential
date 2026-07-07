@@ -17,6 +17,7 @@ import {
   Shield,
 } from "lucide-react"
 import { issueCollection } from "@/lib/collections"
+import { ExponentialLogo } from "@/components/exponential-logo"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -211,9 +212,11 @@ export function WorkspaceSidebar({
             </DropdownMenu>
           ) : (
             <div className="flex h-10 items-center gap-2 px-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
-                E
-              </div>
+              <ExponentialLogo
+                variant="light"
+                size={28}
+                className="shrink-0"
+              />
               <span className="text-sm font-semibold truncate">
                 Exponential
               </span>

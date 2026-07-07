@@ -5,6 +5,13 @@ import type { PlanTier } from "@/lib/billing"
 
 // Per-seat model (masterplan v5 §3.2). The only monetized axes are seats
 // (non-agent members), attachment storage, and feedback-widget configs.
+export type BillingSubscription = {
+  productId: string
+  seats: number
+  periodEnd: string | null
+  cancelAtPeriodEnd: boolean
+}
+
 export type BillingPlan = {
   plan: PlanTier
   limits: {
@@ -17,6 +24,10 @@ export type BillingPlan = {
     storageMb: number
     widgetConfigs: number
   }
+  // The workspace's active subscription, when it has one. Its presence
+  // switches the settings UI from "checkout" to "adjust seats / switch plan"
+  // (mutating the existing subscription — never a second checkout).
+  subscription: BillingSubscription | null
 }
 
 const UNLIMITED_PLAN: BillingPlan = {
@@ -27,6 +38,7 @@ const UNLIMITED_PLAN: BillingPlan = {
     widgetConfigs: Infinity,
   },
   usage: { members: 0, storageMb: 0, widgetConfigs: 0 },
+  subscription: null,
 }
 
 let isCloudCached: boolean | undefined
@@ -80,6 +92,7 @@ export function useBillingPlan(
           widgetConfigs: n(data.limits.widgetConfigs),
         },
         usage: data.usage,
+        subscription: data.subscription ?? null,
       }
       if (!cancelled) setPlan(result)
     })()

@@ -460,6 +460,14 @@ export const auth = betterAuth({
                 bindingInputFromSubscription(event)
               )
             },
+            // Seat-count changes (billing.updateSeats, or a manual edit in the
+            // Creem dashboard) arrive as subscription.update with the new
+            // item units — re-bind so our `seats` column tracks them.
+            onSubscriptionUpdate: async (event) => {
+              await bindSubscriptionToWorkspace(
+                bindingInputFromSubscription(event)
+              )
+            },
             onRevokeAccess: async ({ reason, customer }) => {
               process.stderr.write(
                 `[creem] access revoked: ${customer.email}, reason: ${reason}\n`

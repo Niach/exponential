@@ -1,5 +1,11 @@
 import { useState } from "react"
-import { ChevronDown, ChevronUp, ExternalLink, AlertTriangle } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  AlertTriangle,
+  Users,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,6 +19,7 @@ import { Progress } from "@/components/ui/progress"
 import { useBillingPlan } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
 import { PlanComparison } from "@/components/workspace/plan-comparison"
+import { AdjustSeatsDialog } from "@/components/workspace/adjust-seats-dialog"
 
 const PLAN_LABELS: Record<PlanTier, string> = {
   free: `Free`,
@@ -77,11 +84,15 @@ export function WorkspaceBillingSection({
   const billingPlan = useBillingPlan(workspaceId)
   const [portalLoading, setPortalLoading] = useState(false)
   const [showPlans, setShowPlans] = useState(false)
+  const [showSeatDialog, setShowSeatDialog] = useState(false)
 
   if (!billingPlan || billingPlan.plan === `unlimited`) return null
 
-  const { plan, limits, usage } = billingPlan
+  const { plan, limits, usage, subscription } = billingPlan
   const isPaid = plan === `pro` || plan === `business`
+  // Seat changes mutate the existing subscription (billing.updateSeats) — a
+  // second checkout would stack a second full-price subscription (pay-twice).
+  const canAdjustSeats = Boolean(subscription && !subscription.cancelAtPeriodEnd)
   // Seats are counted from non-agent members (usage.members already excludes
   // the widget's synthetic isAgent user). A full or over-provisioned workspace
   // blocks new invites (downgrade policy: existing members keep working).
@@ -122,6 +133,16 @@ export function WorkspaceBillingSection({
               <Badge variant={PLAN_BADGE_VARIANT[plan]}>
                 {PLAN_LABELS[plan]}
               </Badge>
+              {canAdjustSeats && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowSeatDialog(true)}
+                >
+                  <Users className="mr-1.5 size-3.5" />
+                  Adjust seats
+                </Button>
+              )}
               {isPaid && (
                 <Button
                   variant="outline"
@@ -171,15 +192,19 @@ export function WorkspaceBillingSection({
                   size="sm"
                   variant="outline"
                   onClick={() =>
-                    isPaid ? handlePortal() : setShowPlans(true)
+                    canAdjustSeats
+                      ? setShowSeatDialog(true)
+                      : isPaid
+                        ? handlePortal()
+                        : setShowPlans(true)
                   }
-                  disabled={isPaid && portalLoading}
+                  disabled={!canAdjustSeats && isPaid && portalLoading}
                 >
-                  {isPaid
-                    ? portalLoading
+                  {!isPaid
+                    ? `Upgrade`
+                    : !canAdjustSeats && portalLoading
                       ? `Loading...`
-                      : `Add seats`
-                    : `Upgrade`}
+                      : `Add seats`}
                 </Button>
               </div>
             </div>
@@ -194,6 +219,7 @@ export function WorkspaceBillingSection({
           proProductId={proProductId}
           businessProductId={businessProductId}
           businessYearlyProductId={businessYearlyProductId}
+          subscription={subscription}
         />
       ) : (
         <div>
@@ -218,10 +244,22 @@ export function WorkspaceBillingSection({
                 proProductId={proProductId}
                 businessProductId={businessProductId}
                 businessYearlyProductId={businessYearlyProductId}
+                subscription={subscription}
               />
             </div>
           )}
         </div>
+      )}
+
+      {subscription && (
+        <AdjustSeatsDialog
+          workspaceId={workspaceId}
+          currentSeats={subscription.seats}
+          memberCount={usage.members}
+          periodEnd={subscription.periodEnd}
+          open={showSeatDialog}
+          onOpenChange={setShowSeatDialog}
+        />
       )}
     </div>
   )

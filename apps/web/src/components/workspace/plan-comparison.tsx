@@ -1,5 +1,14 @@
 import { useId, useState } from "react"
-import { Check, CreditCard, Loader2, Minus, Plus, X } from "lucide-react"
+import {
+  ArrowRightLeft,
+  Check,
+  CreditCard,
+  Loader2,
+  Minus,
+  Plus,
+  X,
+} from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,6 +17,10 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { trpc } from "@/lib/trpc-client"
 import type { PlanTier } from "@/lib/billing"
+import {
+  invalidateBillingCache,
+  type BillingSubscription,
+} from "@/hooks/use-billing"
 import { cn } from "@/lib/utils"
 
 // Per-seat model (masterplan v5 §3.2). Projects, repositories and coding
@@ -150,6 +163,7 @@ export function PlanComparison({
   businessProductId,
   businessYearlyProductId,
   workspaceId,
+  subscription,
   onCheckout,
 }: {
   currentPlan: PlanTier
@@ -162,6 +176,11 @@ export function PlanComparison({
   // Checkout binds seats to this workspace via billing.createSeatCheckout —
   // the ONLY checkout path (no legacy unbound fallback).
   workspaceId: string
+  // The workspace's active subscription, when it has one. With a subscription
+  // present, plan changes go through billing.changePlan (mutating the existing
+  // subscription) — a second checkout would stack a second full-price
+  // subscription on top of the first (pay-twice bug).
+  subscription?: BillingSubscription | null
   onCheckout?: (productId: string, seats: number) => Promise<void>
 }) {
   const [loading, setLoading] = useState<string | null>(null)
@@ -196,6 +215,26 @@ export function PlanComparison({
     }
   }
 
+  const handleSwitchPlan = async (tier: PlanTier) => {
+    const productId = getProductId(tier)
+    if (!productId) return
+    setLoading(tier)
+    try {
+      await trpc.billing.changePlan.mutate({ workspaceId, productId })
+      invalidateBillingCache()
+      toast.success(`Plan updated`)
+    } catch (err) {
+      console.error(`[billing] plan change failed:`, err)
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : `Couldn't change the plan`
+      )
+    } finally {
+      setLoading(null)
+    }
+  }
+
   const getProductId = (tier: PlanTier): string | null => {
     if (tier === `pro`) return proProductId
     if (tier === `business`) {
@@ -210,7 +249,19 @@ export function PlanComparison({
       {TIERS.map((t) => {
         const isCurrent = t.tier === currentPlan
         const productId = getProductId(t.tier)
-        const canUpgrade = !isCurrent && t.tier !== `free` && productId !== null
+        // With an active subscription, "current" means the exact product —
+        // so a Business-monthly workspace can still switch to Business-yearly.
+        const isCurrentProduct = subscription
+          ? productId === subscription.productId
+          : isCurrent
+        const canSwitch =
+          Boolean(subscription) &&
+          !subscription?.cancelAtPeriodEnd &&
+          t.tier !== `free` &&
+          productId !== null &&
+          !isCurrentProduct
+        const canUpgrade =
+          !subscription && !isCurrent && t.tier !== `free` && productId !== null
         const showYearlyToggle =
           t.tier === `business` && Boolean(businessYearlyProductId)
 
@@ -248,7 +299,7 @@ export function PlanComparison({
                 ))}
               </div>
 
-              {(showYearlyToggle || canUpgrade) && (
+              {(showYearlyToggle || canUpgrade || canSwitch) && (
                 <div className="mt-auto space-y-2.5 border-t pt-3">
                   {showYearlyToggle && (
                     <div className="flex items-center justify-between gap-2">
@@ -286,10 +337,31 @@ export function PlanComparison({
                       </Button>
                     </>
                   )}
+
+                  {canSwitch && (
+                    <>
+                      <Button
+                        className="w-full"
+                        size="sm"
+                        onClick={() => handleSwitchPlan(t.tier)}
+                        disabled={loading !== null}
+                      >
+                        {loading === t.tier ? (
+                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                        ) : (
+                          <ArrowRightLeft className="mr-1.5 size-3.5" />
+                        )}
+                        {loading === t.tier ? `Switching...` : `Switch plan`}
+                      </Button>
+                      <p className="text-center text-[11px] leading-snug text-muted-foreground">
+                        Applies now · billed at your next renewal
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
-              {isCurrent && t.tier !== `free` && (
+              {isCurrentProduct && t.tier !== `free` && (
                 <p className="mt-auto text-center text-xs text-muted-foreground">
                   Your current plan
                 </p>
