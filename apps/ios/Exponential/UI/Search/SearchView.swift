@@ -3,8 +3,9 @@ import ExpCore
 import SwiftUI
 
 /// The Search tab: cross-project issue search over the active account's local
-/// data. The glass field mirrors the inline search that used to live in the
-/// issue list; while the query is empty the screen shows the cross-project
+/// data, augmented by a debounced server full-text search (description +
+/// comments). The glass field mirrors the inline search that used to live in
+/// the issue list; while the query is empty the screen shows the cross-project
 /// "Assigned to you" list (the former My Issues tab, folded in here).
 struct SearchView: View {
     @Environment(AppDependencies.self) private var deps
@@ -42,14 +43,21 @@ struct SearchView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear {
             if viewModel == nil {
-                viewModel = SearchViewModel(accountId: accountId, db: deps.db)
+                viewModel = SearchViewModel(accountId: accountId, db: deps.db, issuesApi: deps.issuesApi)
             }
             // Re-arm on every appear: pushing an issue detail stops the
-            // observation (onDisappear), popping back must resume it.
+            // observation (onDisappear), popping back must resume it. Same for
+            // the server search — onDisappear cancels any in-flight request.
             viewModel?.startObserving()
+            viewModel?.queryChanged(query)
         }
         .onDisappear {
             viewModel?.stopObserving()
+        }
+        .onChange(of: query) { _, newValue in
+            // Debounced + cancelled-on-keystroke inside the VM — never blocks
+            // typing; local substring results stay instant.
+            viewModel?.queryChanged(newValue)
         }
     }
 

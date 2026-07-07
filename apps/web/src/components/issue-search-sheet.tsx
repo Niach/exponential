@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { issueCollection } from "@/lib/collections"
+import { trpc } from "@/lib/trpc-client"
 import { useWorkspaceProjects } from "@/hooks/use-workspace-data"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
@@ -18,6 +19,19 @@ interface IssueSearchSheetProps {
   workspaceId: string
   workspaceSlug: string
 }
+
+// The minimal fields a result row needs to render + navigate. Local Electric
+// `Issue` rows satisfy this structurally; server FTS hits (issues.search)
+// provide exactly these fields.
+interface SearchResult {
+  id: string
+  identifier: string
+  title: string
+  projectId: string
+  status: string
+}
+
+type ServerHit = Awaited<ReturnType<typeof trpc.issues.search.query>>[number]
 
 // One search experience, two presentations: a full-screen bottom sheet on
 // mobile (reached from the topbar) and a centered dialog on desktop (reached
@@ -51,20 +65,70 @@ export function IssueSearchSheet({
     [projectIds.join(`,`)]
   )
 
+  // Server full-text search ("search everything" path): debounced ~250ms,
+  // additive on top of the instant local substring filter. Hits are keyed by
+  // the query they answered so a stale response for an earlier keystroke
+  // never leaks into the current result list. Errors are swallowed — the
+  // search box must never block on the network.
+  const [serverHits, setServerHits] = useState<{
+    query: string
+    rows: ServerHit[]
+  }>({ query: ``, rows: [] })
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (trimmed === ``) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      trpc.issues.search
+        .query({ workspaceId, query: trimmed, limit: 30 })
+        .then((rows) => {
+          if (!cancelled) setServerHits({ query: trimmed, rows })
+        })
+        .catch(() => {
+          // Fall back to local-only results on server/network errors.
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [query, workspaceId])
+
+  const localById = useMemo(
+    () => new Map<string, Issue>((issues ?? []).map((i: Issue) => [i.id, i])),
+    [issues]
+  )
+
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return [] as Issue[]
-    return (issues ?? [])
-      .filter((i: Issue) => i.title.toLowerCase().includes(q))
-      .slice(0, 30)
-  }, [issues, query])
+    const q = query.trim()
+    if (!q) return [] as SearchResult[]
+    const lower = q.toLowerCase()
+    // Fast path: instant local title-substring matches.
+    const local = (issues ?? []).filter((i: Issue) =>
+      i.title.toLowerCase().includes(lower)
+    )
+    const merged: SearchResult[] = [...local]
+    const seen = new Set(local.map((i: Issue) => i.id))
+    // Merge server FTS hits (deduped by id) once they answer the CURRENT
+    // query. Prefer the local Electric row when the id is synced locally so
+    // rows render identically; otherwise render from the server fields.
+    if (serverHits.query === q) {
+      for (const hit of serverHits.rows) {
+        if (seen.has(hit.id)) continue
+        seen.add(hit.id)
+        merged.push(localById.get(hit.id) ?? hit)
+      }
+    }
+    return merged.slice(0, 30)
+  }, [issues, query, serverHits, localById])
 
   const handleOpenChange = (o: boolean) => {
     onOpenChange(o)
     if (!o) setQuery(``)
   }
 
-  const handlePick = (issue: Issue) => {
+  const handlePick = (issue: SearchResult) => {
     const project = projectMap.get(issue.projectId)
     if (!project) return
     onOpenChange(false)

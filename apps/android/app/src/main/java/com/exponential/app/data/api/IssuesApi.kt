@@ -5,6 +5,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -53,6 +54,26 @@ data class DeleteIssueInput(val id: String)
 @Serializable
 data class IssueResult(val issue: IssueEntity)
 
+@Serializable
+data class SearchIssuesInput(
+    @SerialName("workspaceId") val workspaceId: String,
+    val query: String,
+    // Server default 20, max 50. Null omits the field (shared Json has
+    // explicitNulls=false) so the server default applies.
+    val limit: Int? = null,
+)
+
+/** One relevance-ordered hit from the server-side full-text `issues.search`. */
+@Serializable
+data class SearchIssueHit(
+    val id: String,
+    val identifier: String,
+    val title: String,
+    @SerialName("projectId") val projectId: String,
+    val status: String,
+    val priority: String,
+)
+
 @Singleton
 class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -82,6 +103,26 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = DeleteIssueInput.serializer(),
         )
     }
+
+    /**
+     * Server-side full-text search over a workspace's issues — matches title,
+     * description, AND comment text (things the local Room substring filter
+     * can't see). Requires membership of [workspaceId]; results come back
+     * relevance-ordered.
+     */
+    suspend fun search(
+        accountId: String,
+        workspaceId: String,
+        query: String,
+        limit: Int? = null,
+    ): List<SearchIssueHit> =
+        trpc.query(
+            accountId,
+            path = "issues.search",
+            input = SearchIssuesInput(workspaceId = workspaceId, query = query, limit = limit),
+            inputSerializer = SearchIssuesInput.serializer(),
+            outputSerializer = ListSerializer(SearchIssueHit.serializer()),
+        )
 
     /**
      * Mark/unmark an issue as a duplicate of a canonical issue — one atomic

@@ -258,6 +258,52 @@ pub fn merge_pr(trpc: &TrpcClient, issue_id: &str) -> Result<MergeResult, ApiErr
 }
 
 // ---------------------------------------------------------------------------
+// issues.search (EXP-3)
+// ---------------------------------------------------------------------------
+
+/// One relevance-ordered hit of `issues.search` — the server full-text pass
+/// that also matches description + comment bodies (the desktop layers it
+/// under the instant local title/identifier filter). Enums decode through
+/// the §5.5 tolerant-unknown rule so a new status value never drops a hit.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueSearchHit {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub project_id: String,
+    pub status: IssueStatus,
+    pub priority: IssuePriority,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchInput<'a> {
+    workspace_id: &'a str,
+    query: &'a str,
+    limit: u32,
+}
+
+/// `issues.search` — workspace-scoped server full-text search (title,
+/// identifier, description, comment bodies; relevance-ordered). `limit` is
+/// server-clamped to 50. Blocking; background executor only (§3.5).
+pub fn search(
+    client: &TrpcClient,
+    workspace_id: &str,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<IssueSearchHit>, ApiError> {
+    client.query_with_input(
+        "issues.search",
+        &SearchInput {
+            workspace_id,
+            query,
+            limit,
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
 // issues.prFiles (§7.8)
 // ---------------------------------------------------------------------------
 
@@ -372,6 +418,28 @@ mod tests {
         assert_eq!(out.files[0].sha.as_deref(), Some("abc123"));
         assert_eq!(out.files[0].previous_filename.as_deref(), Some("old.rs"));
         assert_eq!(out.files[1].previous_filename.as_deref(), Some("old2.rs"));
+    }
+
+    #[test]
+    fn search_sends_workspace_scoped_input_and_decodes_hits() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":[
+                {"id":"i-1","identifier":"EXP-1","title":"Fix search","projectId":"p-1","status":"todo","priority":"high"},
+                {"id":"i-2","identifier":"EXP-2","title":"Later","projectId":"p-1","status":"brand_new_state","priority":"none"}
+            ]}}"#,
+        );
+        let out = search(&client(&base), "ws-1", "descr text", 20).unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].identifier, "EXP-1");
+        assert_eq!(out[0].status, IssueStatus::Todo);
+        // Tolerant-unknown (§5.5): a new server enum value never drops the hit.
+        assert_eq!(out[1].status, IssueStatus::Unknown);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/issues.search?input="));
+        assert!(request.contains("%22workspaceId%22"));
+        assert!(request.contains("%22limit%22%3A20"));
+        assert!(request.contains("Authorization: Bearer tok-1"));
     }
 
     #[test]

@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issues, issueLabels, labels, projects } from "@/db/schema"
-import { eq, inArray } from "drizzle-orm"
+import { eq, inArray, sql } from "drizzle-orm"
 import {
   resolveWorkspaceAccess,
   assertIssueAccess,
@@ -704,6 +704,77 @@ export const issuesRouter = router({
               : `Failed to load changes from GitHub`,
         })
       }
+    }),
+
+  // Full-text issue search (EXP-3): Postgres FTS over issue title +
+  // description AND comment bodies, workspace-scoped, archived excluded,
+  // relevance-ordered. An ILIKE substring fallback keeps this a strict
+  // superset of the old title-substring search — it still matches
+  // identifiers (EXP-42) and partial words that FTS lexemes miss. All
+  // values are parameterized via drizzle `sql` interpolation. GIN
+  // expression indexes on the tsvector expressions are a future scale
+  // optimization (not needed at current volume).
+  search: authedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().uuid(),
+        query: z.string().trim().min(1),
+        limit: z.number().int().min(1).max(50).default(20),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
+
+      // Escape LIKE wildcards so the substring fallback matches literally.
+      const escaped = input.query.replace(/[%_\\]/g, (m) => `\\${m}`)
+      const like = `%${escaped}%`
+
+      const result = await ctx.db.execute(sql`
+        select
+          i.id,
+          i.identifier,
+          i.title,
+          i.project_id as "projectId",
+          i.status,
+          i.priority
+        from issues i
+        join projects p on p.id = i.project_id
+        where p.workspace_id = ${input.workspaceId}::uuid
+          and i.archived_at is null
+          and (
+            to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))
+              @@ websearch_to_tsquery('english', ${input.query})
+            or exists (
+              select 1 from comments c
+              where c.issue_id = i.id
+                and to_tsvector('english', c.body) @@ websearch_to_tsquery('english', ${input.query})
+            )
+            or i.title ilike ${like}
+            or i.identifier ilike ${like}
+            or i.description ilike ${like}
+            or exists (
+              select 1 from comments c2
+              where c2.issue_id = i.id
+                and c2.body ilike ${like}
+            )
+          )
+        order by
+          ts_rank(
+            to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, '')),
+            websearch_to_tsquery('english', ${input.query})
+          ) desc,
+          i.updated_at desc
+        limit ${input.limit}
+      `)
+
+      return result.rows.map((row) => ({
+        id: row.id as string,
+        identifier: row.identifier as string,
+        title: row.title as string,
+        projectId: row.projectId as string,
+        status: row.status as string,
+        priority: row.priority as string,
+      }))
     }),
 
   delete: authedProcedure

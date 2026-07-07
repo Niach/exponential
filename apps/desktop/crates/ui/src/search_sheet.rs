@@ -15,6 +15,13 @@
 //!
 //! [`init`] registers the App-global [`OpenSearch`] handler (the sidebar's
 //! Search row dispatches it) and the global ⌘K / Ctrl-K binding.
+//!
+//! Search is two-pass (EXP-3): the synced-collection substring filter renders
+//! instantly, then a debounced server `issues.search` (full-text over
+//! description + comment bodies too) merges in whatever the local filter
+//! missed. A failed/offline server call degrades to local-only.
+
+use std::time::Duration;
 
 use gpui::{
     div, px, App, AppContext as _, IntoElement, KeyBinding, ParentElement, SharedString, Styled,
@@ -37,6 +44,14 @@ use crate::navigation::{active_workspace_id, nav_for_window, navigate, Screen};
 
 /// Web `.slice(0, 30)` — cap the result list.
 const MAX_RESULTS: usize = 30;
+
+/// EXP-3: how long a keystroke must rest before the server full-text pass
+/// fires. The List replaces its search task per keystroke (dropping — i.e.
+/// cancelling — the previous one), so the timer doubles as the debouncer.
+const SERVER_SEARCH_DEBOUNCE: Duration = Duration::from_millis(250);
+
+/// EXP-3: server `issues.search` page size (server default 20, max 50).
+const SERVER_SEARCH_LIMIT: u32 = 20;
 
 /// Web `sm:max-w-lg` (32rem).
 const DIALOG_WIDTH: f32 = 512.;
@@ -172,6 +187,47 @@ impl IssueSearchDelegate {
             })
             .collect();
     }
+
+    /// EXP-3: append server full-text hits (description/comment matches) the
+    /// local substring filter missed, deduped by id. The synced row wins for
+    /// rendering; a hit not (yet) synced locally renders from the returned
+    /// fields — its project denormalization then resolves best-effort.
+    fn merge_server_hits(&mut self, server_hits: Vec<api::issues::IssueSearchHit>, cx: &App) {
+        let seen: std::collections::HashSet<String> = self
+            .hits
+            .iter()
+            .map(|hit| hit.issue_id.clone())
+            .collect();
+        let collections = Store::global(cx).collections();
+        let issues = collections.issues.read(cx);
+        let projects = collections.projects.read(cx);
+        for hit in server_hits {
+            if self.hits.len() >= MAX_RESULTS {
+                break;
+            }
+            if seen.contains(&hit.id) {
+                continue;
+            }
+            let (identifier, title, status, project_id) = match issues.get(&hit.id) {
+                Some(issue) => (
+                    issue.identifier.clone(),
+                    issue.title.clone(),
+                    issue.status,
+                    issue.project_id.clone(),
+                ),
+                None => (hit.identifier, hit.title, hit.status, hit.project_id),
+            };
+            let project = projects.get(&project_id);
+            self.hits.push(SearchHit {
+                issue_id: hit.id,
+                identifier,
+                title,
+                status,
+                project_name: project.map(|p| p.name.clone()),
+                project_color: project.and_then(|p| p.color.clone()),
+            });
+        }
+    }
 }
 
 impl ListDelegate for IssueSearchDelegate {
@@ -180,12 +236,57 @@ impl ListDelegate for IssueSearchDelegate {
     fn perform_search(
         &mut self,
         query: &str,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut gpui::Context<ListState<Self>>,
     ) -> Task<()> {
         self.query = query.trim().to_string();
+        // Fast path: the instant local substring filter (unchanged).
         self.search(cx);
-        Task::ready(())
+        if self.query.is_empty() {
+            return Task::ready(());
+        }
+        // Slow path (EXP-3): the debounced server full-text pass. Returning
+        // the task (not detaching) hands its lifetime to the List, which
+        // drops it on the next keystroke — that drop IS the debounce cancel.
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return Task::ready(());
+        };
+        let workspace_id = self.workspace_id.clone();
+        let query = self.query.clone();
+        cx.spawn_in(window, async move |this, window| {
+            window
+                .background_executor()
+                .timer(SERVER_SEARCH_DEBOUNCE)
+                .await;
+            let (search_workspace, search_query) = (workspace_id.clone(), query.clone());
+            let result = window
+                .background_executor()
+                .spawn(async move {
+                    api::issues::search(
+                        &trpc,
+                        &search_workspace,
+                        &search_query,
+                        SERVER_SEARCH_LIMIT,
+                    )
+                })
+                .await;
+            let hits = match result {
+                Ok(hits) => hits,
+                Err(error) => {
+                    // Local-only degradation — the substring hits already render.
+                    log::warn!("[ui] search: issues.search failed: {error}");
+                    return;
+                }
+            };
+            let _ = this.update_in(window, |list, _, cx| {
+                let delegate = list.delegate_mut();
+                if delegate.query != query {
+                    return; // stale response — the query moved on
+                }
+                delegate.merge_server_hits(hits, cx);
+                cx.notify();
+            });
+        })
     }
 
     fn items_count(&self, _section: usize, _cx: &App) -> usize {

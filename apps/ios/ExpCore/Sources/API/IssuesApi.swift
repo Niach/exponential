@@ -177,6 +177,42 @@ public struct PrFilesResult: Decodable, Sendable {
     public let files: [PrFile]
 }
 
+// MARK: - Server search (issues.search)
+
+public struct SearchIssuesInput: Encodable, Sendable {
+    public let workspaceId: String
+    public let query: String
+    /// Server default 20, max 50. Omitted from the JSON when nil.
+    public var limit: Int?
+
+    public init(workspaceId: String, query: String, limit: Int? = nil) {
+        self.workspaceId = workspaceId
+        self.query = query
+        self.limit = limit
+    }
+}
+
+/// One relevance-ordered hit from `issues.search` — a slim projection, not the
+/// full issue row. Full data comes from the local GRDB store when the id is
+/// already synced.
+public struct SearchIssueHit: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let identifier: String
+    public let title: String
+    public let projectId: String
+    public let status: String
+    public let priority: String
+
+    public init(id: String, identifier: String, title: String, projectId: String, status: String, priority: String) {
+        self.id = id
+        self.identifier = identifier
+        self.title = title
+        self.projectId = projectId
+        self.status = status
+        self.priority = priority
+    }
+}
+
 // MARK: - API
 
 public final class IssuesApi: Sendable {
@@ -204,5 +240,17 @@ public final class IssuesApi: Sendable {
     /// helper. Returns `repo == nil` / empty `files` when there's no PR yet.
     public func prFiles(accountId: String, issueId: String) async throws -> PrFilesResult {
         try await trpc.query(accountId: accountId, path: "issues.prFiles", input: PrFilesInput(issueId: issueId))
+    }
+
+    /// Server-side full-text search (title + description + comment text) over
+    /// one workspace, relevance-ordered. `issues.search` is a `.query`, so this
+    /// uses the same GET-with-input helper as `prFiles`. Requires the caller to
+    /// be a member of `workspaceId`.
+    public func search(accountId: String, workspaceId: String, query: String, limit: Int? = nil) async throws -> [SearchIssueHit] {
+        try await trpc.query(
+            accountId: accountId,
+            path: "issues.search",
+            input: SearchIssuesInput(workspaceId: workspaceId, query: query, limit: limit)
+        )
     }
 }
