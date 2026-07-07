@@ -22,6 +22,19 @@ public struct MentionMember: Identifiable, Sendable, Equatable {
     }
 }
 
+/// An issue the #-autocomplete can offer. The canonical interchange form is
+/// the plain `#IDENTIFIER` token (mirrors `MentionMember` for @mentions), so
+/// `id` is the identifier.
+public struct IssueRefCandidate: Identifiable, Sendable, Equatable {
+    public let identifier: String
+    public let title: String
+    public var id: String { identifier }
+    public init(identifier: String, title: String) {
+        self.identifier = identifier
+        self.title = title
+    }
+}
+
 /// Single source of truth for the block-based markdown editor. The editor view
 /// renders `blocks` and routes every edit through this model; markdown is
 /// *derived* (`currentMarkdown()`) only at save points, never round-tripped on
@@ -68,13 +81,25 @@ public final class IssueEditorModel {
     /// byte-identical either way.
     public var issueRefResolver: ((String) -> String?)?
 
+    /// Issue search backing the #-autocomplete (set by the host; workspace-
+    /// scoped, matching identifier + title substrings — empty query = most
+    /// recent). nil disables the #-autocomplete.
+    public var issueRefSearch: ((String) -> [IssueRefCandidate])?
+
     /// Active @-mention candidates for the focused block's caret query, recomputed
     /// on edit/selection. Empty when no mention token is being typed.
     public private(set) var mentionCandidates: [MentionMember] = []
 
+    /// Active #-issue-ref candidates for the focused block's caret query,
+    /// recomputed on edit/selection. Empty when no #-token is being typed.
+    public private(set) var issueRefCandidates: [IssueRefCandidate] = []
+
     // The @-token currently being edited: where the `@` is and how long the query
     // after it is, in the focused block.
     private var activeMention: (blockId: UUID, atOffset: Int, queryLength: Int)?
+
+    // The #-token currently being edited (mirrors `activeMention`).
+    private var activeIssueRef: (blockId: UUID, hashOffset: Int, queryLength: Int)?
 
     // An @mention at the caret: `@` preceded by start-of-text or whitespace, then
     // an email-ish run. Mirrors the web/Android regex.
@@ -82,11 +107,28 @@ public final class IssueEditorModel {
         pattern: "(?:^|\\s)@([A-Za-z0-9._%+-]*)$"
     )
 
+    // A #issue-ref at the caret: `#` preceded by start-of-text or whitespace,
+    // then an identifier-ish run. Mirrors the web `ISSUE_REF_AT_CARET`.
+    private static let issueRefAtCaretRegex = try! NSRegularExpression(
+        pattern: "(?:^|\\s)#([A-Za-z0-9-]*)$"
+    )
+
     /// If `text` (the focused block's content up to the caret) ends in an @mention
     /// token, return the query (text after `@`) and the `@` character offset.
     public static func mentionMatch(beforeCaret text: String) -> (query: String, atOffset: Int)? {
         let ns = text as NSString
         guard let m = mentionRegex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        let q = m.range(at: 1)
+        return (ns.substring(with: q), q.location - 1)
+    }
+
+    /// If `text` (the focused block's content up to the caret) ends in a #issue-ref
+    /// token, return the query (text after `#`) and the `#` character offset.
+    public static func issueRefMatch(beforeCaret text: String) -> (query: String, hashOffset: Int)? {
+        let ns = text as NSString
+        guard let m = issueRefAtCaretRegex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else {
             return nil
         }
         let q = m.range(at: 1)
@@ -192,7 +234,7 @@ public final class IssueEditorModel {
 
     public func updateSelection(blockId: UUID, range: NSRange) {
         selection = (blockId, range)
-        recomputeMention()
+        recomputeAutocomplete()
     }
 
     /// The post-mutation caret location for `id`, consumed once.
@@ -209,30 +251,38 @@ public final class IssueEditorModel {
         guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
         // No revision bump: the originating text view already holds this content.
         blocks[idx] = .text(id: id, attributedContent: content)
-        recomputeMention()
+        recomputeAutocomplete()
         notifyEdit()
     }
 
-    // MARK: - Mentions
+    // MARK: - Mentions / issue refs (autocomplete)
 
-    /// Recompute the @-mention candidates from the focused block's caret context.
-    /// Driven off the model's own `selection` + `blocks`, so no caret geometry is
-    /// needed in the text views.
-    private func recomputeMention() {
-        guard !mentionMembers.isEmpty,
-              let sel = selection,
+    /// Recompute the @-mention and #-issue-ref candidates from the focused
+    /// block's caret context. Driven off the model's own `selection` + `blocks`,
+    /// so no caret geometry is needed in the text views. The two token shapes
+    /// are mutually exclusive (each trigger must follow start-of-text or
+    /// whitespace), so at most one candidate list is non-empty.
+    private func recomputeAutocomplete() {
+        guard let sel = selection,
               let block = blocks.first(where: { $0.id == sel.blockId }),
               case let .text(_, content) = block else {
             clearMention()
+            clearIssueRef()
             return
         }
         let caret = max(0, min(sel.range.location, content.length))
         let before = (content.string as NSString).substring(to: caret)
-        guard let match = Self.mentionMatch(beforeCaret: before) else {
+        recomputeMention(blockId: sel.blockId, beforeCaret: before)
+        recomputeIssueRef(blockId: sel.blockId, beforeCaret: before)
+    }
+
+    private func recomputeMention(blockId: UUID, beforeCaret before: String) {
+        guard !mentionMembers.isEmpty,
+              let match = Self.mentionMatch(beforeCaret: before) else {
             clearMention()
             return
         }
-        activeMention = (sel.blockId, match.atOffset, match.query.count)
+        activeMention = (blockId, match.atOffset, match.query.count)
         let q = match.query.lowercased()
         mentionCandidates = mentionMembers
             .filter { q.isEmpty || $0.name.lowercased().contains(q) || $0.email.lowercased().contains(q) }
@@ -240,9 +290,24 @@ public final class IssueEditorModel {
             .map { $0 }
     }
 
+    private func recomputeIssueRef(blockId: UUID, beforeCaret before: String) {
+        guard let issueRefSearch,
+              let match = Self.issueRefMatch(beforeCaret: before) else {
+            clearIssueRef()
+            return
+        }
+        activeIssueRef = (blockId, match.hashOffset, match.query.count)
+        issueRefCandidates = issueRefSearch(match.query)
+    }
+
     private func clearMention() {
         activeMention = nil
         if !mentionCandidates.isEmpty { mentionCandidates = [] }
+    }
+
+    private func clearIssueRef() {
+        activeIssueRef = nil
+        if !issueRefCandidates.isEmpty { issueRefCandidates = [] }
     }
 
     /// Replace the active `@query` token with the canonical `@email ` form and put
@@ -270,6 +335,40 @@ public final class IssueEditorModel {
         bumpRevision(id)
         desiredSelection = (id, active.atOffset + (token as NSString).length)
         clearMention()
+        notifyEdit()
+    }
+
+    /// Replace the active `#query` token with the canonical plain `#IDENTIFIER `
+    /// interchange text and put the caret after it. The inserted token stays
+    /// plain text (never a custom node), so the markdown round-trip is
+    /// untouched; when it resolves, the block is re-decorated so the pill shows
+    /// immediately (render-only — see `issueRefResolver`).
+    public func applyIssueRef(_ candidate: IssueRefCandidate) {
+        guard let active = activeIssueRef,
+              let idx = blocks.firstIndex(where: { $0.id == active.blockId }),
+              case let .text(id, content) = blocks[idx] else {
+            clearIssueRef()
+            return
+        }
+        let token = "#\(candidate.identifier) "
+        let replaceRange = NSRange(location: active.hashOffset, length: 1 + active.queryLength)
+        guard replaceRange.location >= 0, NSMaxRange(replaceRange) <= content.length else {
+            clearIssueRef()
+            return
+        }
+        let mutable = NSMutableAttributedString(attributedString: content)
+        mutable.replaceCharacters(
+            in: replaceRange,
+            with: NSAttributedString(string: token, attributes: MarkdownStyle.baseAttributes)
+        )
+        var next: NSAttributedString = mutable
+        if let issueRefResolver {
+            next = IssueRefs.decorate(mutable, resolver: issueRefResolver)
+        }
+        blocks[idx] = .text(id: id, attributedContent: next)
+        bumpRevision(id)
+        desiredSelection = (id, active.hashOffset + (token as NSString).length)
+        clearIssueRef()
         notifyEdit()
     }
 

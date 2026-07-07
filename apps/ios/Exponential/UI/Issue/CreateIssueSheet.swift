@@ -197,6 +197,7 @@ struct CreateIssueSheet: View {
             }
             .onAppear {
                 titleFocused = true
+                configureEditor()
                 Task {
                     guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
                     if let loaded = try? await pool.read({ db in
@@ -368,6 +369,7 @@ struct CreateIssueSheet: View {
             if createMore {
                 title = ""
                 editor = IssueEditorModel()
+                configureEditor()
                 titleFocused = true
             } else {
                 dismiss()
@@ -377,6 +379,18 @@ struct CreateIssueSheet: View {
             self.error = error.localizedDescription
         }
         loading = false
+    }
+
+    /// `#IDENTIFIER` refs resolve/search against the target project's workspace:
+    /// pills for refs that resolve locally, and a #-autocomplete inserting the
+    /// plain interchange token. Re-applied when "Create more" resets the model.
+    private func configureEditor() {
+        editor.issueRefResolver = { identifier in
+            IssueRefLookup.resolve(identifier, scope: .project(id: projectId), db: deps.db, accountId: accountId)
+        }
+        editor.issueRefSearch = { query in
+            IssueRefLookup.search(query, scope: .project(id: projectId), db: deps.db, accountId: accountId)
+        }
     }
 
     private var instanceBaseURL: URL? {

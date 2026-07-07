@@ -69,19 +69,24 @@ final class IssueDetailViewModel {
         editor.issueRefResolver = { [weak self] identifier in
             self?.resolveIssueRef(identifier)
         }
+        // Typing `#` offers same-workspace issues; selecting one inserts the
+        // plain `#IDENTIFIER` interchange token.
+        editor.issueRefSearch = { [weak self] query in
+            self?.searchIssueRefs(query) ?? []
+        }
     }
 
-    /// identifier (e.g. `VER-12`) → local issue id, from the synced GRDB store.
-    /// Synchronous indexed-ish lookup; nil when unknown (token stays plain).
+    /// identifier (e.g. `VER-12`) → local issue id, from the synced GRDB store
+    /// (same workspace only). Synchronous lookup; nil when unknown (token
+    /// stays plain).
     func resolveIssueRef(_ identifier: String) -> String? {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
-        return (try? pool.read { db in
-            try String.fetchOne(
-                db,
-                sql: "SELECT id FROM issues WHERE upper(identifier) = ? AND archived_at IS NULL",
-                arguments: [identifier]
-            )
-        }) ?? nil
+        IssueRefLookup.resolve(identifier, scope: .issue(id: issueId), db: db, accountId: accountId)
+    }
+
+    /// Issues offered by the description editor's #-autocomplete
+    /// (workspace-scoped; identifier + title substring match).
+    func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
+        IssueRefLookup.search(query, scope: .issue(id: issueId), db: db, accountId: accountId)
     }
 
     func startObserving() {

@@ -76,7 +76,13 @@ struct MarkdownEditor: View {
                 .padding(.top, 12)
         }
         .overlay(alignment: .top) {
-            if !model.mentionCandidates.isEmpty { mentionBar }
+            // The two token shapes are mutually exclusive, so at most one bar
+            // has candidates at a time.
+            if !model.mentionCandidates.isEmpty {
+                mentionBar
+            } else if !model.issueRefCandidates.isEmpty {
+                issueRefBar
+            }
         }
         .onChange(of: mentionMembers) { _, newValue in model.mentionMembers = newValue }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
@@ -116,6 +122,38 @@ struct MarkdownEditor: View {
                         VStack(alignment: .leading, spacing: 0) {
                             Text(member.name).font(.caption.weight(.medium)).foregroundStyle(.white)
                             Text(member.email).font(.caption2).foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.white.opacity(0.1), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+        }
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 8)
+    }
+
+    // #-issue-ref autocomplete: the same non-focus-stealing candidate bar as
+    // mentions. Tapping inserts the plain `#IDENTIFIER` interchange token via
+    // the model, so the keyboard never collapses and the markdown stays plain.
+    private var issueRefBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(model.issueRefCandidates) { candidate in
+                    Button {
+                        model.applyIssueRef(candidate)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(candidate.identifier).font(.caption.weight(.medium)).foregroundStyle(.white)
+                            Text(candidate.title)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .lineLimit(1)
+                                .frame(maxWidth: 160, alignment: .leading)
                         }
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Color.white.opacity(0.1), in: Capsule())

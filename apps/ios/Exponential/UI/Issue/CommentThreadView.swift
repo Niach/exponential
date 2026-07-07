@@ -88,7 +88,8 @@ struct CommentThreadView: View {
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                     accountId: accountId,
                     httpClient: deps.httpClient,
-                    mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+                    mentionMembers: users.values.filter { !$0.isAgent }.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+                    onIssueRefTap: { issueId in deps.deepLinkBus.navigateToIssue(issueId) }
                 )
                 .frame(minHeight: 44, maxHeight: 140)
 
@@ -118,7 +119,7 @@ struct CommentThreadView: View {
         .padding(.vertical, 8)
         .onAppear {
             startObserving()
-            composerEditor.onEdit = { composerHasText = !composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            configureComposer()
         }
         .onDisappear { observationTask?.cancel() }
     }
@@ -141,8 +142,12 @@ struct CommentThreadView: View {
             onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
             onEdit: {
                 // Fresh model per edit, seeded from the comment's markdown — the
-                // same rich block editor as the composer (images, mentions, lists).
+                // same rich block editor as the composer (images, mentions,
+                // lists, #issue-ref pills). Resolver/search set BEFORE load so
+                // existing refs decorate on seed.
                 let editor = IssueEditorModel()
+                editor.issueRefResolver = { resolveIssueRef($0) }
+                editor.issueRefSearch = { searchIssueRefs($0) }
                 editor.load(
                     markdown: getCommentBodyText(comment.body),
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
@@ -196,22 +201,28 @@ struct CommentThreadView: View {
     }
 
     /// identifier (e.g. `VER-12`) → local issue id for inline `#IDENTIFIER`
-    /// pills in comment bodies (render-only; unresolved refs stay plain text).
+    /// pills in comment bodies (render-only, same workspace only; unresolved
+    /// refs stay plain text).
     private func resolveIssueRef(_ identifier: String) -> String? {
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return nil }
-        return (try? pool.read { db in
-            try String.fetchOne(
-                db,
-                sql: "SELECT id FROM issues WHERE upper(identifier) = ? AND archived_at IS NULL",
-                arguments: [identifier]
-            )
-        }) ?? nil
+        IssueRefLookup.resolve(identifier, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
+    }
+
+    /// Issues offered by the comment editors' #-autocomplete (workspace-scoped;
+    /// identifier + title substring match).
+    private func searchIssueRefs(_ query: String) -> [IssueRefCandidate] {
+        IssueRefLookup.search(query, scope: .issue(id: issue.id), db: deps.db, accountId: accountId)
     }
 
     private func resetComposer() {
         composerEditor = IssueEditorModel()
         composerHasText = false
+        configureComposer()
+    }
+
+    private func configureComposer() {
         composerEditor.onEdit = { composerHasText = !composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        composerEditor.issueRefResolver = { resolveIssueRef($0) }
+        composerEditor.issueRefSearch = { searchIssueRefs($0) }
     }
 
     private func startObserving() {
@@ -342,14 +353,15 @@ private struct RegularCommentRow: View {
 
                 if isEditing {
                     // The same rich block editor as the composer — formatting,
-                    // images, and @mentions all work in edit mode too.
+                    // images, @mentions, and #issue-refs all work in edit mode too.
                     MarkdownEditor(
                         model: editEditor,
                         placeholder: "Edit comment…",
                         baseURL: baseURL,
                         accountId: accountId,
                         httpClient: httpClient,
-                        mentionMembers: mentionMembers
+                        mentionMembers: mentionMembers,
+                        onIssueRefTap: { issueId in onOpenIssue(issueId) }
                     )
                     .frame(minHeight: 60, maxHeight: 220)
                     .padding(.vertical, 2)
