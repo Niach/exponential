@@ -12,9 +12,10 @@ import { LINKS } from "./lib/links"
 
 const SECTIONS: DocsSectionType[] = [
   { id: `installation`, num: `01`, label: `Installation` },
-  { id: `push`, num: `02`, label: `Push notifications` },
-  { id: `environment`, num: `03`, label: `Environment variables` },
-  { id: `updating`, num: `04`, label: `Updating` },
+  { id: `github-app`, num: `02`, label: `GitHub App` },
+  { id: `push`, num: `03`, label: `Push notifications` },
+  { id: `environment`, num: `04`, label: `Environment variables` },
+  { id: `updating`, num: `05`, label: `Updating` },
 ]
 
 export function SelfHostDocsPage() {
@@ -84,11 +85,14 @@ GOOGLE_LOGIN_ENABLED=true
 
           <h3>3. Bring the stack up</h3>
           <p>
-            <code>storage:init</code> prints the S3 keys you&apos;ll need in
-            the next step.
+            <code>Caddyfile</code> is gitignored but the compose file
+            bind-mounts it, so copy the example first — it ships the long-poll
+            timeouts Electric needs. <code>storage:init</code> prints the S3
+            keys you&apos;ll need in the next step.
           </p>
           <DocsCode language="shell">{`
 bun install
+cp Caddyfile.example Caddyfile
 bun run backend:up
 bun run storage:init
 `}</DocsCode>
@@ -119,80 +123,168 @@ bun dev
 
           <DocsCallout kind="note" title="Projects need a GitHub App">
             Every project is backed by a GitHub repository, so creating
-            projects requires a configured GitHub App — see the{` `}
-            <code>GITHUB_APP_*</code> variables below.
+            projects requires a configured GitHub App — the next section
+            walks through creating one.
           </DocsCallout>
 
           <h3>Connect the apps</h3>
           <p>
-            All native clients — iOS, Android, macOS, Linux — work with
-            self-hosted instances: on first launch, enter your instance URL
-            instead of <code>app.exponential.at</code> and sign in.
+            All native clients — iOS, Android, macOS, Windows, Linux — work
+            with self-hosted instances: on first launch, enter your instance
+            URL instead of <code>app.exponential.at</code> and sign in.
           </p>
 
           <h3>Going live</h3>
           <p>
-            Build the web image with the root <code>Dockerfile</code> and put
-            it behind Caddy — <code>Caddyfile.example</code> ships with the
-            long-poll timeouts Electric needs.
+            Build the web image with the root <code>Dockerfile</code> and run
+            it behind the Caddy from step 3 — the <code>Caddyfile</code> you
+            copied proxies <code>host.docker.internal:5173</code>, so serve
+            the app on port 5173:
           </p>
           <DocsCode language="shell">{`
 docker build -f Dockerfile -t exponential-web:latest .
+docker run -d --name exponential-web \\
+  --network host \\
+  --env-file .env \\
+  -e PORT=5173 \\
+  -e AUTH_SIGNUP_ENABLED=true \\
+  exponential-web:latest
 `}</DocsCode>
+          <p>
+            The image applies pending migrations on boot and listens on{` `}
+            <code>PORT</code>; <code>--network host</code> keeps the{` `}
+            <code>localhost</code> URLs in your <code>.env</code> working from
+            inside the container.
+          </p>
+          <DocsCallout kind="warn" title="Sign-up is off in production by default">
+            The production image runs with <code>NODE_ENV=production</code>,
+            which disables password registration unless{` `}
+            <code>AUTH_SIGNUP_ENABLED=true</code> is set — without it (or an
+            OAuth/OIDC provider) nobody can register on your instance. Drop
+            the flag later to close public sign-up again.
+          </DocsCallout>
         </DocsSection>
 
-        {/* ── 02 Push notifications ── */}
-        <DocsSection id="push" num="02" label="Push notifications">
+        {/* ── 02 GitHub App ── */}
+        <DocsSection id="github-app" num="02" label="GitHub App">
+          <h2>GitHub App</h2>
+          <p>
+            Every project is backed by exactly one GitHub repository, so a
+            GitHub App is a <strong>hard prerequisite</strong> for creating
+            projects. The server uses it to mint short-lived per-repo
+            installation tokens — no personal access tokens, no stored user
+            OAuth tokens.
+          </p>
+
+          <h3>1. Create the App</h3>
+          <p>
+            Go to{` `}
+            <a href="https://github.com/settings/apps/new">
+              github.com/settings/apps/new
+            </a>{` `}
+            (or your org&apos;s equivalent). Set the homepage URL to your
+            instance and the <strong>Setup URL</strong> to{` `}
+            <code>{`\${BETTER_AUTH_URL}/api/integrations/github/setup`}</code>{` `}
+            — GitHub redirects there after each install.
+          </p>
+
+          <h3>2. Permissions &amp; events</h3>
+          <p>
+            Repository permissions: <strong>Contents — Read &amp; write</strong>{` `}
+            and <strong>Pull requests — Read &amp; write</strong> (Metadata —
+            Read is added automatically). Subscribe to the{` `}
+            <strong>Installation</strong> and <strong>Pull request</strong>{` `}
+            webhook events; the webhook URL is{` `}
+            <code>{`\${BETTER_AUTH_URL}/api/webhooks/github`}</code> with a
+            secret of your choosing (goes into{` `}
+            <code>GITHUB_WEBHOOK_SECRET</code>).
+          </p>
+          <DocsCallout kind="note" title="Server behind NAT?">
+            If GitHub can&apos;t reach your webhook URL, set{` `}
+            <code>GITHUB_POLLING=true</code> instead — the server polls for PR
+            merges rather than waiting for webhooks.
+          </DocsCallout>
+
+          <h3>3. Wire the env vars</h3>
+          <p>
+            Generate a private key on the App page, then base64-encode it into
+            a single line:
+          </p>
+          <DocsCode language="shell">{`
+base64 -w0 your-app.private-key.pem   # macOS: base64 -i your-app.private-key.pem
+`}</DocsCode>
+          <DocsCode language="env">{`
+GITHUB_APP_ID=123456                  # the App's numeric ID
+GITHUB_APP_SLUG=your-app-slug         # from the App's URL — builds the install link
+GITHUB_APP_PRIVATE_KEY=<base64 PEM>
+GITHUB_WEBHOOK_SECRET=<webhook secret>
+`}</DocsCode>
+
+          <h3>4. Install it</h3>
+          <p>
+            Restart the app, then connect a repository from{` `}
+            <strong>workspace settings → Repositories</strong> — the connect
+            dialog sends you to the App&apos;s install page on GitHub and
+            picks up the installation when you land back.
+          </p>
+        </DocsSection>
+
+        {/* ── 03 Push notifications ── */}
+        <DocsSection id="push" num="03" label="Push notifications">
           <h2>Push notifications</h2>
           <p>
             Native push goes through a small companion service, the{` `}
             <strong>push-relay</strong>, that wraps Firebase Cloud Messaging.
           </p>
 
-          <h3>Use the public relay</h3>
           <p>
-            The official mobile builds talk to the public relay at{` `}
-            <code>https://push.exponential.at</code>. Point your deployment at
-            it and you&apos;re done — no Firebase project, no extra container.
+            A relay authenticates senders: when its{` `}
+            <code>PUSH_RELAY_SECRET</code> is set, it rejects any{` `}
+            <code>/send</code> request whose <code>x-relay-secret</code> header
+            doesn&apos;t match. The public relay at{` `}
+            <code>https://push.exponential.at</code> serves the official cloud
+            and mobile builds and its secret is not published — a self-hosted
+            instance pointing at it gets <code>401</code>s, so run your own.
           </p>
-          <DocsCode language="env">{`
-PUSH_RELAY_URL=https://push.exponential.at
-`}</DocsCode>
-          <DocsCallout kind="note" title="What the public relay sees">
-            The FCM device token, the notification title/body, and the data
-            payload (typically an issue ID). Never your database, auth state,
-            or credentials.
-          </DocsCallout>
 
-          <h3>Or run your own</h3>
+          <h3>Run your own relay</h3>
           <p>
-            Host the relay yourself with your own Firebase project — you&apos;ll
-            also need to build the mobile apps with your own FCM credentials,
-            since the published binaries are wired to the public relay.
+            Host the relay with your own Firebase project — you&apos;ll also
+            need to build the mobile apps with your own FCM credentials, since
+            the published binaries are wired to the public relay.
           </p>
           <DocsCode language="shell">{`
 docker build -f Dockerfile.push-relay -t push-relay:latest .
 docker run -d \\
   -p 4001:4001 \\
   -e FIREBASE_SERVICE_ACCOUNT_JSON='<single-line JSON>' \\
+  -e PUSH_RELAY_SECRET='<shared secret>' \\
   push-relay:latest
 
 # verify
 curl https://push.yourapp.com/healthz   # => {"ok":true}
 `}</DocsCode>
+          <p>Then point the web app at it with the same secret:</p>
           <DocsCode language="env">{`
 PUSH_RELAY_URL=https://push.yourapp.com
+PUSH_RELAY_SECRET=<shared secret>
 `}</DocsCode>
-          <DocsCallout kind="warn" title="Open by default">
-            The reference relay leaves <code>/send</code> unauthenticated. If
-            you expose it publicly, restrict it by network policy or re-add
-            the bearer-token middleware in{` `}
-            <code>apps/push-relay/src/index.ts</code>.
+          <DocsCallout kind="warn" title="Set the secret on both sides">
+            Without <code>PUSH_RELAY_SECRET</code> the relay accepts
+            unauthenticated <code>/send</code> requests — fine on a private
+            network, not on the open internet. Set the same value on the relay
+            process and the web app; the web app sends it as the{` `}
+            <code>x-relay-secret</code> header.
+          </DocsCallout>
+          <DocsCallout kind="note" title="What a relay sees">
+            The FCM device token, the notification title/body, and the data
+            payload (typically an issue ID). Never your database, auth state,
+            or credentials.
           </DocsCallout>
         </DocsSection>
 
-        {/* ── 03 Environment variables ── */}
-        <DocsSection id="environment" num="03" label="Environment variables">
+        {/* ── 04 Environment variables ── */}
+        <DocsSection id="environment" num="04" label="Environment variables">
           <h2>Environment variables</h2>
           <p>
             Only three are strictly required — the rest have sensible
@@ -232,6 +324,15 @@ PUSH_RELAY_URL=https://push.yourapp.com
             <EnvVar name="AUTH_PASSWORD_ENABLED">
               Enable email/password login (default: <code>true</code>).
             </EnvVar>
+            <EnvVar name="AUTH_SIGNUP_ENABLED">
+              Allow public password sign-up. Defaults to on in dev but{` `}
+              <strong>off</strong> when <code>NODE_ENV=production</code> — set{` `}
+              <code>true</code> or nobody can register on your instance.
+            </EnvVar>
+            <EnvVar name="INITIAL_ADMIN_EMAILS">
+              Comma-separated emails auto-promoted to instance admin at
+              startup.
+            </EnvVar>
             <EnvVar name="OIDC_PROVIDERS">
               JSON array of OIDC provider configs.
             </EnvVar>
@@ -262,11 +363,24 @@ PUSH_RELAY_URL=https://push.yourapp.com
             <EnvVar name="PUSH_RELAY_URL">
               Push notification relay URL.
             </EnvVar>
+            <EnvVar name="PUSH_RELAY_SECRET">
+              Shared secret between the web app and the relay (sent as the{` `}
+              <code>x-relay-secret</code> header) — must match the relay
+              process&apos;s env.
+            </EnvVar>
+            <EnvVar name="FEEDBACK_WIDGET_SCRIPT_URL">
+              Loader URL of the cloud feedback widget — powers the in-app
+              &quot;Send feedback&quot; button on self-hosted instances.
+            </EnvVar>
+            <EnvVar name="FEEDBACK_WIDGET_KEY">
+              <code>expw_</code> key of the cloud feedback widget config
+              (pairs with the script URL above).
+            </EnvVar>
           </dl>
         </DocsSection>
 
-        {/* ── 04 Updating ── */}
-        <DocsSection id="updating" num="04" label="Updating">
+        {/* ── 05 Updating ── */}
+        <DocsSection id="updating" num="05" label="Updating">
           <h2>Updating</h2>
           <p>
             Exponential rolls forward on <code>master</code>. To update:
@@ -291,8 +405,15 @@ docker exec -i exponential-postgres-1 \\
 `}</DocsCode>
 
           <h3>4. Restart</h3>
+          <p>
+            The compose command restarts the backend services (Postgres,
+            Electric, Garage, Caddy); the web app is a separate container, so
+            recreate it from the freshly built image.
+          </p>
           <DocsCode language="shell">{`
 docker compose down && docker compose up -d
+docker rm -f exponential-web
+# then re-run the \`docker run\` from "Going live"
 `}</DocsCode>
 
           <DocsCallout kind="warn" title="Migrations first">

@@ -43,6 +43,7 @@ packages/
 git clone https://github.com/Niach/exponential
 cd exponential
 cp .env.example .env             # set BETTER_AUTH_SECRET + GitHub App creds
+cp Caddyfile.example Caddyfile   # gitignored — compose bind-mounts it
 openssl rand -hex 32 > infra/garage/secrets/rpc_secret
 openssl rand -base64 32 > infra/garage/secrets/admin_token
 docker compose up -d             # postgres, electric, garage, caddy
@@ -54,6 +55,15 @@ bun dev
 ```
 
 App at `https://localhost:3000` (Caddy proxies for HTTP/2). A **GitHub App is required to create projects** (every project is a repository) — set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`; see [`.env.example`](./.env.example) for these and everything else (OIDC, Google login, SMTP/Resend, push, steer). Full guide: [self-host docs](https://exponential.at/docs/self-host/).
+
+For production, build the web image and run it instead of `bun dev` — note that with `NODE_ENV=production`, password sign-up is **disabled by default**, so opt in (or configure an OAuth/OIDC provider):
+
+```sh
+docker build -t exponential-web .
+docker run -d --name exponential-web --network host \
+  --env-file .env -e PORT=5173 -e AUTH_SIGNUP_ENABLED=true \
+  exponential-web   # Caddy proxies host port 5173; migrations run on boot
+```
 
 ## Development
 
