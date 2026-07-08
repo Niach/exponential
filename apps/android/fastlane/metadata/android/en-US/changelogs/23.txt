@@ -1,0 +1,4 @@
+• Faster GitHub connect: a one-tap authorization replaces the install page
+• GitHub accounts now connect per workspace — each workspace sees exactly its own repositories
+• Repo pickers list every repository, not just the first 100
+• Clear "no access" warnings when the GitHub App loses a repository
