@@ -1,5 +1,4 @@
-• Sign in with Apple
-• Reference other issues with #ABC-12 autocomplete in descriptions and comments
-• Join the public feedback board right in the app
-• Delete your account from Settings
-• Fixed password sign-in against self-hosted instances
+• Project types: choose Dev (repo-backed), Tasks, or Feedback when creating a project — a GitHub repo is now only needed for Dev projects
+• Public feedback boards: feedback projects can be shared publicly, with owner-controlled privacy toggles
+• Share buttons on projects and issues
+• Type-aware project icons and creation flow
