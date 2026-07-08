@@ -1,0 +1,4 @@
+• Share issues and boards straight from the app
+• New board types: dev boards, task boards, and public feedback boards — task and feedback boards need no GitHub repo
+• Pick your board type during onboarding and project creation
+• Board-type icons in the project switcher
