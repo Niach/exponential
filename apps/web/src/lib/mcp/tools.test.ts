@@ -131,6 +131,7 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 }))
 
 import { registerExponentialTools } from "@/lib/mcp/tools"
+import { FULL_ACCESS } from "@/lib/mcp/scope"
 import type { McpUser } from "@/lib/mcp/server"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
@@ -166,7 +167,8 @@ function collectTools(): Map<string, ToolHandler> {
   registerExponentialTools(
     fakeServer as never,
     USER,
-    new Request(`https://x.test/api/mcp`)
+    new Request(`https://x.test/api/mcp`),
+    FULL_ACCESS
   )
   return tools
 }

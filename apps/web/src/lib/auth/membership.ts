@@ -288,6 +288,7 @@ export async function getAttachmentWorkspaceContext(attachmentId: string) {
       commentId: attachments.commentId,
       storageKey: attachments.storageKey,
       workspaceId: projects.workspaceId,
+      projectId: issues.projectId,
       contentType: attachments.contentType,
       filename: attachments.filename,
       sizeBytes: attachments.sizeBytes,

@@ -397,6 +397,10 @@ export const auth = betterAuth({
       // proactively).
       oidcConfig: {
         loginPage: `/auth/login`,
+        // Scope-selection consent screen (workspace/project multi-select →
+        // mcp_grants). The /api/auth/$ route forces prompt=consent on every
+        // mcp/authorize request so no client skips it.
+        consentPage: `/auth/consent`,
         accessTokenExpiresIn: 60 * 60 * 24,
         refreshTokenExpiresIn: 60 * 60 * 24 * 90,
       },

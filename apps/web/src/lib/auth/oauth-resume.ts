@@ -13,6 +13,13 @@ export function captureOAuthResumeUrl(): string | null {
   if (typeof window === `undefined`) return null
   const params = new URLSearchParams(window.location.search)
   if (!params.has(`client_id`) || !params.has(`response_type`)) return null
+  // The mcp plugin also parked the query in an `oidc_login_prompt` cookie so
+  // its after-hook can finish the flow right on the sign-in response. That
+  // hook would turn the sign-in FETCH into a redirect to the client's
+  // http://localhost callback — which browsers block as mixed content on
+  // https, stranding the user. We resume via top-level navigation instead,
+  // so drop the cookie (it's ours to read: not HttpOnly, path=/).
+  document.cookie = `oidc_login_prompt=; Max-Age=0; path=/`
   params.delete(`redirect`)
   return `/api/auth/mcp/authorize?${params.toString()}`
 }

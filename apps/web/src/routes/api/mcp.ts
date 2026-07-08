@@ -6,6 +6,11 @@ import { users } from "@/db/auth-schema"
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
+import {
+  FULL_ACCESS,
+  resolveMcpTokenAccess,
+  type McpAccess,
+} from "@/lib/mcp/scope"
 
 const methodNotAllowed = () =>
   new Response(
@@ -20,13 +25,29 @@ const methodNotAllowed = () =>
     }
   )
 
-async function handle(request: Request) {
-  // Accepts human MCP clients' OAuth2 access tokens, personal `expu_` api keys,
-  // session cookies, and bearer session tokens — all via the shared
-  // resolveSession chokepoint.
-  const userId = await resolveSessionUserId(request)
+// Session cookies, bearer session tokens, and personal `expu_` api keys are
+// the user's own credentials → full membership access. OAuth2 access tokens
+// (human MCP clients like Claude) resolve through their consent grant and are
+// confined to the workspaces/projects selected on the consent screen.
+async function resolveMcpRequest(
+  request: Request
+): Promise<{ userId: string; access: McpAccess } | null> {
+  const sessionUserId = await resolveSessionUserId(request)
+  if (sessionUserId) return { userId: sessionUserId, access: FULL_ACCESS }
 
-  if (!userId) {
+  const authz = request.headers.get(`authorization`)
+  const bearer = authz?.match(/^Bearer\s+(.+)$/i)?.[1]
+  if (!bearer) return null
+
+  const token = await resolveMcpTokenAccess(bearer)
+  if (!token) return null
+  return { userId: token.userId, access: token.access }
+}
+
+async function handle(request: Request) {
+  const resolved = await resolveMcpRequest(request)
+
+  if (!resolved) {
     const baseURL = process.env.BETTER_AUTH_URL?.replace(/\/$/, ``) ?? ``
     const wwwAuthenticate = baseURL
       ? `Bearer resource_metadata="${baseURL}/api/auth/.well-known/oauth-protected-resource"`
@@ -55,14 +76,14 @@ async function handle(request: Request) {
   const [user] = await db
     .select()
     .from(users)
-    .where(eq(users.id, userId))
+    .where(eq(users.id, resolved.userId))
     .limit(1)
 
   if (!user) {
     return jsonResponse(401, { error: `User not found for token` })
   }
 
-  const server = createExponentialMcpServer(user, request)
+  const server = createExponentialMcpServer(user, request, resolved.access)
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

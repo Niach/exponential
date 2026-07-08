@@ -49,7 +49,7 @@ import {
 } from "./domain"
 
 export * from "./auth-schema"
-import { users } from "./auth-schema"
+import { users, oauthApplications } from "./auth-schema"
 
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({
   zodInstance: z,
@@ -801,6 +801,38 @@ export const widgetSubmissions = pgTable(
   ]
 )
 
+// What an OAuth-authenticated MCP client may touch (SERVER-ONLY, written by
+// the /auth/consent page). One row per (user, oauth client); re-consenting
+// replaces the selection. `workspaceIds` grants whole workspaces (including
+// projects created later); `projectIds` grants individual projects. A token
+// whose (user, client) pair has NO row gets no access — the holder must
+// re-authenticate through the consent page. Session-cookie and personal
+// api-key access to /api/mcp is never grant-scoped (the user's own
+// credentials keep full membership access).
+export const mcpGrants = pgTable(
+  `mcp_grants`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    clientId: text(`client_id`)
+      .notNull()
+      .references(() => oauthApplications.clientId, { onDelete: `cascade` }),
+    allWorkspaces: boolean(`all_workspaces`).notNull().default(false),
+    workspaceIds: jsonb(`workspace_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    projectIds: jsonb(`project_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    ...timestamps,
+  },
+  (table) => [unique().on(table.userId, table.clientId)]
+)
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -931,3 +963,4 @@ export type UserNotificationPrefs = InferSelectModel<
 export type EmailDelivery = InferSelectModel<typeof emailDeliveries>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
+export type McpGrant = InferSelectModel<typeof mcpGrants>

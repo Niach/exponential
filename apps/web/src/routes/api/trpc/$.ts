@@ -25,6 +25,7 @@ import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
 import { notificationsRouter } from "@/lib/trpc/notifications"
 import { widgetsRouter } from "@/lib/trpc/widgets"
 import { publicBoardRouter } from "@/lib/trpc/public-board"
+import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 
 export const appRouter = router({
   publicBoard: publicBoardRouter,
@@ -49,6 +50,7 @@ export const appRouter = router({
   subscriptions: subscriptionsRouter,
   notifications: notificationsRouter,
   widgets: widgetsRouter,
+  mcpGrants: mcpGrantsRouter,
 })
 
 export type AppRouter = typeof appRouter

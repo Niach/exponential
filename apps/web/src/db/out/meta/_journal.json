@@ -57,6 +57,13 @@
       "when": 1783511537502,
       "tag": "0007_mysterious_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783520088176,
+      "tag": "0008_icy_meltdown",
+      "breakpoints": true
     }
   ]
 }

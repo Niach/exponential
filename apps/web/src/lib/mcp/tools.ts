@@ -10,7 +10,9 @@ import {
   labels,
   notifications,
   projects,
+  runConfigs,
   users,
+  workspaceInvites,
   workspaceMembers,
   workspaces,
 } from "@/db/schema"
@@ -44,6 +46,16 @@ import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { err, ok } from "./helpers"
 import type { McpUser } from "./server"
+import {
+  assertFullAccess,
+  assertProjectGranted,
+  assertWorkspaceFullyGranted,
+  assertWorkspaceVisible,
+  filterVisibleWorkspaceIds,
+  isProjectGranted,
+  isWorkspaceVisible,
+  type McpAccess,
+} from "./scope"
 
 function buildCtx(user: McpUser, request: Request): Context {
   const now = new Date()
@@ -81,22 +93,26 @@ function caller(user: McpUser, request: Request) {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// Resolve a UUID or human identifier ("MET-12") to an issue UUID, scoped to the
-// user's accessible workspaces. The workspace-level access check still runs in
-// the caller — this only maps the friendly identifier the coding agent knows to
-// the row id. Identifiers are stored uppercase; the lookup is case-insensitive.
+// Resolve a UUID or human identifier ("MET-12") to an issue UUID, scoped to
+// the user's accessible workspaces intersected with the connection's grant.
+// The workspace-level access check still runs in the caller — this only maps
+// the friendly identifier the coding agent knows to the row id. Identifiers
+// are stored uppercase; the lookup is case-insensitive.
 async function resolveIssueId(
   idOrIdentifier: string,
-  userId: string
+  userId: string,
+  access: McpAccess
 ): Promise<string> {
   if (UUID_RE.test(idOrIdentifier)) return idOrIdentifier
   const workspaceIds = await getUserWorkspaceIds(userId)
   if (workspaceIds.length > 0) {
     const projectRows = await db
-      .select({ id: projects.id })
+      .select({ id: projects.id, workspaceId: projects.workspaceId })
       .from(projects)
       .where(inArray(projects.workspaceId, workspaceIds))
-    const projectIds = projectRows.map((r) => r.id)
+    const projectIds = projectRows
+      .filter((r) => isProjectGranted(access, r.id, r.workspaceId))
+      .map((r) => r.id)
     if (projectIds.length > 0) {
       const [row] = await db
         .select({ id: issues.id })
@@ -114,6 +130,32 @@ async function resolveIssueId(
   throw new Error(`Issue not found: ${idOrIdentifier}`)
 }
 
+// Comment id → its issue's workspace/project context, for grant checks on
+// comment edit/delete (authorship itself is enforced in the comments router).
+async function getCommentIssueContext(commentId: string) {
+  const [row] = await db
+    .select({ issueId: comments.issueId })
+    .from(comments)
+    .where(eq(comments.id, commentId))
+    .limit(1)
+  if (!row) throw new Error(`Comment not found`)
+  return getIssueWorkspaceContext(row.issueId)
+}
+
+// Run-config id → its project/workspace, for grant checks on update/delete.
+async function getRunConfigContext(id: string) {
+  const [row] = await db
+    .select({
+      projectId: runConfigs.projectId,
+      workspaceId: runConfigs.workspaceId,
+    })
+    .from(runConfigs)
+    .where(eq(runConfigs.id, id))
+    .limit(1)
+  if (!row) throw new Error(`Run config not found`)
+  return row
+}
+
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
 const recurrenceUnitEnumSchema = z.enum(recurrenceUnitValues)
@@ -124,7 +166,8 @@ const dateOnly = z
 export function registerExponentialTools(
   server: McpServer,
   user: McpUser,
-  request: Request
+  request: Request,
+  access: McpAccess
 ) {
   // -----------------------------------------------------------------------
   // Workspaces
@@ -159,7 +202,7 @@ export function registerExponentialTools(
 
         // Membership-only, matching the sync semantics: public workspaces
         // appear once the user has explicitly joined, never implicitly.
-        return ok(memberRows)
+        return ok(memberRows.filter((row) => isWorkspaceVisible(access, row.id)))
       } catch (e) {
         return err(e)
       }
@@ -175,6 +218,7 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
+        assertWorkspaceVisible(access, id)
         await resolveWorkspaceAccess(user.id, id)
         const [row] = await db
           .select()
@@ -206,10 +250,14 @@ export function registerExponentialTools(
       try {
         let allowedWorkspaceIds: Array<string>
         if (workspaceId) {
+          assertWorkspaceVisible(access, workspaceId)
           await resolveWorkspaceAccess(user.id, workspaceId)
           allowedWorkspaceIds = [workspaceId]
         } else {
-          allowedWorkspaceIds = await getUserWorkspaceIds(user.id)
+          allowedWorkspaceIds = filterVisibleWorkspaceIds(
+            access,
+            await getUserWorkspaceIds(user.id)
+          )
           if (allowedWorkspaceIds.length === 0) return ok([])
         }
 
@@ -219,9 +267,11 @@ export function registerExponentialTools(
           .where(inArray(projects.workspaceId, allowedWorkspaceIds))
           .orderBy(asc(projects.sortOrder), asc(projects.name))
 
-        const filtered = includeArchived
-          ? rows
-          : rows.filter((row) => row.archivedAt == null)
+        const filtered = rows.filter(
+          (row) =>
+            isProjectGranted(access, row.id, row.workspaceId) &&
+            (includeArchived || row.archivedAt == null)
+        )
         return ok(filtered)
       } catch (e) {
         return err(e)
@@ -239,6 +289,7 @@ export function registerExponentialTools(
     async ({ id }) => {
       try {
         const project = await getProjectWorkspaceId(id)
+        assertProjectGranted(access, project.id, project.workspaceId)
         await resolveWorkspaceAccess(user.id, project.workspaceId)
         const [row] = await db
           .select()
@@ -288,6 +339,9 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        // Creating a project needs the whole-workspace grant — a
+        // single-project grant must not spawn siblings it can't see.
+        assertWorkspaceFullyGranted(access, input.workspaceId)
         const result = await caller(user, request).projects.create(input)
         return ok(result.project)
       } catch (e) {
@@ -317,6 +371,10 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        if (!access.full) {
+          const project = await getProjectWorkspaceId(input.id)
+          assertProjectGranted(access, project.id, project.workspaceId)
+        }
         const result = await caller(user, request).projects.update(input)
         return ok(result.project)
       } catch (e) {
@@ -366,22 +424,29 @@ export function registerExponentialTools(
 
         if (projectId) {
           const project = await getProjectWorkspaceId(projectId)
+          assertProjectGranted(access, project.id, project.workspaceId)
           await resolveWorkspaceAccess(user.id, project.workspaceId)
           allowedProjectIds = [projectId]
         } else {
           let workspaceIds: Array<string>
           if (workspaceId) {
+            assertWorkspaceVisible(access, workspaceId)
             await resolveWorkspaceAccess(user.id, workspaceId)
             workspaceIds = [workspaceId]
           } else {
-            workspaceIds = await getUserWorkspaceIds(user.id)
+            workspaceIds = filterVisibleWorkspaceIds(
+              access,
+              await getUserWorkspaceIds(user.id)
+            )
           }
           if (workspaceIds.length === 0) return ok([])
           const projectRows = await db
-            .select({ id: projects.id })
+            .select({ id: projects.id, workspaceId: projects.workspaceId })
             .from(projects)
             .where(inArray(projects.workspaceId, workspaceIds))
-          allowedProjectIds = projectRows.map((r) => r.id)
+          allowedProjectIds = projectRows
+            .filter((r) => isProjectGranted(access, r.id, r.workspaceId))
+            .map((r) => r.id)
         }
 
         if (allowedProjectIds.length === 0) return ok([])
@@ -432,8 +497,9 @@ export function registerExponentialTools(
     },
     async ({ id: idInput, commentsLimit }) => {
       try {
-        const id = await resolveIssueId(idInput, user.id)
+        const id = await resolveIssueId(idInput, user.id, access)
         const ctxIssue = await getIssueWorkspaceContext(id)
+        assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
         await resolveWorkspaceAccess(user.id, ctxIssue.workspaceId)
         const [issue] = await db
           .select()
@@ -487,6 +553,10 @@ export function registerExponentialTools(
     },
     async ({ descriptionText, ...rest }) => {
       try {
+        if (!access.full) {
+          const project = await getProjectWorkspaceId(rest.projectId)
+          assertProjectGranted(access, project.id, project.workspaceId)
+        }
         const result = await caller(user, request).issues.create({
           ...rest,
           description: descriptionText ? descriptionText : undefined,
@@ -517,6 +587,10 @@ export function registerExponentialTools(
     },
     async ({ descriptionText, ...rest }) => {
       try {
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(rest.id)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         const description =
           descriptionText === undefined
             ? undefined
@@ -543,6 +617,10 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(input.id)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         await caller(user, request).issues.delete(input)
         return ok({ ok: true, id: input.id })
       } catch (e) {
@@ -565,6 +643,7 @@ export function registerExponentialTools(
     async ({ id }) => {
       try {
         const attachment = await getAttachmentWorkspaceContext(id)
+        assertProjectGranted(access, attachment.projectId, attachment.workspaceId)
         await resolveWorkspaceAccess(user.id, attachment.workspaceId)
 
         if (!attachment.contentType.startsWith(`image/`)) {
@@ -605,6 +684,9 @@ export function registerExponentialTools(
     },
     async ({ workspaceId }) => {
       try {
+        // Labels are workspace-level but issue workflows in a granted project
+        // need them, so a visible (project-granted) workspace suffices to read.
+        assertWorkspaceVisible(access, workspaceId)
         await resolveWorkspaceAccess(user.id, workspaceId)
         const rows = await db
           .select()
@@ -633,6 +715,7 @@ export function registerExponentialTools(
           .where(eq(labels.id, id))
           .limit(1)
         if (!label) return err(new Error(`Label not found`))
+        assertWorkspaceVisible(access, label.workspaceId)
         await resolveWorkspaceAccess(user.id, label.workspaceId)
         return ok(label)
       } catch (e) {
@@ -657,6 +740,9 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        // Label mutations touch every project in the workspace — whole-
+        // workspace grant required.
+        assertWorkspaceFullyGranted(access, input.workspaceId)
         const result = await caller(user, request).labels.create(input)
         return ok(result.label)
       } catch (e) {
@@ -682,6 +768,7 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        assertWorkspaceFullyGranted(access, input.workspaceId)
         await caller(user, request).labels.update(input)
         return ok({ ok: true })
       } catch (e) {
@@ -702,6 +789,7 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        assertWorkspaceFullyGranted(access, input.workspaceId)
         await caller(user, request).labels.delete(input)
         return ok({ ok: true })
       } catch (e) {
@@ -726,6 +814,10 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(input.issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         await caller(user, request).issueLabels.add(input)
         return ok({ ok: true })
       } catch (e) {
@@ -746,6 +838,10 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(input.issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         await caller(user, request).issueLabels.remove(input)
         return ok({ ok: true })
       } catch (e) {
@@ -771,8 +867,9 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput, limit, offset }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
         const ctxIssue = await getIssueWorkspaceContext(issueId)
+        assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
         await resolveWorkspaceAccess(user.id, ctxIssue.workspaceId)
         const rows = await db
           .select()
@@ -800,7 +897,11 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput, bodyText }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         const result = await caller(user, request).comments.create({
           issueId,
           body: bodyText,
@@ -828,7 +929,11 @@ export function registerExponentialTools(
     },
     async ({ issueId, status }) => {
       try {
-        const id = await resolveIssueId(issueId, user.id)
+        const id = await resolveIssueId(issueId, user.id, access)
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(id)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         const result = await caller(user, request).issues.update({ id, status })
         return ok(result.issue)
       } catch (e) {
@@ -852,8 +957,9 @@ export function registerExponentialTools(
     },
     async ({ issueId, title, body, head, base }) => {
       try {
-        const id = await resolveIssueId(issueId, user.id)
+        const id = await resolveIssueId(issueId, user.id, access)
         const issueCtx = await getIssueWorkspaceContext(id)
+        assertProjectGranted(access, issueCtx.projectId, issueCtx.workspaceId)
         await resolveWorkspaceAccess(user.id, issueCtx.workspaceId)
 
         const repo = await caller(user, request).repositories.forIssue({
@@ -946,6 +1052,10 @@ export function registerExponentialTools(
     },
     async ({ id, bodyText }) => {
       try {
+        if (!access.full) {
+          const ctxIssue = await getCommentIssueContext(id)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         const result = await caller(user, request).comments.update({
           id,
           body: bodyText,
@@ -966,6 +1076,10 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
+        if (!access.full) {
+          const ctxIssue = await getCommentIssueContext(id)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         await caller(user, request).comments.delete({ id })
         return ok({ ok: true, id })
       } catch (e) {
@@ -987,7 +1101,11 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         await caller(user, request).subscriptions.subscribe({ issueId })
         return ok({ ok: true, issueId, subscribed: true })
       } catch (e) {
@@ -1005,7 +1123,11 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         await caller(user, request).subscriptions.unsubscribe({ issueId })
         return ok({ ok: true, issueId, subscribed: false })
       } catch (e) {
@@ -1033,14 +1155,37 @@ export function registerExponentialTools(
       try {
         const conditions = [eq(notifications.userId, user.id)]
         if (unreadOnly) conditions.push(isNull(notifications.readAt))
+        if (access.full) {
+          const rows = await db
+            .select()
+            .from(notifications)
+            .where(and(...conditions))
+            .orderBy(desc(notifications.createdAt))
+            .limit(limit)
+            .offset(offset)
+          return ok(rows)
+        }
+        // Scoped connection: the inbox spans every workspace, so join through
+        // the notification's issue and keep only granted projects (rows
+        // without an issue stay private).
         const rows = await db
-          .select()
+          .select({
+            notification: notifications,
+            projectId: issues.projectId,
+            workspaceId: projects.workspaceId,
+          })
           .from(notifications)
+          .innerJoin(issues, eq(notifications.issueId, issues.id))
+          .innerJoin(projects, eq(issues.projectId, projects.id))
           .where(and(...conditions))
           .orderBy(desc(notifications.createdAt))
           .limit(limit)
           .offset(offset)
-        return ok(rows)
+        return ok(
+          rows
+            .filter((r) => isProjectGranted(access, r.projectId, r.workspaceId))
+            .map((r) => r.notification)
+        )
       } catch (e) {
         return err(e)
       }
@@ -1060,11 +1205,25 @@ export function registerExponentialTools(
     async ({ id, all }) => {
       try {
         if (all) {
+          // Marking the whole inbox read touches every workspace.
+          assertFullAccess(access)
           await caller(user, request).notifications.markAllRead()
           return ok({ ok: true, marked: `all` })
         }
         if (!id) {
           throw new Error(`Pass a notification id, or all=true.`)
+        }
+        if (!access.full) {
+          const [row] = await db
+            .select({ issueId: notifications.issueId })
+            .from(notifications)
+            .where(
+              and(eq(notifications.id, id), eq(notifications.userId, user.id))
+            )
+            .limit(1)
+          if (!row?.issueId) throw new Error(`Notification not found`)
+          const ctxIssue = await getIssueWorkspaceContext(row.issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
         }
         await caller(user, request).notifications.markRead({ id })
         return ok({ ok: true, id })
@@ -1090,6 +1249,7 @@ export function registerExponentialTools(
     },
     async ({ workspaceId, includeAgents }) => {
       try {
+        assertWorkspaceVisible(access, workspaceId)
         await resolveWorkspaceAccess(user.id, workspaceId)
         const conditions = [eq(workspaceMembers.workspaceId, workspaceId)]
         if (!includeAgents) conditions.push(eq(users.isAgent, false))
@@ -1126,6 +1286,7 @@ export function registerExponentialTools(
     },
     async ({ workspaceId }) => {
       try {
+        assertWorkspaceVisible(access, workspaceId)
         const result = await caller(user, request).repositories.list({
           workspaceId,
         })
@@ -1155,6 +1316,7 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        assertWorkspaceFullyGranted(access, input.workspaceId)
         const result = await caller(user, request).repositories.add(input)
         return ok(result.repository)
       } catch (e) {
@@ -1172,7 +1334,11 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         const result = await caller(user, request).repositories.branchDiff({
           issueId,
         })
@@ -1196,6 +1362,10 @@ export function registerExponentialTools(
     },
     async ({ projectId }) => {
       try {
+        if (!access.full) {
+          const project = await getProjectWorkspaceId(projectId)
+          assertProjectGranted(access, project.id, project.workspaceId)
+        }
         const result = await caller(user, request).runConfigs.list({
           projectId,
         })
@@ -1221,6 +1391,10 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        if (!access.full) {
+          const project = await getProjectWorkspaceId(input.projectId)
+          assertProjectGranted(access, project.id, project.workspaceId)
+        }
         const result = await caller(user, request).runConfigs.create(input)
         return ok(result.config)
       } catch (e) {
@@ -1245,6 +1419,10 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        if (!access.full) {
+          const cfg = await getRunConfigContext(input.id)
+          assertProjectGranted(access, cfg.projectId, cfg.workspaceId)
+        }
         const result = await caller(user, request).runConfigs.update(input)
         return ok(result.config)
       } catch (e) {
@@ -1262,6 +1440,10 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
+        if (!access.full) {
+          const cfg = await getRunConfigContext(id)
+          assertProjectGranted(access, cfg.projectId, cfg.workspaceId)
+        }
         await caller(user, request).runConfigs.delete({ id })
         return ok({ ok: true, id })
       } catch (e) {
@@ -1283,7 +1465,11 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        if (!access.full) {
+          const ctxIssue = await getIssueWorkspaceContext(issueId)
+          assertProjectGranted(access, ctxIssue.projectId, ctxIssue.workspaceId)
+        }
         const result = await caller(user, request).issues.prFiles({ issueId })
         return ok(result)
       } catch (e) {
@@ -1305,6 +1491,10 @@ export function registerExponentialTools(
     },
     async ({ projectId }) => {
       try {
+        if (!access.full) {
+          const project = await getProjectWorkspaceId(projectId)
+          assertProjectGranted(access, project.id, project.workspaceId)
+        }
         await caller(user, request).projects.delete({ projectId })
         return ok({ ok: true, projectId })
       } catch (e) {
@@ -1325,6 +1515,10 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        if (!access.full) {
+          const project = await getProjectWorkspaceId(input.projectId)
+          assertProjectGranted(access, project.id, project.workspaceId)
+        }
         const result = await caller(user, request).projects.setRepository(input)
         return ok(result.project)
       } catch (e) {
@@ -1349,6 +1543,8 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        // A new workspace is outside any selectable grant — full access only.
+        assertFullAccess(access)
         const result = await caller(user, request).workspaces.create(input)
         return ok(result.workspace)
       } catch (e) {
@@ -1370,6 +1566,7 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        assertWorkspaceFullyGranted(access, input.id)
         const result = await caller(user, request).workspaces.update(input)
         return ok(result.workspace)
       } catch (e) {
@@ -1394,6 +1591,7 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        assertWorkspaceFullyGranted(access, input.workspaceId)
         const result = await caller(user, request).workspaceInvites.create(input)
         return ok({ invite: result.invite, token: result.token })
       } catch (e) {
@@ -1411,6 +1609,7 @@ export function registerExponentialTools(
     },
     async ({ workspaceId }) => {
       try {
+        assertWorkspaceFullyGranted(access, workspaceId)
         const result = await caller(user, request).workspaceInvites.list({
           workspaceId,
         })
@@ -1430,6 +1629,15 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
+        if (!access.full) {
+          const [invite] = await db
+            .select({ workspaceId: workspaceInvites.workspaceId })
+            .from(workspaceInvites)
+            .where(eq(workspaceInvites.id, id))
+            .limit(1)
+          if (!invite) throw new Error(`Invite not found`)
+          assertWorkspaceFullyGranted(access, invite.workspaceId)
+        }
         await caller(user, request).workspaceInvites.revoke({ id })
         return ok({ ok: true, id })
       } catch (e) {
@@ -1457,8 +1665,9 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput, filename, contentType, dataBase64, alt }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id)
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
         const issueCtx = await getIssueWorkspaceContext(issueId)
+        assertProjectGranted(access, issueCtx.projectId, issueCtx.workspaceId)
         await assertWorkspaceMember(user.id, issueCtx.workspaceId)
 
         if (!isAcceptedImageContentType(contentType)) {

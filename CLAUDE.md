@@ -156,7 +156,7 @@ apps/web/src/
 │   ├── shape-route.ts            # createShapeRouteHandler — shared auth-gated shape proxy builder
 │   ├── filters.ts                # IssueFilters, tab presets, matchesFilters()
 │   ├── trpc.ts / trpc-client.ts  # tRPC server setup / client hooks
-│   ├── trpc/                     # Routers: issues, projects, workspaces, labels, issue-labels, comments, notifications, subscriptions, workspace-members, workspace-invites, users, push-tokens, integrations, billing, admin, onboarding, repositories, coding-sessions, widgets, steer
+│   ├── trpc/                     # Routers: issues, projects, workspaces, labels, issue-labels, comments, notifications, subscriptions, workspace-members, workspace-invites, users, push-tokens, integrations, billing, admin, onboarding, repositories, coding-sessions, widgets, steer, mcp-grants
 │   ├── steer.ts                  # Pure core of the steer router: ticket claims, perm mapping, relay HTTP calls
 │   ├── email.ts / email-unsubscribe.ts  # Single outbound-mail sender (Resend or SMTP; no-op when neither) + signed unsubscribe tokens
 │   ├── notification-email-policy.ts / notification-email-digest.ts  # Push-first notification email: push fires immediately on create, email is an HOURLY DIGEST of notifications still unread ~1h later (atomic emailed_at claim, one email per user, sweep scheduled from server-bun.ts; no per-event notification emails)
@@ -165,7 +165,7 @@ apps/web/src/
 ├── routes/
 │   ├── _authenticated/           # account/notifications (email prefs), onboarding, feedback, admin/*, integrations/github/installed (account/integrations removed in v5 — GitHub App lives in workspace settings → Repositories)
 │   ├── w/$workspaceSlug/         # route.tsx (layout), index, my-issues/, inbox/, settings/, projects/$projectSlug/ (index + issues/$issueIdentifier full-page detail)
-│   ├── auth/login.tsx, auth/register.tsx, invite/$token.tsx
+│   ├── auth/login.tsx, auth/register.tsx, auth/consent.tsx (MCP OAuth scope picker), invite/$token.tsx
 │   ├── api/shapes/               # 14 Electric shape proxies (see Patterns)
 │   ├── api/trpc/$.ts             # appRouter
 │   ├── api/auth/$.ts, api/auth-config.ts, api/mcp.ts, api/webhooks/github.ts
@@ -188,7 +188,7 @@ apps/web/src/
 
 ### Tables
 
-`workspaces`, `projects` (typed dev/tasks/feedback; `repository_id` required only for dev), `issues`, `labels`, `issue_labels`, `comments`, `attachments`, `coding_sessions`, `repositories`, `run_configs`, `github_installations`, `workspace_members`, `workspace_invites`, `fcm_tokens`, `push_subscriptions`, `notifications`, `issue_subscribers`, `issue_events`, `user_notification_prefs`, `email_deliveries`, `widget_configs`, `widget_submissions` + Better Auth tables (users, sessions, accounts, verifications, apikeys)
+`workspaces`, `projects` (typed dev/tasks/feedback; `repository_id` required only for dev), `issues`, `labels`, `issue_labels`, `comments`, `attachments`, `coding_sessions`, `repositories`, `run_configs`, `github_installations`, `workspace_members`, `workspace_invites`, `fcm_tokens`, `push_subscriptions`, `notifications`, `issue_subscribers`, `issue_events`, `user_notification_prefs`, `email_deliveries`, `widget_configs`, `widget_submissions`, `mcp_grants` + Better Auth tables (users, sessions, accounts, verifications, apikeys, oauth_applications/access_tokens/consents)
 
 ### Key Issue Fields
 
@@ -224,6 +224,10 @@ All collections in `apps/web/src/lib/collections.ts` use `columnMapper: snakeCam
 ### tRPC + Electric Sync
 
 Mutations go through tRPC. `generateTxId` captures the Postgres transaction ID so the client can wait for Electric to sync the write before updating the UI. Routers are modular in `apps/web/src/lib/trpc/` and combined in `api/trpc/$.ts` as `appRouter`.
+
+### MCP OAuth consent scoping
+
+Human MCP clients (Claude etc.) authenticate against `/api/mcp` via the Better Auth `mcp` plugin's OAuth flow. Every `mcp/authorize` request is pre-flighted by `lib/auth/mcp-authorize-guard.ts` (via the `/api/auth/$` route): unknown/stale client registrations and redirect-URI mismatches get an actionable HTML error page (better-auth's default silently bounces to `/`), and `prompt=consent` is forced so the flow always lands on `/auth/consent` — a workspace/project multi-select ("Everything" or per-workspace/per-project) persisted to `mcp_grants` (one row per user+client, upserted on re-consent) by `trpc.mcpGrants.grantAndConsent` BEFORE the code is minted. The MCP tool layer (`lib/mcp/scope.ts` + checks in `lib/mcp/tools.ts`) confines OAuth tokens to the granted scope; a token with NO grant row gets nothing. OAuth access tokens are accepted ONLY at `/api/mcp` (`resolveSession` no longer resolves them, so shapes/tRPC reject them); session cookies and personal `expu_` api keys keep full membership access there. The login page resumes an interrupted authorize by navigating back to the authorize URL and drops the plugin's `oidc_login_prompt` cookie (`lib/auth/oauth-resume.ts`) so the after-hook can't hijack the sign-in fetch into a mixed-content redirect.
 
 ### Issue List UX
 

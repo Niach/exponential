@@ -18,6 +18,7 @@ import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-passw
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
+import { Route as AuthConsentRouteImport } from './routes/auth/consent'
 import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
@@ -108,6 +109,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
   id: '/auth/forgot-password',
   path: '/auth/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthConsentRoute = AuthConsentRouteImport.update({
+  id: '/auth/consent',
+  path: '/auth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMobileOauthStartRoute = ApiMobileOauthStartRouteImport.update({
@@ -378,6 +384,7 @@ export interface FileRoutesByFullPath {
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/auth/consent': typeof AuthConsentRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -433,6 +440,7 @@ export interface FileRoutesByTo {
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/auth/consent': typeof AuthConsentRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -492,6 +500,7 @@ export interface FileRoutesById {
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/auth/consent': typeof AuthConsentRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -551,6 +560,7 @@ export interface FileRouteTypes {
     | '/api/mcp'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/auth/consent'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -606,6 +616,7 @@ export interface FileRouteTypes {
     | '/api/mcp'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/auth/consent'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -664,6 +675,7 @@ export interface FileRouteTypes {
     | '/api/mcp'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/auth/consent'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -720,6 +732,7 @@ export interface RootRouteChildren {
   ApiMcpRoute: typeof ApiMcpRoute
   ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
   ApiMobileOauthStartRoute: typeof ApiMobileOauthStartRoute
+  AuthConsentRoute: typeof AuthConsentRoute
   AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
@@ -813,6 +826,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/forgot-password'
       fullPath: '/auth/forgot-password'
       preLoaderRoute: typeof AuthForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/consent': {
+      id: '/auth/consent'
+      path: '/auth/consent'
+      fullPath: '/auth/consent'
+      preLoaderRoute: typeof AuthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mobile-oauth-start': {
@@ -1229,6 +1249,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMcpRoute: ApiMcpRoute,
   ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,
   ApiMobileOauthStartRoute: ApiMobileOauthStartRoute,
+  AuthConsentRoute: AuthConsentRoute,
   AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
