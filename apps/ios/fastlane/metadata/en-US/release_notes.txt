@@ -1,4 +1,3 @@
-• Project types: choose Dev (repo-backed), Tasks, or Feedback when creating a project — a GitHub repo is now only needed for Dev projects
-• Public feedback boards: feedback projects can be shared publicly, with owner-controlled privacy toggles
-• Share buttons on projects and issues
-• Type-aware project icons and creation flow
+• GitHub connections are now workspace-scoped: connect once and share repository access with your whole team
+• Reworked repository picker with a clearer connect flow and repo-access health
+• Bug fixes and stability improvements
