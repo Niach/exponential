@@ -6,6 +6,7 @@ import {
   useWorkspaceBySlug,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
+import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import { WorkspaceGeneralSection } from "@/components/workspace/general-section"
 import { WorkspaceLabelsSection } from "@/components/workspace/labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace/members-section"
@@ -66,10 +67,13 @@ function WorkspaceSettings() {
     void getRuntimeConfig().then(setConfig)
   }, [])
 
-  const currentMember = members.find(
-    (member) => member.userId === session?.user?.id
-  )
-  const isOwner = currentMember?.role === `owner`
+  const {
+    isOwner,
+    canManageWorkspace,
+    canManageMembers,
+    canManageRepos,
+    canManageWidgets,
+  } = useWorkspacePermissions(workspace)
   const showChrome = useShowWorkspaceChrome(workspace?.id, session?.user?.id)
   const solo = !showChrome
 
@@ -85,7 +89,7 @@ function WorkspaceSettings() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
+    <div className="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold">
           {solo ? `Settings` : `Workspace Settings`}
@@ -99,7 +103,7 @@ function WorkspaceSettings() {
 
       <Separator />
 
-      {workspace && isOwner && config?.isCloud && (
+      {workspace && canManageWorkspace && config?.isCloud && (
         <WorkspaceBillingSection
           workspaceId={workspace.id}
           proProductId={config.creemProProductId}
@@ -108,7 +112,7 @@ function WorkspaceSettings() {
         />
       )}
 
-      {workspace && isOwner && (
+      {workspace && canManageWorkspace && (
         <WorkspaceGeneralSection workspace={workspace} solo={solo} />
       )}
 
@@ -119,11 +123,11 @@ function WorkspaceSettings() {
         />
       )}
 
-      {workspace && isOwner && (
+      {workspace && canManageRepos && (
         <WorkspaceRepositoriesSection workspaceId={workspace.id} />
       )}
 
-      {workspace && isOwner && (
+      {workspace && canManageWidgets && (
         <WorkspaceWidgetSection workspaceId={workspace.id} />
       )}
 
@@ -133,9 +137,9 @@ function WorkspaceSettings() {
         )}
         userMap={userMap}
         currentUserId={session?.user?.id}
-        isOwner={isOwner}
+        canManageMembers={canManageMembers}
         workspaceId={workspace?.id}
-        showInvite={isOwner}
+        showInvite={canManageMembers}
         solo={solo}
       />
 
@@ -143,7 +147,7 @@ function WorkspaceSettings() {
 
       {workspace && <WorkspaceLabelsSection workspaceId={workspace.id} />}
 
-      {workspace && isOwner && !solo && (
+      {workspace && canManageWorkspace && !solo && (
         <>
           <Separator />
           <Card className="border-destructive/50">

@@ -3,8 +3,14 @@ import { TRPCError } from "@trpc/server"
 import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts } from "@/db/auth-schema"
-import { workspaces, workspaceMembers, projects } from "@/db/schema"
+import {
+  attachments,
+  workspaces,
+  workspaceMembers,
+  projects,
+} from "@/db/schema"
 import { getWorkspacePlan } from "@/lib/billing"
+import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupWorkspacesForUserDeletion } from "@/lib/account-deletion"
 import {
@@ -101,18 +107,26 @@ export const adminRouter = router({
         input.userId
       )
 
+      let storageKeys: string[] = []
       await ctx.db.transaction(async (tx) => {
         // Same orphan safety as users.deleteAccount (lib/account-deletion.ts):
         // fail closed when the user is the sole owner of a workspace that
         // still has other members — an admin delete must not silently strand
         // a team — and delete workspaces where they are the only member.
-        await guardAndCleanupWorkspacesForUserDeletion(tx, input.userId, `admin`)
+        const cleanup = await guardAndCleanupWorkspacesForUserDeletion(
+          tx,
+          input.userId,
+          `admin`
+        )
+        storageKeys = cleanup.storageKeys
         await tx.delete(users).where(eq(users.id, input.userId))
       })
 
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the user half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+      // The users-row cascade dropped attachment rows but not their S3 blobs.
+      await deleteStorageObjects(storageKeys)
 
       return { ok: true }
     }),
@@ -212,8 +226,17 @@ export const adminRouter = router({
         input.workspaceId,
       ])
 
+      // Collected inside the tx BEFORE the cascade drops the attachment rows;
+      // the cascade never touches S3, so without this the blobs orphan.
+      let storageKeys: string[] = []
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        storageKeys = (
+          await tx
+            .select({ storageKey: attachments.storageKey })
+            .from(attachments)
+            .where(eq(attachments.workspaceId, input.workspaceId))
+        ).map((row) => row.storageKey)
         await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))
         return { ok: true, txId }
       })
@@ -221,6 +244,7 @@ export const adminRouter = router({
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the workspace half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+      await deleteStorageObjects(storageKeys)
 
       return result
     }),

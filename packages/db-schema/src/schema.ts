@@ -245,6 +245,16 @@ export const projects = pgTable(
     }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
+    // Soft-delete (trash) marker. Non-null = trashed; the purge sweep hard-deletes
+    // it (cascade) once deletedAt + PROJECT_TRASH_RETENTION_MS has passed. Purge
+    // time is computed, never stored (constant retention). Trashed projects drop
+    // out of every membership/public scope but keep their rows for restore.
+    deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
+    // Non-deletable marker (the dogfood feedback board). Set by bootstrap; guards
+    // in projects.delete/update and the purge sweep refuse to touch it. A synced
+    // column (not a server-only id comparison) so clients can grey out the
+    // affordance and it survives restore-from-backup id changes.
+    isProtected: boolean(`is_protected`).notNull().default(false),
     ...timestamps,
   },
   (table) => [
@@ -254,6 +264,11 @@ export const projects = pgTable(
     index(`idx_projects_feedback`)
       .on(table.type)
       .where(sql`type = 'feedback'`),
+    // Serves the purge sweep + trash-aware shape filter; near-empty in steady
+    // state (only trashed rows are indexed).
+    index(`idx_projects_deleted`)
+      .on(table.deletedAt)
+      .where(sql`deleted_at IS NOT NULL`),
   ]
 )
 

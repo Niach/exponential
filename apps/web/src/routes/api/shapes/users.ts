@@ -10,6 +10,21 @@ export const Route = createFileRoute(`/api/shapes/users`)({
     handlers: {
       GET: createShapeRouteHandler({
         table: `users`,
+        // Server-pinned allowlist: exactly the columns every client stores.
+        // Keeps web-only/server-only columns (email_verified, is_admin,
+        // creem_customer_id, had_trial, onboarding_completed_at) OUT of sync —
+        // native schemas don't have them, and a partial update touching one
+        // used to abort the batch before the offset saved and crash-loop the
+        // sync engine. isAdmin comes from the session, never this shape.
+        columns: [
+          `id`,
+          `name`,
+          `email`,
+          `image`,
+          `is_agent`,
+          `created_at`,
+          `updated_at`,
+        ],
         // The users shape syncs FULL rows (including email), so its scope is
         // membership-only: co-members of workspaces the caller has joined.
         // Public-workspace viewers who aren't members get no user rows —

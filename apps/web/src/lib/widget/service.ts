@@ -7,6 +7,7 @@ import {
   attachments,
   issues,
   issueSubscribers,
+  projects,
   widgetConfigs,
   widgetSubmissions,
 } from "@/db/schema"
@@ -40,19 +41,37 @@ export class WidgetRequestError extends Error {
   }
 }
 
-export async function loadWidgetConfigByKey(key: string) {
+// The widget config row plus the trash/archive state of its target project, so
+// the submit + config paths can treat a trashed board as unavailable.
+export type WidgetConfigWithProject = typeof widgetConfigs.$inferSelect & {
+  projectDeletedAt: Date | null
+  projectArchivedAt: Date | null
+}
+
+export async function loadWidgetConfigByKey(
+  key: string
+): Promise<WidgetConfigWithProject> {
   if (!isWidgetKeyFormat(key)) {
     throw new WidgetRequestError(404, `Unknown widget key`)
   }
-  const [config] = await db
-    .select()
+  const [row] = await db
+    .select({
+      config: widgetConfigs,
+      projectDeletedAt: projects.deletedAt,
+      projectArchivedAt: projects.archivedAt,
+    })
     .from(widgetConfigs)
+    .leftJoin(projects, eq(projects.id, widgetConfigs.projectId))
     .where(eq(widgetConfigs.publicKey, key))
     .limit(1)
-  if (!config) {
+  if (!row) {
     throw new WidgetRequestError(404, `Unknown widget key`)
   }
-  return config
+  return {
+    ...row.config,
+    projectDeletedAt: row.projectDeletedAt,
+    projectArchivedAt: row.projectArchivedAt,
+  }
 }
 
 const submitFieldsSchema = z.object({
@@ -112,11 +131,17 @@ export interface WidgetSubmitResult {
 // The whole submit pipeline past key/origin/rate gating (which the route owns
 // because those decide the CORS headers on the response).
 export async function createWidgetSubmission(args: {
-  config: typeof widgetConfigs.$inferSelect
+  config: WidgetConfigWithProject
   formData: FormData
   userAgent: string | null
 }): Promise<WidgetSubmitResult> {
   const { config, formData } = args
+
+  // A trashed target board rejects new writes (its issues are unreachable and
+  // the project may be purged); restore brings it back automatically.
+  if (config.projectDeletedAt != null) {
+    throw new WidgetRequestError(403, `This feedback board is unavailable`)
+  }
 
   const fields = submitFieldsSchema.safeParse({
     title: formData.get(`title`) ?? ``,
@@ -317,7 +342,9 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
   }
 
   const cors = corsHeaders(origin.echoOrigin)
-  if (!config.enabled) {
+  // A trashed target board reports disabled so embedded widgets hide instead
+  // of erroring.
+  if (!config.enabled || config.projectDeletedAt != null) {
     return jsonResponse(200, { enabled: false }, cors)
   }
 

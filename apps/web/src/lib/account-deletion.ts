@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, ne } from "drizzle-orm"
-import { workspaces, workspaceMembers } from "@/db/schema"
+import { eq, inArray, or } from "drizzle-orm"
+import { attachments, issues, workspaces, workspaceMembers } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
 import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 
@@ -71,13 +71,15 @@ export function classifyWorkspacesForUserDeletion(
  *    is_public check keeps the bootstrap feedback board untouchable).
  *
  * Returns the ids of the workspaces actually deleted so the caller can route
- * their Creem subscriptions through cancellation.
+ * their Creem subscriptions through cancellation, plus every S3 storage key the
+ * deletes (and the users-row cascade the caller runs next) will strand — the
+ * caller reclaims them from S3 after commit (best-effort).
  */
 export async function guardAndCleanupWorkspacesForUserDeletion(
   tx: DbOrTx,
   userId: string,
   who: `self` | `admin`
-): Promise<{ deletedWorkspaceIds: string[] }> {
+): Promise<{ deletedWorkspaceIds: string[]; storageKeys: string[] }> {
   const myWorkspaceIds = tx
     .select({ id: workspaceMembers.workspaceId })
     .from(workspaceMembers)
@@ -113,22 +115,41 @@ export async function guardAndCleanupWorkspacesForUserDeletion(
     })
   }
 
-  if (solo.length === 0) {
-    return { deletedWorkspaceIds: [] }
-  }
   // Never cascade-delete the bootstrap feedback workspace (a sole-admin
   // account deletion would otherwise take every public feedback issue with it).
   const feedbackWorkspaceId = await getFeedbackWorkspaceId()
+  const soloToDelete = feedbackWorkspaceId
+    ? solo.filter((id) => id !== feedbackWorkspaceId)
+    : solo
+
+  // Collect every S3 object the deletes below and the users-row cascade will
+  // strand — none of those DB deletes touch storage: (a) attachments in the
+  // solo workspaces being deleted, (b) attachments of issues this user created
+  // (issues.creator_id cascade), (c) attachments this user uploaded
+  // (attachments.uploader_id cascade). Deduped; collected BEFORE any delete.
+  const myIssueIds = tx
+    .select({ id: issues.id })
+    .from(issues)
+    .where(eq(issues.creatorId, userId))
+  const keyConditions = [
+    inArray(attachments.issueId, myIssueIds),
+    eq(attachments.uploaderId, userId),
+  ]
+  if (soloToDelete.length > 0) {
+    keyConditions.push(inArray(attachments.workspaceId, soloToDelete))
+  }
+  const keyRows = await tx
+    .select({ storageKey: attachments.storageKey })
+    .from(attachments)
+    .where(or(...keyConditions))
+  const storageKeys = [...new Set(keyRows.map((row) => row.storageKey))]
+
+  if (soloToDelete.length === 0) {
+    return { deletedWorkspaceIds: [], storageKeys }
+  }
   const deleted = await tx
     .delete(workspaces)
-    .where(
-      and(
-        inArray(workspaces.id, solo),
-        feedbackWorkspaceId
-          ? ne(workspaces.id, feedbackWorkspaceId)
-          : undefined
-      )
-    )
+    .where(inArray(workspaces.id, soloToDelete))
     .returning({ id: workspaces.id })
-  return { deletedWorkspaceIds: deleted.map((d) => d.id) }
+  return { deletedWorkspaceIds: deleted.map((d) => d.id), storageKeys }
 }

@@ -5,6 +5,7 @@ import { apikeys, users } from "@/db/auth-schema"
 import { auth } from "@/lib/auth"
 import { getReadableUserIdsInWorkspaces } from "@/lib/workspace-membership"
 import { guardAndCleanupWorkspacesForUserDeletion } from "@/lib/account-deletion"
+import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import {
   cancelCreemSubscriptionsBestEffort,
   findActiveSubscriptionsForUser,
@@ -133,17 +134,25 @@ export const usersRouter = router({
       // subscription would keep charging with nothing left to find it by.
       const doomedSubscriptions = await findActiveSubscriptionsForUser(userId)
 
+      let storageKeys: string[] = []
       await ctx.db.transaction(async (tx) => {
         // Fail closed when the caller is the sole owner of a workspace that
         // still has other members, then delete their solo workspaces (shared
         // with admin.deleteUser — see lib/account-deletion.ts).
-        await guardAndCleanupWorkspacesForUserDeletion(tx, userId, `self`)
+        const cleanup = await guardAndCleanupWorkspacesForUserDeletion(
+          tx,
+          userId,
+          `self`
+        )
+        storageKeys = cleanup.storageKeys
         await tx.delete(users).where(eq(users.id, userId))
       })
 
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the account half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+      // The users-row cascade dropped attachment rows but not their S3 blobs.
+      await deleteStorageObjects(storageKeys)
 
       return { ok: true }
     }),

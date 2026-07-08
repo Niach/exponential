@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react"
-import { ChevronRight, Files, MoreHorizontal, Undo2 } from "lucide-react"
+import {
+  Check,
+  ChevronRight,
+  Files,
+  Link2,
+  MoreHorizontal,
+  Undo2,
+} from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Issue, User, Project } from "@/db/schema"
@@ -132,6 +139,7 @@ export function IssueDetailView({
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
   const [activeTab, setActiveTab] = useState<`details` | `changes`>(`details`)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const { handleStatusChange, duplicatePicker } = useDuplicateInterception({
     issueId: issue.id,
@@ -375,6 +383,33 @@ export function IssueDetailView({
       <ChevronRight className="size-3" />
       <span className="truncate">{title}</span>
       <div className="ml-auto flex items-center gap-1 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground"
+          aria-label="Copy link to issue"
+          onClick={() => {
+            if (typeof navigator === `undefined` || !navigator.clipboard) {
+              return
+            }
+            const url = `${window.location.origin}/w/${workspaceSlug}/projects/${project.slug}/issues/${issue.identifier}`
+            navigator.clipboard.writeText(url).then(
+              () => {
+                setLinkCopied(true)
+                setTimeout(() => setLinkCopied(false), 1500)
+              },
+              () => {
+                // Clipboard denied (permissions/insecure context) — no success state.
+              }
+            )
+          }}
+        >
+          {linkCopied ? (
+            <Check className="size-4 text-primary" />
+          ) : (
+            <Link2 className="size-4" />
+          )}
+        </Button>
         {currentUserId && (
           <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
         )}

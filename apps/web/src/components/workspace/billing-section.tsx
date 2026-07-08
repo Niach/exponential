@@ -122,7 +122,7 @@ export function WorkspaceBillingSection({
     <div id="billing" className="scroll-mt-6 space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <CardTitle className="text-base">Plan & Billing</CardTitle>
               <CardDescription>

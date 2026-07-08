@@ -28,6 +28,14 @@ export const workspaceRoleValues = [`owner`, `member`] as const
 // widget) with an optional repo. Coding features gate on repo presence, not type.
 export const projectTypeValues = [`dev`, `tasks`, `feedback`] as const
 
+// How long a soft-deleted (trashed) project is retained before the purge sweep
+// hard-deletes it (with all its issues) and reclaims its attachment storage.
+// The single source every client mirrors for the restore-window countdown; the
+// purge time is computed as deletedAt + this, never stored.
+export const PROJECT_TRASH_RETENTION_HOURS = 48
+export const PROJECT_TRASH_RETENTION_MS =
+  PROJECT_TRASH_RETENTION_HOURS * 60 * 60 * 1000
+
 // Anonymous visibility of coding sessions on a feedback board
 // (projects.public_show_coding). `badge` exposes only the "coding now" badge;
 // `live` additionally allows the stripped public activity stream (tool

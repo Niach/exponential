@@ -41,7 +41,7 @@ import { UpgradeDialog } from "@/components/upgrade-dialog"
 
 export function WorkspaceMembersSection({
   currentUserId,
-  isOwner,
+  canManageMembers,
   members,
   userMap,
   workspaceId,
@@ -49,7 +49,9 @@ export function WorkspaceMembersSection({
   solo = false,
 }: {
   currentUserId: string | undefined
-  isOwner: boolean
+  // Owner OR instance admin (mirrors assertCanManageMembers). Gates the
+  // role-change + remove-member controls; self "Leave" stays available to all.
+  canManageMembers: boolean
   members: WorkspaceMember[]
   userMap: Map<string, User>
   workspaceId?: string
@@ -138,7 +140,7 @@ export function WorkspaceMembersSection({
                   </div>
                 </div>
 
-                {(isOwner || isSelf) &&
+                {(canManageMembers || isSelf) &&
                   !(isSelf && member.role === `owner` && ownerCount <= 1) && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -152,7 +154,7 @@ export function WorkspaceMembersSection({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {isOwner && !isSelf && (
+                        {canManageMembers && !isSelf && (
                           <>
                             <DropdownMenuItem
                               onClick={() =>
@@ -183,7 +185,7 @@ export function WorkspaceMembersSection({
                             Leave workspace
                           </DropdownMenuItem>
                         ) : (
-                          isOwner && (
+                          canManageMembers && (
                             <DropdownMenuItem
                               onClick={() => handleRemove(member.id, false)}
                               className="text-destructive"

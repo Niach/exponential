@@ -70,7 +70,8 @@ async function resolvePublicProject(
         eq(workspaces.slug, workspaceSlug),
         eq(projects.slug, projectSlug),
         eq(projects.type, `feedback`),
-        isNull(projects.archivedAt)
+        isNull(projects.archivedAt),
+        isNull(projects.deletedAt)
       )
     )
     .limit(1)
@@ -97,7 +98,8 @@ export const publicBoardRouter = router({
           and(
             eq(workspaces.slug, input.workspaceSlug),
             eq(projects.type, `feedback`),
-            isNull(projects.archivedAt)
+            isNull(projects.archivedAt),
+            isNull(projects.deletedAt)
           )
         )
         .orderBy(asc(projects.sortOrder))

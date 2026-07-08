@@ -70,6 +70,9 @@ export function WorkspaceProjectsSection({
     name: string
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // Bumped on delete so the trash card refetches (restored projects re-appear
+  // in the synced list on their own via Electric).
+  const [trashRefreshKey, setTrashRefreshKey] = useState(0)
   const [repoTarget, setRepoTarget] = useState<Project | null>(null)
   const [publicTargetId, setPublicTargetId] = useState<string | null>(null)
   // Live row so toggle writes reflect immediately via Electric sync.
@@ -81,6 +84,7 @@ export function WorkspaceProjectsSection({
     setDeleting(true)
     try {
       await trpc.projects.delete.mutate({ projectId: deleteTarget.id })
+      setTrashRefreshKey((key) => key + 1)
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
@@ -161,7 +165,7 @@ export function WorkspaceProjectsSection({
                     )}
                     <Badge
                       variant="outline"
-                      className="shrink-0 font-mono text-xs"
+                      className="hidden shrink-0 font-mono text-xs sm:inline-flex"
                     >
                       {project.prefix}
                     </Badge>
@@ -169,6 +173,12 @@ export function WorkspaceProjectsSection({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      disabled={project.isProtected}
+                      title={
+                        project.isProtected
+                          ? `This project is protected and can't be deleted`
+                          : `Move to trash`
+                      }
                       onClick={() =>
                         setDeleteTarget({ id: project.id, name: project.name })
                       }
@@ -183,6 +193,11 @@ export function WorkspaceProjectsSection({
         </CardContent>
       </Card>
 
+      <PendingDeletionCard
+        workspaceId={workspaceId}
+        refreshKey={trashRefreshKey}
+      />
+
       <Dialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
@@ -191,14 +206,15 @@ export function WorkspaceProjectsSection({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete project</DialogTitle>
+            <DialogTitle>Move project to trash</DialogTitle>
             <DialogDescription>
-              This will permanently delete{` `}
+              Move{` `}
               <span className="font-semibold text-foreground">
                 {deleteTarget?.name}
               </span>
               {` `}
-              and all its issues. This cannot be undone.
+              to the trash? It is kept for 48 hours — owners can restore it from
+              this page — then permanently deleted with all its issues.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -214,7 +230,7 @@ export function WorkspaceProjectsSection({
               onClick={handleDelete}
               disabled={deleting}
             >
-              {deleting ? `Deleting...` : `Delete project`}
+              {deleting ? `Moving…` : `Move to trash`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -237,6 +253,119 @@ export function WorkspaceProjectsSection({
         }}
       />
     </>
+  )
+}
+
+type TrashedProject = Awaited<
+  ReturnType<typeof trpc.projects.listDeleted.query>
+>[number]
+
+// Dates cross the tRPC boundary as ISO strings (no transformer), so coerce.
+function formatPurgeCountdown(purgeAt: Date | string | null): string {
+  if (!purgeAt) return `Purges soon`
+  const ms = new Date(purgeAt).getTime() - Date.now()
+  if (ms <= 0) return `Purging soon`
+  const hours = Math.ceil(ms / (60 * 60 * 1000))
+  return `Purges in ~${hours}h`
+}
+
+// The workspace's trashed projects. Renders NOTHING when the trash is empty —
+// the trash surface only exists while something is pending deletion.
+function PendingDeletionCard({
+  workspaceId,
+  refreshKey,
+}: {
+  workspaceId: string
+  refreshKey: number
+}) {
+  const [trashed, setTrashed] = useState<TrashedProject[] | null>(null)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
+  // Bumped every 60s so the purge countdown re-renders while the page stays open.
+  const [, setTick] = useState(0)
+
+  const refresh = useCallback(async () => {
+    try {
+      setTrashed(await trpc.projects.listDeleted.query({ workspaceId }))
+    } catch {
+      setTrashed([])
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh, refreshKey])
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((tick) => tick + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const handleRestore = async (id: string) => {
+    setRestoringId(id)
+    try {
+      await trpc.projects.restore.mutate({ projectId: id })
+    } finally {
+      setRestoringId(null)
+      // Refresh on success AND failure — a restore can fail because the row was
+      // purged out from under us, in which case it should drop off the card.
+      await refresh()
+    }
+  }
+
+  if (!trashed || trashed.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Trash2 className="h-4 w-4" />
+          Trash
+        </CardTitle>
+        <CardDescription>
+          Deleted projects are kept for 48 hours, then permanently removed with
+          all their issues.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y rounded-md border">
+          {trashed.map((project) => {
+            const TypeIcon = getProjectTypeOption(project.type).icon
+            return (
+              <div
+                key={project.id}
+                className="flex items-center gap-3 px-3 py-2.5"
+              >
+                <TypeIcon
+                  className="h-4 w-4 shrink-0"
+                  style={{ color: project.color }}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {project.name}
+                </span>
+                <Badge
+                  variant="outline"
+                  className="hidden shrink-0 font-mono text-xs sm:inline-flex"
+                >
+                  {project.prefix}
+                </Badge>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatPurgeCountdown(project.purgeAt)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0"
+                  disabled={restoringId === project.id}
+                  onClick={() => void handleRestore(project.id)}
+                >
+                  {restoringId === project.id ? `Restoring…` : `Restore`}
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

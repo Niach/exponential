@@ -11,8 +11,23 @@ export interface WorkspacePermissions {
   isMember: boolean
   isAdmin: boolean
   isModerator: boolean
+  isOwner: boolean
   canCreate: boolean
   canMutateIssue: (issue: Pick<Issue, `creatorId`>) => boolean
+  // Capability contract mirrored by the native clients. Server mapping:
+  //   canManageWorkspace = owner        (workspaces.update/delete)
+  //   canDeleteProject   = owner        (projects.delete; call sites also
+  //                                      require !project.isProtected)
+  //   canManageMembers   = owner||admin (assertCanManageMembers)
+  //   canManageRepos     = owner||admin (assertCanManageRepos)
+  //   canManageWidgets   = owner        (widgets.create/update/delete/list)
+  // `admin` is the global/instance admin (session), not a workspace role —
+  // workspace roles are only owner/member.
+  canManageWorkspace: boolean
+  canDeleteProject: boolean
+  canManageMembers: boolean
+  canManageRepos: boolean
+  canManageWidgets: boolean
   plan: PlanTier | null
   billingPlan: BillingPlan | null
   canAddMoreMembers: boolean
@@ -45,6 +60,13 @@ export function useWorkspacePermissions(
     const canCreate = isMember
     const canMutateIssue = (_issue: Pick<Issue, `creatorId`>) => isMember
 
+    const isOwner = currentMember?.role === `owner`
+    const canManageWorkspace = isOwner
+    const canDeleteProject = isOwner
+    const canManageMembers = isOwner || isAdmin
+    const canManageRepos = isOwner || isAdmin
+    const canManageWidgets = isOwner
+
     // Seats replaced the old member cap (per-seat model, §3.2); a non-agent
     // member can be added while usage is below the purchased seat count.
     const canAddMoreMembers = billingPlan
@@ -61,8 +83,14 @@ export function useWorkspacePermissions(
       isMember,
       isAdmin,
       isModerator,
+      isOwner,
       canCreate,
       canMutateIssue,
+      canManageWorkspace,
+      canDeleteProject,
+      canManageMembers,
+      canManageRepos,
+      canManageWidgets,
       plan: billingPlan?.plan ?? null,
       billingPlan,
       canAddMoreMembers,

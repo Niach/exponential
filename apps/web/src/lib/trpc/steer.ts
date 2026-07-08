@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { router, authedProcedure, publicProcedure, generateTxId } from "@/lib/trpc"
 import { codingSessions, projects } from "@/db/schema"
 import {
@@ -146,7 +146,7 @@ export const steerRouter = router({
           archivedAt: projects.archivedAt,
         })
         .from(projects)
-        .where(eq(projects.id, session.projectId))
+        .where(and(eq(projects.id, session.projectId), isNull(projects.deletedAt)))
         .limit(1)
       if (
         !project ||

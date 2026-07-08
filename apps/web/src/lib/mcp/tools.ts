@@ -109,7 +109,9 @@ async function resolveIssueId(
     const projectRows = await db
       .select({ id: projects.id, workspaceId: projects.workspaceId })
       .from(projects)
-      .where(inArray(projects.workspaceId, workspaceIds))
+      .where(
+        and(inArray(projects.workspaceId, workspaceIds), isNull(projects.deletedAt))
+      )
     const projectIds = projectRows
       .filter((r) => isProjectGranted(access, r.id, r.workspaceId))
       .map((r) => r.id)
@@ -270,6 +272,7 @@ export function registerExponentialTools(
         const filtered = rows.filter(
           (row) =>
             isProjectGranted(access, row.id, row.workspaceId) &&
+            row.deletedAt == null &&
             (includeArchived || row.archivedAt == null)
         )
         return ok(filtered)
@@ -443,7 +446,12 @@ export function registerExponentialTools(
           const projectRows = await db
             .select({ id: projects.id, workspaceId: projects.workspaceId })
             .from(projects)
-            .where(inArray(projects.workspaceId, workspaceIds))
+            .where(
+              and(
+                inArray(projects.workspaceId, workspaceIds),
+                isNull(projects.deletedAt)
+              )
+            )
           allowedProjectIds = projectRows
             .filter((r) => isProjectGranted(access, r.id, r.workspaceId))
             .map((r) => r.id)
@@ -1486,7 +1494,7 @@ export function registerExponentialTools(
     `exponential_projects_delete`,
     {
       title: `Delete a project`,
-      description: `Permanently delete a project and all of its issues (cascades). Workspace owner only.`,
+      description: `Move a project to the trash. It is permanently purged (with all issues) after 48 hours; workspace owners can restore it from web settings before then. Workspace owner only. Protected projects cannot be deleted.`,
       inputSchema: { projectId: z.string().uuid() },
     },
     async ({ projectId }) => {

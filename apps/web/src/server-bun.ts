@@ -28,6 +28,7 @@ import { hasWebSocket } from "#nitro-internal-virtual/feature-flags"
 import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
+import { startProjectTrashScheduler } from "@/lib/project-trash"
 import {
   injectMeta,
   matchPublicPath,
@@ -51,6 +52,11 @@ bootstrapSelfHosted()
 // transport). In-process guard only — see the module for the multi-instance
 // story.
 startEmailDigestScheduler()
+
+// Project trash: periodic sweep that hard-deletes projects trashed longer than
+// the 48h retention window and reclaims their attachment blobs. In-process
+// guard only; the row delete is the atomic multi-instance claim.
+startProjectTrashScheduler()
 
 const port =
   Number.parseInt(process.env.NITRO_PORT || process.env.PORT || ``) || 3000

@@ -2,10 +2,11 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { projects, repositories } from "@/db/schema"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, isNotNull, isNull } from "drizzle-orm"
 import {
   projectTypeSchema,
   publicCodingVisibilitySchema,
+  PROJECT_TRASH_RETENTION_MS,
 } from "@exp/db-schema/domain"
 import {
   assertProjectMember,
@@ -65,6 +66,15 @@ async function assertRepositoryInWorkspace(
     })
   }
   return repo.id
+}
+
+// Postgres unique_violation (23505), as surfaced by postgres-js directly or
+// wrapped in an error cause by drizzle.
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== `object`) return false
+  const candidate = err as { code?: unknown; cause?: unknown }
+  if (candidate.code === `23505`) return true
+  return isUniqueViolation(candidate.cause)
 }
 
 function slugify(name: string): string {
@@ -127,43 +137,70 @@ export const projectsRouter = router({
         await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
       }
 
-      const result = await ctx.db.transaction(async (tx) => {
-        const txId = await generateTxId(tx)
+      const slug = slugify(input.name)
+      let result
+      try {
+        result = await ctx.db.transaction(async (tx) => {
+          const txId = await generateTxId(tx)
 
-        const repositoryId = !repositoryInput
-          ? null
-          : `fullName` in repositoryInput
-            ? await connectRepositoryInTx(tx, {
-                userId: ctx.session.user.id,
-                workspaceId: input.workspaceId,
-                fullName: repositoryInput.fullName,
-                defaultBranch: repositoryInput.defaultBranch,
-                private: repositoryInput.private,
-              })
-            : await assertRepositoryInWorkspace(
-                tx,
-                repositoryInput.repositoryId,
-                input.workspaceId
+          const repositoryId = !repositoryInput
+            ? null
+            : `fullName` in repositoryInput
+              ? await connectRepositoryInTx(tx, {
+                  userId: ctx.session.user.id,
+                  workspaceId: input.workspaceId,
+                  fullName: repositoryInput.fullName,
+                  defaultBranch: repositoryInput.defaultBranch,
+                  private: repositoryInput.private,
+                })
+              : await assertRepositoryInWorkspace(
+                  tx,
+                  repositoryInput.repositoryId,
+                  input.workspaceId
+                )
+
+          const [project] = await tx
+            .insert(projects)
+            .values({
+              workspaceId: input.workspaceId,
+              name: input.name,
+              slug,
+              prefix: input.prefix.toUpperCase(),
+              color: input.color ?? `#6366f1`,
+              type: input.type,
+              publicShowComments: input.publicShowComments ?? true,
+              publicShowActivity: input.publicShowActivity ?? false,
+              publicShowCoding: input.publicShowCoding ?? `off`,
+              repositoryId,
+            })
+            .returning()
+
+          return { project, txId }
+        })
+      } catch (error) {
+        // A trashed project keeps its (workspace_id, slug) reservation for the
+        // whole retention window; distinguish that from a live-name clash.
+        if (isUniqueViolation(error)) {
+          const [trashed] = await ctx.db
+            .select({ id: projects.id })
+            .from(projects)
+            .where(
+              and(
+                eq(projects.workspaceId, input.workspaceId),
+                eq(projects.slug, slug),
+                isNotNull(projects.deletedAt)
               )
-
-        const [project] = await tx
-          .insert(projects)
-          .values({
-            workspaceId: input.workspaceId,
-            name: input.name,
-            slug: slugify(input.name),
-            prefix: input.prefix.toUpperCase(),
-            color: input.color ?? `#6366f1`,
-            type: input.type,
-            publicShowComments: input.publicShowComments ?? true,
-            publicShowActivity: input.publicShowActivity ?? false,
-            publicShowCoding: input.publicShowCoding ?? `off`,
-            repositoryId,
+            )
+            .limit(1)
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: trashed
+              ? `A project with this name is in the trash — restore it or wait for the purge`
+              : `A project with this name already exists`,
           })
-          .returning()
-
-        return { project, txId }
-      })
+        }
+        throw error
+      }
 
       if (input.type === `feedback`) invalidatePublicProjectCache()
       return result
@@ -264,6 +301,25 @@ export const projectsRouter = router({
         )
       }
 
+      // Protected projects (the dogfood board) can't be archived or retyped;
+      // name/color stay editable.
+      const attemptsArchiveOrRetype =
+        (Object.hasOwn(updates, `archivedAt`) && updates.archivedAt != null) ||
+        updates.type !== undefined
+      if (attemptsArchiveOrRetype) {
+        const [current] = await ctx.db
+          .select({ isProtected: projects.isProtected })
+          .from(projects)
+          .where(eq(projects.id, id))
+          .limit(1)
+        if (current?.isProtected) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `This project is protected and cannot be archived or retyped`,
+          })
+        }
+      }
+
       if (updates.type === `dev`) {
         const [current] = await ctx.db
           .select({ repositoryId: projects.repositoryId })
@@ -290,10 +346,61 @@ export const projectsRouter = router({
       return { project }
     }),
 
+  // Soft delete: move the project to the trash. The purge sweep hard-deletes it
+  // (cascade) after PROJECT_TRASH_RETENTION_HOURS; owners can restore it before
+  // then. Direct select (not the trash-filtered helper) so an already-trashed
+  // project stays resolvable for the idempotent no-op.
   delete: authedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      // Look up the project to get its workspaceId
+      const [project] = await ctx.db
+        .select({
+          workspaceId: projects.workspaceId,
+          deletedAt: projects.deletedAt,
+          isProtected: projects.isProtected,
+        })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1)
+
+      if (!project) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Project not found` })
+      }
+
+      await assertWorkspaceOwner(ctx.session.user.id, project.workspaceId)
+
+      if (project.isProtected) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `This project is protected and cannot be deleted`,
+        })
+      }
+
+      // Already trashed → nothing changed, so no sync barrier needed.
+      if (project.deletedAt) {
+        return { ok: true as const }
+      }
+
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .update(projects)
+          .set({ deletedAt: new Date() })
+          .where(
+            and(eq(projects.id, input.projectId), isNull(projects.deletedAt))
+          )
+        return { ok: true as const, txId }
+      })
+      invalidatePublicProjectCache()
+      return result
+    }),
+
+  // Owner-only: pull a project back out of the trash. Direct select bypasses the
+  // trash-filtered helper (which would 404 a trashed project). The slug was
+  // reserved the whole time, so there is no restore-time conflict.
+  restore: authedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
       const [project] = await ctx.db
         .select({ workspaceId: projects.workspaceId })
         .from(projects)
@@ -308,10 +415,54 @@ export const projectsRouter = router({
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx.delete(projects).where(eq(projects.id, input.projectId))
-        return { ok: true, txId }
+        const restored = await tx
+          .update(projects)
+          .set({ deletedAt: null })
+          .where(
+            and(eq(projects.id, input.projectId), isNotNull(projects.deletedAt))
+          )
+          .returning({ id: projects.id })
+        if (restored.length === 0) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Project is not in the trash`,
+          })
+        }
+        return { ok: true as const, txId }
       })
       invalidatePublicProjectCache()
       return result
+    }),
+
+  // Owner-only: the trashed projects for the web trash UI. Restore is owner-only
+  // and the trash card lives in the owner-gated Projects section, so member
+  // visibility buys nothing.
+  listDeleted: authedProcedure
+    .input(z.object({ workspaceId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
+      const rows = await ctx.db
+        .select({
+          id: projects.id,
+          name: projects.name,
+          slug: projects.slug,
+          prefix: projects.prefix,
+          color: projects.color,
+          type: projects.type,
+          deletedAt: projects.deletedAt,
+        })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.workspaceId, input.workspaceId),
+            isNotNull(projects.deletedAt)
+          )
+        )
+      return rows.map((row) => ({
+        ...row,
+        purgeAt: row.deletedAt
+          ? new Date(row.deletedAt.getTime() + PROJECT_TRASH_RETENTION_MS)
+          : null,
+      }))
     }),
 })

@@ -108,7 +108,11 @@ export function getFeedbackWorkspaceId(): Promise<string | null> {
 // forcing).
 async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
   const [existing] = await db
-    .select({ id: projects.id, type: projects.type })
+    .select({
+      id: projects.id,
+      type: projects.type,
+      isProtected: projects.isProtected,
+    })
     .from(projects)
     .where(
       and(
@@ -118,12 +122,18 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
     )
     .limit(1)
   if (existing) {
+    // Idempotently re-align type AND stamp the non-deletable marker — this is
+    // what marks the ops-restored prod row protected on first boot.
+    const patch: Partial<typeof projects.$inferInsert> = {}
     if (existing.type !== `feedback`) {
-      await db
-        .update(projects)
-        .set({ type: `feedback`, publicShowComments: true })
-        .where(eq(projects.id, existing.id))
-      invalidatePublicProjectCache()
+      patch.type = `feedback`
+      patch.publicShowComments = true
+    }
+    if (!existing.isProtected) patch.isProtected = true
+    if (Object.keys(patch).length > 0) {
+      await db.update(projects).set(patch).where(eq(projects.id, existing.id))
+      // Only the type/visibility flip changes the public surface.
+      if (patch.type) invalidatePublicProjectCache()
     }
     return existing.id
   }
@@ -141,6 +151,7 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
       prefix: PUBLIC_PROJECT_PREFIX,
       type: `feedback`,
       publicShowComments: true,
+      isProtected: true,
       repositoryId,
     })
     .returning({ id: projects.id })

@@ -77,7 +77,15 @@ export async function getPublicProjectScope(): Promise<PublicProjectScope> {
       publicShowCoding: projects.publicShowCoding,
     })
     .from(projects)
-    .where(and(eq(projects.type, `feedback`), isNull(projects.archivedAt)))
+    .where(
+      and(
+        eq(projects.type, `feedback`),
+        isNull(projects.archivedAt),
+        // Trashed feedback boards leave the public surface immediately (heals
+        // every anonymous shape scope + the sitemap).
+        isNull(projects.deletedAt)
+      )
+    )
   publicProjectScopeCache = {
     projectIds: rows.map((row) => row.id),
     workspaceIds: [...new Set(rows.map((row) => row.workspaceId))],
@@ -183,7 +191,13 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
   const rows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(inArray(projects.workspaceId, workspaceIds))
+    // Trashed projects drop out of the authed issues shape scope.
+    .where(
+      and(
+        inArray(projects.workspaceId, workspaceIds),
+        isNull(projects.deletedAt)
+      )
+    )
 
   return rows.map((row) => row.id)
 }
@@ -233,7 +247,10 @@ export async function getProjectWorkspaceId(projectId: string) {
       workspaceId: projects.workspaceId,
     })
     .from(projects)
-    .where(eq(projects.id, projectId))
+    // Trashed projects 404 for every member mutation (issues.create,
+    // projects.update/setRepository via assertProjectMember, widgets retarget,
+    // MCP projects_get). The restore path uses a direct select, not this helper.
+    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
     .limit(1)
 
   if (!project) {
@@ -266,7 +283,9 @@ export async function getIssueWorkspaceContext(issueId: string) {
     })
     .from(issues)
     .innerJoin(projects, eq(issues.projectId, projects.id))
-    .where(eq(issues.id, issueId))
+    // Trashed project ⇒ its issues 404 for all issue/comment/label/subscribe
+    // reads + mutations (restored automatically on restore).
+    .where(and(eq(issues.id, issueId), isNull(projects.deletedAt)))
     .limit(1)
 
   if (!issueContext) {
@@ -302,7 +321,9 @@ export async function getAttachmentWorkspaceContext(attachmentId: string) {
     .from(attachments)
     .innerJoin(issues, eq(attachments.issueId, issues.id))
     .innerJoin(projects, eq(issues.projectId, projects.id))
-    .where(eq(attachments.id, attachmentId))
+    // Trashed project ⇒ block attachment byte reads during the trash window
+    // (restored automatically on restore).
+    .where(and(eq(attachments.id, attachmentId), isNull(projects.deletedAt)))
     .limit(1)
 
   if (!attachmentContext) {

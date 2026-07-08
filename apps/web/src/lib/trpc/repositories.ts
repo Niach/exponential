@@ -49,9 +49,10 @@ export function isForeignKeyViolation(err: unknown): boolean {
 }
 
 // "repository backs N projects" — the CONFLICT message when a delete is blocked
-// by a project still pointing at the repo.
+// by a project still pointing at the repo. A trashed project keeps its repo FK
+// (restrict) but is hidden from the synced "in use by" chips, so name that case.
 export function repoInUseMessage(count: number): string {
-  return `Cannot remove — this repository backs ${count} project${count === 1 ? `` : `s`}. Retarget or delete those projects first.`
+  return `Cannot remove — this repository backs ${count} project${count === 1 ? `` : `s`}. Retarget or delete those projects first (a project in the trash may still use it).`
 }
 
 const fullNameSchema = z

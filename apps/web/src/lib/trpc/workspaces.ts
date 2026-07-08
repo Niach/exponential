@@ -6,8 +6,9 @@ import {
   publicProcedure,
   generateTxId,
 } from "@/lib/trpc"
-import { workspaces, workspaceMembers } from "@/db/schema"
+import { attachments, workspaces, workspaceMembers } from "@/db/schema"
 import { eq } from "drizzle-orm"
+import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { randomBytes } from "crypto"
 import { isUserAdmin } from "@/lib/admin"
 import {
@@ -178,8 +179,17 @@ export const workspacesRouter = router({
         input.workspaceId,
       ])
 
+      // Collected inside the tx BEFORE the cascade drops the attachment rows;
+      // the cascade never touches S3, so without this the blobs orphan.
+      let storageKeys: string[] = []
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        storageKeys = (
+          await tx
+            .select({ storageKey: attachments.storageKey })
+            .from(attachments)
+            .where(eq(attachments.workspaceId, input.workspaceId))
+        ).map((row) => row.storageKey)
         await tx.delete(workspaces).where(eq(workspaces.id, input.workspaceId))
         return { ok: true, txId }
       })
@@ -187,6 +197,7 @@ export const workspacesRouter = router({
       // Best-effort AFTER commit: a Creem API failure logs loudly but never
       // leaves the workspace half-deleted.
       await cancelCreemSubscriptionsBestEffort(doomedSubscriptions)
+      await deleteStorageObjects(storageKeys)
 
       return result
     }),

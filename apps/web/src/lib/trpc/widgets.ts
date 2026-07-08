@@ -5,8 +5,8 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { projects, users, widgetConfigs, widgetSubmissions } from "@/db/schema"
 import {
+  assertWorkspaceOwner,
   getProjectWorkspaceId,
-  resolveWorkspaceAccess,
 } from "@/lib/workspace-membership"
 import { generateWidgetKey } from "@/lib/widget/key"
 import { createWidgetUser, widgetUserName } from "@/lib/widget/widget-user"
@@ -48,7 +48,9 @@ async function loadConfigForWorkspaceAdmin(
   if (!config) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Widget not found` })
   }
-  await resolveWorkspaceAccess(userId, config.workspaceId, `mutate_resources`)
+  // Owner-only: tightens both update and delete (their only callers) in one
+  // place. The widget-settings surface is owner-gated on every client.
+  await assertWorkspaceOwner(userId, config.workspaceId)
   return config
 }
 
@@ -56,11 +58,9 @@ export const widgetsRouter = router({
   list: authedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await resolveWorkspaceAccess(
-        ctx.session.user.id,
-        input.workspaceId,
-        `mutate_resources`
-      )
+      // Owner-only: exposes publicKey + submission counts, consumed only by the
+      // owner-gated widget settings section.
+      await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
       return await ctx.db
         .select({
           id: widgetConfigs.id,
@@ -96,11 +96,8 @@ export const widgetsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await resolveWorkspaceAccess(
-        ctx.session.user.id,
-        input.workspaceId,
-        `mutate_resources`
-      )
+      // Owner-only: creating a public write path is privacy-significant.
+      await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
       // Feedback widget is a Pro+ feature, capped per tier (§3.3(4)). The
       // bootstrap dogfood config is inserted directly and is exempt.
       await assertCanCreateWidget(input.workspaceId)

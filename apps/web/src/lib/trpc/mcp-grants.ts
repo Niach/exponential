@@ -76,7 +76,8 @@ export const mcpGrantsRouter = router({
             projects.workspaceId,
             memberWorkspaces.map((w) => w.id)
           ),
-          isNull(projects.archivedAt)
+          isNull(projects.archivedAt),
+          isNull(projects.deletedAt)
         )
       )
       .orderBy(asc(projects.sortOrder), asc(projects.name))
@@ -154,7 +155,12 @@ export const mcpGrantsRouter = router({
         const rows = await db
           .select({ id: projects.id, workspaceId: projects.workspaceId })
           .from(projects)
-          .where(inArray(projects.id, input.projectIds))
+          .where(
+            and(
+              inArray(projects.id, input.projectIds),
+              isNull(projects.deletedAt)
+            )
+          )
         projectIds = rows
           .filter((p) => memberWorkspaceIds.has(p.workspaceId))
           .map((p) => p.id)

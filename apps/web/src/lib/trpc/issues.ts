@@ -697,6 +697,7 @@ export const issuesRouter = router({
         from issues i
         join projects p on p.id = i.project_id
         where p.workspace_id = ${input.workspaceId}::uuid
+          and p.deleted_at is null
           and i.archived_at is null
           and (
             to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))

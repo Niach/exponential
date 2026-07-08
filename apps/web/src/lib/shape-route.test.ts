@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createShapeRouteHandler } from "@/lib/shape-route"
+import { Route as projectsRoute } from "@/routes/api/shapes/projects"
+import { Route as usersRoute } from "@/routes/api/shapes/users"
 
 const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
   () => ({
@@ -9,6 +11,15 @@ const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
   })
 )
 
+// The real shape proxies resolve their scope through workspace-membership; keep
+// the pure clause builders (andClauses/buildWhereClause) real and only stub the
+// DB-touching scope resolvers.
+const membership = vi.hoisted(() => ({
+  getUserWorkspaceIds: vi.fn(),
+  getPublicProjectScope: vi.fn(),
+  getReadableUserIdsInWorkspaces: vi.fn(),
+}))
+
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({
   resolveSession,
 }))
@@ -17,6 +28,24 @@ vi.mock(`@/lib/electric-proxy`, () => ({
   prepareElectricUrl,
   proxyElectricRequest,
 }))
+
+vi.mock(`@/lib/workspace-membership`, async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/workspace-membership")>()
+  return {
+    ...actual,
+    getUserWorkspaceIds: membership.getUserWorkspaceIds,
+    getPublicProjectScope: membership.getPublicProjectScope,
+    getReadableUserIdsInWorkspaces: membership.getReadableUserIdsInWorkspaces,
+  }
+})
+
+type ShapeHandler = (args: { request: Request }) => Promise<Response>
+function shapeHandler(route: unknown): ShapeHandler {
+  return (
+    route as { options: { server: { handlers: { GET: ShapeHandler } } } }
+  ).options.server.handlers.GET
+}
 
 describe(`shape route handler`, () => {
   beforeEach(() => {
@@ -170,5 +199,82 @@ describe(`shape route handler`, () => {
       `"id" IN ('user-1','user-2')`
     )
     expect(proxyElectricRequest).toHaveBeenCalledWith(originUrl, request.signal)
+  })
+})
+
+describe(`shape column + trash contracts`, () => {
+  beforeEach(() => {
+    resolveSession.mockReset()
+    prepareElectricUrl.mockReset()
+    proxyElectricRequest.mockReset()
+    membership.getUserWorkspaceIds.mockReset()
+    membership.getPublicProjectScope.mockReset()
+    membership.getReadableUserIdsInWorkspaces.mockReset()
+    proxyElectricRequest.mockResolvedValue(new Response(`ok`))
+  })
+
+  it(`pins the projects columns and appends the deleted_at filter for members`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserWorkspaceIds.mockResolvedValue([`w-2`, `w-1`])
+
+    await shapeHandler(projectsRoute)({
+      request: new Request(`https://example.com/api/shapes/projects`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toContain(`is_protected`)
+    expect(columns).toContain(`deleted_at`)
+    const where = originUrl.searchParams.get(`where`) ?? ``
+    expect(where).toContain(`"deleted_at" IS NULL`)
+    // Byte-stable: workspace ids are sorted regardless of query heap order.
+    expect(where).toContain(`"workspace_id" IN ('w-1','w-2')`)
+  })
+
+  it(`scopes anonymous projects to the public ids with no deleted_at suffix`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getPublicProjectScope.mockResolvedValue({ projectIds: [`p-1`] })
+
+    await shapeHandler(projectsRoute)({
+      request: new Request(`https://example.com/api/shapes/projects`),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(`"id" IN ('p-1')`)
+    expect(originUrl.searchParams.get(`columns`)?.split(`,`)).toContain(
+      `is_protected`
+    )
+  })
+
+  it(`pins the users shape to exactly the 7 client columns`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getReadableUserIdsInWorkspaces.mockResolvedValue([`user-1`])
+
+    await shapeHandler(usersRoute)({
+      request: new Request(`https://example.com/api/shapes/users`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toEqual([
+      `id`,
+      `name`,
+      `email`,
+      `image`,
+      `is_agent`,
+      `created_at`,
+      `updated_at`,
+    ])
+    // The columns that used to crash native partial-update loops must be gone.
+    expect(columns).not.toContain(`onboarding_completed_at`)
+    expect(columns).not.toContain(`is_admin`)
+    expect(columns).not.toContain(`email_verified`)
   })
 })

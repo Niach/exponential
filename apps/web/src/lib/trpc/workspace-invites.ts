@@ -6,6 +6,14 @@ import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
 import { assertCanInviteMember } from "@/lib/billing"
+import { isUserAdmin } from "@/lib/admin"
+
+// Invites are member management, so mint/revoke match assertCanManageMembers
+// (workspace-members.ts): a workspace owner OR a global instance admin.
+async function assertCanManageMembers(userId: string, workspaceId: string) {
+  if (await isUserAdmin(userId)) return
+  await assertWorkspaceMember(userId, workspaceId, [`owner`])
+}
 
 export const workspaceInvitesRouter = router({
   create: authedProcedure
@@ -16,9 +24,7 @@ export const workspaceInvitesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.session.user.id, input.workspaceId, [
-        `owner`,
-      ])
+      await assertCanManageMembers(ctx.session.user.id, input.workspaceId)
       await assertCanInviteMember(input.workspaceId)
 
       const token = randomBytes(32).toString(`hex`)
@@ -150,9 +156,7 @@ export const workspaceInvitesRouter = router({
         throw new TRPCError({ code: `NOT_FOUND`, message: `Invite not found` })
       }
 
-      await assertWorkspaceMember(ctx.session.user.id, invite.workspaceId, [
-        `owner`,
-      ])
+      await assertCanManageMembers(ctx.session.user.id, invite.workspaceId)
 
       await ctx.db.delete(workspaceInvites).where(eq(workspaceInvites.id, input.id))
 

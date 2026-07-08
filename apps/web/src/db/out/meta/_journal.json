@@ -78,6 +78,13 @@
       "when": 1783533793202,
       "tag": "0010_slim_talisman",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783547613992,
+      "tag": "0011_sudden_anthem",
+      "breakpoints": true
     }
   ]
 }
