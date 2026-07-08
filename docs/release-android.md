@@ -79,7 +79,7 @@ RELEASE_KEY_PASSWORD=...
 
 ### CI
 
-The `android-v*` tag workflow (`.gitea/workflows/build-android.yml`) reads the same four
+The `android-v*` tag workflow (`.github/workflows/build-android.yml`) reads the same four
 names from repo **secrets** (`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`,
 `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`). The keystore itself must be present on the
 runner at `RELEASE_STORE_FILE`; the simplest path is to base64 the `.jks` into a secret and
@@ -170,7 +170,7 @@ Notes:
 
 ### CI (optional)
 
-The `android-v*` tag workflow (`.gitea/workflows/build-android.yml`) still builds the
+The `android-v*` tag workflow (`.github/workflows/build-android.yml`) still builds the
 `.aab`s + APKs as release artifacts. Wiring it to run `bundle exec fastlane closed`
 (with `SUPPLY_JSON_KEY` + the `RELEASE_*` secrets injected on the runner) is optional — the
 lanes are designed to run from a local Mac first.

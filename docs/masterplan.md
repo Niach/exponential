@@ -590,7 +590,7 @@ digest-batching email cron both landed 2026-07-07 — the hourly push-first dige
       downloads and iOS App Store. Create Developer ID Application cert + notary API key →
       GitHub Actions secrets.
 - [ ] **Google Play Console** account ($25 one-time). Generate the Android release keystore
-      (store passwords in Gitea CI secrets + offline backup — losing it is fatal). Create the
+      (store passwords in GitHub Actions secrets + offline backup — losing it is fatal). Create the
       Play **service-account JSON** for fastlane `supply` (Play Console → API access).
 - [ ] **App Store Connect API key** (Users & Access → Integrations) for fastlane
       `pilot`/`deliver`; decide `match` storage (private git repo) vs portal-managed
