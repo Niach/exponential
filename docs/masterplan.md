@@ -571,7 +571,7 @@ grep for leftovers, exercise flows per `/verify`).
 2. Staging reset (documented Coolify procedure) + **full four-client smoke** against staging
    (the §13 script).
 3. Manual steps of §13 (Creem, Apple, Google, DNS).
-4. Production greenfield reset (v2 commitment) + deploy all Coolify apps + `git pushsync` tags:
+4. Production greenfield reset (v2 commitment) + deploy all Coolify apps + `git push` (commits + tags):
    `v1.0.0`, `desktop-v1.0.0`, `android-v1.0.0`.
 5. Store submissions (iOS via Xcode, Android via Play Console) — approval NOT gating (L28).
 6. Marketing site live with real download URLs; announce.
