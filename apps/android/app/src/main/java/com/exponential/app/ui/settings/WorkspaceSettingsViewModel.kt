@@ -53,7 +53,13 @@ data class WorkspaceSettingsState(
     val createdInviteToken: String? = null,
     val instanceUrl: String? = null,
     val workspaceDeleted: Boolean = false,
-)
+) {
+    // Owner-gated controls key off this (hidden for non-owners — web parity).
+    val isOwner: Boolean
+        get() = currentUserId != null && members.any {
+            it.member.userId == currentUserId && it.member.role == DomainContract.workspaceRoleOwner
+        }
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -166,13 +172,13 @@ class WorkspaceSettingsViewModel @Inject constructor(
     fun updateRole(memberId: String, role: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { membersApi.updateRole(accountId, memberId, role) }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the role") }
     }
 
     fun removeMember(memberId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { membersApi.remove(accountId, memberId) }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't remove the member") }
     }
 
     fun createInvite(role: String = DomainContract.workspaceRoleMember) = viewModelScope.launch {
@@ -180,13 +186,13 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { invitesApi.create(accountId, workspaceId, role) }
             .onSuccess { _createdInviteToken.value = it.token }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't create the invite") }
     }
 
     fun revokeInvite(id: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { invitesApi.revoke(accountId, id) }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't revoke the invite") }
     }
 
     fun consumeCreatedInvite() {
@@ -197,28 +203,34 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.delete(accountId, workspaceId, labelId) }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the label") }
     }
 
     fun renameLabel(labelId: String, name: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.update(accountId, UpdateLabelInput(workspaceId, labelId, name = name)) }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't rename the label") }
     }
 
     fun recolorLabel(labelId: String, color: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.update(accountId, UpdateLabelInput(workspaceId, labelId, color = color)) }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't update the label") }
     }
 
     fun createLabel(name: String, color: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.create(accountId, CreateLabelInput(workspaceId, name.trim(), color)) }
-            .onFailure { _transient.value = it.message }
+            .onSuccess { created ->
+                // Optimistic local upsert so the label appears immediately instead
+                // of waiting for the labels shape's next poll (idempotent REPLACE;
+                // Electric re-delivers the same row, so this is only a head-start).
+                runCatching { holder.database(forAccountId = accountId).labelDao().upsert(created) }
+            }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't create the label") }
     }
 
     fun consumeTransient() { _transient.value = null }
@@ -228,13 +240,13 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val workspaceId = selection.selectedId.value ?: return@launch
         runCatching { workspacesApi.delete(accountId, workspaceId) }
             .onSuccess { _workspaceDeleted.value = true }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the workspace") }
     }
 
     fun deleteProject(projectId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { workspacesApi.deleteProject(accountId, projectId) }
-            .onFailure { _transient.value = it.message }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the project") }
     }
 
     // --- Repositories registry (server-only; the list is re-fetched after

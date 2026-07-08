@@ -33,9 +33,18 @@ data class ServerAccount(
         get() = runCatching { URI(instanceUrl).host }.getOrNull() ?: instanceUrl
 
     companion object {
-        fun makeId(instanceUrl: String): String {
+        // Pre-login "pending" id: keyed by URL only, before a user is resolved.
+        fun makeId(instanceUrl: String): String = hash(instanceUrl)
+
+        // Per-user account id: two users on the same server get DIFFERENT ids —
+        // hence different Room DB files, offsets, and workspace selection — so a
+        // sign-out/sign-in as another user can never surface the first user's
+        // cached data. The URL-only id survives as the pending identity.
+        fun makeId(instanceUrl: String, userId: String): String = hash("$instanceUrl\n$userId")
+
+        private fun hash(input: String): String {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest(instanceUrl.toByteArray(Charsets.UTF_8))
+                .digest(input.toByteArray(Charsets.UTF_8))
             return digest.take(4).joinToString("") { "%02x".format(it) }
         }
     }

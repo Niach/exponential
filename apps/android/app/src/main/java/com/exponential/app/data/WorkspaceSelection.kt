@@ -23,6 +23,14 @@ class WorkspaceSelection @Inject constructor(
         _selectedId.value = id
     }
 
+    // Drop the selected workspace when the active account changes: the selected
+    // id belongs to the previous account's DB, so the new account must resolve
+    // its own default (HomeViewModel.bootstrap re-selects). Without this the
+    // global selection leaks a workspace id across users/servers.
+    fun clearSelection() {
+        _selectedId.value = null
+    }
+
     // (The old pendingProjectId / pendingWorkspaceSettings handoff flags are
     // gone: feature ViewModels scope to the active account reactively, so
     // cross-server taps switch the account and navigate immediately — no

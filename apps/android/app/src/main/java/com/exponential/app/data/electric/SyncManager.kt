@@ -1,6 +1,7 @@
 package com.exponential.app.data.electric
 
 import androidx.room.withTransaction
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CodingSessionEntity
@@ -31,7 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.contentOrNull
 
 /// Multi-account sync orchestrator. Maintains one set of 14 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
@@ -48,6 +48,18 @@ class SyncManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private val pipelines = mutableMapOf<String, List<Job>>()
+    // Throttles the Logcat line for dropped columns to once per (account, shape,
+    // column-set) — the diagnostics Set already dedupes for the UI.
+    private val loggedDroppedColumns = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    private fun reportDroppedColumns(accountId: String, shape: String, columns: Set<String>) {
+        if (columns.isEmpty()) return
+        stats.reportDropped(accountId, shape, columns)
+        val key = "$accountId|$shape|${columns.sorted().joinToString(",")}"
+        if (loggedDroppedColumns.add(key)) {
+            android.util.Log.i("SyncManager", "[$shape] dropped unknown columns: ${columns.sorted()}")
+        }
+    }
 
     fun start() {
         scope.launch {
@@ -120,8 +132,13 @@ class SyncManager @Inject constructor(
         fun reporter(shape: String) = ShapeReporter(
             onPhase = { phase -> stats.setPhase(accountId, shape, phase) },
             onApplied = { n -> stats.addRows(accountId, shape, n) },
-            onError = { authFailure -> stats.incError(accountId, shape, authFailure) },
+            onError = { authFailure, message, schema ->
+                stats.incError(accountId, shape, authFailure = authFailure, message = message, schema = schema)
+            },
             onSuccess = { stats.clearError(accountId, shape) },
+            onDropped = { cols -> reportDroppedColumns(accountId, shape, cols) },
+            onDecodeDrop = { stats.reportDecodeDrop(accountId, shape) },
+            onRecovering = { stats.setRecovering(accountId, shape) },
         )
 
         // Per-account credential providers: read the specific account's URL +
@@ -322,6 +339,12 @@ class SyncManager @Inject constructor(
             onApplied = reporter.onApplied,
             onError = reporter.onError,
             onSuccess = reporter.onSuccess,
+            onDecodeDrop = { reporter.onDecodeDrop() },
+            onRecovering = reporter.onRecovering,
+            // Auto-recovery: wipe this shape's offset + rows so the next poll
+            // refetches a fresh snapshot (the same atomic step the 409
+            // must-refetch path takes). Kept in one transaction.
+            onReset = { db.withTransaction { onRefetch(); offsetDao.deleteShape(shape) } },
             onMessages = { messages ->
                 // Apply each long-poll batch in one transaction (parity with iOS
                 // applyBatch) so a batch is an atomic write and the concurrent
@@ -332,7 +355,8 @@ class SyncManager @Inject constructor(
                         when (message) {
                             is ShapeMessage.Insert -> onInsert(message.value)
                             is ShapeMessage.Update -> onUpdate(message.value)
-                            is ShapeMessage.PartialUpdate -> applyPartialUpdate(db, tableName, message.key, message.columns)
+                            is ShapeMessage.PartialUpdate ->
+                                applyPartialUpdate(db, tableName, message.key, message.columns, reporter.onDropped)
                             is ShapeMessage.Delete -> message.value?.let { onDelete(it) }
                             ShapeMessage.MustRefetch -> onRefetch()
                             ShapeMessage.UpToDate -> Unit
@@ -349,36 +373,87 @@ class SyncManager @Inject constructor(
 private class ShapeReporter(
     val onPhase: (String) -> Unit = {},
     val onApplied: (Int) -> Unit = {},
-    // The flag is true for auth failures (HTTP 401/403).
-    val onError: (Boolean) -> Unit = {},
+    // (authFailure, message, schemaError): authFailure is HTTP 401/403; schema
+    // is true for "no such column/table" class SQLite failures.
+    val onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
     val onSuccess: () -> Unit = {},
+    // Wire columns a partial-update dropped because the local schema predates them.
+    val onDropped: (Set<String>) -> Unit = {},
+    // A full-row insert was dropped because it failed to decode.
+    val onDecodeDrop: () -> Unit = {},
+    // An auto-reset of this shape has begun.
+    val onRecovering: () -> Unit = {},
 )
+
+// One schema cache for the whole process: every account's Room instance shares
+// the same table definitions, so the PRAGMA read is done once per table.
+private val schemaCache = SchemaCache()
 
 private fun parseIdFromKey(key: String): String? {
     val last = key.split("/").lastOrNull() ?: return null
     return last.trim('"')
 }
 
-private fun applyPartialUpdate(db: ExponentialDatabase, table: String, key: String, columnsJson: String) {
+/**
+ * Tolerant partial-apply: filter the wire columns to what the local schema
+ * actually has (via [SchemaCache]) and skip composite-PK tables entirely, so a
+ * server column the client predates (or a join table keyed on something other
+ * than `id`) can never abort the batch transaction and freeze the offset. Pure
+ * planning lives in [planPartialUpdate]; this method only does I/O + reporting.
+ */
+private fun applyPartialUpdate(
+    db: ExponentialDatabase,
+    table: String,
+    key: String,
+    columnsJson: String,
+    onDropped: (Set<String>) -> Unit,
+) {
     val id = parseIdFromKey(key) ?: return
     val columns = try {
         kotlinx.serialization.json.Json.parseToJsonElement(columnsJson).jsonObject
     } catch (_: Exception) { return }
 
-    val filtered = columns.entries.filter { it.key != "id" }
-    if (filtered.isEmpty()) return
-
-    val setClauses = filtered.joinToString(", ") { "\"${it.key}\" = ?" }
-    val args = filtered.map { (_, value) ->
-        when {
-            value is kotlinx.serialization.json.JsonNull -> null
-            value is kotlinx.serialization.json.JsonPrimitive -> value.contentOrNull
-            else -> value.toString()
-        }
-    } + id
+    val schema = schemaCache.of(db.openHelper.writableDatabase, table)
+    val plan = planPartialUpdate(schema.pkColumns, schema.columns, columns) ?: return
+    if (plan.droppedColumns.isNotEmpty()) onDropped(plan.droppedColumns)
+    // Pure-unknown partial: no known columns to write, but returning cleanly
+    // lets the offset advance instead of refailing the batch forever.
+    if (plan.setClause.isEmpty()) return
 
     db.openHelper.writableDatabase.execSQL(
-        "UPDATE \"$table\" SET $setClauses WHERE \"id\" = ?",
-        args.toTypedArray(),
+        "UPDATE \"$table\" SET ${plan.setClause} WHERE \"id\" = ?",
+        (plan.args + id).toTypedArray(),
     )
+}
+
+/**
+ * Lazily-read, per-app-run cache of each table's primary-key columns + full
+ * column set, from `PRAGMA table_info`. Shared across account DBs — every
+ * account's Room instance has the identical schema.
+ */
+internal class SchemaCache {
+    data class TableSchema(val pkColumns: List<String>, val columns: Set<String>)
+
+    private val lock = Any()
+    private val byTable = mutableMapOf<String, TableSchema>()
+
+    fun of(db: SupportSQLiteDatabase, table: String): TableSchema = synchronized(lock) {
+        byTable.getOrPut(table) { read(db, table) }
+    }
+
+    private fun read(db: SupportSQLiteDatabase, table: String): TableSchema {
+        val columns = linkedSetOf<String>()
+        val pk = mutableListOf<Pair<Int, String>>()
+        db.query("PRAGMA table_info(\"$table\")").use { cursor ->
+            val nameIdx = cursor.getColumnIndex("name")
+            val pkIdx = cursor.getColumnIndex("pk")
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameIdx)
+                columns.add(name)
+                val order = cursor.getInt(pkIdx)
+                if (order > 0) pk.add(order to name)
+            }
+        }
+        return TableSchema(pkColumns = pk.sortedBy { it.first }.map { it.second }, columns = columns)
+    }
 }

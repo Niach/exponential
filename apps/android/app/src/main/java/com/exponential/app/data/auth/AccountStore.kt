@@ -9,6 +9,8 @@ import kotlinx.serialization.json.Json
 
 private const val KEY_ACCOUNTS = "accounts"
 private const val KEY_ACTIVE_ACCOUNT_ID = "active_account_id"
+// One-shot re-key of URL-only account ids to per-user ids (see migratePerUserIdsLocked).
+private const val KEY_PERUSER_MIGRATION = "peruser_migration_v1"
 
 // Legacy single-account keys migrated on first launch.
 private const val LEGACY_KEY_INSTANCE_URL = "instance_url"
@@ -37,6 +39,7 @@ class AccountStore @Inject constructor(
             val (migratedAccounts, migratedActive) = migrateLegacyIfNeeded(loaded, activeId)
             _accounts.value = migratedAccounts
             _activeAccountId.value = migratedActive
+            migratePerUserIdsLocked()
             persistLocked()
         }
     }
@@ -61,32 +64,37 @@ class AccountStore @Inject constructor(
         }
     }
 
-    fun updateActiveToken(
+    // Persist a resolved login. `userId` is REQUIRED (the login flow fails
+    // rather than call this with an unknown user): it drives the per-user
+    // account identity via [resolveAccounts], which re-keys the active pending
+    // account to the per-user id (fresh DB) or merges into the existing per-user
+    // account (its cached DB resumes) — never sharing a DB across users.
+    fun resolveActiveAccount(
         token: String,
         email: String?,
         name: String?,
-        userId: String?,
+        userId: String,
         isAdmin: Boolean,
         onboardingCompletedAt: String?,
         onboardingKnown: Boolean,
     ) {
         synchronized(lock) {
-            val id = _activeAccountId.value ?: return
-            val now = System.currentTimeMillis()
-            _accounts.value = _accounts.value.map {
-                if (it.id == id) {
-                    it.copy(
-                        token = token,
-                        userEmail = email,
-                        userName = name,
-                        userId = userId,
-                        isAdmin = isAdmin,
-                        onboardingCompletedAt = onboardingCompletedAt,
-                        onboardingKnown = onboardingKnown,
-                        lastUsedAt = now,
-                    )
-                } else it
-            }
+            val active = _activeAccountId.value?.let { id -> _accounts.value.firstOrNull { it.id == id } }
+            val instanceUrl = active?.instanceUrl ?: return
+            val result = resolveAccounts(
+                accounts = _accounts.value,
+                instanceUrl = instanceUrl,
+                userId = userId,
+                token = token,
+                email = email,
+                name = name,
+                isAdmin = isAdmin,
+                onboardingCompletedAt = onboardingCompletedAt,
+                onboardingKnown = onboardingKnown,
+                now = System.currentTimeMillis(),
+            )
+            _accounts.value = result.accounts
+            _activeAccountId.value = result.activeId
             persistLocked()
         }
     }
@@ -144,6 +152,31 @@ class AccountStore @Inject constructor(
         return runCatching {
             json.decodeFromString<List<ServerAccount>>(raw)
         }.getOrElse { emptyList() }
+    }
+
+    // One-shot: re-key accounts stored under the old URL-only id to the per-user
+    // id, so each user gets a distinct Room DB file. A token without a userId
+    // (older build that never captured one) is cleared to force a clean re-login
+    // rather than guess an identity. The legacy URL-keyed DB files are wiped
+    // app-side (see the per-user DB cleanup in ExponentialApp).
+    private fun migratePerUserIdsLocked() {
+        if (store.get(KEY_PERUSER_MIGRATION) == "done") return
+        var activeId = _activeAccountId.value
+        _accounts.value = _accounts.value.map { account ->
+            val uid = account.userId
+            when {
+                account.token != null && uid != null &&
+                    account.id == ServerAccount.makeId(account.instanceUrl) -> {
+                    val newId = ServerAccount.makeId(account.instanceUrl, uid)
+                    if (activeId == account.id) activeId = newId
+                    account.copy(id = newId)
+                }
+                account.token != null && uid == null -> account.copy(token = null)
+                else -> account
+            }
+        }
+        _activeAccountId.value = activeId
+        store.set(KEY_PERUSER_MIGRATION, "done")
     }
 
     private fun migrateLegacyIfNeeded(

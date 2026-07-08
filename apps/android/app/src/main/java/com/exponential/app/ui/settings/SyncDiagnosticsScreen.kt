@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -121,56 +122,107 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
     // The dot reflects CURRENT health, not the lifetime error tally: a long-gone
     // transient blip (errorCount > 0 but consecutiveErrors == 0) reads as healthy.
     val isUnauthorized = status.phase == "unauthorized"
+    val recoverBlue = Color(0xFF3B82F6)
     val dot = when {
         isUnauthorized -> Color(0xFFEF4444)              // red: persistent auth failure
         status.consecutiveErrors > 0 -> Color(0xFFF97316) // orange: currently failing
+        status.recovering -> recoverBlue                  // blue: auto-recovering
         status.phase == "live" -> Color(0xFF22C55E)       // green: healthy
-        status.phase == "initial" -> Color(0xFF3B82F6)    // blue: initial sync
+        status.phase == "initial" -> recoverBlue          // blue: initial sync
         else -> Color(0xFFA1A1AA)                          // grey: idle
     }
     val phaseLabel = if (isUnauthorized) "unauthorized" else status.phase
-    Row(
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .glassRow()
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Box(Modifier.size(10.dp).background(dot, CircleShape))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).background(dot, CircleShape))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    status.shape,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        phaseLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tertiary,
+                    )
+                    if (status.recovering) {
+                        Text(
+                            "recovering",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = recoverBlue,
+                        )
+                    }
+                    if (status.schemaError) {
+                        Text(
+                            "schema",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "${status.rowsApplied} rows",
+                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+                // Show a count only while the shape is CURRENTLY failing. A genuinely
+                // failing shape still surfaces a non-zero count + colored dot here.
+                if (isUnauthorized) {
+                    Text(
+                        "unauthorized",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (status.consecutiveErrors > 0) {
+                    Text(
+                        "${status.consecutiveErrors} errors",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+        // Current-health error message (cleared on the next successful poll).
+        status.lastError?.let { message ->
             Text(
-                status.shape,
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                phaseLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                message,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.error,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Column(horizontalAlignment = Alignment.End) {
+        // Benign notes: tolerant-apply column drops + undecodable rows.
+        if (status.droppedColumns.isNotEmpty()) {
             Text(
-                "${status.rowsApplied} rows",
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                "dropped: ${status.droppedColumns.sorted().joinToString(", ")}",
+                style = MaterialTheme.typography.labelSmall,
+                color = tertiary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            // Show a count only while the shape is CURRENTLY failing. A genuinely
-            // failing shape still surfaces a non-zero count + colored dot here.
-            if (isUnauthorized) {
-                Text(
-                    "unauthorized",
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            } else if (status.consecutiveErrors > 0) {
-                Text(
-                    "${status.consecutiveErrors} errors",
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
+        }
+        if (status.decodeDrops > 0) {
+            Text(
+                "${status.decodeDrops} row(s) skipped (client older than server)",
+                style = MaterialTheme.typography.labelSmall,
+                color = tertiary,
+            )
         }
     }
 }

@@ -24,6 +24,18 @@ class SyncStats @Inject constructor() {
         // on any successful poll, so the diagnostics UI reflects the shape's
         // *current* state rather than a long-gone transient blip.
         val consecutiveErrors: Int = 0,
+        // Message from the most recent failing poll (null once a poll succeeds).
+        val lastError: String? = null,
+        // The last failure was a "no such column/table" class SQLite error.
+        val schemaError: Boolean = false,
+        // An auto-reset is repopulating this shape from a fresh snapshot.
+        val recovering: Boolean = false,
+        // Wire columns tolerant-apply dropped (older client vs newer server) —
+        // benign, shown as a note, cumulative for the run.
+        val droppedColumns: Set<String> = emptySet(),
+        // Rows dropped because a full-row payload failed to decode — benign, the
+        // row re-syncs on the next refetch.
+        val decodeDrops: Int = 0,
     )
 
     // Mark a shape "unauthorized" once a requireAuth shape has failed auth this
@@ -67,7 +79,13 @@ class SyncStats @Inject constructor() {
      * (recoverable) error and so the UI can explain it instead of showing a
      * forever-climbing count on a stuck "initial" shape.
      */
-    fun incError(accountId: String, shape: String, authFailure: Boolean = false) =
+    fun incError(
+        accountId: String,
+        shape: String,
+        authFailure: Boolean = false,
+        message: String? = null,
+        schema: Boolean = false,
+    ) =
         mutate(accountId, shape) {
             val consecutive = it.consecutiveErrors + 1
             val phase = if (authFailure && consecutive >= UNAUTHORIZED_THRESHOLD) {
@@ -79,22 +97,46 @@ class SyncStats @Inject constructor() {
                 errorCount = it.errorCount + 1,
                 consecutiveErrors = consecutive,
                 phase = phase,
+                lastError = message ?: it.lastError,
+                schemaError = schema,
             )
         }
 
     /**
      * Clear the *current* error state after a successful poll. The lifetime
      * [errorCount] is intentionally left intact; only the live-health signals
-     * ([consecutiveErrors] and the "unauthorized" phase) are reset.
+     * ([consecutiveErrors], [lastError], [recovering], and the "unauthorized"
+     * phase) are reset.
      */
     fun clearError(accountId: String, shape: String) =
         mutate(accountId, shape) {
-            if (it.consecutiveErrors == 0 && it.phase != "unauthorized") return@mutate it
+            if (it.consecutiveErrors == 0 && it.phase != "unauthorized" &&
+                it.lastError == null && !it.recovering
+            ) {
+                return@mutate it
+            }
             it.copy(
                 consecutiveErrors = 0,
                 phase = if (it.phase == "unauthorized") "live" else it.phase,
+                lastError = null,
+                schemaError = false,
+                recovering = false,
             )
         }
+
+    /** Mark a shape as auto-recovering (offset + rows wiped, awaiting snapshot). */
+    fun setRecovering(accountId: String, shape: String) =
+        mutate(accountId, shape) { it.copy(recovering = true) }
+
+    /** Record wire columns dropped by tolerant-apply (union, benign). */
+    fun reportDropped(accountId: String, shape: String, columns: Set<String>) {
+        if (columns.isEmpty()) return
+        mutate(accountId, shape) { it.copy(droppedColumns = it.droppedColumns + columns) }
+    }
+
+    /** Record a full-row insert dropped because its payload failed to decode. */
+    fun reportDecodeDrop(accountId: String, shape: String) =
+        mutate(accountId, shape) { it.copy(decodeDrops = it.decodeDrops + 1) }
 
     fun clearAccount(accountId: String) {
         _state.update { it - accountId }

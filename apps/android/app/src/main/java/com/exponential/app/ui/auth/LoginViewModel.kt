@@ -34,6 +34,17 @@ class LoginViewModel @Inject constructor(
 
     init {
         loadConfig()
+        // Mirror a login failure reported from outside this screen (the OAuth
+        // deep-link return, handled in MainActivity) into the form's error, then
+        // consume it so it shows once.
+        viewModelScope.launch {
+            auth.loginError.collect { message ->
+                if (message != null) {
+                    _state.value = _state.value.copy(loading = false, error = message)
+                    auth.consumeLoginError()
+                }
+            }
+        }
     }
 
     fun loadConfig() {

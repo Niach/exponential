@@ -1,25 +1,20 @@
 package com.exponential.app.domain
 
 /**
- * Builds canonical web-app URLs for sharing. Mirrors the web route shapes and
- * the iOS `WebLinks` helper:
- *   board  {base}/w/{workspace}/projects/{project}
+ * Builds the canonical web-app URL for sharing an issue. Mirrors the web route
+ * shape and the iOS `WebLinks` helper:
  *   issue  {base}/w/{workspace}/projects/{project}/issues/{identifier}
  *
  * `base` is the account's instance URL; its trailing slash is trimmed so the
  * joined path never doubles up. All slugs/identifiers are synced locally, so
- * these compose without a network call.
+ * this composes without a network call. (Board-level sharing was removed —
+ * sharing is issue-only across all clients.)
  */
 object WebLinks {
-    private fun trimBase(base: String): String = base.trimEnd('/')
-
-    fun boardUrl(base: String, workspaceSlug: String, projectSlug: String): String =
-        "${trimBase(base)}/w/$workspaceSlug/projects/$projectSlug"
-
     fun issueUrl(
         base: String,
         workspaceSlug: String,
         projectSlug: String,
         identifier: String,
-    ): String = "${boardUrl(base, workspaceSlug, projectSlug)}/issues/$identifier"
+    ): String = "${base.trimEnd('/')}/w/$workspaceSlug/projects/$projectSlug/issues/$identifier"
 }

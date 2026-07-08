@@ -21,11 +21,13 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
@@ -74,6 +76,7 @@ class IssueDetailViewModel @Inject constructor(
     private val prFilesApi: PrFilesApi,
     private val repositoriesApi: RepositoriesApi,
     private val steerApi: SteerApi,
+    private val stats: SyncStats,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -117,6 +120,16 @@ class IssueDetailViewModel @Inject constructor(
             memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
+
+    // "Syncing workspace…" banner while an un-synced member's membership row is
+    // still in flight (so read-only controls don't read as a silent denial).
+    val syncBanner: StateFlow<SyncBanner> = combine(
+        permissions,
+        auth.activeAccountId,
+        stats.state,
+    ) { perms, accountId, all ->
+        syncBannerFor(perms, all[accountId]?.get(MEMBERS_SHAPE))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
 
     // Canonical web URL for the share sheet: {base}/w/{ws}/projects/{proj}/issues/{id}.
     // Null until issue + project + workspace + instance URL are all resolved.
@@ -495,6 +508,18 @@ class IssueDetailViewModel @Inject constructor(
             runCatching {
                 val label = labelsApi.create(accountId, CreateLabelInput(workspaceId, name.trim(), color))
                 labelsApi.addLabel(accountId, issueId, label.id)
+                label
+            }.onSuccess { label ->
+                // Optimistic local upserts (the label + the issue join) so the
+                // chip shows immediately; Electric re-delivers both on its next
+                // poll, idempotent REPLACE.
+                runCatching {
+                    val db = holder.database(forAccountId = accountId)
+                    db.labelDao().upsert(label)
+                    db.issueLabelDao().upsert(
+                        IssueLabelEntity(issueId = issueId, labelId = label.id, workspaceId = workspaceId)
+                    )
+                }
             }
         }
     }

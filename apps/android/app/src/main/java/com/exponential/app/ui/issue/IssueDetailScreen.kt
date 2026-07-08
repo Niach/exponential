@@ -97,6 +97,7 @@ fun IssueDetailScreen(
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
+    val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
     val context = LocalContext.current
     val issue = state.issue
@@ -235,6 +236,8 @@ fun IssueDetailScreen(
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .fillMaxWidth(),
         ) {
+            SyncBannerRow(syncBanner)
+            if (syncBanner != SyncBanner.None) Spacer(Modifier.height(8.dp))
             // Header: identifier chip + repo chip (actions live in the nav bar).
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(

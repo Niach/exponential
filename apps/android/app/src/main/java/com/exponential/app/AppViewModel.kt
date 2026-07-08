@@ -16,6 +16,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -37,6 +38,20 @@ class AppViewModel @Inject constructor(
     private val databaseHolder: DatabaseHolder,
     private val workspaceSelection: WorkspaceSelection,
 ) : ViewModel() {
+
+    init {
+        // Workspace selection is a global StateFlow; when the active account
+        // changes (switch, or login re-keying a pending id to a per-user id) the
+        // old selected workspace id belongs to a different DB. Clear it so the
+        // new account resolves its own default (drop(1) skips the initial value).
+        viewModelScope.launch {
+            // activeAccountId is a StateFlow (already conflated/distinct); drop(1)
+            // skips the initial value so we only clear on an actual switch.
+            auth.activeAccountId
+                .drop(1)
+                .collect { workspaceSelection.clearSelection() }
+        }
+    }
 
     val state: StateFlow<AppState> = combine(
         auth.instanceUrl,

@@ -92,23 +92,26 @@ class MainActivity : ComponentActivity() {
             ?.let { android.net.Uri.decode(it) }
             ?: return
         lifecycleScope.launch {
-            // Fetch the session with the new token BEFORE persisting it, so the
-            // onboarding flag lands together with the token and the nav gate never
-            // sees a returning user as "not onboarded". Falls back to a bare login
-            // if the session fetch fails.
+            // completeLogin resolves the userId (session fetch, retried) and
+            // captures the onboarding flag in the same step, persisting the token
+            // as a per-user account. If no userId can be resolved it stores
+            // nothing — the app stays on login rather than key the wrong account.
             val account = authRepository.accounts.value
                 .firstOrNull { it.id == authRepository.activeAccountId.value }
-            val session = account?.let { authApi.fetchSession(it.instanceUrl, token) }
-            authRepository.setToken(
+                ?: return@launch
+            val ok = authApi.completeLogin(
+                baseUrl = account.instanceUrl,
                 token = token,
-                email = session?.email ?: account?.userEmail,
-                userId = session?.userId ?: account?.userId,
-                isAdmin = session?.isAdmin ?: false,
-                // Keep the prior onboarding flag if the session fetch fails so a
-                // returning user isn't bounced back into the wizard.
-                onboardingCompletedAt = session?.onboardingCompletedAt ?: account?.onboardingCompletedAt,
-                onboardingKnown = session != null || account?.onboardingKnown == true,
+                userIdHint = account.userId,
+                emailHint = account.userEmail,
+                isAdminHint = account.isAdmin,
             )
+            // No userId could be resolved → nothing was persisted and the app
+            // stays on login; surface the same message the password path uses so
+            // the return isn't a silent no-op.
+            if (!ok) {
+                authRepository.reportLoginError("Couldn't verify your account. Please try again.")
+            }
         }
     }
 

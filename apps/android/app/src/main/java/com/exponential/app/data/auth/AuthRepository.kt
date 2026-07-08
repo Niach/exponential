@@ -33,6 +33,21 @@ class AuthRepository @Inject constructor(
     private val _onboardingCompletedAt = MutableStateFlow(accountStore.activeAccount?.onboardingCompletedAt)
     val onboardingCompletedAt: StateFlow<String?> = _onboardingCompletedAt.asStateFlow()
 
+    // A login failure that happened outside the login screen's own request (the
+    // OAuth deep-link return is handled in MainActivity, not LoginViewModel).
+    // The login screen mirrors + consumes this so a failed OAuth resolve shows
+    // an error instead of silently dropping the user back on the login form.
+    private val _loginError = MutableStateFlow<String?>(null)
+    val loginError: StateFlow<String?> = _loginError.asStateFlow()
+
+    fun reportLoginError(message: String) {
+        _loginError.value = message
+    }
+
+    fun consumeLoginError() {
+        _loginError.value = null
+    }
+
     fun setInstanceUrl(url: String) {
         val normalized = normalizeBaseUrl(url)
         accountStore.upsertAndActivate(normalized)
@@ -45,17 +60,20 @@ class AuthRepository @Inject constructor(
         republish()
     }
 
+    // `userId` is required: the login flow resolves it (session fetch + sign-in
+    // body, retried) and fails the login rather than call this with a null user,
+    // so the account can be keyed per-user. See [AccountStore.resolveActiveAccount].
     fun setToken(
         token: String,
         email: String?,
-        userId: String? = null,
+        userId: String,
         isAdmin: Boolean = false,
         onboardingCompletedAt: String? = null,
         // Only true when onboardingCompletedAt was actually read from the server;
         // false keeps the account out of the wizard (legacy / unknown).
         onboardingKnown: Boolean = false,
     ) {
-        accountStore.updateActiveToken(
+        accountStore.resolveActiveAccount(
             token = token,
             email = email,
             name = null,

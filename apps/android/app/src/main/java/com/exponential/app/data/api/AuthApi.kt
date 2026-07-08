@@ -1,6 +1,7 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.ServerAccount
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -13,6 +14,7 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -76,8 +78,11 @@ class AuthApi @Inject constructor(
             // makes ktor's typed body() throw NoTransformationFoundException.
             val parsed: SignInResponse = json.decodeFromString(response.bodyAsText())
             if (parsed.token != null && parsed.user != null) {
-                applyLogin(baseUrl, parsed.token, parsed.user.email, parsed.user.id, parsed.user.isAdmin)
-                return SignInResult.Success(parsed.token, parsed.user.email)
+                return if (completeLogin(baseUrl, parsed.token, parsed.user.id, parsed.user.email, parsed.user.isAdmin)) {
+                    SignInResult.Success(parsed.token, parsed.user.email)
+                } else {
+                    SignInResult.Failure("Couldn't verify your account. Please try again.")
+                }
             }
 
             // Fallback: read raw set-cookie value `better-auth.session_token=<token>`.
@@ -88,8 +93,11 @@ class AuthApi @Inject constructor(
 
             if (token != null) {
                 val resolvedEmail = parsed.user?.email ?: email
-                applyLogin(baseUrl, token, resolvedEmail, parsed.user?.id, parsed.user?.isAdmin == true)
-                SignInResult.Success(token, resolvedEmail)
+                if (completeLogin(baseUrl, token, parsed.user?.id, resolvedEmail, parsed.user?.isAdmin == true)) {
+                    SignInResult.Success(token, resolvedEmail)
+                } else {
+                    SignInResult.Failure("Couldn't verify your account. Please try again.")
+                }
             } else {
                 SignInResult.Failure("Sign-in succeeded but no session token returned")
             }
@@ -98,32 +106,41 @@ class AuthApi @Inject constructor(
         }
     }
 
-    // Set the active token together with the onboarding flag, captured from the
-    // session in the SAME step — so the onboarding nav gate never momentarily
-    // sees a stale "not onboarded" for a returning user. Falls back to the
-    // sign-in fields if the session fetch fails (a brand-new user is null anyway).
-    private suspend fun applyLogin(
+    // Resolve the session (userId + onboarding + isAdmin) and persist the token
+    // as a per-user account. A userId is MANDATORY — it keys the per-user
+    // account, so without one (session read fails ×3 AND no id in the sign-in
+    // body) we refuse to persist the token and return false, and the caller
+    // surfaces a login error. Also captures the onboarding flag in the same step
+    // so the nav gate never momentarily sees a returning user as "not onboarded".
+    suspend fun completeLogin(
         baseUrl: String,
         token: String,
-        email: String,
-        userId: String?,
-        isAdmin: Boolean,
-    ) {
-        // Preserve a previously-captured onboarding flag so a transient session
-        // fetch failure on re-login doesn't downgrade a returning user back to the
-        // onboarding wizard.
-        val prior = auth.accounts.value.firstOrNull { it.instanceUrl == baseUrl }
-        val info = fetchSession(baseUrl, token)
+        userIdHint: String?,
+        emailHint: String?,
+        isAdminHint: Boolean,
+    ): Boolean {
+        var info: SessionInfo? = null
+        var attempt = 0
+        while (info == null && attempt < 3) {
+            if (attempt > 0) delay(500)
+            info = fetchSession(baseUrl, token)
+            attempt++
+        }
+        val userId = info?.userId ?: userIdHint ?: return false
+        // Preserve a returning user's onboarding flag if the session read failed
+        // but a hint gave us the id, so we don't bounce them back into the wizard.
+        val prior = auth.accounts.value.firstOrNull { it.id == ServerAccount.makeId(baseUrl, userId) }
         auth.setToken(
             token = token,
-            email = info?.email ?: email,
-            userId = info?.userId ?: userId,
-            isAdmin = info?.isAdmin ?: isAdmin,
+            email = info?.email ?: emailHint,
+            userId = userId,
+            isAdmin = info?.isAdmin ?: isAdminHint,
             onboardingCompletedAt = info?.onboardingCompletedAt ?: prior?.onboardingCompletedAt,
             // Mark the flag authoritative only when the session read succeeded
             // (or it already was); a failed fetch must not start the wizard.
             onboardingKnown = info != null || prior?.onboardingKnown == true,
         )
+        return true
     }
 
     suspend fun fetchSession(accountId: String): SessionInfo? {

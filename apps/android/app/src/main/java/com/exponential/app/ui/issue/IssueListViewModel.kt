@@ -18,6 +18,7 @@ import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssueFilters
 import com.exponential.app.domain.IssuePriority
@@ -81,6 +82,7 @@ class IssueListViewModel @Inject constructor(
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
     private val issueImagesApi: IssueImagesApi,
+    private val stats: SyncStats,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val appContext: android.content.Context,
 ) : ViewModel() {
@@ -153,20 +155,18 @@ class IssueListViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
-    // Canonical web URL for the board share sheet: {base}/w/{ws}/projects/{proj}.
-    // Null until project + workspace + instance URL are all resolved.
-    val shareUrl: StateFlow<String?> = combine(
-        _project,
-        workspaceForProject,
-        auth.instanceUrl,
-    ) { project, workspace, base ->
-        if (project == null || workspace == null || base.isNullOrBlank()) null
-        else com.exponential.app.domain.WebLinks.boardUrl(
-            base = base,
-            workspaceSlug = workspace.slug,
-            projectSlug = project.slug,
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    // Distinguish "still syncing membership" from "not allowed": when the user
+    // is signed in but not yet a resolved member AND the workspace_members shape
+    // hasn't gone live, controls read as pending-sync rather than denied. Drives
+    // the "Syncing workspace…" banner; `stalled` flips the copy when that shape
+    // is currently erroring.
+    val syncBanner: StateFlow<SyncBanner> = combine(
+        permissions,
+        auth.activeAccountId,
+        stats.state,
+    ) { perms, accountId, all ->
+        syncBannerFor(perms, all[accountId]?.get(MEMBERS_SHAPE))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
 
     /**
      * The target project's workspace issues, newest-first — drives the create
@@ -344,6 +344,11 @@ class IssueListViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return null
         return runCatching {
             labelsApi.create(accountId, CreateLabelInput(workspaceId, name.trim(), color))
+        }.onSuccess { created ->
+            // Optimistic local upsert so the label appears immediately instead of
+            // waiting for the labels shape's next poll (idempotent REPLACE;
+            // Electric re-delivers the same row, so this is only a head-start).
+            runCatching { holder.database(forAccountId = accountId).labelDao().upsert(created) }
         }.onFailure { error ->
             _error.value = error.message ?: "Failed to create label"
         }.getOrNull()

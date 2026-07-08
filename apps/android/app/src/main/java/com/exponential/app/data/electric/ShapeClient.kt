@@ -28,6 +28,8 @@ import kotlin.math.min
 
 private const val INITIAL_OFFSET = "-1"
 private const val LIVE_TIMEOUT_MS = 60_000L
+// Consecutive schema-class apply errors before a one-shot per-shape reset.
+private const val SCHEMA_RESET_THRESHOLD = 3
 
 /** Thrown on HTTP 401/403 so the run loop can report it as an *auth* failure. */
 private class ShapeAuthException(message: String) : Exception(message)
@@ -45,10 +47,18 @@ class ShapeClient<T : Any>(
     // Diagnostics hooks (no-ops by default).
     private val onPhase: (String) -> Unit = {},
     private val onApplied: (Int) -> Unit = {},
-    // Reports a failed poll; the flag is true for auth failures (HTTP 401/403).
-    private val onError: (Boolean) -> Unit = {},
+    // Reports a failed poll: (authFailure, message, schemaError). authFailure is
+    // true for HTTP 401/403; schemaError is true for "no such column/table"
+    // class SQLite failures during apply.
+    private val onError: (Boolean, String?, Boolean) -> Unit = { _, _, _ -> },
     // Reports a successful poll, so current-health error state can be cleared.
     private val onSuccess: () -> Unit = {},
+    // A full-row insert was dropped because its payload failed to decode.
+    private val onDecodeDrop: (String) -> Unit = {},
+    // An auto-reset of this shape has begun (rows briefly empty until refetch).
+    private val onRecovering: () -> Unit = {},
+    // Wipe this shape's offset + rows so the next poll refetches a snapshot.
+    private val onReset: suspend () -> Unit = {},
 ) {
     private val rawMessageSerializer = kotlinx.serialization.builtins.ListSerializer(
         kotlinx.serialization.serializer<RawMessage>()
@@ -56,6 +66,8 @@ class ShapeClient<T : Any>(
 
     suspend fun run() {
         var backoffMs = 500L
+        var consecutiveSchemaErrors = 0
+        var didAutoReset = false
         while (coroutineContext.isActive) {
             try {
                 val baseUrl = baseUrlProvider()
@@ -66,6 +78,7 @@ class ShapeClient<T : Any>(
                 }
                 val shouldPause = pollOnce(baseUrl, token)
                 onSuccess()
+                consecutiveSchemaErrors = 0
                 backoffMs = 500L
                 // Pace the loop when a non-live poll made no progress, so a
                 // response that never reaches up-to-date can't spin-request.
@@ -74,18 +87,49 @@ class ShapeClient<T : Any>(
                 throw cancel
             } catch (auth: ShapeAuthException) {
                 android.util.Log.w("ShapeClient", "[$shapeName] auth error: ${auth.message}")
-                onError(true)
+                onError(true, auth.message, false)
+                consecutiveSchemaErrors = 0
                 // Keep backing off (don't hammer) — an auth failure on a
                 // requireAuth shape won't fix itself by retrying immediately.
                 delay(backoffMs)
                 backoffMs = min(backoffMs * 2, 30_000L)
             } catch (error: Throwable) {
+                val schema = isSchemaError(error)
                 android.util.Log.w("ShapeClient", "[$shapeName] error: ${error.message}", error)
-                onError(false)
+                onError(false, error.message, schema)
+                if (schema) {
+                    consecutiveSchemaErrors++
+                    // A local table that drifted past what tolerant-apply can
+                    // absorb: reset this shape once per run so a fresh snapshot
+                    // repopulates it instead of the batch refailing forever.
+                    if (consecutiveSchemaErrors >= SCHEMA_RESET_THRESHOLD && !didAutoReset) {
+                        didAutoReset = true
+                        onRecovering()
+                        android.util.Log.w("ShapeClient", "[$shapeName] auto-resetting after repeated schema errors")
+                        runCatching { onReset() }
+                        consecutiveSchemaErrors = 0
+                    }
+                } else {
+                    consecutiveSchemaErrors = 0
+                }
                 delay(backoffMs)
                 backoffMs = min(backoffMs * 2, 30_000L)
             }
         }
+    }
+
+    private fun isSchemaError(error: Throwable): Boolean {
+        var t: Throwable? = error
+        while (t != null) {
+            val msg = t.message?.lowercase()
+            if (msg != null &&
+                ("no such column" in msg || "no such table" in msg || "has no column named" in msg)
+            ) {
+                return true
+            }
+            t = t.cause
+        }
+        return false
     }
 
     /** Returns true when the run loop should pause before the next poll. */
@@ -194,7 +238,11 @@ class ShapeClient<T : Any>(
         } else null
 
         return when (operation) {
+            // A full-row insert that won't decode used to vanish silently; surface
+            // it (the row still arrives on the next refetch). Updates that fail to
+            // decode fall through to PartialUpdate, which tolerant-apply absorbs.
             "insert" -> decodedValue?.let { ShapeMessage.Insert(key, it) }
+                ?: run { onDecodeDrop(key); null }
             "update" -> decodedValue?.let { ShapeMessage.Update(key, it) }
                 ?: (valueJson as? JsonObject)?.let { ShapeMessage.PartialUpdate(key, it.toString()) }
             "delete" -> ShapeMessage.Delete(key, decodedValue)

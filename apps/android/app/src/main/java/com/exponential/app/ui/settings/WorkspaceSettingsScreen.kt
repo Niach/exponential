@@ -67,6 +67,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.WorkspaceInviteEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.userDisplayName
@@ -79,6 +80,111 @@ import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
 
 private enum class WsTab(val label: String) { General("General"), Members("Members"), Labels("Labels") }
+
+// One confirm target per destructive/consequential settings action. Each tab
+// holds a nullable [SettingsConfirm] and renders a single [SettingsConfirmDialog]
+// so the mutation only fires after an explicit confirm — the one-tap
+// project-delete that wiped the dogfood board is what motivated this.
+private sealed interface SettingsConfirm {
+    data class DeleteProject(val project: ProjectEntity) : SettingsConfirm
+    data class DeleteLabel(val label: LabelEntity) : SettingsConfirm
+    // isSelf distinguishes "Leave workspace" from "Remove member".
+    data class RemoveMember(val row: MemberRow, val isSelf: Boolean) : SettingsConfirm
+    data class ChangeRole(val row: MemberRow, val newRole: String) : SettingsConfirm
+    data class RevokeInvite(val invite: WorkspaceInviteEntity) : SettingsConfirm
+}
+
+private data class ConfirmCopy(
+    val title: String,
+    val message: String,
+    val button: String,
+    val destructive: Boolean = true,
+)
+
+@Composable
+private fun SettingsConfirmDialog(
+    confirm: SettingsConfirm,
+    state: WorkspaceSettingsState,
+    viewModel: WorkspaceSettingsViewModel,
+    onDismiss: () -> Unit,
+) {
+    val copy = when (confirm) {
+        is SettingsConfirm.DeleteProject -> ConfirmCopy(
+            title = "Delete project?",
+            message = "Move \"${confirm.project.name}\" and all its issues, comments and " +
+                "attachments to trash? You can restore it from workspace settings for 48 " +
+                "hours; after that it is permanently deleted.",
+            button = "Delete",
+        )
+        is SettingsConfirm.DeleteLabel -> ConfirmCopy(
+            title = "Delete label?",
+            message = "\"${confirm.label.name}\" will be removed from all issues. This cannot be undone.",
+            button = "Delete",
+        )
+        is SettingsConfirm.RemoveMember -> if (confirm.isSelf) {
+            ConfirmCopy(
+                title = "Leave workspace?",
+                message = "You will lose access to \"${state.workspace?.name ?: "this workspace"}\". " +
+                    "An owner must invite you back.",
+                button = "Leave",
+            )
+        } else {
+            val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
+            ConfirmCopy(
+                title = "Remove member?",
+                message = "Remove $name from this workspace? They immediately lose access.",
+                button = "Remove",
+            )
+        }
+        is SettingsConfirm.ChangeRole -> {
+            val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
+            if (confirm.newRole == DomainContract.workspaceRoleOwner) {
+                ConfirmCopy(
+                    title = "Make $name an owner?",
+                    message = "Owners can delete projects, manage members and billing, and delete the workspace.",
+                    button = "Change role",
+                    destructive = false,
+                )
+            } else {
+                ConfirmCopy(
+                    title = "Change $name to member?",
+                    message = "They will no longer be able to manage members, repositories, or delete projects.",
+                    button = "Change role",
+                    destructive = false,
+                )
+            }
+        }
+        is SettingsConfirm.RevokeInvite -> ConfirmCopy(
+            title = "Revoke invite?",
+            message = "The invite link stops working immediately.",
+            button = "Revoke",
+        )
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(copy.title) },
+        text = { Text(copy.message) },
+        confirmButton = {
+            TextButton(onClick = {
+                when (confirm) {
+                    is SettingsConfirm.DeleteProject -> viewModel.deleteProject(confirm.project.id)
+                    is SettingsConfirm.DeleteLabel -> viewModel.deleteLabel(confirm.label.id)
+                    is SettingsConfirm.RemoveMember -> viewModel.removeMember(confirm.row.member.id)
+                    is SettingsConfirm.ChangeRole -> viewModel.updateRole(confirm.row.member.id, confirm.newRole)
+                    is SettingsConfirm.RevokeInvite -> viewModel.revokeInvite(confirm.invite.id)
+                }
+                onDismiss()
+            }) {
+                if (copy.destructive) {
+                    Text(copy.button, color = MaterialTheme.colorScheme.error)
+                } else {
+                    Text(copy.button)
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,12 +246,11 @@ fun WorkspaceSettingsScreen(
 private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettingsViewModel) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showCreateProject by remember { mutableStateOf(false) }
-    // Repository management is owner-only (the server enforces workspace-owner
-    // on the `repositories` router mutations); everyone else reads the registry.
-    val isOwner = state.currentUserId != null && state.members.any {
-        it.member.userId == state.currentUserId &&
-            it.member.role == DomainContract.workspaceRoleOwner
-    }
+    var confirm by remember { mutableStateOf<SettingsConfirm?>(null) }
+    // Owner-only controls are HIDDEN for non-owners (full web parity) — the
+    // server enforces workspace-owner on these mutations anyway. New-project
+    // stays visible (creation is member-level).
+    val isOwner = state.isOwner
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -170,8 +275,10 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                         Box(Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
                         Spacer(Modifier.width(10.dp))
                         Text(project.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        IconButton(onClick = { viewModel.deleteProject(project.id) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete project")
+                        if (isOwner) {
+                            IconButton(onClick = { confirm = SettingsConfirm.DeleteProject(project) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete project")
+                            }
                         }
                     }
                 }
@@ -185,10 +292,14 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
 
         RepositoriesSection(state, viewModel, isOwner)
 
-        OutlinedButton(onClick = { confirmDelete = true }) {
-            Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Delete workspace", color = MaterialTheme.colorScheme.error)
+        // Delete workspace: owner-only, and never for the bootstrap feedback
+        // workspace (the server rejects it too).
+        if (isOwner && state.workspace?.slug != "feedback") {
+            OutlinedButton(onClick = { confirmDelete = true }) {
+                Icon(Icons.Filled.Delete, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Delete workspace", color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 
@@ -199,6 +310,8 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
             onDismiss = { showCreateProject = false },
         )
     }
+
+    confirm?.let { SettingsConfirmDialog(it, state, viewModel) { confirm = null } }
 
     if (confirmDelete) {
         AlertDialog(
@@ -392,17 +505,26 @@ private fun RepositoryRow(
 @Composable
 private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettingsViewModel) {
     var showInvite by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<SettingsConfirm?>(null) }
     val clipboard = LocalClipboardManager.current
+    // Owner-only controls are HIDDEN for non-owners (web parity); self "Leave"
+    // stays visible for any member.
+    val isOwner = state.isOwner
+    // Invite links are https deep links into the web invite page; null instance
+    // URL disables Copy rather than minting a broken link.
+    val inviteBase = state.instanceUrl?.trimEnd('/')
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             SectionHeader("Members", modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = { showInvite = true }) {
-                Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Invite")
+            if (isOwner) {
+                OutlinedButton(onClick = { showInvite = true }) {
+                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Invite")
+                }
             }
         }
         // A workspace must always keep at least one owner.
@@ -412,6 +534,9 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                 if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                 val isYou = row.member.userId == state.currentUserId
                 val isLastOwner = row.member.role == DomainContract.workspaceRoleOwner && ownerCount <= 1
+                // Menu contents are all owner-gated except a member's own
+                // "Leave"; hide the trigger entirely when it would be empty.
+                val hasActions = isOwner || (isYou && !isLastOwner)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -434,53 +559,57 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
                     }
-                    var rowMenu by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { rowMenu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Member actions")
-                        }
-                        DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
-                            // Roles are owner or member. The last owner can't be
-                            // demoted or leave.
-                            if (row.member.role != DomainContract.workspaceRoleOwner) {
-                                DropdownMenuItem(
-                                    text = { Text("Make owner") },
-                                    onClick = {
-                                        rowMenu = false
-                                        viewModel.updateRole(row.member.id, DomainContract.workspaceRoleOwner)
-                                    },
-                                )
+                    if (hasActions) {
+                        var rowMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { rowMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "Member actions")
                             }
-                            if (row.member.role != DomainContract.workspaceRoleMember) {
-                                DropdownMenuItem(
-                                    text = { Text("Make member") },
-                                    enabled = !isLastOwner,
-                                    onClick = {
-                                        rowMenu = false
-                                        viewModel.updateRole(row.member.id, DomainContract.workspaceRoleMember)
-                                    },
-                                )
-                            }
-                            if (isYou) {
-                                if (!isLastOwner) {
+                            DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
+                                // Role changes + removing others are owner-only.
+                                // The last owner can't be demoted or leave.
+                                if (isOwner) {
+                                    if (row.member.role != DomainContract.workspaceRoleOwner) {
+                                        DropdownMenuItem(
+                                            text = { Text("Make owner") },
+                                            onClick = {
+                                                rowMenu = false
+                                                confirm = SettingsConfirm.ChangeRole(row, DomainContract.workspaceRoleOwner)
+                                            },
+                                        )
+                                    }
+                                    if (row.member.role != DomainContract.workspaceRoleMember) {
+                                        DropdownMenuItem(
+                                            text = { Text("Make member") },
+                                            enabled = !isLastOwner,
+                                            onClick = {
+                                                rowMenu = false
+                                                confirm = SettingsConfirm.ChangeRole(row, DomainContract.workspaceRoleMember)
+                                            },
+                                        )
+                                    }
+                                }
+                                if (isYou) {
+                                    if (!isLastOwner) {
+                                        if (isOwner) HorizontalDivider()
+                                        DropdownMenuItem(
+                                            text = { Text("Leave workspace", color = MaterialTheme.colorScheme.error) },
+                                            onClick = {
+                                                rowMenu = false
+                                                confirm = SettingsConfirm.RemoveMember(row, isSelf = true)
+                                            },
+                                        )
+                                    }
+                                } else if (isOwner) {
                                     HorizontalDivider()
                                     DropdownMenuItem(
-                                        text = { Text("Leave workspace", color = MaterialTheme.colorScheme.error) },
+                                        text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
                                         onClick = {
                                             rowMenu = false
-                                            viewModel.removeMember(row.member.id)
+                                            confirm = SettingsConfirm.RemoveMember(row, isSelf = false)
                                         },
                                     )
                                 }
-                            } else {
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        rowMenu = false
-                                        viewModel.removeMember(row.member.id)
-                                    },
-                                )
                             }
                         }
                     }
@@ -493,14 +622,14 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
             Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
                 state.invites.forEachIndexed { i, invite ->
                     if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-                    val link = "exponential://invite/${invite.token}"
+                    val link = inviteBase?.let { "$it/invite/${invite.token}" }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                link,
+                                link ?: invite.token,
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -511,9 +640,14 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             )
                         }
-                        TextButton(onClick = { clipboard.setText(AnnotatedString(link)) }) { Text("Copy") }
-                        IconButton(onClick = { viewModel.revokeInvite(invite.id) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Revoke invite")
+                        TextButton(
+                            onClick = { link?.let { clipboard.setText(AnnotatedString(it)) } },
+                            enabled = link != null,
+                        ) { Text("Copy") }
+                        if (isOwner) {
+                            IconButton(onClick = { confirm = SettingsConfirm.RevokeInvite(invite) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Revoke invite")
+                            }
                         }
                     }
                 }
@@ -532,6 +666,8 @@ private fun MembersTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
             )
         }
     }
+
+    confirm?.let { SettingsConfirmDialog(it, state, viewModel) { confirm = null } }
 }
 
 @Composable
@@ -542,7 +678,8 @@ private fun InviteDialog(
     onDismiss: () -> Unit,
 ) {
     val token = state.createdInviteToken
-    val link = token?.let { "exponential://invite/$it" }
+    val base = state.instanceUrl?.trimEnd('/')
+    val link = token?.let { t -> base?.let { "$it/invite/$t" } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Invite member") },
@@ -569,6 +706,9 @@ private fun InviteDialog(
 @Composable
 private fun LabelsTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettingsViewModel) {
     var showCreate by remember { mutableStateOf(false) }
+    // Labels are member-level (not owner-gated) — a confirmation dialog is the
+    // only guard on delete.
+    var confirm by remember { mutableStateOf<SettingsConfirm?>(null) }
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -584,7 +724,11 @@ private fun LabelsTab(state: WorkspaceSettingsState, viewModel: WorkspaceSetting
         Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
             state.labels.forEachIndexed { i, label ->
                 if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-                LabelRow(label = label, viewModel = viewModel)
+                LabelRow(
+                    label = label,
+                    viewModel = viewModel,
+                    onDelete = { confirm = SettingsConfirm.DeleteLabel(it) },
+                )
             }
         }
     }
@@ -601,10 +745,16 @@ private fun LabelsTab(state: WorkspaceSettingsState, viewModel: WorkspaceSetting
             onDismiss = { showCreate = false },
         )
     }
+
+    confirm?.let { SettingsConfirmDialog(it, state, viewModel) { confirm = null } }
 }
 
 @Composable
-private fun LabelRow(label: LabelEntity, viewModel: WorkspaceSettingsViewModel) {
+private fun LabelRow(
+    label: LabelEntity,
+    viewModel: WorkspaceSettingsViewModel,
+    onDelete: (LabelEntity) -> Unit,
+) {
     var editing by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -616,7 +766,7 @@ private fun LabelRow(label: LabelEntity, viewModel: WorkspaceSettingsViewModel) 
         IconButton(onClick = { editing = true }) {
             Icon(Icons.Filled.MoreVert, contentDescription = "Edit label")
         }
-        IconButton(onClick = { viewModel.deleteLabel(label.id) }) {
+        IconButton(onClick = { onDelete(label) }) {
             Icon(Icons.Filled.Delete, contentDescription = "Delete label")
         }
     }
