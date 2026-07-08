@@ -79,8 +79,10 @@ platform :ios do
         distribute_external: true,
         groups: [ENV.fetch("TESTFLIGHT_EXTERNAL_GROUP", "External Testers")],
         # Apple requires a What-to-Test changelog on externally distributed builds.
+        # Lanes run with fastlane/ as the working directory, so the metadata
+        # path is NOT prefixed with fastlane/.
         changelog: ENV["TESTFLIGHT_CHANGELOG"] ||
-          File.read("fastlane/metadata/en-US/release_notes.txt").strip,
+          File.read("metadata/en-US/release_notes.txt").strip,
         # No skip_waiting_for_build_processing here: pilot can only assign the
         # external group (and submit for Beta App Review) once processing finishes.
       )

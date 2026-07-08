@@ -12,7 +12,17 @@ devices([
   "iPad Pro 13-inch (M5)",
 ])
 
+# Both devices exist twice (release + Xcode-beta runtimes); pin the release
+# runtime — the beta runtime's XCTest flags internally-caught errors as
+# failures and its status bar/chrome may drift.
+ios_version("26.5")
+
 languages(["en-US"])
+
+# Set the SYSTEM language/locale too, not just the app's — the iPad status
+# bar renders the date in the simulator locale (it showed "Mittwoch 8. Juli"
+# on a German-locale host).
+localize_simulator(true)
 
 workspace("Exponential.xcworkspace")
 scheme("Exponential")

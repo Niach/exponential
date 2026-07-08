@@ -4,7 +4,8 @@ import XCTest
 ///
 /// Drives the real app against a seeded local backend: sign in on the
 /// InstanceView/LoginView flow, wait for Electric to sync the demo workspace,
-/// then capture the six store shots. Run via `bundle exec fastlane screenshots`
+/// then capture the five store shots (board, issue detail, comments, project
+/// switcher, inbox). Run via `fastlane screenshots`
 /// (apps/ios) with the seeded dev server running (`apps/web/scripts/
 /// seed-screenshots.ts` — demo@exponential.at / screenshots-demo, workspace
 /// "Acme", project "Mobile App", showcase issue APP-5).
@@ -83,49 +84,49 @@ final class StoreScreenshots: XCTestCase {
         snapshot("02_issue-detail")
 
         // ── 03: comment thread ──────────────────────────────────────────────
-        var scrollAttempts = 0
-        while !commentsHeader.isHittable && scrollAttempts < 12 {
-            app.swipeUp()
-            scrollAttempts += 1
+        // Skip when the comments are already on screen (iPad: the 13" detail
+        // shows the whole thread without scrolling, so 03 would duplicate 02).
+        if !commentsHeader.isHittable {
+            var scrollAttempts = 0
+            while !commentsHeader.isHittable && scrollAttempts < 12 {
+                app.swipeUp()
+                scrollAttempts += 1
+            }
+            settle(2)
+            snapshot("03_comments")
         }
-        settle(2)
-        snapshot("03_comments")
 
-        // ── 04: create-issue sheet ──────────────────────────────────────────
+        // ── 04: project switcher (v7 typed projects) ────────────────────────
+        // The sheet shows the dev / tasks / feedback type glyphs plus the
+        // globe badge on the public feedback board — the v7 headline feature.
         goBack(app)
         XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
-        let composeButton = app.buttons["compose-button"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: 10), "Compose button missing")
-        composeButton.tap()
-        let titleField = app.textFields["issue-title-field"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 15), "Create-issue sheet did not open")
-        titleField.tap()
-        titleField.typeText("Polish the launch animation")
-        settle(2)
-        snapshot("04_new-issue")
-
-        // ── 05: search tab ──────────────────────────────────────────────────
-        app.buttons["Cancel"].firstMatch.tap()
-        let searchTab = app.buttons["tab-search"]
-        XCTAssertTrue(searchTab.waitForExistence(timeout: 15), "Tab bar missing after sheet dismissal")
-        searchTab.tap()
+        let switcherButton = app.buttons["Switch project"]
+        XCTAssertTrue(switcherButton.waitForExistence(timeout: 10), "Project switcher control missing")
+        switcherButton.tap()
         XCTAssertTrue(
-            app.staticTexts["Assigned to you"].waitForExistence(timeout: 15),
-            "Search screen did not open"
+            app.staticTexts["Product Feedback"].waitForExistence(timeout: 15),
+            "Project switcher sheet did not show the seeded typed projects"
         )
         settle(2)
-        snapshot("05_search")
+        snapshot("04_projects")
 
-        // ── 06: inbox ───────────────────────────────────────────────────────
+        // Dismiss without selecting (keep Mobile App current): tap the dimmed
+        // area above the medium-detent sheet.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+
+        // ── 05: inbox ───────────────────────────────────────────────────────
         // Wait for a real notification group — capturing the "You're all
         // caught up" empty state would silently ship an empty store shot.
-        app.buttons["tab-inbox"].tap()
+        let inboxTab = app.buttons["tab-inbox"]
+        XCTAssertTrue(inboxTab.waitForExistence(timeout: 15), "Tab bar missing after sheet dismissal")
+        inboxTab.tap()
         XCTAssertTrue(
             app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 60),
             "Inbox never showed the seeded notifications"
         )
         settle(2)
-        snapshot("06_inbox")
+        snapshot("05_inbox")
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()

@@ -163,8 +163,8 @@ distribution — `ITSAppUsesNonExemptEncryption` is already declared `false` in
 
 ## Store screenshots (automated)
 
-`fastlane screenshots` captures the six store shots (board, issue detail, comments,
-new issue, search, inbox) by signing into the real app from a UI test
+`fastlane screenshots` captures the five store shots (board, issue detail, comments,
+project switcher with the v7 typed projects, inbox) by signing into the real app from a UI test
 (`ExponentialUITests/StoreScreenshots.swift`). Prereqs, from the repo root:
 
 ```bash

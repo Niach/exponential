@@ -58,20 +58,24 @@ struct ProjectSwitcherSheet: View {
     @ViewBuilder
     private func serverSection(_ group: ServerProjectGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(group.hostname)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.9))
-                    if let email = group.userEmail, !email.isEmpty {
-                        Text(email)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            // The hostname/email header only disambiguates when several
+            // accounts are signed in — with a single account it's noise.
+            if (projectLoader?.groups.count ?? 0) > 1 {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(group.hostname)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                        if let email = group.userEmail, !email.isEmpty {
+                            Text(email)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
                     }
+                    Spacer()
                 }
-                Spacer()
+                .padding(.horizontal, 4)
             }
-            .padding(.horizontal, 4)
 
             ForEach(group.workspaceBlocks) { block in
                 workspaceBlock(accountId: group.accountId, block: block)

@@ -68,10 +68,16 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let url = try? fileURL(for: accountId) else { return }
         let parent = url.deletingLastPathComponent()
         let base = url.lastPathComponent
-        // Wipe the main file plus -wal / -shm side files.
+        // Wipe the main file plus -wal / -shm side files. The exists-check
+        // matters under XCTest: removeItem on a missing file materializes an
+        // ENOENT NSError (even though try? swallows it), and when this runs in
+        // a test's deferred cleanup that error can shadow the test's real
+        // failure in the failure report.
         for suffix in ["", "-wal", "-shm"] {
             let target = parent.appendingPathComponent(base + suffix)
-            try? fm.removeItem(at: target)
+            if fm.fileExists(atPath: target.path) {
+                try? fm.removeItem(at: target)
+            }
         }
         // Also remove any legacy pre-v2 file if it survived an upgrade.
         removeLegacyFile(for: accountId)
@@ -91,7 +97,9 @@ public final class DatabaseManager: @unchecked Sendable {
         for legacyBase in legacyBases {
             for suffix in ["", "-wal", "-shm"] {
                 let target = parent.appendingPathComponent(legacyBase + suffix)
-                try? fm.removeItem(at: target)
+                if fm.fileExists(atPath: target.path) {
+                    try? fm.removeItem(at: target)
+                }
             }
         }
     }
@@ -391,6 +399,11 @@ public final class DatabaseManager: @unchecked Sendable {
             // devices sat at v2 (no column yet) so the bare ALTER worked for
             // them but crashed every new device / reinstall. Guard the ALTER on
             // column presence so both paths converge on the same schema.
+            // Table-existence guard: real installs always have `projects` (the
+            // full v1 creates it), but migration-fixture DBs that only carry
+            // the minimal v1 (electric_offsets) don't — columns(in:)/ALTER on
+            // a missing table would throw and blacklist the whole migrator.
+            guard try db.tableExists("projects") else { return }
             let hasColumn = try db.columns(in: "projects").contains { $0.name == "repository_id" }
             if !hasColumn {
                 try db.alter(table: "projects") { t in
@@ -409,6 +422,8 @@ public final class DatabaseManager: @unchecked Sendable {
         // workspaces.is_public / public_write_policy columns are left in place
         // on existing devices (harmless — no record references them).
         migrator.registerMigration("v4_project_types") { db in
+            // Same table-existence guard as v3 (see above).
+            guard try db.tableExists("projects") else { return }
             let existing = Set(try db.columns(in: "projects").map(\.name))
             let needed = ["type", "public_show_comments", "public_show_activity", "public_show_coding"]
             guard needed.contains(where: { !existing.contains($0) }) else { return }

@@ -169,8 +169,34 @@ async function main() {
       prefix: `APP`,
       color: `#6366f1`,
       repositoryId: repo.id,
+      sortOrder: 0,
     })
     .returning()
+
+  // Two more typed projects (v7) so the project-switcher screenshot shows the
+  // dev / tasks / feedback glyphs side by side. Issue-less on purpose — only
+  // the switcher sheet captures them; sortOrder keeps Mobile App the default
+  // board (the loader picks the first project by sortOrder).
+  await db.insert(projects).values([
+    {
+      workspaceId: ws.id,
+      name: `Launch Marketing`,
+      slug: `launch-marketing`,
+      prefix: `MKT`,
+      color: `#f59e0b`,
+      type: `tasks`,
+      sortOrder: 10,
+    },
+    {
+      workspaceId: ws.id,
+      name: `Product Feedback`,
+      slug: `product-feedback`,
+      prefix: `FB`,
+      color: `#22c55e`,
+      type: `feedback`,
+      sortOrder: 20,
+    },
+  ])
 
   const labelRows = await db
     .insert(labels)
