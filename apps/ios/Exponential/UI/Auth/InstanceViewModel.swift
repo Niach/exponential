@@ -76,13 +76,20 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
     // gate transitions straight from the welcome screen to the app.
     private func applyCloudLogin(token: String) async {
         let cloud = AppConstants.defaultCloudUrl
-        let session = await authApi.fetchSession(instanceUrl: cloud, token: token)
+        let session = await authApi.fetchSessionRetrying(instanceUrl: cloud, token: token)
+        // A login must resolve a stable userId before its token is persisted —
+        // per-user account identity is keyed on it. Fail (without committing the
+        // instance URL or token) rather than strand an unattributable account.
+        guard let userId = session?.id, !userId.isEmpty else {
+            error = "Couldn't verify your account. Please try signing in again."
+            return
+        }
         auth.setInstanceUrl(cloud)
         auth.setToken(
             token,
             email: session?.email,
             name: session?.name,
-            userId: session?.id,
+            userId: userId,
             isAdmin: session?.isAdmin ?? false,
             onboardingCompletedAt: session?.onboardingCompletedAt,
             onboardingKnown: session != nil

@@ -14,6 +14,10 @@ final class IssueListViewModel {
     var activeTab: FilterTab = .all
     var collapsedStatuses: Set<IssueStatus> = []
     var permissions: WorkspacePermissions = .denied
+    // True while a signed-in viewer looks like a non-member ONLY because the
+    // workspace_members shape hasn't synced yet — drives a "Syncing workspace…"
+    // banner instead of silently rendering everything as a permission denial.
+    var permissionsPending = false
     var error: String?
 
     private let accountId: String
@@ -101,8 +105,28 @@ final class IssueListViewModel {
                 } catch {}
             }
 
+            // Recompute permissions when membership or the members-shape sync
+            // state changes. The project row observed above may never change
+            // again after the members shape snapshots in, so without this the
+            // "Syncing workspace…" banner would stick and controls would stay
+            // read-only until the view is remounted. Tracks the two regions the
+            // computation reads: the workspace_members table and the
+            // "workspace-members" offset row (isLive).
+            let permsObservation = ValueObservation.tracking { db -> (Int, Bool) in
+                let count = try WorkspaceMemberEntity.fetchCount(db)
+                let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+                return (count, live)
+            }
+            let permsTask = Task {
+                do {
+                    for try await _ in permsObservation.values(in: pool) {
+                        self.refreshPermissions(for: self.project)
+                    }
+                } catch {}
+            }
+
             // Wait for cancellation
-            _ = await (projectTask.value, issueTask.value, labelTask.value, issueLabelTask.value, userTask.value)
+            _ = await (projectTask.value, issueTask.value, labelTask.value, issueLabelTask.value, userTask.value, permsTask.value)
         }
     }
 
@@ -212,20 +236,28 @@ final class IssueListViewModel {
     private func refreshPermissions(for project: ProjectEntity?) {
         guard let project else {
             permissions = .denied
+            permissionsPending = false
             return
         }
         guard let pool = try? db.pool(forAccountId: accountId) else {
             permissions = .denied
+            permissionsPending = false
             return
         }
-        let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
-            try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
-        }) ?? nil
+        let (workspace, membersLive): (WorkspaceEntity?, Bool) = (try? pool.read { db in
+            let ws = try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
+            let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+            return (ws, live)
+        }) ?? (nil, false)
         permissions = WorkspacePermissions.resolve(
             workspace: workspace,
             currentUserId: auth.userId,
             isAdmin: auth.isAdmin,
             dbPool: pool
         )
+        // Only "pending" while membership genuinely hasn't landed — a live
+        // members shape with no matching row means the viewer really isn't a
+        // member (e.g. a public board), which is a real read-only state.
+        permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
     }
 }

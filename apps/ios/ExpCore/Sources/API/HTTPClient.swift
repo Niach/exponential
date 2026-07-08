@@ -11,6 +11,14 @@ public final class HTTPClient: Sendable {
             "Accept": "application/json",
         ]
         config.timeoutIntervalForRequest = 30
+        // Bearer auth is used everywhere, so no cookie jar or response cache is
+        // needed — and both leak across accounts on the same host: a Better-Auth
+        // Set-Cookie from one user's sign-in would ride along on the next user's
+        // requests, and a cached response could be replayed cross-auth. Kill
+        // both (mirrors ShapeClient's cache-off stance).
+        config.httpShouldSetCookies = false
+        config.httpCookieStorage = nil
+        config.urlCache = nil
         self.session = URLSession(configuration: config)
     }
 

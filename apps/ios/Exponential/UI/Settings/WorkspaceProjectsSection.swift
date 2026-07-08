@@ -89,13 +89,18 @@ struct WorkspaceProjectsSection: View {
                             .buttonStyle(.plain)
                         }
 
-                        // Delete button
-                        Button {
-                            onDelete(project)
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.caption)
-                                .foregroundStyle(.red.opacity(0.5))
+                        // Delete (→ trash) — owner-only, hidden for non-owners
+                        // (full web parity, and the one-tap path that once wiped
+                        // the dogfood board).
+                        if isOwner {
+                            Button {
+                                onDelete(project)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                                    .foregroundStyle(.red.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -208,7 +213,7 @@ private struct ChangeRepositorySheet: View {
             repos = try await repositoriesApi.list(accountId: accountId, workspaceId: project.workspaceId)
             errorText = nil
         } catch {
-            errorText = error.localizedDescription
+            errorText = error.trpcUserMessage
         }
     }
 
@@ -225,7 +230,7 @@ private struct ChangeRepositorySheet: View {
             RepositoryDirectory.invalidate(accountId: accountId, workspaceId: project.workspaceId)
             dismiss()
         } catch {
-            errorText = error.localizedDescription
+            errorText = error.trpcUserMessage
         }
     }
 }

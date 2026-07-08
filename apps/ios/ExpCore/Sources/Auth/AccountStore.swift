@@ -2,6 +2,8 @@ import Foundation
 
 private let keyAccounts = "accounts"
 private let keyActiveAccountId = "active_account_id"
+// One-shot flag: URL-keyed accounts have been re-keyed to per-user ids.
+private let keyPerUserMigrationDone = "peruser_migration_v1"
 
 // Legacy single-account keys, migrated on first launch.
 private let legacyKeyInstanceUrl = "instance_url"
@@ -12,16 +14,17 @@ private let legacyKeyUserId = "user_id"
 private let legacyKeyIsAdmin = "is_admin"
 
 public final class AccountStore: @unchecked Sendable {
-    private let store: KeychainStore
+    private let store: any KeychainStoring
     private let lock = NSLock()
     private var cached: [ServerAccount]
     private var cachedActiveId: String?
 
-    public init(keychain: KeychainStore) {
+    public init(keychain: any KeychainStoring) {
         self.store = keychain
         self.cached = AccountStore.loadAccounts(from: keychain)
         self.cachedActiveId = keychain.get(keyActiveAccountId)
         AccountStore.migrateLegacyIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
+        AccountStore.migratePerUserIdsIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
         persist()
     }
 
@@ -67,28 +70,100 @@ public final class AccountStore: @unchecked Sendable {
         return cached.first { $0.id == id }!
     }
 
-    /// Updates the token + user info on the active account.
-    public func updateActiveToken(
+    /// Resolve which account a successful login belongs to (per-user identity)
+    /// and persist its token + fields. Implements the account state machine:
+    /// - same user on the active server → in-place token refresh (no DB wipe);
+    /// - a per-user account that already exists → switch to it (offline cache
+    ///   preserved), dropping the tokenless pending record we signed in from;
+    /// - a pending (pre-login) record → re-keyed to the per-user id, so the
+    ///   fresh DB file triggers a full snapshot sync;
+    /// - another user already resolved on this server → a fresh per-user record
+    ///   rather than clobbering theirs.
+    /// The caller MUST pass a resolved userId (the login VMs fail the login if a
+    /// session never resolves one). Returns the resolved account id.
+    @discardableResult
+    public func resolveActiveAccount(
         token: String,
         email: String?,
         name: String?,
-        userId: String?,
+        userId: String,
         isAdmin: Bool,
-        onboardingCompletedAt: String? = nil,
-        onboardingKnown: Bool? = nil
-    ) {
+        onboardingCompletedAt: String?,
+        onboardingKnown: Bool
+    ) -> String {
         lock.lock()
         defer { lock.unlock() }
-        guard let id = cachedActiveId, let idx = cached.firstIndex(where: { $0.id == id }) else { return }
+
+        guard let activeId = cachedActiveId,
+              let activeIdx = cached.firstIndex(where: { $0.id == activeId }) else {
+            return cachedActiveId ?? ""
+        }
+        let instanceUrl = cached[activeIdx].instanceUrl
+        let perUserId = ServerAccount.makeId(instanceUrl: instanceUrl, userId: userId)
+
+        if let existingIdx = cached.firstIndex(where: { $0.id == perUserId }) {
+            applyResolvedFields(
+                at: existingIdx, token: token, email: email, name: name,
+                userId: userId, isAdmin: isAdmin,
+                onboardingCompletedAt: onboardingCompletedAt, onboardingKnown: onboardingKnown
+            )
+            cachedActiveId = perUserId
+            // Drop the distinct tokenless/userless pending record we came from.
+            if activeId != perUserId, cached[activeIdx].token == nil, cached[activeIdx].userId == nil {
+                cached.removeAll { $0.id == activeId }
+            }
+            persistLocked()
+            return perUserId
+        }
+
+        if cached[activeIdx].userId == nil {
+            // Pending (pre-login) record → re-key to the per-user id.
+            cached[activeIdx].id = perUserId
+            applyResolvedFields(
+                at: activeIdx, token: token, email: email, name: name,
+                userId: userId, isAdmin: isAdmin,
+                onboardingCompletedAt: onboardingCompletedAt, onboardingKnown: onboardingKnown
+            )
+            cachedActiveId = perUserId
+        } else {
+            // Another user is already resolved on this server — create a fresh
+            // per-user record instead of clobbering theirs.
+            cached.append(ServerAccount(
+                id: perUserId,
+                instanceUrl: instanceUrl,
+                token: token,
+                userEmail: email,
+                userName: name,
+                userId: userId,
+                isAdmin: isAdmin,
+                onboardingCompletedAt: onboardingCompletedAt,
+                onboardingKnown: onboardingKnown ? true : nil,
+                lastUsedAt: Date()
+            ))
+            cachedActiveId = perUserId
+        }
+        persistLocked()
+        return perUserId
+    }
+
+    /// Assign the resolved login fields onto `cached[idx]`, preserving a prior
+    /// onboarding flag when the incoming session didn't report one (a transient
+    /// session read must never bounce a returning user back to the wizard).
+    /// Assumes the store lock is already held.
+    private func applyResolvedFields(
+        at idx: Int, token: String, email: String?, name: String?, userId: String,
+        isAdmin: Bool, onboardingCompletedAt: String?, onboardingKnown: Bool
+    ) {
+        let priorCompleted = cached[idx].onboardingCompletedAt
+        let priorKnown = cached[idx].onboardingKnown
         cached[idx].token = token
         cached[idx].userEmail = email
         cached[idx].userName = name
         cached[idx].userId = userId
         cached[idx].isAdmin = isAdmin
-        cached[idx].onboardingCompletedAt = onboardingCompletedAt
-        cached[idx].onboardingKnown = onboardingKnown
+        cached[idx].onboardingCompletedAt = onboardingCompletedAt ?? priorCompleted
+        cached[idx].onboardingKnown = (onboardingKnown || priorKnown == true) ? true : nil
         cached[idx].lastUsedAt = Date()
-        persistLocked()
     }
 
     /// Marks an account onboarded (after onboarding.complete succeeds) so the
@@ -141,7 +216,7 @@ public final class AccountStore: @unchecked Sendable {
         store.set(keyActiveAccountId, value: cachedActiveId)
     }
 
-    private static func loadAccounts(from keychain: KeychainStore) -> [ServerAccount] {
+    private static func loadAccounts(from keychain: any KeychainStoring) -> [ServerAccount] {
         guard
             let json = keychain.get(keyAccounts),
             let data = json.data(using: .utf8),
@@ -151,7 +226,7 @@ public final class AccountStore: @unchecked Sendable {
     }
 
     private static func migrateLegacyIfNeeded(
-        store: KeychainStore,
+        store: any KeychainStoring,
         accounts: inout [ServerAccount],
         activeId: inout String?
     ) {
@@ -177,5 +252,39 @@ public final class AccountStore: @unchecked Sendable {
         store.delete(legacyKeyUserName)
         store.delete(legacyKeyUserId)
         store.delete(legacyKeyIsAdmin)
+    }
+
+    // One-shot re-key of URL-keyed accounts to per-user ids. Before this, two
+    // users on the same server shared one accountId (hence one DB file → "logged
+    // into the wrong account"). Re-key each signed-in URL-keyed record to
+    // makeId(instanceUrl:userId:); a signed-in record with no captured userId
+    // gets its token nulled to force a clean re-login. The stale URL-keyed DB
+    // files are wiped app-side (AppDependencies) — the cache may be the wrong
+    // user's data, so it's deleted, not renamed. Guarded by a persisted flag;
+    // idempotent (the keychain survives reinstall).
+    static func migratePerUserIdsIfNeeded(
+        store: any KeychainStoring,
+        accounts: inout [ServerAccount],
+        activeId: inout String?
+    ) {
+        guard store.get(keyPerUserMigrationDone) != "true" else { return }
+        for idx in accounts.indices {
+            let account = accounts[idx]
+            // Only touch legacy URL-keyed records; per-user ids already differ.
+            guard account.id == ServerAccount.makeId(for: account.instanceUrl) else { continue }
+            guard account.token != nil else { continue }
+            if let userId = account.userId, !userId.isEmpty {
+                let perUserId = ServerAccount.makeId(instanceUrl: account.instanceUrl, userId: userId)
+                if perUserId != account.id {
+                    if activeId == account.id { activeId = perUserId }
+                    accounts[idx].id = perUserId
+                }
+            } else {
+                // Signed-in but no userId — can't derive a per-user id. Null the
+                // token so the next launch re-authenticates cleanly.
+                accounts[idx].token = nil
+            }
+        }
+        store.set(keyPerUserMigrationDone, value: "true")
     }
 }

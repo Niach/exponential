@@ -20,6 +20,7 @@ struct WorkspaceSettingsView: View {
     @State private var deletingWorkspace = false
     @State private var deleteProjectTarget: ProjectEntity?
     @State private var deletingProject = false
+    @State private var dangerError: String?
 
     var body: some View {
         ZStack {
@@ -58,7 +59,9 @@ struct WorkspaceSettingsView: View {
                         membersApi: deps.workspaceMembersApi,
                         workspaceId: workspaceId,
                         invites: invites.filter { $0.acceptedAt == nil },
-                        invitesApi: deps.workspaceInvitesApi
+                        invitesApi: deps.workspaceInvitesApi,
+                        isOwner: isOwner,
+                        instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
                     )
 
                     // Labels section
@@ -69,9 +72,10 @@ struct WorkspaceSettingsView: View {
                         labelsApi: deps.labelsApi
                     )
 
-                    // Delete workspace (never offer it for the shared feedback
-                    // workspace — the server rejects deleting it anyway).
-                    if let workspace, workspace.slug != "feedback" {
+                    // Delete workspace — owner-only (hidden for non-owners, full
+                    // web parity), and never for the shared feedback workspace
+                    // (the server rejects deleting it anyway).
+                    if let workspace, workspace.slug != "feedback", isOwner {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Danger Zone")
                                 .font(.subheadline.weight(.semibold))
@@ -91,6 +95,12 @@ struct WorkspaceSettingsView: View {
                             }
                             .glassButton()
                             .buttonStyle(.plain)
+
+                            if let dangerError {
+                                Text(dangerError)
+                                    .font(.caption)
+                                    .foregroundStyle(.red.opacity(0.8))
+                            }
                         }
                     }
                 }
@@ -123,7 +133,7 @@ struct WorkspaceSettingsView: View {
             }
             .disabled(deletingProject)
         } message: {
-            Text("This will permanently delete \(deleteProjectTarget?.name ?? "this project") and all its issues. This cannot be undone.")
+            Text("Move \(deleteProjectTarget?.name ?? "this project") and all its issues, comments and attachments to trash? You can restore it from workspace settings for 48 hours; after that it is permanently deleted.")
         }
     }
 
@@ -141,7 +151,7 @@ struct WorkspaceSettingsView: View {
             try await deps.workspacesApi.delete(accountId: accountId, workspaceId: workspaceId)
             await MainActor.run { dismiss() }
         } catch {
-            // Deletion failed — stay on the page
+            dangerError = error.trpcUserMessage
         }
     }
 
@@ -151,7 +161,7 @@ struct WorkspaceSettingsView: View {
         do {
             try await deps.workspacesApi.deleteProject(accountId: accountId, projectId: project.id)
         } catch {
-            // Deletion failed — Electric will reconcile
+            dangerError = error.trpcUserMessage
         }
     }
 

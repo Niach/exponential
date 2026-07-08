@@ -32,6 +32,10 @@ final class IssueDetailViewModel {
     var saving = false
     var error: String?
     var permissions: WorkspacePermissions = .denied
+    // True while a signed-in viewer looks like a non-member ONLY because the
+    // workspace_members shape hasn't synced yet (drives a "Syncing workspace…"
+    // banner rather than silently rendering the issue read-only).
+    var permissionsPending = false
     var isSubscribed = false
 
     private let accountId: String
@@ -170,6 +174,26 @@ final class IssueDetailViewModel {
                 for try await subs in subObs.values(in: pool) {
                     let me = self.auth.userId
                     self.isSubscribed = me != nil && subs.contains { $0.userId == me && !$0.unsubscribed }
+                }
+            }
+
+            // Recompute permissions when membership or the members-shape sync
+            // state changes. The issue row observed above may not change again
+            // after the members shape snapshots in, so without this the "Syncing
+            // workspace…" banner would stick and the issue would stay read-only
+            // until the view is remounted. Tracks the two regions the
+            // computation reads: the workspace_members table and the
+            // "workspace-members" offset row (isLive).
+            let membersObs = ValueObservation.tracking { db -> (Int, Bool) in
+                let count = try WorkspaceMemberEntity.fetchCount(db)
+                let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+                return (count, live)
+            }
+            Task {
+                for try await _ in membersObs.values(in: pool) {
+                    if let issue = self.issue {
+                        self.refreshPermissions(for: issue)
+                    }
                 }
             }
         }
@@ -444,12 +468,12 @@ final class IssueDetailViewModel {
 
     private func refreshPermissions(for issue: IssueEntity) {
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let workspace: WorkspaceEntity? = (try? pool.read { db -> WorkspaceEntity? in
-            guard let project = try ProjectEntity.fetchOne(db, key: issue.projectId) else {
-                return nil
-            }
-            return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
-        }) ?? nil
+        let (workspace, membersLive): (WorkspaceEntity?, Bool) = (try? pool.read { db -> (WorkspaceEntity?, Bool) in
+            let project = try ProjectEntity.fetchOne(db, key: issue.projectId)
+            let ws = try project.flatMap { try WorkspaceEntity.fetchOne(db, key: $0.workspaceId) }
+            let live = try ElectricOffset.fetchOne(db, key: "workspace-members")?.isLive ?? false
+            return (ws, live)
+        }) ?? (nil, false)
         self.workspace = workspace
         permissions = WorkspacePermissions.resolve(
             workspace: workspace,
@@ -457,6 +481,7 @@ final class IssueDetailViewModel {
             isAdmin: auth.isAdmin,
             dbPool: pool
         )
+        permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
     }
 
     // MARK: - Share

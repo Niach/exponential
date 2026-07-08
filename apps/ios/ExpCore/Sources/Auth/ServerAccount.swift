@@ -51,8 +51,20 @@ public struct ServerAccount: Codable, Identifiable, Equatable, Hashable, Sendabl
         onboardingKnown == true && onboardingCompletedAt == nil
     }
 
+    /// Pre-login ("pending") id — keyed by instance URL only, used before a
+    /// session resolves the user. Two users on the same server would collide
+    /// here; that's why a resolved login switches to the per-user id below.
     public static func makeId(for instanceUrl: String) -> String {
         let digest = SHA256.hash(data: Data(instanceUrl.utf8))
+        return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Per-user account id — keyed by instance URL AND userId, so two users on
+    /// the same server get distinct ids (hence distinct local DB files, offsets,
+    /// and workspace selection). The `\n` separator keeps URL/userId boundaries
+    /// unambiguous. Same 4-byte hex width as the pending id.
+    public static func makeId(instanceUrl: String, userId: String) -> String {
+        let digest = SHA256.hash(data: Data("\(instanceUrl)\n\(userId)".utf8))
         return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 

@@ -199,7 +199,7 @@ struct GithubRepoPicker: View {
                 loading = false
             }
         } catch {
-            await MainActor.run { self.error = error.localizedDescription; loading = false }
+            await MainActor.run { self.error = error.trpcUserMessage; loading = false }
         }
     }
 }

@@ -1,6 +1,14 @@
 import Foundation
 import Security
 
+/// The minimal key/value surface `AccountStore` needs. Extracted so tests can
+/// substitute an in-memory fake for the real (entitlement-bound) keychain.
+public protocol KeychainStoring: Sendable {
+    func get(_ key: String) -> String?
+    func set(_ key: String, value: String?)
+    func delete(_ key: String)
+}
+
 /// Keychain-backed string store, shared between the app and the Share Extension
 /// via a keychain access group ([SharedAppGroup.keychainAccessGroup]).
 ///
@@ -10,7 +18,7 @@ import Security
 /// promote it into the shared group; writes always target the shared group and
 /// clear the legacy copy. `AccountStore.init` calls `persist()` on first launch,
 /// so accounts move into the shared group immediately after the update.
-public final class KeychainStore: Sendable {
+public final class KeychainStore: KeychainStoring, Sendable {
     private let service = "at.exponential"
     private let accessGroup: String? = SharedAppGroup.keychainAccessGroup
 

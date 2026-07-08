@@ -49,6 +49,18 @@ final class AppDependencies: @unchecked Sendable {
         let httpClient = HTTPClient(auth: auth)
         let trpc = TrpcClient(httpClient: httpClient, auth: auth)
         let db = DatabaseManager()
+        // One-shot: after the keychain re-key to per-user account ids
+        // (AccountStore.migratePerUserIdsIfNeeded), the legacy URL-keyed DB files
+        // are orphaned — and may hold the WRONG user's cached data (the very bug
+        // this fixes). Wipe them once, before any pool opens. Guarded by an
+        // app-side UserDefaults flag (distinct from the keychain migration flag).
+        let dbCleanupFlag = "peruser_db_cleanup_v1"
+        if !UserDefaults.standard.bool(forKey: dbCleanupFlag) {
+            for account in auth.accounts where account.id != ServerAccount.makeId(for: account.instanceUrl) {
+                DatabaseManager.deleteFiles(forAccountId: ServerAccount.makeId(for: account.instanceUrl))
+            }
+            UserDefaults.standard.set(true, forKey: dbCleanupFlag)
+        }
         // Open a pool for every signed-in account so SyncManager can launch
         // parallel shape pipelines on first tick and the UI can bind
         // ValueObservations to any account's pool without a race. The order is

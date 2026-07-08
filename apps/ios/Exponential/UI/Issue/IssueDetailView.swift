@@ -19,6 +19,23 @@ struct IssueDetailView: View {
     @State private var showCreateLabel = false
     @FocusState private var titleFocused: Bool
 
+    // Shown while workspace membership is still syncing, so a signed-in viewer
+    // sees "we're catching up" instead of a silently read-only issue.
+    private var syncingBanner: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+            Text("Syncing workspace…")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassRow()
+    }
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -46,6 +63,10 @@ struct IssueDetailView: View {
                                 )
                             }
                             Spacer()
+                        }
+
+                        if vm.permissionsPending {
+                            syncingBanner
                         }
 
                         // Canonical-issue banner when marked as a duplicate:

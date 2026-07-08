@@ -20,6 +20,8 @@ struct WorkspaceLabelsSection: View {
     @State private var newLabelColor = "#3b82f6"
     @State private var editingLabelId: String?
     @State private var editingName = ""
+    @State private var deleteTarget: LabelEntity?
+    @State private var actionError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -38,7 +40,7 @@ struct WorkspaceLabelsSection: View {
                     Menu {
                         ForEach(labelColors, id: \.self) { color in
                             Button {
-                                Task { try? await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, color: color)) }
+                                Task { await run { try await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, color: color)) } }
                             } label: {
                                 HStack {
                                     Circle().fill(Color(hex: color) ?? .gray).frame(width: 12, height: 12)
@@ -60,7 +62,7 @@ struct WorkspaceLabelsSection: View {
                             .foregroundStyle(.white)
                             .onSubmit {
                                 Task {
-                                    try? await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, name: editingName))
+                                    await run { try await labelsApi.update(accountId: accountId, UpdateLabelInput(id: label.id, name: editingName)) }
                                     editingLabelId = nil
                                 }
                             }
@@ -76,18 +78,26 @@ struct WorkspaceLabelsSection: View {
 
                     Spacer()
 
-                    // Delete
+                    // Delete (confirmed — labels stay member-level, so no owner
+                    // gating, only a confirmation).
                     Button {
-                        Task { try? await labelsApi.delete(accountId: accountId, id: label.id) }
+                        deleteTarget = label
                     } label: {
                         Image(systemName: "trash")
                             .font(.caption)
                             .foregroundStyle(.red.opacity(0.5))
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .glassRow()
+            }
+
+            if let actionError {
+                Text(actionError)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.8))
             }
 
             // Create new label
@@ -130,11 +140,13 @@ struct WorkspaceLabelsSection: View {
 
                         Button("Create") {
                             Task {
-                                try? await labelsApi.create(accountId: accountId, CreateLabelInput(
-                                    name: newLabelName,
-                                    color: newLabelColor,
-                                    workspaceId: workspaceId
-                                ))
+                                await run {
+                                    try await labelsApi.create(accountId: accountId, CreateLabelInput(
+                                        name: newLabelName,
+                                        color: newLabelColor,
+                                        workspaceId: workspaceId
+                                    ))
+                                }
                                 showCreate = false
                                 newLabelName = ""
                             }
@@ -162,6 +174,29 @@ struct WorkspaceLabelsSection: View {
                 .glassButton()
                 .buttonStyle(.plain)
             }
+        }
+        .alert("Delete Label", isPresented: Binding(
+            get: { deleteTarget != nil },
+            set: { if !$0 { deleteTarget = nil } }
+        ), presenting: deleteTarget) { label in
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
+            Button("Delete", role: .destructive) {
+                Task { await run { try await labelsApi.delete(accountId: accountId, id: label.id) } }
+            }
+        } message: { label in
+            Text("\"\(label.name)\" will be removed from all issues. This cannot be undone.")
+        }
+    }
+
+    /// Run a label mutation, surfacing the server's clean message on failure
+    /// instead of silently swallowing it. Labels are member-level, so failures
+    /// here are transient (network/permission), not an owner gate.
+    private func run(_ op: () async throws -> Void) async {
+        do {
+            try await op()
+            actionError = nil
+        } catch {
+            actionError = error.trpcUserMessage
         }
     }
 }

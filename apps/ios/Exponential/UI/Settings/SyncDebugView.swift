@@ -79,35 +79,57 @@ struct SyncDebugView: View {
 
     @ViewBuilder
     private func shapeRow(name: String, status: ShapeStatus) -> some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(statusColor(status))
-                .frame(width: 8, height: 8)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(statusColor(status))
+                    .frame(width: 8, height: 8)
 
-            Text(name)
-                .font(.caption.monospaced())
-                .foregroundStyle(.white)
-                .lineLimit(1)
+                Text(name)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
 
-            Spacer()
+                Spacer()
 
-            if status.errorCount > 0 {
-                Text("\(status.errorCount) err")
+                if status.recoveryState == .recovering {
+                    Text("recovering")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.yellow.opacity(0.9))
+                }
+
+                if status.errorCount > 0 {
+                    Text("\(status.errorCount) err")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.red.opacity(0.8))
+                }
+
+                Text("\(status.requestCount) req")
                     .font(.caption2.monospaced())
-                    .foregroundStyle(.red.opacity(0.8))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+
+                Text(status.isLive ? "live" : "init")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(status.isLive ? .green.opacity(0.8) : .orange.opacity(0.8))
+
+                Text("HTTP \(status.lastHttpStatus)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(httpStatusColor(status.lastHttpStatus))
             }
 
-            Text("\(status.requestCount) req")
-                .font(.caption2.monospaced())
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-            Text(status.isLive ? "live" : "init")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(status.isLive ? .green.opacity(0.8) : .orange.opacity(0.8))
-
-            Text("HTTP \(status.lastHttpStatus)")
-                .font(.caption2.monospaced())
-                .foregroundStyle(httpStatusColor(status.lastHttpStatus))
+            if let message = status.lastErrorMessage {
+                HStack(alignment: .top, spacing: 6) {
+                    if status.isSchemaError {
+                        Text("schema")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    Text(message)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.red.opacity(0.85))
+                        .lineLimit(2)
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

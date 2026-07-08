@@ -156,7 +156,7 @@ struct RepositorySelector: View {
             repos = try await deps.repositoriesApi.list(accountId: accountId, workspaceId: workspaceId)
             errorText = nil
         } catch {
-            errorText = error.localizedDescription
+            errorText = error.trpcUserMessage
         }
     }
 }

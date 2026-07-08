@@ -142,6 +142,23 @@ public final class AuthApi: Sendable {
         }
     }
 
+    /// Fetch the session, retrying briefly. A login must resolve a stable
+    /// userId before its token is persisted — per-user account identity (and the
+    /// local DB file) is keyed on it, so a nil userId would strand the account.
+    public func fetchSessionRetrying(
+        instanceUrl: String, token: String, attempts: Int = 3, delayMs: UInt64 = 500
+    ) async -> AuthUser? {
+        for attempt in 0..<max(1, attempts) {
+            if let user = await fetchSession(instanceUrl: instanceUrl, token: token), !user.id.isEmpty {
+                return user
+            }
+            if attempt < attempts - 1 {
+                try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+            }
+        }
+        return nil
+    }
+
     public func oauthStartUrl(instanceUrl: String, providerId: String) -> URL? {
         let encoded = providerId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? providerId
         return URL(string: "\(instanceUrl)/api/mobile-oauth-start?providerId=\(encoded)")

@@ -62,23 +62,23 @@ public final class AuthRepository: @unchecked Sendable {
         _ token: String,
         email: String?,
         name: String? = nil,
-        userId: String? = nil,
+        userId: String,
         isAdmin: Bool = false,
         onboardingCompletedAt: String? = nil,
         onboardingKnown: Bool = false
     ) {
-        // Preserve a previously-captured onboarding flag so a transient session
-        // fetch failure on re-login doesn't downgrade a returning user back to
-        // the onboarding wizard.
-        let prior = accountStore.activeAccount
-        accountStore.updateActiveToken(
+        // Per-user account resolution owns onboarding-flag preservation against
+        // the *target* account (which may differ from the currently-active one
+        // when switching users), so no prior-merge is needed here. The caller
+        // guarantees a resolved userId — a login with none never reaches here.
+        accountStore.resolveActiveAccount(
             token: token,
             email: email,
             name: name,
             userId: userId,
             isAdmin: isAdmin,
-            onboardingCompletedAt: onboardingCompletedAt ?? prior?.onboardingCompletedAt,
-            onboardingKnown: (onboardingKnown || prior?.onboardingKnown == true) ? true : nil
+            onboardingCompletedAt: onboardingCompletedAt,
+            onboardingKnown: onboardingKnown
         )
         republish()
     }

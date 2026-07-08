@@ -80,12 +80,21 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     // to the sign-in fields if the session fetch fails.
     private func applyLogin(token: String, user: AuthUser?) async {
         guard let instanceUrl = auth.instanceUrl else { return }
-        let session = await authApi.fetchSession(instanceUrl: instanceUrl, token: token)
+        let session = await authApi.fetchSessionRetrying(instanceUrl: instanceUrl, token: token)
+        // A login must resolve a stable userId before its token is persisted —
+        // per-user account identity (and the DB file) is keyed on it. If neither
+        // the session read nor the sign-in body yields one, fail the login
+        // rather than persist an unattributable token (the old userId==nil
+        // read-only bug class).
+        guard let userId = session?.id ?? user?.id, !userId.isEmpty else {
+            error = "Couldn't verify your account. Please try signing in again."
+            return
+        }
         auth.setToken(
             token,
             email: session?.email ?? user?.email,
             name: session?.name ?? user?.name,
-            userId: session?.id ?? user?.id,
+            userId: userId,
             isAdmin: session?.isAdmin ?? user?.isAdmin ?? false,
             onboardingCompletedAt: session?.onboardingCompletedAt,
             onboardingKnown: session != nil

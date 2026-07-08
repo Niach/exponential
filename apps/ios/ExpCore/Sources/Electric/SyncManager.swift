@@ -289,7 +289,7 @@ public final class SyncManager: @unchecked Sendable {
             tokenProvider: token,
             pool: pool,
             onMessages: { messages in
-                try await applyBatch(messages: messages, table: table, pool: pool)
+                try await applyBatch(messages: messages, name: name, table: table, pool: pool)
             }
         )
         return Task {
@@ -307,8 +307,10 @@ public final class SyncManager: @unchecked Sendable {
 // One transaction per long-poll batch — never one transaction per row.
 // Per-row writes from the concurrent shape loops were what starved the GRDB
 // writer and forced live sync off in the first place. Keep batched.
-private func applyBatch<T: PersistableRecord & Sendable>(
-    messages: [ShapeMessage<T>], table: String, pool: DatabasePool
+// Internal (not private) so the tolerant-apply tests can drive it against a
+// real in-memory pool.
+func applyBatch<T: PersistableRecord & Sendable>(
+    messages: [ShapeMessage<T>], name: String, table: String, pool: DatabasePool
 ) async throws {
     guard !messages.isEmpty else { return }
     try await pool.write { gdb in
@@ -319,7 +321,7 @@ private func applyBatch<T: PersistableRecord & Sendable>(
             case let .update(_, value):
                 try value.save(gdb)
             case let .partialUpdate(key, columnData):
-                try applyPartialUpdate(key: key, columnData: columnData, table: table, db: gdb)
+                try applyPartialUpdate(name: name, key: key, columnData: columnData, table: table, db: gdb)
             case let .delete(key, value):
                 if let value {
                     try value.delete(gdb)
@@ -355,21 +357,62 @@ private func parseKeyComponents(_ key: String) -> [String] {
     return parts.dropFirst().map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
 }
 
-private func applyPartialUpdate(key: String, columnData: Data, table: String, db: Database) throws {
+// Per-table schema snapshot (primary-key columns + full column set), read once
+// via GRDB's PRAGMA-backed introspection and cached for the app run. Keyed by
+// table name only — every account's DB runs the same migrations, so the schema
+// is identical across pools. Lock-guarded because concurrent shape loops (across
+// accounts) can populate it in parallel.
+private final class SchemaCache: @unchecked Sendable {
+    static let shared = SchemaCache()
+    private let lock = NSLock()
+    private var tables: [String: (pk: [String], cols: Set<String>)] = [:]
+
+    func schema(for table: String, db: Database) throws -> (pk: [String], cols: Set<String>) {
+        if let cached = lock.withLock({ tables[table] }) { return cached }
+        let pk = try db.primaryKey(table).columns
+        let cols = Set(try db.columns(in: table).map(\.name))
+        let entry = (pk: pk, cols: cols)
+        lock.withLock { tables[table] = entry }
+        return entry
+    }
+}
+
+private func applyPartialUpdate(name: String, key: String, columnData: Data, table: String, db: Database) throws {
+    // Resolve the local schema once per table (cached). If it can't be read the
+    // table is genuinely absent — there's no safe row to target, so skip.
+    guard let schema = try? SchemaCache.shared.schema(for: table, db: db) else { return }
     // Only single-`id` tables get partial updates here; composite-PK tables
     // (e.g. issue_labels) are insert/delete-only — skip rather than run a
     // `WHERE id` the table doesn't have.
-    guard ((try? db.primaryKey(table).columns) ?? ["id"]) == ["id"] else { return }
+    guard schema.pk == ["id"] else { return }
     guard let id = parseIdFromKey(key) else { return }
     guard let columns = try? JSONSerialization.jsonObject(with: columnData) as? [String: Any] else { return }
-    let filtered = columns.filter { $0.key != "id" }
-    guard !filtered.isEmpty else { return }
 
-    let setClauses = filtered.keys.sorted().map { "\"\($0)\" = :\($0)" }
+    // Filter the SET columns to those this build's schema actually has. A
+    // partial touching a server-only column (e.g. users.onboarding_completed_at
+    // on a build whose users table predates it) used to throw `no such column`,
+    // abort the batch transaction before the offset save, and refail forever.
+    // Now unknown columns are dropped + reported; a pure-unknown partial is a
+    // no-op so the offset still advances.
+    var known: [String: Any] = [:]
+    var unknown: [String] = []
+    for (col, val) in columns where col != "id" {
+        if schema.cols.contains(col) {
+            known[col] = val
+        } else {
+            unknown.append(col)
+        }
+    }
+    if !unknown.isEmpty {
+        SyncDebug.shared.reportDroppedColumns(name: name, columns: unknown)
+    }
+    guard !known.isEmpty else { return }
+
+    let setClauses = known.keys.sorted().map { "\"\($0)\" = :\($0)" }
     let sql = "UPDATE \"\(table)\" SET \(setClauses.joined(separator: ", ")) WHERE \"id\" = :_pk_id"
 
     var args: [String: (any DatabaseValueConvertible)?] = ["_pk_id": id]
-    for (col, val) in filtered {
+    for (col, val) in known {
         args[col] = sqlValue(from: val)
     }
     try db.execute(sql: sql, arguments: StatementArguments(args))

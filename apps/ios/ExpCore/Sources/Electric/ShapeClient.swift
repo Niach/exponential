@@ -50,6 +50,14 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         // log entries"). Log the transition into and out of the paused state
         // (once each — not every tick — so the 50-line ring buffer stays useful).
         var loggedMissingCreds = false
+        // Auto-recovery: after 3 consecutive schema-class apply errors, mark the
+        // shape needs_refetch ONCE per run so the next poll re-fetches
+        // atomically (no UI blackout). `didAutoReset` gates the one-shot;
+        // `pendingRecoveryReport` flips the diagnostics badge to `.recovered` on
+        // the first clean poll after the reset.
+        var consecutiveSchemaErrors = 0
+        var didAutoReset = false
+        var pendingRecoveryReport = false
         while !Task.isCancelled {
             do {
                 guard let baseUrl = baseUrlProvider(), let token = tokenProvider() else {
@@ -65,6 +73,15 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                     loggedMissingCreds = false
                 }
                 let shouldPause = try await pollOnce(baseUrl: baseUrl, token: token)
+                // A clean poll supersedes any pending error: reset the schema
+                // escalation counter, clear the per-shape error, and report
+                // `recovered` once if we had auto-reset this run.
+                consecutiveSchemaErrors = 0
+                SyncDebug.shared.clearShapeError(name: shapeName)
+                if pendingRecoveryReport {
+                    pendingRecoveryReport = false
+                    SyncDebug.shared.reportRecovery(name: shapeName, .recovered)
+                }
                 backoffMs = 500
                 if shouldPause {
                     try await Task.sleep(for: .milliseconds(500))
@@ -72,17 +89,62 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                logger.warning("[\(self.shapeName)] error: \(error.localizedDescription)")
-                SyncDebug.shared.log("[\(shapeName)] ERR: \(error.localizedDescription)")
+                let message = Self.describe(error)
+                let isSchema = Self.isSchemaError(error)
+                logger.warning("[\(self.shapeName)] error: \(message)")
+                SyncDebug.shared.log("[\(shapeName)] ERR: \(message)")
+                SyncDebug.shared.reportApplyError(name: shapeName, message: message, isSchema: isSchema)
                 // HTTP-level failures already went through reportShape; this
                 // also catches transport errors so the sync banner can react.
                 if !(error is ShapeError) {
                     SyncDebug.shared.reportTransportError(name: shapeName)
                 }
+                if isSchema {
+                    consecutiveSchemaErrors += 1
+                    if consecutiveSchemaErrors >= 3 && !didAutoReset {
+                        didAutoReset = true
+                        pendingRecoveryReport = true
+                        await persistNeedsRefetch()
+                        SyncDebug.shared.reportRecovery(name: shapeName, .recovering)
+                    }
+                }
                 try await Task.sleep(for: .milliseconds(backoffMs))
                 backoffMs = min(backoffMs * 2, 30_000)
             }
         }
+    }
+
+    /// Mark the shape needs_refetch so the next poll does the atomic
+    /// DELETE+reinsert refetch — identical to the inline must-refetch handler,
+    /// so rows stay on screen until replaced (no blackout). No handle: the old
+    /// one is presumed dead after a run of schema-class failures.
+    private func persistNeedsRefetch() async {
+        try? await pool.write { db in
+            try ElectricOffset(
+                shape: self.shapeName, handle: "", offset: initialOffset,
+                needsRefetch: true, isLive: false
+            ).save(db)
+        }
+    }
+
+    /// The SQLite message for a GRDB failure (its `localizedDescription` is a
+    /// generic NSError string that hides the cause), else the plain description.
+    private static func describe(_ error: Error) -> String {
+        if let dbError = error as? DatabaseError {
+            return dbError.message ?? "\(dbError)"
+        }
+        return error.localizedDescription
+    }
+
+    /// A schema-drift failure the tolerant-apply path couldn't absorb — the
+    /// signal that triggers a one-shot refetch of the shape.
+    private static func isSchemaError(_ error: Error) -> Bool {
+        guard let dbError = error as? DatabaseError, let message = dbError.message?.lowercased() else {
+            return false
+        }
+        return message.contains("no such column")
+            || message.contains("no such table")
+            || message.contains("has no column")
     }
 
     /// Returns `true` when the next poll should be paced (a refetch is pending
@@ -265,7 +327,15 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         switch operation {
         case "insert":
-            return decodedValue.map { .insert(key: key, value: $0) }
+            guard let value = decodedValue else {
+                // A full-row insert that failed to decode used to vanish
+                // silently. Surface it (the row re-arrives on the next refetch).
+                if rawValue != nil {
+                    SyncDebug.shared.reportDecodeDrop(name: shapeName, key: key)
+                }
+                return nil
+            }
+            return .insert(key: key, value: value)
         case "update":
             if let value = decodedValue {
                 return .update(key: key, value: value)

@@ -65,6 +65,10 @@ struct IssueListView: View {
     @ViewBuilder
     private func issueListContent(_ vm: IssueListViewModel) -> some View {
         VStack(spacing: 0) {
+            if vm.permissionsPending {
+                syncingBanner
+            }
+
             // Filter bar (search lives in the Search tab, not the issue list)
             filterBar(vm)
                 .padding(.horizontal, 16)
@@ -125,6 +129,10 @@ struct IssueListView: View {
                 }
             }
             .listStyle(.plain)
+            // Zero the List's own default horizontal content margins so the
+            // 16pt listRowInsets alone govern the gutter (Android parity) — the
+            // default extra margin made rows sit noticeably inboard of the bar.
+            .contentMargins(.horizontal, 0, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .refreshable {
@@ -134,6 +142,25 @@ struct IssueListView: View {
                 Color.clear.frame(height: 16)
             }
         }
+    }
+
+    // Shown while workspace membership is still syncing, so a signed-in viewer
+    // sees "we're catching up" rather than silently-disabled controls.
+    private var syncingBanner: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+            Text("Syncing workspace…")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassRow()
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 
     @ViewBuilder
@@ -148,18 +175,23 @@ struct IssueListView: View {
                     .foregroundStyle(.white.opacity(vm.filters.isEmpty ? TextOpacity.secondary : 1.0))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .overlay(alignment: .topTrailing) {
-                        if vm.filters.count > 0 {
-                            Text("\(vm.filters.count)")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(minWidth: 15, minHeight: 15)
-                                .background(Accent.indigo, in: Circle())
-                                .offset(x: 4, y: -4)
-                        }
-                    }
             }
             .glassButton(isActive: !vm.filters.isEmpty)
+            // Badge OUTSIDE glassButton's Capsule clip, so the count isn't cut
+            // off. The bar's vertical padding gives the -4pt offset headroom.
+            .overlay(alignment: .topTrailing) {
+                if vm.filters.count > 0 {
+                    Text("\(vm.filters.count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 15, minHeight: 15)
+                        .background(Accent.indigo, in: Circle())
+                        .offset(x: 4, y: -4)
+                        // The badge sits above the button; it must not swallow
+                        // taps meant for the filter control underneath it.
+                        .allowsHitTesting(false)
+                }
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -197,6 +229,9 @@ struct IssueListView: View {
                         .glassButton()
                     }
                 }
+                // Trailing inset so the last chip's capsule stroke rests inside
+                // the scroll clip instead of being shaved by the edge.
+                .padding(.trailing, 4)
             }
         }
     }

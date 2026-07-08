@@ -562,15 +562,19 @@ private func splitIntoParagraphs(_ attrStr: NSAttributedString) -> [NSRange] {
 private func extractInlineMarkdown(from attrStr: NSAttributedString, isHeading: Bool, stripListPrefix: Bool = false) -> String {
     var markdown = ""
     let fullRange = NSRange(location: 0, length: attrStr.length)
-    var string = attrStr.string
+    let string = attrStr.string
     var effectiveRange = fullRange
 
     if stripListPrefix {
         let prefixPattern = #"^[\u{2022}\u{2610}\u{2611}]\s?"#
         if let range = string.range(of: prefixPattern, options: .regularExpression) {
-            let prefixLen = string.distance(from: string.startIndex, to: range.upperBound)
-            string = String(string[range.upperBound...])
-            effectiveRange = NSRange(location: prefixLen, length: attrStr.length - prefixLen)
+            // The prefix length must be an NSRange (UTF-16) location, not a
+            // Character distance — mixing the two lets `enumerateAttributes`
+            // receive an out-of-bounds range and raise NSRangeException. Clamp
+            // to the string length as a belt-and-suspenders guard.
+            let prefixUTF16 = String(string[..<range.upperBound]).utf16.count
+            let loc = min(prefixUTF16, attrStr.length)
+            effectiveRange = NSRange(location: loc, length: attrStr.length - loc)
             if effectiveRange.length <= 0 { return "" }
         }
     }

@@ -21,6 +21,15 @@ struct ServerDetailView: View {
         deps.auth.accounts.first { $0.id == accountId }
     }
 
+    /// The bundled cloud (prod or staging) — "Remove server" is nonsensical for
+    /// it (it's the app's built-in instance, not a user-added server), so that
+    /// action is hidden. Sign out / delete account / resync stay available.
+    private var isBuiltInCloud: Bool {
+        guard let base = WebLinks.normalizedBase(account?.instanceUrl) else { return false }
+        return base == WebLinks.normalizedBase(AppConstants.publicCloudUrl)
+            || base == WebLinks.normalizedBase(AppConstants.stagingCloudUrl)
+    }
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -86,7 +95,7 @@ struct ServerDetailView: View {
         do {
             try await deps.usersApi.deleteAccount(accountId: account.id)
         } catch {
-            deleteAccountError = error.localizedDescription
+            deleteAccountError = error.trpcUserMessage
             return
         }
         await deps.syncManager.signOut(accountId: account.id)
@@ -194,16 +203,18 @@ struct ServerDetailView: View {
                     .buttonStyle(.plain)
                 }
 
-                Button {
-                    showRemoveConfirm = true
-                } label: {
-                    actionRow(
-                        icon: "trash",
-                        title: "Remove server",
-                        tint: .red
-                    )
+                if !isBuiltInCloud {
+                    Button {
+                        showRemoveConfirm = true
+                    } label: {
+                        actionRow(
+                            icon: "trash",
+                            title: "Remove server",
+                            tint: .red
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }

@@ -160,7 +160,7 @@ struct WorkspaceRepositoriesSection: View {
             repos = try await repositoriesApi.list(accountId: accountId, workspaceId: workspaceId)
             errorText = nil
         } catch {
-            errorText = error.localizedDescription
+            errorText = error.trpcUserMessage
         }
     }
 
@@ -174,7 +174,7 @@ struct WorkspaceRepositoriesSection: View {
             }
         } catch {
             // Surfaces the server CONFLICT ("repository backs N projects") message.
-            errorText = error.localizedDescription
+            errorText = error.trpcUserMessage
         }
         removeTarget = nil
         await reload()

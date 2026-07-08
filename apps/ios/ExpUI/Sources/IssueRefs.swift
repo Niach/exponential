@@ -26,6 +26,10 @@ public enum IssueRefs {
         public let range: NSRange
         /// Uppercase-normalized identifier, e.g. `MET-115`.
         public let identifier: String
+        /// The raw matched text including the leading `#`, original case. Carried
+        /// from the masked string (which the range was produced on) so callers
+        /// never re-substring a different string with this range.
+        public let token: String
     }
 
     /// All `#IDENTIFIER` tokens in `text`, skipping fenced code blocks and
@@ -35,8 +39,22 @@ public enum IssueRefs {
         guard ns.length > 0, ns.range(of: "#").location != NSNotFound else { return [] }
         let masked = maskCodeRegions(text)
         let maskedNS = masked as NSString
+        // Fail-safe width guard: masking is UTF-16-width preserving, so the
+        // masked string's ranges are meant to map 1:1 onto the original. If a
+        // masking bug ever broke that invariant, applying a masked range to the
+        // original text would raise an uncatchable NSRangeException. Rather than
+        // risk it, decorate nothing — refs render as plain text, never a crash.
+        guard maskedNS.length == ns.length else { return [] }
         return regex.matches(in: masked, range: NSRange(location: 0, length: maskedNS.length)).map {
-            Match(range: $0.range, identifier: maskedNS.substring(with: $0.range(at: 1)).uppercased())
+            // Substring on the SAME NSString the range came from. Matched
+            // characters are never masked (masked chars are spaces, which can't
+            // be part of a #ID-n match), so the masked token equals the original
+            // token, case intact.
+            Match(
+                range: $0.range,
+                identifier: maskedNS.substring(with: $0.range(at: 1)).uppercased(),
+                token: maskedNS.substring(with: $0.range)
+            )
         }
     }
 
@@ -102,16 +120,16 @@ public enum IssueRefs {
     ) -> String {
         let found = matches(in: markdown)
         guard !found.isEmpty else { return markdown }
-        let ns = markdown as NSString
         var result = markdown
-        // Replace back-to-front so earlier ranges stay valid.
+        // Single coordinate space: replace back-to-front so earlier ranges stay
+        // valid, converting each match range against `result` with the guarded
+        // `Range(_:in:)` (nil on a surrogate-splitting or out-of-bounds range).
+        // The token text comes from the match itself — no NSString.substring,
+        // whose out-of-bounds behavior is an uncatchable NSRangeException.
         for match in found.reversed() {
             guard let issueId = resolver(match.identifier) else { continue }
-            let token = ns.substring(with: match.range)
-            let replacement = "[\(token)](\(scheme)://\(issueId))"
-            if let range = Range(match.range, in: result) {
-                result.replaceSubrange(range, with: replacement)
-            }
+            guard let range = Range(match.range, in: result) else { continue }
+            result.replaceSubrange(range, with: "[\(match.token)](\(scheme)://\(issueId))")
         }
         return result
     }
