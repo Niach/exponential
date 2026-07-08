@@ -10,7 +10,7 @@ import { and, eq, isNotNull, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { attachments, projects } from "@/db/schema"
 import { PROJECT_TRASH_RETENTION_MS } from "@exp/db-schema/domain"
-import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
+import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
 import { invalidatePublicProjectCache } from "@/lib/workspace-membership"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
@@ -89,8 +89,9 @@ export async function runProjectPurgeSweep(
     if (storageKeys.length > 0) {
       // Best-effort, per-key error-swallowed (same as the attachment cleanup
       // path). Also closes the pre-existing cascade-orphan gap on project
-      // delete — blobs used to be left behind.
-      await deleteStorageObjects(storageKeys)
+      // delete — blobs used to be left behind. Uses the Bun-native client:
+      // see bun-s3-cleanup.ts for why this module must not reach aws-sdk.
+      await deleteStorageObjectsViaBun(storageKeys)
       objectsDeleted += storageKeys.length
     }
   }
