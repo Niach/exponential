@@ -1,3 +1,5 @@
-• GitHub connections are now workspace-scoped: connect once and share repository access with your whole team
-• Reworked repository picker with a clearer connect flow and repo-access health
-• Bug fixes and stability improvements
+• Sync is now tolerant of newer server versions — updates keep flowing instead of stalling, and stuck shapes recover automatically
+• Multiple accounts on the same server now keep fully separate local data
+• Fixed a crash when opening issues with certain comments
+• Owner-only settings are hidden for members, and destructive actions now ask for confirmation
+• Clearer error messages and general polish throughout
