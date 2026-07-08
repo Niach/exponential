@@ -9,11 +9,15 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto"
 
-export type SteerRole = `control` | `publisher` | `viewer`
+// `public_viewer` is the anonymous public-activity audience (feedback boards
+// with publicShowCoding='live'): read-only, activity-channel-only — the relay
+// never sends it PTY output, presence, or geometry, and ignores every frame it
+// sends except `join`.
+export type SteerRole = `control` | `publisher` | `viewer` | `public_viewer`
 export type SteerPerm = `view` | `steer`
 
 export interface SteerTicketClaims {
-  /** userId of the authenticated caller. */
+  /** userId of the authenticated caller (`anon` for public_viewer tickets). */
   sub: string
   /** workspaceId the ticket is scoped to (empty string for control tickets). */
   ws: string

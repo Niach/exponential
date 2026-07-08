@@ -145,8 +145,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("name", .text).notNull()
                 t.column("slug", .text).notNull()
                 t.column("icon_url", .text)
-                t.column("is_public", .boolean).notNull().defaults(to: false)
-                t.column("public_write_policy", .text).notNull().defaults(to: "members")
+                // is_public / public_write_policy were dropped when public
+                // boards moved to a per-project `type`; the shape no longer
+                // carries them.
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -164,9 +165,16 @@ public final class DatabaseManager: @unchecked Sendable {
                 // column stays so the (now-inert) repo-picker UI still compiles.
                 // Electric no longer populates it.
                 t.column("github_repo", .text)
-                // v4: the repo backing this project (Electric ride-along on the
-                // projects shape). Nullable locally for dangling-data safety.
+                // The repo backing this project (Electric ride-along on the
+                // projects shape). Nullable — only `dev` projects require a repo.
                 t.column("repository_id", .text)
+                // Board type: dev | tasks | feedback. Drives type icons + the
+                // repo-required gate. Defaults to `dev` (matches the server).
+                t.column("type", .text).notNull().defaults(to: "dev")
+                // Anonymous-visitor visibility toggles (feedback boards only).
+                t.column("public_show_comments", .boolean).notNull().defaults(to: true)
+                t.column("public_show_activity", .boolean).notNull().defaults(to: false)
+                t.column("public_show_coding", .text).notNull().defaults(to: "off")
                 // Display-only mirror of the preview run targets + feedback target.
                 t.column("preview_config", .text)
                 t.column("created_at", .text).notNull()
@@ -387,6 +395,35 @@ public final class DatabaseManager: @unchecked Sendable {
             if !hasColumn {
                 try db.alter(table: "projects") { t in
                     t.add(column: "repository_id", .text)
+                }
+            }
+        }
+
+        // v4 (project types): `projects` gains `type` + the three public
+        // visibility toggles. Additive for DBs already past v1; fresh installs
+        // get them from the v1 create above. Same column-presence guard as v3 —
+        // a fresh `-v4` install runs v1 (columns created) then this ALTER, so
+        // re-adding without the guard would throw "duplicate column name" and
+        // blacklist sync. Strictly additive — never bump the `-v4` file suffix
+        // (that would wipe local snapshots + cursors). The dropped
+        // workspaces.is_public / public_write_policy columns are left in place
+        // on existing devices (harmless — no record references them).
+        migrator.registerMigration("v4_project_types") { db in
+            let existing = Set(try db.columns(in: "projects").map(\.name))
+            let needed = ["type", "public_show_comments", "public_show_activity", "public_show_coding"]
+            guard needed.contains(where: { !existing.contains($0) }) else { return }
+            try db.alter(table: "projects") { t in
+                if !existing.contains("type") {
+                    t.add(column: "type", .text).notNull().defaults(to: "dev")
+                }
+                if !existing.contains("public_show_comments") {
+                    t.add(column: "public_show_comments", .boolean).notNull().defaults(to: true)
+                }
+                if !existing.contains("public_show_activity") {
+                    t.add(column: "public_show_activity", .boolean).notNull().defaults(to: false)
+                }
+                if !existing.contains("public_show_coding") {
+                    t.add(column: "public_show_coding", .text).notNull().defaults(to: "off")
                 }
             }
         }

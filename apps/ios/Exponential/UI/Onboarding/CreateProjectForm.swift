@@ -25,21 +25,35 @@ struct CreateProjectForm: View {
     // Stop deriving the prefix from the name once the user edits it by hand.
     @State private var prefixEdited = false
     @State private var color = DEFAULT_LABEL_COLOR
+    @State private var projectType = DomainContract.projectTypeDev
     @State private var repository: ProjectRepositoryChoice?
     @State private var saving = false
     @State private var errorText: String?
     // Plan-cap failures render as a softer nudge than hard errors.
     @State private var limitText: String?
 
+    // Only `dev` boards are repo-backed — `tasks`/`feedback` create without one.
+    private var requiresRepo: Bool { projectType == DomainContract.projectTypeDev }
+
     private var canCreate: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
             && !prefix.trimmingCharacters(in: .whitespaces).isEmpty
-            && repository != nil
+            && (!requiresRepo || repository != nil)
             && !saving
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Type selection (3 cards) — drives the repo requirement below.
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("Board type")
+                VStack(spacing: 8) {
+                    ForEach(ProjectTypeDisplay.all) { info in
+                        typeCard(info)
+                    }
+                }
+            }
+
             // Name + prefix
             VStack(alignment: .leading, spacing: 8) {
                 fieldLabel("Project name")
@@ -81,12 +95,15 @@ struct CreateProjectForm: View {
                 }
             }
 
-            // Repository (required) — the selector renders its own label.
-            RepositorySelector(
-                accountId: accountId,
-                workspaceId: workspaceId,
-                selection: $repository
-            )
+            // Repository (dev boards only, required) — the selector renders its
+            // own label. Task/feedback boards create without a repo.
+            if requiresRepo {
+                RepositorySelector(
+                    accountId: accountId,
+                    workspaceId: workspaceId,
+                    selection: $repository
+                )
+            }
 
             if let errorText {
                 Text(errorText)
@@ -138,6 +155,46 @@ struct CreateProjectForm: View {
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
     }
 
+    @ViewBuilder
+    private func typeCard(_ info: ProjectTypeInfo) -> some View {
+        let selected = projectType == info.type
+        Button {
+            projectType = info.type
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: info.symbol)
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(selected ? 1 : TextOpacity.secondary))
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(info.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                    Text(info.summary)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(Accent.indigo)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(selected ? 0.1 : 0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(selected ? Accent.indigo.opacity(0.6) : Color.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Editing
 
     private func onNameChange(_ value: String) {
@@ -164,7 +221,9 @@ struct CreateProjectForm: View {
     // MARK: - Create
 
     private func create() async {
-        guard let repository, canCreate else { return }
+        guard canCreate else { return }
+        // Dev boards must carry a repo; task/feedback boards create without one.
+        if requiresRepo, repository == nil { return }
         saving = true
         errorText = nil
         limitText = nil
@@ -176,7 +235,8 @@ struct CreateProjectForm: View {
                     name: name.trimmingCharacters(in: .whitespaces),
                     prefix: prefix.trimmingCharacters(in: .whitespaces),
                     color: color,
-                    repository: repository
+                    type: projectType,
+                    repository: requiresRepo ? repository : nil
                 )
             )
             // Leave `saving` set — the caller swaps this view out on success.

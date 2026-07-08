@@ -80,6 +80,16 @@ function connectViewer(
   return sock
 }
 
+function connectPublicViewer(hub: Hub, sessionId = `sess-1`) {
+  const sock = new FakeSocket()
+  hub.onOpen(
+    sock,
+    claims({ role: `public_viewer`, sub: `anon`, perm: `view`, sessionId })
+  )
+  hub.onMessage(sock, JSON.stringify({ t: `join` }))
+  return sock
+}
+
 function output(hub: Hub, pub: FakeSocket, text: string) {
   const payload = new TextEncoder().encode(text)
   const framed = new Uint8Array(payload.byteLength + 1)
@@ -296,5 +306,78 @@ describe(`session rooms`, () => {
     output(hub, viewer as unknown as FakeSocket, `forged`)
     expect(other.outputs().length).toBe(0)
     expect(pub.outputs().length).toBe(0)
+  })
+})
+
+describe(`public activity channel`, () => {
+  const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
+    hub.onMessage(pub, JSON.stringify({ t: `activity`, event }))
+
+  test(`public viewers receive activity but NEVER pty output, presence, or geometry`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const pv = connectPublicViewer(hub)
+
+    output(hub, pub, `secret pty bytes`)
+    activity(hub, pub, { kind: `tool`, name: `Edit`, detail: `src/a.ts` })
+
+    expect(pv.outputs().length).toBe(0)
+    expect(pv.lastFrame(`resize`)).toBeUndefined()
+    expect(pv.lastFrame(`presence`)).toBeUndefined()
+    expect(pv.lastFrame(`activity`)).toMatchObject({
+      event: { kind: `tool`, name: `Edit` },
+    })
+  })
+
+  test(`pty viewers never receive activity frames`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const viewer = connectViewer(hub)
+    activity(hub, pub, { kind: `narration`, text: `working on it` })
+    expect(viewer.lastFrame(`activity`)).toBeUndefined()
+  })
+
+  test(`join replays the activity log and only the LATEST diff`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `one` })
+    activity(hub, pub, { kind: `diff`, diff: `old diff` })
+    activity(hub, pub, { kind: `tool`, name: `Bash` })
+    activity(hub, pub, { kind: `diff`, diff: `new diff` })
+
+    const pv = connectPublicViewer(hub)
+    const events = pv
+      .frames()
+      .filter((f) => f.t === `activity`)
+      .map((f) => f.event as { kind: string; diff?: string })
+    expect(events.map((e) => e.kind)).toEqual([`narration`, `tool`, `diff`])
+    expect(events.at(-1)?.diff).toBe(`new diff`)
+  })
+
+  test(`public viewers cannot steer, kill, or forge output/activity`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const pv = connectPublicViewer(hub)
+    const other = connectPublicViewer(hub)
+
+    hub.onMessage(pv, JSON.stringify({ t: `claim` }))
+    hub.onMessage(pv, JSON.stringify({ t: `input`, data: `rm -rf /` }))
+    hub.onMessage(pv, JSON.stringify({ t: `kill` }))
+    expect(pub.lastFrame(`input`)).toBeUndefined()
+    expect(pub.lastFrame(`kill`)).toBeUndefined()
+
+    // Forged frames from a public viewer reach nobody.
+    output(hub, pv as unknown as FakeSocket, `forged`)
+    hub.onMessage(pv, JSON.stringify({ t: `activity`, event: { kind: `narration`, text: `fake` } }))
+    expect(other.frames().filter((f) => f.t === `activity`).length).toBe(0)
+  })
+
+  test(`room close evicts public viewers too`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const pv = connectPublicViewer(hub)
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `done` }))
+    expect(pv.lastFrame(`bye`)).toMatchObject({ outcome: `done` })
+    expect(pv.closed?.code).toBe(4001)
   })
 })

@@ -256,7 +256,7 @@ export function registerExponentialTools(
     `exponential_projects_create`,
     {
       title: `Create project`,
-      description: `Create a project in a workspace. Every project is backed by exactly one GitHub repository: pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
+      description: `Create a project in a workspace. type: 'dev' (repo-backed coding project — repository REQUIRED), 'tasks' (plain issue tracking, no repo), or 'feedback' (PUBLIC read-only feedback board, repo optional; owner-only). For the repository pass either an existing registry repo (repository.repositoryId) or connect one inline (repository.fullName, "owner/name"). The MCP user must be a member of the workspace (owner/admin to connect a new repo).`,
       inputSchema: {
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
@@ -265,19 +265,25 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        repository: z.union([
-          z.object({ repositoryId: z.string().uuid() }),
-          z.object({
-            fullName: z
-              .string()
-              .min(1)
-              .max(255)
-              .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`),
-            defaultBranch: z.string().min(1).max(255).optional(),
-            private: z.boolean().optional(),
-            installationId: z.number().int().optional(),
-          }),
-        ]),
+        type: z.enum([`dev`, `tasks`, `feedback`]).default(`dev`),
+        publicShowComments: z.boolean().optional(),
+        publicShowActivity: z.boolean().optional(),
+        publicShowCoding: z.enum([`off`, `badge`, `live`]).optional(),
+        repository: z
+          .union([
+            z.object({ repositoryId: z.string().uuid() }),
+            z.object({
+              fullName: z
+                .string()
+                .min(1)
+                .max(255)
+                .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`),
+              defaultBranch: z.string().min(1).max(255).optional(),
+              private: z.boolean().optional(),
+              installationId: z.number().int().optional(),
+            }),
+          ])
+          .optional(),
       },
     },
     async (input) => {
@@ -294,9 +300,13 @@ export function registerExponentialTools(
     `exponential_projects_update`,
     {
       title: `Update project`,
-      description: `Update a project's name, color, or archive state.`,
+      description: `Update a project's name, color, type ('dev' needs a connected repository), public-board visibility toggles (feedback boards; owner-only), or archive state.`,
       inputSchema: {
         id: z.string().uuid(),
+        type: z.enum([`dev`, `tasks`, `feedback`]).optional(),
+        publicShowComments: z.boolean().optional(),
+        publicShowActivity: z.boolean().optional(),
+        publicShowCoding: z.enum([`off`, `badge`, `live`]).optional(),
         name: z.string().min(1).max(255).optional(),
         color: z
           .string()
@@ -1351,11 +1361,10 @@ export function registerExponentialTools(
     `exponential_workspaces_update`,
     {
       title: `Update a workspace`,
-      description: `Update a workspace's name, icon, or public-visibility settings (by its UUID). Workspace owner only.`,
+      description: `Update a workspace's name or icon (by its UUID). Workspace owner only. Workspaces are always private — public visibility lives on feedback-board projects.`,
       inputSchema: {
         id: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
-        isPublic: z.boolean().optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
       },
     },
@@ -1488,6 +1497,7 @@ export function registerExponentialTools(
           await db.insert(attachments).values({
             id: attachmentId,
             workspaceId: issueCtx.workspaceId,
+            projectId: issueCtx.projectId,
             issueId,
             uploaderId: user.id,
             filename,

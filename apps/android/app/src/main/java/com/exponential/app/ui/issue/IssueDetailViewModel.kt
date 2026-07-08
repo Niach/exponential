@@ -118,6 +118,23 @@ class IssueDetailViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
+    // Canonical web URL for the share sheet: {base}/w/{ws}/projects/{proj}/issues/{id}.
+    // Null until issue + project + workspace + instance URL are all resolved.
+    val shareUrl: StateFlow<String?> = combine(
+        issueFlow,
+        _project,
+        workspaceForProject,
+        auth.instanceUrl,
+    ) { issue, project, workspace, base ->
+        if (issue == null || project == null || workspace == null || base.isNullOrBlank()) null
+        else com.exponential.app.domain.WebLinks.issueUrl(
+            base = base,
+            workspaceSlug = workspace.slug,
+            projectSlug = project.slug,
+            identifier = issue.identifier,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val state: StateFlow<IssueDetailState> = combine(
         issueFlow,
         _project,

@@ -26,7 +26,8 @@ interface Contract {
   issuePriority: Section
   recurrenceUnit: Section
   workspaceRole: Section
-  publicWritePolicy: Section
+  projectType: Section
+  publicCodingVisibility: Section
   commentKind: Section
   notificationType: Section
   prState: Section
@@ -34,10 +35,6 @@ interface Contract {
   subscriberSource: Section
   issueEventType: Section
   recurrenceIntervals: number[]
-  // Issue fields a non-moderator may NOT set in a public workspace (clamped on
-  // create / stripped on update). Shared so the native WorkspacePermissions +
-  // web hook stop hand-mirroring the list.
-  moderationRestrictedFields: string[]
 }
 
 const contract: Contract = JSON.parse(
@@ -128,18 +125,19 @@ ${swiftStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${swiftStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${swiftStringArray("workspaceRoleValues", contract.workspaceRole.values)}
-${swiftStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
+${swiftStringArray("projectTypeValues", contract.projectType.values)}
+${swiftStringArray("publicCodingVisibilityValues", contract.publicCodingVisibility.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
-${swiftStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
     public static let recurrenceIntervals: [Int] = [${contract.recurrenceIntervals.join(", ")}]
 
 ${swiftNamedValues("workspaceRole", contract.workspaceRole.values)}
-${swiftNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
+${swiftNamedValues("projectType", contract.projectType.values)}
+${swiftNamedValues("publicCodingVisibility", contract.publicCodingVisibility.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
@@ -158,18 +156,19 @@ ${kotlinStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${kotlinStringArray("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${kotlinStringArray("workspaceRoleValues", contract.workspaceRole.values)}
-${kotlinStringArray("publicWritePolicyValues", contract.publicWritePolicy.values)}
+${kotlinStringArray("projectTypeValues", contract.projectType.values)}
+${kotlinStringArray("publicCodingVisibilityValues", contract.publicCodingVisibility.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
-${kotlinStringArray("moderationRestrictedFields", contract.moderationRestrictedFields)}
 ${kotlinIntArray("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${kotlinNamedValues("workspaceRole", contract.workspaceRole.values)}
-${kotlinNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
+${kotlinNamedValues("projectType", contract.projectType.values)}
+${kotlinNamedValues("publicCodingVisibility", contract.publicCodingVisibility.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
@@ -190,18 +189,19 @@ ${rustStrSlice("issuePriorityValues", contract.issuePriority.values)}
 ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${rustStrSlice("recurrenceUnitValues", contract.recurrenceUnit.values)}
 ${rustStrSlice("workspaceRoleValues", contract.workspaceRole.values)}
-${rustStrSlice("publicWritePolicyValues", contract.publicWritePolicy.values)}
+${rustStrSlice("projectTypeValues", contract.projectType.values)}
+${rustStrSlice("publicCodingVisibilityValues", contract.publicCodingVisibility.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
-${rustStrSlice("moderationRestrictedFields", contract.moderationRestrictedFields)}
 ${rustIntSlice("recurrenceIntervals", contract.recurrenceIntervals)}
 
 ${rustNamedValues("workspaceRole", contract.workspaceRole.values)}
-${rustNamedValues("publicWritePolicy", contract.publicWritePolicy.values)}
+${rustNamedValues("projectType", contract.projectType.values)}
+${rustNamedValues("publicCodingVisibility", contract.publicCodingVisibility.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}

@@ -36,7 +36,10 @@ import {
   notificationTypeValues,
   prStateSchema,
   prStateValues,
-  publicWritePolicyValues,
+  projectTypeSchema,
+  projectTypeValues,
+  publicCodingVisibilitySchema,
+  publicCodingVisibilityValues,
   recurrenceUnitSchema,
   recurrenceUnitValues,
   subscriberSourceSchema,
@@ -70,9 +73,11 @@ export const workspaceMemberRoleEnum = pgEnum(
   workspaceRoleValues
 )
 
-export const publicWritePolicyEnum = pgEnum(
-  `public_write_policy`,
-  publicWritePolicyValues
+export const projectTypeEnum = pgEnum(`project_type`, projectTypeValues)
+
+export const publicCodingVisibilityEnum = pgEnum(
+  `public_coding_visibility`,
+  publicCodingVisibilityValues
 )
 
 export const recurrenceUnitEnum = pgEnum(
@@ -119,15 +124,14 @@ const timestamps = {
 // Tables
 // ---------------------------------------------------------------------------
 
+// Workspaces are ALWAYS private (v7): publicness moved to the project level
+// (projects.type = 'feedback'). The old is_public/public_write_policy columns
+// and the self-service join flow are gone — membership is invite-only.
 export const workspaces = pgTable(`workspaces`, {
   id: uuidPk(),
   name: varchar({ length: 255 }).notNull(),
   slug: varchar({ length: 255 }).notNull().unique(),
   iconUrl: text(`icon_url`),
-  isPublic: boolean(`is_public`).notNull().default(false),
-  publicWritePolicy: publicWritePolicyEnum(`public_write_policy`)
-    .notNull()
-    .default(`members`),
   ...timestamps,
 })
 
@@ -214,14 +218,31 @@ export const projects = pgTable(
     slug: varchar({ length: 255 }).notNull(),
     prefix: varchar({ length: 10 }).notNull(),
     color: varchar({ length: 7 }).notNull().default(`#6366f1`),
-    // Project = Repository (v4). Every project is backed by exactly one repo
-    // from the workspace registry; the desktop launcher clones this. `restrict`
-    // (not cascade): a repo that still backs a project can't be deleted —
-    // retarget or delete the projects first. One repo may back several projects
-    // (monorepo); plan limits still count registry rows.
-    repositoryId: uuid(`repository_id`)
+    // What this project IS (v7): `dev` = repo-backed coding project (repository
+    // required), `tasks` = plain issue tracking (no repo), `feedback` = PUBLIC
+    // read-only board (anonymous browsing; writes only via the embedded
+    // widget). Coding features gate on repo presence, not type.
+    type: projectTypeEnum().notNull().default(`dev`),
+    // Anonymous-visitor visibility toggles. Only meaningful when
+    // type='feedback' — every public-scope query gates on the type first, so
+    // stale values on private projects are inert.
+    publicShowComments: boolean(`public_show_comments`).notNull().default(true),
+    publicShowActivity: boolean(`public_show_activity`)
       .notNull()
-      .references(() => repositories.id, { onDelete: `restrict` }),
+      .default(false),
+    publicShowCoding: publicCodingVisibilityEnum(`public_show_coding`)
+      .notNull()
+      .default(`off`),
+    // A `dev` project is backed by exactly one repo from the workspace
+    // registry; the desktop launcher clones this. Nullable since v7: `tasks`
+    // and `feedback` projects need no repo (a feedback board MAY still have
+    // one — the dogfood board is feedback + repo-backed). `restrict` (not
+    // cascade): a repo that still backs a project can't be deleted — retarget
+    // or delete the projects first. One repo may back several projects
+    // (monorepo); plan limits still count registry rows.
+    repositoryId: uuid(`repository_id`).references(() => repositories.id, {
+      onDelete: `restrict`,
+    }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     ...timestamps,
@@ -229,6 +250,10 @@ export const projects = pgTable(
   (table) => [
     unique().on(table.workspaceId, table.slug),
     index(`idx_projects_repository`).on(table.repositoryId),
+    // Serves the anonymous public-scope resolver (getPublicProjectScope).
+    index(`idx_projects_feedback`)
+      .on(table.type)
+      .where(sql`type = 'feedback'`),
   ]
 )
 
@@ -308,11 +333,18 @@ export const issueLabels = pgTable(
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project by populate_issue_child_project_id so
+    // anonymous feedback-board shape filters stay project-scoped (Electric
+    // where clauses are single-table).
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
   },
   (table) => [
     primaryKey({ columns: [table.issueId, table.labelId] }),
     index(`idx_issue_labels_label`).on(table.labelId),
     index(`idx_issue_labels_workspace`).on(table.workspaceId),
+    index(`idx_issue_labels_project`).on(table.projectId),
   ]
 )
 
@@ -326,6 +358,11 @@ export const comments = pgTable(
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project (populate_issue_child_project_id) for
+    // project-scoped anonymous feedback-board shape filters.
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
     authorId: text(`author_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
@@ -337,6 +374,7 @@ export const comments = pgTable(
   (table) => [
     index(`idx_comments_issue`).on(table.issueId),
     index(`idx_comments_workspace`).on(table.workspaceId),
+    index(`idx_comments_project`).on(table.projectId),
   ]
 )
 
@@ -357,6 +395,11 @@ export const codingSessions = pgTable(
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project (populate_issue_child_project_id) for
+    // project-scoped anonymous feedback-board shape filters.
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity.
     userId: text(`user_id`)
@@ -374,6 +417,7 @@ export const codingSessions = pgTable(
   (table) => [
     index(`idx_coding_sessions_issue`).on(table.issueId),
     index(`idx_coding_sessions_workspace`).on(table.workspaceId),
+    index(`idx_coding_sessions_project`).on(table.projectId),
     index(`idx_coding_sessions_user`).on(table.userId),
   ]
 )
@@ -388,6 +432,12 @@ export const attachments = pgTable(
     issueId: uuid(`issue_id`)
       .notNull()
       .references(() => issues.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project (populate_issue_child_project_id) for
+    // project-scoped anonymous feedback-board shape filters + the public
+    // attachment-bytes read path.
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
     commentId: uuid(`comment_id`).references(() => comments.id, {
       onDelete: `set null`,
     }),
@@ -409,6 +459,7 @@ export const attachments = pgTable(
   (table) => [
     index(`idx_attachments_issue`).on(table.issueId),
     index(`idx_attachments_workspace`).on(table.workspaceId),
+    index(`idx_attachments_project`).on(table.projectId),
   ]
 )
 
@@ -490,6 +541,10 @@ export const issueSubscribers = pgTable(
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project (populate_issue_child_project_id).
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
     source: subscriberSourceEnum().notNull(),
     unsubscribed: boolean().notNull().default(false),
     ...timestamps,
@@ -503,6 +558,7 @@ export const issueSubscribers = pgTable(
       .where(sql`email IS NOT NULL`),
     index(`idx_issue_subscribers_user`).on(table.userId),
     index(`idx_issue_subscribers_workspace`).on(table.workspaceId),
+    index(`idx_issue_subscribers_project`).on(table.projectId),
   ]
 )
 
@@ -520,6 +576,10 @@ export const issueEvents = pgTable(
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
+    // Denormalized from issue→project (populate_issue_child_project_id).
+    projectId: uuid(`project_id`)
+      .notNull()
+      .references(() => projects.id, { onDelete: `cascade` }),
     actorUserId: text(`actor_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
@@ -530,6 +590,7 @@ export const issueEvents = pgTable(
   (table) => [
     index(`idx_issue_events_issue`).on(table.issueId),
     index(`idx_issue_events_workspace`).on(table.workspaceId),
+    index(`idx_issue_events_project`).on(table.projectId),
   ]
 )
 
@@ -763,7 +824,10 @@ export const selectWorkspaceInviteSchema = createSelectSchema(
     role: workspaceRoleSchema,
   }
 )
-export const selectProjectSchema = createSelectSchema(projects)
+export const selectProjectSchema = createSelectSchema(projects, {
+  type: projectTypeSchema,
+  publicShowCoding: publicCodingVisibilitySchema,
+})
 export const createProjectSchema = createInsertSchema(projects).omit({
   id: true,
   createdAt: true,

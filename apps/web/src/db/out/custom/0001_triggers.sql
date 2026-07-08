@@ -127,3 +127,45 @@ CREATE OR REPLACE TRIGGER populate_issue_event_workspace_id
 CREATE OR REPLACE TRIGGER populate_coding_session_workspace_id
   BEFORE INSERT ON coding_sessions
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_workspace_id();
+
+-- 7. Auto-populate project_id on every issue-child synced table from the
+--    referenced issue, so anonymous feedback-board shape filters can be
+--    PROJECT-scoped (Electric where clauses are single-table; a public project
+--    lives inside an otherwise-private workspace, so workspace scoping would
+--    leak sibling projects). Covers every writer (tRPC, widget service,
+--    attachment storage, MCP) without touching each insert site; overwrites
+--    any explicitly-passed value with issue-derived truth, mirroring the
+--    workspace_id pattern. INSERT-only: issues never move between projects.
+--    issue_labels intentionally has BOTH triggers (workspace_id from the
+--    label, project_id from the issue).
+CREATE OR REPLACE FUNCTION populate_issue_child_project_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT project_id INTO NEW.project_id FROM issues WHERE id = NEW.issue_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_comment_project_id
+  BEFORE INSERT ON comments
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();
+
+CREATE OR REPLACE TRIGGER populate_attachment_project_id
+  BEFORE INSERT ON attachments
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();
+
+CREATE OR REPLACE TRIGGER populate_issue_event_project_id
+  BEFORE INSERT ON issue_events
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();
+
+CREATE OR REPLACE TRIGGER populate_issue_subscriber_project_id
+  BEFORE INSERT ON issue_subscribers
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();
+
+CREATE OR REPLACE TRIGGER populate_coding_session_project_id
+  BEFORE INSERT ON coding_sessions
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();
+
+CREATE OR REPLACE TRIGGER populate_issue_label_project_id
+  BEFORE INSERT ON issue_labels
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_project_id();

@@ -363,6 +363,7 @@ async function main() {
           issueId: row.id,
           labelId: label[name],
           workspaceId: ws.id,
+          projectId: row.projectId,
         }))
       )
     }
@@ -375,6 +376,7 @@ async function main() {
     {
       issueId: showcase.id,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       authorId: mira,
       body: `Profiled on a mid-range device — the shape subscribe alone is **410 ms**. Deferring it until after first frame gets us to ~750 ms cold.`,
       createdAt: hoursAgo(26),
@@ -382,6 +384,7 @@ async function main() {
     {
       issueId: showcase.id,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       authorId: jonas,
       body: `Nice find. I'll take the board snapshot cache — we can reuse the reducer state and paint before sync finishes.`,
       createdAt: hoursAgo(22),
@@ -389,6 +392,7 @@ async function main() {
     {
       issueId: showcase.id,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       authorId: demoId,
       body: `Deferral PR is merged. CI numbers:\n\n- cold start: ~1.4s → **860 ms**\n- warm start: unchanged\n\nSnapshot cache should get us under target.`,
       createdAt: hoursAgo(5),
@@ -399,18 +403,21 @@ async function main() {
       issueId: showcase.id,
       userId: demoId,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       source: `creator`,
     },
     {
       issueId: showcase.id,
       userId: jonas,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       source: `assignee`,
     },
     {
       issueId: showcase.id,
       userId: mira,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       source: `commenter`,
     },
   ])
@@ -418,6 +425,7 @@ async function main() {
     {
       issueId: showcase.id,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       actorUserId: demoId,
       type: `status_changed`,
       payload: { from: `backlog`, to: `todo` },
@@ -426,6 +434,7 @@ async function main() {
     {
       issueId: showcase.id,
       workspaceId: ws.id,
+      projectId: showcase.projectId,
       actorUserId: jonas,
       type: `status_changed`,
       payload: { from: `todo`, to: `in_progress` },

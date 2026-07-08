@@ -404,9 +404,21 @@ struct IssueDetailView: View {
                     )
                     .presentationBackground(.ultraThinMaterial)
                 }
-                // Actions in the nav bar (parity with Android): subscribe bell
-                // (always) + a moderator-only overflow menu.
+                // Actions in the nav bar (parity with Android): share link +
+                // subscribe bell (always) + a moderator-only overflow menu.
                 .toolbar {
+                    if let shareURL = vm.shareURL {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            ShareLink(
+                                item: shareURL,
+                                subject: Text(vm.shareText),
+                                message: Text(vm.shareText)
+                            ) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            }
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             Task { await vm.toggleSubscribe() }

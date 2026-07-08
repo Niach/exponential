@@ -92,6 +92,33 @@ pub enum ClientFrame<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         outcome: Option<&'a str>,
     },
+    /// One PUBLIC activity event (§P7 live-coding view). Serializes to
+    /// `{"t":"activity","event":{...}}`; the relay fans it to `public_viewer`
+    /// sockets only. The event text is ALREADY redacted by the emitter.
+    Activity {
+        event: ActivityEvent,
+    },
+}
+
+/// A single public activity event (masterplan §P7) — the desktop emits these
+/// from the Claude session transcript + worktree diffs, already redacted. Wire
+/// mirror of `apps/steer-relay/src/protocol.ts` `activityEventSchema`
+/// (discriminated on `kind`). Serialize-only.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ActivityEvent {
+    /// Assistant prose (a `text` content block).
+    Narration { text: String },
+    /// A tool-call headline: the tool name + a single primary argument
+    /// (file path / pattern / Bash description — NEVER a command string or a
+    /// tool result).
+    Tool {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
+    /// A worktree unified diff snapshot (latest replaces prior, viewer-side).
+    Diff { diff: String },
 }
 
 impl ClientFrame<'_> {
@@ -235,6 +262,49 @@ mod tests {
         assert_eq!(
             ClientFrame::Resize { cols: 132, rows: 43 }.to_json(),
             r#"{"t":"resize","cols":132,"rows":43}"#
+        );
+    }
+
+    #[test]
+    fn activity_frame_serializes_to_the_relay_schema() {
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Narration {
+                    text: "Reading the file".into()
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"}}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Tool {
+                    name: "Edit".into(),
+                    detail: Some("src/main.rs".into())
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"tool","name":"Edit","detail":"src/main.rs"}}"#
+        );
+        // detail is omitted when absent.
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Tool {
+                    name: "TodoWrite".into(),
+                    detail: None
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"tool","name":"TodoWrite"}}"#
+        );
+        assert_eq!(
+            ClientFrame::Activity {
+                event: ActivityEvent::Diff {
+                    diff: "--- a\n+++ b\n".into()
+                }
+            }
+            .to_json(),
+            r#"{"t":"activity","event":{"kind":"diff","diff":"--- a\n+++ b\n"}}"#
         );
     }
 

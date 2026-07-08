@@ -20,8 +20,6 @@ data class WorkspaceEntity(
     val name: String,
     val slug: String,
     @ColumnInfo(name = "icon_url") @SerialName("icon_url") @JsonNames("iconUrl") val iconUrl: String? = null,
-    @ColumnInfo(name = "is_public") @SerialName("is_public") @JsonNames("isPublic") val isPublic: Boolean = false,
-    @ColumnInfo(name = "public_write_policy") @SerialName("public_write_policy") @JsonNames("publicWritePolicy") val publicWritePolicy: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -38,10 +36,19 @@ data class ProjectEntity(
     val slug: String,
     val prefix: String,
     val color: String,
-    // v4 (masterplan §3): a project is backed by exactly one repository. The
-    // uuid rides along on the existing projects shape (no new shape); the repo
-    // name is resolved on demand via the `repositories` tRPC router. Nullable +
-    // defaulted for defensive deserialization of any pre-refactor synced row.
+    // Board type (contract projectTypeValues = dev|tasks|feedback). `dev` is
+    // repo-backed + coding; `tasks` is plain tracking (no repo); `feedback` is a
+    // public read-only board. Defaulted for tolerant decode of any legacy row.
+    val type: String = "dev",
+    // Anonymous-visitor toggles — only meaningful on feedback boards, inert
+    // otherwise. publicShowCoding is the enum off|badge|live (default off).
+    @ColumnInfo(name = "public_show_comments") @SerialName("public_show_comments") @JsonNames("publicShowComments") val publicShowComments: Boolean = true,
+    @ColumnInfo(name = "public_show_activity") @SerialName("public_show_activity") @JsonNames("publicShowActivity") val publicShowActivity: Boolean = false,
+    @ColumnInfo(name = "public_show_coding") @SerialName("public_show_coding") @JsonNames("publicShowCoding") val publicShowCoding: String = "off",
+    // A project is repo-backed only when `type='dev'`; nullable for tasks/feedback
+    // boards (repo-optional since project types landed). repository_id rides on
+    // the existing projects shape; the repo name is resolved via the
+    // `repositories` tRPC router on demand.
     @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,

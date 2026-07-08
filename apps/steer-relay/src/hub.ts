@@ -9,6 +9,7 @@ import {
   CLOSE_SLOW_CONSUMER,
   OUTPUT_OPCODE,
   parseClientFrame,
+  type ActivityEvent,
   type ClientFrame,
   type PresenceViewer,
   type ServerFrame,
@@ -52,7 +53,18 @@ interface Room {
   ring: RingBuffer
   /** Publisher dropped without `bye`; room closes when the grace expires. */
   staleTimer: ReturnType<typeof setTimeout> | null
+  // ── Public activity channel (feedback boards, publicShowCoding='live') ──
+  // Anonymous public_viewer sockets. STRICT ISOLATION INVARIANT: these never
+  // receive output/presence/resize frames, and PTY viewers never receive
+  // activity frames — the two audiences share only the room's lifecycle.
+  publicViewers: Set<Conn>
+  /** Replayable scrubbed event log (narration/tool), capped. */
+  activityLog: ActivityEvent[]
+  /** Latest worktree diff — replaces rather than appends (replay stays small). */
+  lastDiff: ActivityEvent | null
 }
+
+const ACTIVITY_LOG_CAP = 500
 
 const RING_CAP_BYTES = 256 * 1024
 // A viewer with more than this queued gets output frames dropped (control
@@ -149,6 +161,8 @@ export class Hub {
     const room = this.rooms.get(conn.sessionId)
     if (!room) return
 
+    if (room.publicViewers.delete(conn)) return
+
     if (room.publisher === conn) {
       // Publisher dropped without bye → grace period for reconnect.
       room.publisher = null
@@ -205,6 +219,9 @@ export class Hub {
             steerer: null,
             ring: new RingBuffer(),
             staleTimer: null,
+            publicViewers: new Set(),
+            activityLog: [],
+            lastDiff: null,
           }
           this.rooms.set(sessionId, room)
         } else {
@@ -225,7 +242,6 @@ export class Hub {
       }
 
       case `join`: {
-        if (conn.claims.role !== `viewer`) return
         const sessionId = conn.claims.sessionId
         if (!sessionId) return
         const room = this.rooms.get(sessionId)
@@ -236,6 +252,23 @@ export class Hub {
           conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
           return
         }
+
+        // Public activity audience: replay the scrubbed event log + latest
+        // diff, then live-tail activity frames. No PTY output, no presence,
+        // no geometry — ever.
+        if (conn.claims.role === `public_viewer`) {
+          conn.sessionId = sessionId
+          room.publicViewers.add(conn)
+          for (const event of room.activityLog) {
+            conn.sock.send(frame({ t: `activity`, event }))
+          }
+          if (room.lastDiff) {
+            conn.sock.send(frame({ t: `activity`, event: room.lastDiff }))
+          }
+          return
+        }
+
+        if (conn.claims.role !== `viewer`) return
         conn.sessionId = sessionId
         room.viewers.set(conn, {
           userId: conn.claims.sub,
@@ -305,6 +338,34 @@ export class Hub {
         if (!room || !room.publisher) return
         if (conn.claims.perm !== `steer`) return
         room.publisher.sock.send(frame({ t: `kill` }))
+        return
+      }
+
+      case `activity`: {
+        // Publisher-only: the desktop's scrubbed public event stream.
+        const room = this.roomFor(conn)
+        if (!room || room.publisher !== conn) return
+        if (msg.event.kind === `diff`) {
+          room.lastDiff = msg.event
+        } else {
+          room.activityLog.push(msg.event)
+          if (room.activityLog.length > ACTIVITY_LOG_CAP) {
+            room.activityLog.splice(
+              0,
+              room.activityLog.length - ACTIVITY_LOG_CAP
+            )
+          }
+        }
+        const framed = frame({ t: `activity`, event: msg.event })
+        for (const viewer of room.publicViewers) {
+          // Activity is low-volume JSON; a saturated public viewer just gets
+          // dropped rather than lag-managed like the PTY hot path.
+          if (viewer.sock.bufferedAmount() > VIEWER_HIGH_WATER) {
+            viewer.sock.close(CLOSE_SLOW_CONSUMER, `slow_consumer`)
+            continue
+          }
+          viewer.sock.send(framed)
+        }
         return
       }
 
@@ -432,5 +493,10 @@ export class Hub {
       viewer.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
     }
     room.viewers.clear()
+    for (const viewer of room.publicViewers) {
+      viewer.sock.send(msg)
+      viewer.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
+    }
+    room.publicViewers.clear()
   }
 }

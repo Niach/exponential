@@ -18,6 +18,9 @@ final class IssueDetailViewModel {
     /// The issue's project — carries `workspaceId` + `repositoryId` so the repo
     /// name chip can resolve the backing repo (masterplan §6, R4).
     var project: ProjectEntity?
+    /// The issue's workspace — needed (with the project + issue identifier) to
+    /// build the shareable web URL.
+    var workspace: WorkspaceEntity?
 
     // Non-agent members offered by the editor's @-mention autocomplete.
     var mentionMembers: [MentionMember] {
@@ -40,6 +43,8 @@ final class IssueDetailViewModel {
     private let subscriptionsApi: SubscriptionsApi
     private let auth: AuthRepository
     private let baseURL: URL?
+    /// Raw instance base string for building shareable web links.
+    private let instanceUrl: String?
     private var observationTask: Task<Void, Never>?
     private var autosaveTask: Task<Void, Never>?
 
@@ -62,6 +67,7 @@ final class IssueDetailViewModel {
         self.subscriptionsApi = subscriptionsApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
+        self.instanceUrl = instanceUrl
         self.baseURL = instanceUrl.flatMap { URL(string: $0) }
         editor.onEdit = { [weak self] in self?.scheduleAutosave() }
         // Inline `#IDENTIFIER` refs render as tappable pills when they resolve
@@ -444,12 +450,36 @@ final class IssueDetailViewModel {
             }
             return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
         }) ?? nil
+        self.workspace = workspace
         permissions = WorkspacePermissions.resolve(
             workspace: workspace,
             currentUserId: auth.userId,
             isAdmin: auth.isAdmin,
             dbPool: pool
         )
+    }
+
+    // MARK: - Share
+
+    /// The shareable web URL for this issue, once the workspace, project and
+    /// issue identifier are all resolved locally. Nil until then (or if the
+    /// instance URL is unknown).
+    var shareURL: URL? {
+        guard let workspace, let project, let identifier = issue?.identifier, !identifier.isEmpty
+        else { return nil }
+        return WebLinks.issue(
+            instanceUrl: instanceUrl,
+            workspaceSlug: workspace.slug,
+            projectSlug: project.slug,
+            identifier: identifier
+        )
+    }
+
+    /// Human-readable share subject: `{identifier}: {title}`.
+    var shareText: String {
+        guard let issue else { return "" }
+        let id = issue.identifier ?? ""
+        return id.isEmpty ? issue.title : "\(id): \(issue.title)"
     }
 
     private func formatDate(_ date: Date) -> String {

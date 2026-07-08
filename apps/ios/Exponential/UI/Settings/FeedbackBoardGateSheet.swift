@@ -11,16 +11,14 @@ struct FeedbackBoardTarget: Hashable, Identifiable {
     var id: String { "\(accountId)/\(projectId)" }
 }
 
-/// In-app join gate for the public feedback board — the iOS analog of web's
-/// `WorkspaceJoinGate` at `/w/feedback`. Authed sync is membership-only, so a
-/// signed-in non-member can't see the board at all until they join: this
-/// sheet resolves it via `workspaces.getBySlug`, offers the self-service
-/// `workspaceMembers.join` (public workspaces only), restarts the shape
-/// pipeline so the new membership's where clauses take effect immediately,
-/// then hands the board's single project to the caller for an in-app push.
-/// Anything that can't be resolved in-app (self-hosted instance without a
-/// public board, join rejected, sync timeout) falls back to the pre-existing
-/// browser handoff to `/feedback`.
+/// In-app opener for the public feedback board. Authed sync is membership-only,
+/// so a signed-in member's board syncs locally and opens in-app; a non-member
+/// can't sync it (public boards are read-only for non-members and there is no
+/// join flow anymore), so they hand off to the web board at `/feedback`, which
+/// serves the anonymous public view. This sheet resolves the board via
+/// `workspaces.getBySlug` and routes accordingly; anything unresolvable in-app
+/// (self-hosted instance without a public board, sync timeout) also falls back
+/// to the browser handoff.
 struct FeedbackBoardGateSheet: View {
     let onOpenBoard: (FeedbackBoardTarget) -> Void
 
@@ -29,8 +27,6 @@ struct FeedbackBoardGateSheet: View {
 
     private enum Phase: Equatable {
         case resolving
-        case joinGate(workspaceId: String, workspaceName: String)
-        case joining
         case failed(String)
     }
 
@@ -47,10 +43,6 @@ struct FeedbackBoardGateSheet: View {
             switch phase {
             case .resolving:
                 progress("Opening feedback board…")
-            case let .joinGate(workspaceId, workspaceName):
-                joinGate(workspaceId: workspaceId, workspaceName: workspaceName)
-            case .joining:
-                progress("Joining…")
             case let .failed(message):
                 failed(message)
             }
@@ -68,32 +60,6 @@ struct FeedbackBoardGateSheet: View {
             Text(label)
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        }
-    }
-
-    private func joinGate(workspaceId: String, workspaceName: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "person.2")
-                .font(.system(size: 36))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-            Text("Join \(workspaceName)")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-
-            Text("This is a public board. Join it to browse issues, follow discussions and share feedback. You can leave again anytime.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
-
-            primaryButton("Join board") {
-                Task { await join(workspaceId: workspaceId) }
-            }
-
-            Button("Not now") { dismiss() }
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
     }
 
@@ -144,38 +110,18 @@ struct FeedbackBoardGateSheet: View {
                 accountId: accountId, slug: Self.feedbackWorkspaceSlug
             )
             if workspace.membership != nil {
-                // Already a member — the board syncs normally, its project is
-                // (or is about to be) in the local cache.
+                // A member — the board syncs normally, so open it in-app.
                 await openBoard(accountId: accountId, workspaceId: workspace.id, timeout: 5)
-            } else if workspace.isPublic {
-                phase = .joinGate(workspaceId: workspace.id, workspaceName: workspace.name)
             } else {
-                // Not public and not a member — nothing joinable in-app.
+                // Non-member: the board is read-only for them and never syncs
+                // locally (membership-only sync). The web board serves the
+                // anonymous public view, so hand off to the browser.
                 fallbackToBrowser()
             }
         } catch {
             // NOT_FOUND (no public board on this instance) or the endpoint is
-            // unreachable — keep the old browser handoff as the safety net.
+            // unreachable — keep the browser handoff as the safety net.
             fallbackToBrowser()
-        }
-    }
-
-    private func join(workspaceId: String) async {
-        guard let accountId = deps.auth.activeAccountId else {
-            fallbackToBrowser()
-            return
-        }
-        phase = .joining
-        do {
-            try await deps.workspaceMembersApi.join(accountId: accountId, workspaceId: workspaceId)
-            // The membership row rotates every shape's server-side where
-            // clause; restart the pipeline so in-flight long-polls on the old
-            // scope don't hold the board back for up to a minute (the iOS
-            // analog of the web join gate's hard reload).
-            await deps.syncManager.restartPipeline(accountId: accountId)
-            await openBoard(accountId: accountId, workspaceId: workspaceId, timeout: 15)
-        } catch {
-            phase = .failed(error.trpcUserMessage)
         }
     }
 

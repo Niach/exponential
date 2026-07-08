@@ -111,6 +111,7 @@ export async function cloneIssueForRecurrence(
       return {
         id: newId,
         workspaceId: params.sourceWorkspaceId,
+        projectId: params.sourceProjectId,
         issueId: cloneIssueId,
         uploaderId: row.uploaderId,
         filename: row.filename,
@@ -175,8 +176,8 @@ export async function cloneIssueForRecurrence(
   }
 
   await tx.execute(sql`
-    INSERT INTO ${issueLabels} (issue_id, label_id, workspace_id)
-    SELECT ${cloneIssueId}::uuid, label_id, workspace_id
+    INSERT INTO ${issueLabels} (issue_id, label_id, workspace_id, project_id)
+    SELECT ${cloneIssueId}::uuid, label_id, workspace_id, project_id
     FROM ${issueLabels}
     WHERE issue_id = ${params.sourceIssueId}::uuid
   `)

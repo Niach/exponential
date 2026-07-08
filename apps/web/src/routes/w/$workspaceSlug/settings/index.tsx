@@ -9,7 +9,6 @@ import {
 import { WorkspaceGeneralSection } from "@/components/workspace/general-section"
 import { WorkspaceLabelsSection } from "@/components/workspace/labels-section"
 import { WorkspaceMembersSection } from "@/components/workspace/members-section"
-import { LeaveBoardSection } from "@/components/workspace/leave-board-section"
 import { WorkspaceProjectsSection } from "@/components/workspace/projects-section"
 import { WorkspaceRepositoriesSection } from "@/components/workspace/repositories-section"
 import { WorkspaceWidgetSection } from "@/components/workspace/widget-section"
@@ -114,7 +113,10 @@ function WorkspaceSettings() {
       )}
 
       {workspace && isOwner && (
-        <WorkspaceProjectsSection workspaceId={workspace.id} />
+        <WorkspaceProjectsSection
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+        />
       )}
 
       {workspace && isOwner && (
@@ -125,30 +127,23 @@ function WorkspaceSettings() {
         <WorkspaceWidgetSection workspaceId={workspace.id} />
       )}
 
-      {/* Public boards hide member management entirely: identities are
-          anonymized (user rows for public co-members never sync), so a member
-          list would be meaningless — the only membership action is leaving. */}
-      {workspace?.isPublic ? (
-        currentMember && <LeaveBoardSection memberId={currentMember.id} />
-      ) : (
-        <WorkspaceMembersSection
-          members={members.filter(
-            (member) => !userMap.get(member.userId)?.isAgent
-          )}
-          userMap={userMap}
-          currentUserId={session?.user?.id}
-          isOwner={isOwner}
-          workspaceId={workspace?.id}
-          showInvite={isOwner}
-          solo={solo}
-        />
-      )}
+      <WorkspaceMembersSection
+        members={members.filter(
+          (member) => !userMap.get(member.userId)?.isAgent
+        )}
+        userMap={userMap}
+        currentUserId={session?.user?.id}
+        isOwner={isOwner}
+        workspaceId={workspace?.id}
+        showInvite={isOwner}
+        solo={solo}
+      />
 
       <Separator />
 
       {workspace && <WorkspaceLabelsSection workspaceId={workspace.id} />}
 
-      {workspace && isOwner && !workspace.isPublic && !solo && (
+      {workspace && isOwner && !solo && (
         <>
           <Separator />
           <Card className="border-destructive/50">

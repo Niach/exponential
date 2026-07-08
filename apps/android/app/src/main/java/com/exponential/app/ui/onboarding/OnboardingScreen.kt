@@ -170,7 +170,7 @@ private fun CreateProjectStep(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Every project is backed by a GitHub repository.",
+            "Pick a board type — dev boards connect a GitHub repository.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,

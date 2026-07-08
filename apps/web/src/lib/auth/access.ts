@@ -1,25 +1,26 @@
 // Canonical authorization predicates. This is the single authority for "can
 // user X do Y" decisions in the tRPC layer (and the MCP tool layer); the older
 // scattered `assertCan*` helpers collapsed into the two capability-driven
-// predicates below plus the moderation clamp. Low-level data lookups and the
-// member-role assertion still live in `./membership`.
+// predicates below. Low-level data lookups and the member-role assertion still
+// live in `./membership`.
 //
-// Behaviour is intentionally identical to the helpers it replaces — see the
-// per-branch comments for the rules.
+// v7: workspace-level publicness is gone. Membership (always an explicit
+// invite) is the only capability gate — public feedback boards are read-only
+// for non-members (anonymous reads happen in the shape proxies; writes arrive
+// only via the embedded widget's server-side service). The old
+// public-workspace moderation clamp is deleted with the self-joined-member
+// class it existed for.
 
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
-import { contract } from "@exp/domain-contract"
-import { issues, labels } from "@/db/schema"
+import { labels } from "@/db/schema"
 import type { WorkspaceRole } from "@/lib/domain"
-import { isUserAdmin } from "@/lib/admin"
 import {
   assertMatchingWorkspaceIds,
   assertWorkspaceAccess,
   getIssueWorkspaceContext,
   getWorkspaceById,
   getWorkspaceMember,
-  isWorkspaceModerator,
 } from "./membership"
 
 async function getDb() {
@@ -31,13 +32,9 @@ async function getDb() {
 // Workspace-scoped capabilities
 // ---------------------------------------------------------------------------
 
-// - `read` / `comment`: any member, or any authed user in a public workspace.
-//   (Comments are intentionally as open as read access.)
-// - `create_issue`: a public workspace with publicWritePolicy=`everyone` lets
-//   any authed user file; otherwise the caller must be a member.
+// - `read` / `comment` / `create_issue`: any member.
 // - `mutate_resources`: workspace-level resources (projects, labels, members,
-//   invites). On the public workspace only instance admins may write; on a
-//   private workspace the caller must be a member with the required role.
+//   invites) — a member with the required role.
 export type WorkspaceCapability =
   | `read`
   | `comment`
@@ -58,32 +55,12 @@ export async function resolveWorkspaceAccess(
 
   switch (capability) {
     case `read`:
-    case `comment`: {
-      if (member) return { kind: `member` as const, workspace, member }
-      if (workspace.isPublic) return { kind: `public` as const, workspace }
-      throw new TRPCError({
-        code: `FORBIDDEN`,
-        message: `Not a member of this workspace`,
-      })
-    }
+    case `comment`:
     case `create_issue`: {
-      if (workspace.isPublic && workspace.publicWritePolicy === `everyone`) {
-        if (member) return { kind: `member` as const, workspace, member }
-        return { kind: `public` as const, workspace }
-      }
       assertWorkspaceAccess(member)
       return { kind: `member` as const, workspace, member }
     }
     case `mutate_resources`: {
-      if (workspace.isPublic) {
-        if (await isUserAdmin(userId)) {
-          return { kind: `admin` as const, workspace }
-        }
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `Only admins can modify the public workspace`,
-        })
-      }
       assertWorkspaceAccess(member, opts?.roles)
       return { kind: `member` as const, workspace, member }
     }
@@ -94,11 +71,7 @@ export async function resolveWorkspaceAccess(
 // Issue-scoped actions
 // ---------------------------------------------------------------------------
 
-// - `read`: anyone who can read the workspace.
-// - `write` / `delete`: in a private workspace any member. In a PUBLIC
-//   workspace membership is an open self-service join, so plain members get no
-//   blanket mutation rights — only owner-members, the issue creator, or an
-//   instance admin. publicWritePolicy gates create, not mutation.
+// - `read` / `write` / `delete`: any member of the issue's workspace.
 export type IssueAction = `read` | `write` | `delete`
 
 export async function assertIssueAccess(
@@ -107,7 +80,6 @@ export async function assertIssueAccess(
   action: IssueAction
 ) {
   const issueContext = await getIssueWorkspaceContext(issueId)
-
   switch (action) {
     case `read`: {
       await resolveWorkspaceAccess(userId, issueContext.workspaceId, `read`)
@@ -115,38 +87,9 @@ export async function assertIssueAccess(
     }
     case `write`:
     case `delete`: {
-      const workspace = await getWorkspaceById(issueContext.workspaceId)
-      if (!workspace) {
-        throw new TRPCError({
-          code: `NOT_FOUND`,
-          message: `Workspace not found`,
-        })
-      }
       const member = await getWorkspaceMember(userId, issueContext.workspaceId)
-      if (member && (!workspace.isPublic || member.role === `owner`)) {
-        return issueContext
-      }
-      if (workspace.isPublic) {
-        const db = await getDb()
-        const [issue] = await db
-          .select({ creatorId: issues.creatorId })
-          .from(issues)
-          .where(eq(issues.id, issueId))
-          .limit(1)
-        if (!issue) {
-          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
-        }
-        if (issue.creatorId === userId) return issueContext
-        if (await isUserAdmin(userId)) return issueContext
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `Only the issue creator or a workspace member can modify this issue`,
-        })
-      }
-      throw new TRPCError({
-        code: `FORBIDDEN`,
-        message: `Not a member of this workspace`,
-      })
+      assertWorkspaceAccess(member)
+      return issueContext
     }
   }
 }
@@ -170,34 +113,4 @@ export async function assertIssueLabelWorkspaceMatch(
   await assertIssueAccess(userId, issueId, `write`)
 
   return { issue: issueContext, label }
-}
-
-// ---------------------------------------------------------------------------
-// Public-workspace moderation clamp
-// ---------------------------------------------------------------------------
-
-// Fields a non-moderator may NOT set on issues in a PUBLIC workspace. Title,
-// description and labels stay open; everything listed here is moderation-gated
-// and is clamped (on create) or stripped (on update) server-side so a stale or
-// tampered client cannot bypass the UI restrictions. Single source of truth:
-// packages/domain-contract/contract.json (also generated into the native
-// WorkspacePermissions so they can't hand-drift from the server).
-export const MODERATION_RESTRICTED_FIELDS = contract.moderationRestrictedFields
-
-// True when the user is a non-moderator acting in a public workspace, so the
-// moderation-gated fields must be clamped (create) or stripped (update).
-export async function isModerationRestricted(
-  userId: string,
-  workspaceId: string
-): Promise<boolean> {
-  const workspace = await getWorkspaceById(workspaceId)
-  if (!workspace?.isPublic) return false
-  return !(await isWorkspaceModerator(userId, workspaceId))
-}
-
-// Remove the moderation-gated fields from an update payload in place.
-export function applyModerationRestrictions(updates: Record<string, unknown>) {
-  for (const field of MODERATION_RESTRICTED_FIELDS) {
-    delete updates[field]
-  }
 }

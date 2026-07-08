@@ -18,16 +18,16 @@ data class DeleteProjectInput(val projectId: String)
 data class WorkspaceBySlugInput(val slug: String)
 
 /// Minimal projection returned by the public-aware `workspaces.getBySlug`
-/// lookup. `membership` is the caller's role in that workspace, null for
-/// non-members — the join-gate signal (mirrors the web route guard).
+/// lookup. `hasPublicBoard` is true when the workspace hosts at least one
+/// public feedback-board project; `membership` is the caller's role, null for
+/// non-members (mirrors the web route guard).
 @Serializable
 data class WorkspaceBySlugResult(
     val id: String,
     val name: String,
     val slug: String,
     val iconUrl: String? = null,
-    val isPublic: Boolean = false,
-    val publicWritePolicy: String? = null,
+    val hasPublicBoard: Boolean = false,
     val membership: String? = null,
 )
 

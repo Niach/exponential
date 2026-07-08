@@ -19,8 +19,9 @@
 //! action; [`init`] owns the handler.
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, px, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -32,6 +33,8 @@ use gpui_component::{
 };
 use serde::{Deserialize, Serialize};
 use sync::Store;
+
+use domain::contract::{PROJECT_TYPE_DEV, PROJECT_TYPE_FEEDBACK, PROJECT_TYPE_TASKS};
 
 use crate::actions::NewProject;
 use crate::create_issue_dialog::parse_hex_color;
@@ -162,6 +165,9 @@ pub struct CreateProjectDialogView {
     workspace_id: String,
     name: Entity<InputState>,
     prefix: Entity<InputState>,
+    /// `dev` / `tasks` / `feedback` (v7). Only `dev` requires a repository —
+    /// the repo picker is hidden for the other two.
+    project_type: String,
     color: String,
     /// The chosen backing repository (v4 §3.1 — required to submit).
     repo_choice: Option<RepoChoice>,
@@ -221,6 +227,7 @@ impl CreateProjectDialogView {
             workspace_id,
             name,
             prefix,
+            project_type: PROJECT_TYPE_DEV.to_string(),
             color: DEFAULT_COLOR.to_string(),
             repo_choice: None,
             repos: RepoLoad::Loading,
@@ -282,9 +289,13 @@ impl CreateProjectDialogView {
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let name = self.name.read(cx).value().trim().to_string();
         let prefix = self.prefix.read(cx).value().trim().to_string();
-        let Some(repo_choice) = self.repo_choice.clone() else {
+        let is_dev = self.project_type == PROJECT_TYPE_DEV;
+        // Only dev projects need a backing repo (v7); tasks/feedback are
+        // repo-less. Guard the dev case even though submit is disabled without
+        // a pick.
+        if is_dev && self.repo_choice.is_none() {
             return;
-        };
+        }
         if name.is_empty() || prefix.is_empty() || self.submitting {
             return;
         }
@@ -298,12 +309,20 @@ impl CreateProjectDialogView {
         self.submitting = true;
         cx.notify();
 
+        // The repo picker is only shown for dev projects, so a non-dev create
+        // sends no repository at all.
+        let repository = if is_dev {
+            self.repo_choice.as_ref().map(RepoChoice::to_input)
+        } else {
+            None
+        };
         let input = api::projects::ProjectsCreateInput {
             workspace_id: self.workspace_id.clone(),
             name,
             prefix,
+            project_type: self.project_type.clone(),
             color: Some(self.color.clone()),
-            repository: repo_choice.to_input(),
+            repository,
         };
 
         cx.spawn_in(window, async move |this, window| {
@@ -373,6 +392,87 @@ impl CreateProjectDialogView {
 }
 
 impl CreateProjectDialogView {
+    /// The project-type picker (v7): three selectable cards — Dev / Task /
+    /// Feedback board — each with a type glyph, title, and one-liner. Only the
+    /// dev card requires a repository (the repo field is hidden otherwise).
+    fn type_selector(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // (type, title, one-liner)
+        const OPTIONS: [(&str, &str, &str); 3] = [
+            (
+                PROJECT_TYPE_DEV,
+                "Dev board",
+                "Code with Claude on a connected repository.",
+            ),
+            (
+                PROJECT_TYPE_TASKS,
+                "Task board",
+                "Plain issue tracking — no repository needed.",
+            ),
+            (
+                PROJECT_TYPE_FEEDBACK,
+                "Feedback board",
+                "Public board — anyone with the link can read it.",
+            ),
+        ];
+
+        let mut grid = v_flex().gap_2();
+        for (project_type, title, subtitle) in OPTIONS {
+            let selected = self.project_type == project_type;
+            let view = cx.entity().clone();
+            grid = grid.child(
+                h_flex()
+                    .id(SharedString::from(format!("project-type-{project_type}")))
+                    .w_full()
+                    .gap_3()
+                    .items_center()
+                    .px_3()
+                    .py_2()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(if selected {
+                        cx.theme().primary
+                    } else {
+                        cx.theme().border
+                    })
+                    .cursor_pointer()
+                    .child(
+                        crate::icons::project_type_glyph(project_type)
+                            .small()
+                            .flex_shrink_0()
+                            .text_color(if selected {
+                                cx.theme().primary
+                            } else {
+                                cx.theme().muted_foreground
+                            }),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_0p5()
+                            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(subtitle),
+                            ),
+                    )
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            if this.project_type != project_type {
+                                this.project_type = project_type.to_string();
+                                cx.notify();
+                            }
+                        });
+                    }),
+            );
+        }
+
+        v_flex()
+            .gap_2()
+            .child(field_label(cx, "Type"))
+            .child(grid)
+    }
+
     /// The "Repository" field: a dropdown offering the workspace's connected
     /// registry repos AND (once the GitHub App is installed) the user's
     /// installable GitHub repos to connect inline. When the App is configured
@@ -575,22 +675,30 @@ impl Render for CreateProjectDialogView {
 
         let name_empty = self.name.read(cx).value().trim().is_empty();
         let prefix_empty = self.prefix.read(cx).value().trim().is_empty();
-        // v4 §3.1: a project must be backed by a repository — block submit
+        let is_dev = self.project_type == PROJECT_TYPE_DEV;
+        // v7: only dev projects must be backed by a repository — block submit
         // until one is picked (the server would otherwise reject the create).
-        let disabled =
-            name_empty || prefix_empty || self.repo_choice.is_none() || self.submitting;
+        // Tasks/feedback boards are repo-less.
+        let disabled = name_empty
+            || prefix_empty
+            || (is_dev && self.repo_choice.is_none())
+            || self.submitting;
 
         let mut form = v_flex()
             .gap_4()
+            .child(self.type_selector(cx))
             .child(labeled(cx, "Name", Input::new(&self.name).small()))
-            .child(labeled(cx, "Prefix", Input::new(&self.prefix).small()))
-            .child(self.repository_field(cx))
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(field_label(cx, "Color"))
-                    .child(color_swatch_grid(&self.color, cx.entity().clone(), cx)),
-            );
+            .child(labeled(cx, "Prefix", Input::new(&self.prefix).small()));
+        // The repo picker only applies to dev projects.
+        if is_dev {
+            form = form.child(self.repository_field(cx));
+        }
+        form = form.child(
+            v_flex()
+                .gap_2()
+                .child(field_label(cx, "Color"))
+                .child(color_swatch_grid(&self.color, cx.entity().clone(), cx)),
+        );
 
         if let Some(error) = &self.error {
             form = form.child(

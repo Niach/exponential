@@ -4,10 +4,7 @@ import { workspaceInvites, workspaceMembers, workspaces } from "@/db/schema"
 import { and, eq, isNull } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
-import {
-  assertWorkspaceMember,
-  assertNotPublicWorkspace,
-} from "@/lib/workspace-membership"
+import { assertWorkspaceMember } from "@/lib/workspace-membership"
 import { assertCanInviteMember } from "@/lib/billing"
 
 export const workspaceInvitesRouter = router({
@@ -19,9 +16,6 @@ export const workspaceInvitesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertNotPublicWorkspace(input.workspaceId, {
-        message: `The public workspace does not use invites`,
-      })
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId, [
         `owner`,
       ])

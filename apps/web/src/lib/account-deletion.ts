@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, ne } from "drizzle-orm"
 import { workspaces, workspaceMembers } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
+import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 
 // Works over the root db or a transaction — structurally typed so the helper
 // can run inside the caller's delete transaction (nothing is removed when the
@@ -115,9 +116,19 @@ export async function guardAndCleanupWorkspacesForUserDeletion(
   if (solo.length === 0) {
     return { deletedWorkspaceIds: [] }
   }
+  // Never cascade-delete the bootstrap feedback workspace (a sole-admin
+  // account deletion would otherwise take every public feedback issue with it).
+  const feedbackWorkspaceId = await getFeedbackWorkspaceId()
   const deleted = await tx
     .delete(workspaces)
-    .where(and(inArray(workspaces.id, solo), eq(workspaces.isPublic, false)))
+    .where(
+      and(
+        inArray(workspaces.id, solo),
+        feedbackWorkspaceId
+          ? ne(workspaces.id, feedbackWorkspaceId)
+          : undefined
+      )
+    )
     .returning({ id: workspaces.id })
   return { deletedWorkspaceIds: deleted.map((d) => d.id) }
 }

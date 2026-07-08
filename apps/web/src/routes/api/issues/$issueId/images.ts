@@ -89,6 +89,7 @@ async function uploadIssueImage({
     await db.insert(attachments).values({
       id: attachmentId,
       workspaceId: issueContext.workspaceId,
+      projectId: issueContext.projectId,
       issueId: params.issueId,
       uploaderId: session.user.id,
       filename: file.name,

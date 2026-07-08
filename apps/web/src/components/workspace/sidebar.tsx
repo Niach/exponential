@@ -9,6 +9,7 @@ import {
   CircleUser,
   FolderKanban,
   GitPullRequest,
+  Globe,
   Inbox,
   LogIn,
   LogOut,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { ExponentialLogo } from "@/components/exponential-logo"
+import { getProjectTypeOption } from "@/lib/project-types"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -168,11 +170,6 @@ export function WorkspaceSidebar({
                   <span className="text-sm font-semibold truncate">
                     {workspace?.name ?? workspaceSlug}
                   </span>
-                  {workspace?.isPublic && (
-                    <span className="rounded bg-accent px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground uppercase tracking-wide">
-                      Public
-                    </span>
-                  )}
                   <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0" />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
@@ -343,22 +340,31 @@ export function WorkspaceSidebar({
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ) : (
-                  projects.map((project) => (
-                    <SidebarMenuItem key={project.id}>
-                      <SidebarMenuButton asChild>
-                        <Link
-                          to="/w/$workspaceSlug/projects/$projectSlug"
-                          params={{ workspaceSlug, projectSlug: project.slug }}
-                        >
-                          <div
-                            className="h-3 w-3 rounded-full shrink-0"
-                            style={{ backgroundColor: project.color }}
-                          />
-                          <span>{project.name}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))
+                  projects.map((project) => {
+                    const TypeIcon = getProjectTypeOption(project.type).icon
+                    return (
+                      <SidebarMenuItem key={project.id}>
+                        <SidebarMenuButton asChild>
+                          <Link
+                            to="/w/$workspaceSlug/projects/$projectSlug"
+                            params={{
+                              workspaceSlug,
+                              projectSlug: project.slug,
+                            }}
+                          >
+                            <TypeIcon
+                              className="h-4 w-4 shrink-0"
+                              style={{ color: project.color }}
+                            />
+                            <span>{project.name}</span>
+                            {project.type === `feedback` && (
+                              <Globe className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })
                 )}
               </SidebarMenu>
             </SidebarGroupContent>

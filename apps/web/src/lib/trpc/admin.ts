@@ -5,7 +5,7 @@ import { router, adminProcedure, generateTxId } from "@/lib/trpc"
 import { users, accounts } from "@/db/auth-schema"
 import { workspaces, workspaceMembers, projects } from "@/db/schema"
 import { getWorkspacePlan } from "@/lib/billing"
-import { assertNotPublicWorkspace } from "@/lib/workspace-membership"
+import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupWorkspacesForUserDeletion } from "@/lib/account-deletion"
 import {
   cancelCreemSubscriptionsBestEffort,
@@ -198,10 +198,13 @@ export const adminRouter = router({
   deleteWorkspace: adminProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertNotPublicWorkspace(input.workspaceId, {
-        message: `The public workspace cannot be deleted`,
-        code: `BAD_REQUEST`,
-      })
+      // The cloud boot would recreate the feedback workspace EMPTY — block.
+      if (input.workspaceId === (await getFeedbackWorkspaceId())) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `The feedback workspace cannot be deleted`,
+        })
+      }
 
       // Capture BEFORE the delete: creem_subscriptions.workspace_id goes
       // `set null` when the workspace row is deleted.

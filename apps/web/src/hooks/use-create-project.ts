@@ -20,7 +20,10 @@ export type CreateProjectInput = {
   name: string
   prefix: string
   color: string
-  repository: CreateProjectRepository
+  // dev | tasks | feedback — dev requires a repository; the others don't
+  // (feedback boards may still connect one).
+  type: `dev` | `tasks` | `feedback`
+  repository?: CreateProjectRepository
 }
 
 // Discriminated failure so each surface can render its own affordance:
@@ -62,6 +65,7 @@ export function useCreateProject() {
             name: input.name.trim(),
             prefix: input.prefix.trim(),
             color: input.color,
+            type: input.type,
             repository: input.repository,
           },
           // Failures render inline at the call site; the global mutation-error

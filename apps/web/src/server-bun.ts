@@ -28,6 +28,11 @@ import { hasWebSocket } from "#nitro-internal-virtual/feature-flags"
 import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
+import {
+  injectMeta,
+  matchPublicPath,
+  resolvePublicPageMeta,
+} from "@/lib/seo/public-meta"
 
 // Fire-and-forget: seed the public workspace and promote initial admins.
 // Idempotent; errors are logged inside bootstrapCloud(). Calling from
@@ -110,8 +115,69 @@ function withWidgetAssetHeaders(req: Request, response: Response): Response {
   return response
 }
 
+// Social-preview rewrite for public feedback boards. The app renders
+// client-side, so unfurlers only ever see the generic __root.tsx head; for the
+// two public routes we buffer the HTML shell and inject route-specific
+// OG/Twitter/canonical meta (and flip noindex → index,follow). Only GET +
+// text/html + 200 responses on a matching path are touched; everything else
+// passes through untouched. NOTE: dev runs through the nitro-alpha bridge,
+// which never reaches this file — this is prod-only (server-bun.ts/srvx).
+async function withPublicMeta(req: Request, response: Response): Promise<Response> {
+  if (req.method !== `GET`) return response
+  if (response.status !== 200) return response
+  if (!response.headers.get(`content-type`)?.includes(`text/html`)) {
+    return response
+  }
+  const url = new URL(req.url)
+  const match = matchPublicPath(url.pathname)
+  if (!match) return response
+
+  // Buffer the shell IMMEDIATELY and always return a fresh Response on this
+  // path: srvx's lazy NodeResponse must not be returned (or consumed) after a
+  // later await boundary — Bun then rejects it with "Expected a Response
+  // object" and serves its default page.
+  const body = await response.text()
+  const status = response.status
+  const statusText = response.statusText
+  const headers = new Headers(response.headers)
+  headers.delete(`content-length`)
+
+  // Meta injection is best-effort decoration: any failure degrades to the
+  // untouched shell, never a broken page.
+  let rewritten = body
+  try {
+    const meta = await resolvePublicPageMeta(match)
+    if (meta) {
+      const origin =
+        process.env.BETTER_AUTH_URL?.replace(/\/$/, ``) || url.origin
+      rewritten = injectMeta(body, meta, origin)
+    }
+  } catch (err) {
+    console.error(`[public-meta] injection failed:`, err)
+  }
+  return new Response(rewritten, { status, statusText, headers })
+}
+
+// h3 (inside the nitro chunk) can hand back its lazy NodeResponse wrapper —
+// it masquerades as a Response via Symbol.hasInstance/prototype games, but
+// Bun.serve requires the real native class and otherwise logs "Expected a
+// Response object" and serves its default page. The wrapper exposes a
+// `_response` getter that materializes the native Response; use it, with a
+// copy-construct fallback for any other imposter.
+function ensureNativeResponse(res: Response): Response {
+  if (res.constructor === Response) return res
+  const materialized = (res as unknown as { _response?: Response })._response
+  if (materialized?.constructor === Response) return materialized
+  return new Response(res.body, res)
+}
+
 let _fetch: (req: Request) => Response | Promise<Response> = async (req) =>
-  withSecurityHeaders(withWidgetAssetHeaders(req, await nitroApp.fetch(req)))
+  withSecurityHeaders(
+    withWidgetAssetHeaders(
+      req,
+      await withPublicMeta(req, ensureNativeResponse(await nitroApp.fetch(req)))
+    )
+  )
 const ws = hasWebSocket
   ? wsAdapter({ resolve: resolveWebsocketHooks })
   : undefined
@@ -129,7 +195,13 @@ if (hasWebSocket && ws) {
       return upgraded as Response | Promise<Response>
     }
     return withSecurityHeaders(
-      withWidgetAssetHeaders(req, await nitroApp.fetch(req))
+      withWidgetAssetHeaders(
+        req,
+        await withPublicMeta(
+          req,
+          ensureNativeResponse(await nitroApp.fetch(req))
+        )
+      )
     )
   }
 }

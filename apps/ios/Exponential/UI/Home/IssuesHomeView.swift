@@ -51,6 +51,18 @@ struct IssuesHomeView: View {
             ToolbarItem(placement: .principal) {
                 switcherControl
             }
+            if let boardShareURL {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(
+                        item: boardShareURL,
+                        subject: Text(currentProjectName ?? "Board")
+                    ) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 settingsButton
             }
@@ -91,6 +103,25 @@ struct IssuesHomeView: View {
                 if let project = block.projects.first(where: { $0.id == current.projectId }) {
                     return project.name
                 }
+            }
+        }
+        return nil
+    }
+
+    /// Shareable web URL for the current project's board, resolved from the
+    /// synced workspace/project slugs. Nil until the current project is known.
+    private var boardShareURL: URL? {
+        guard let current = currentProject else { return nil }
+        for group in projectLoader?.groups ?? [] where group.accountId == current.accountId {
+            for block in group.workspaceBlocks {
+                guard let project = block.projects.first(where: { $0.id == current.projectId })
+                else { continue }
+                let base = deps.auth.instanceBaseURL(forAccountId: current.accountId)?.absoluteString
+                return WebLinks.board(
+                    instanceUrl: base,
+                    workspaceSlug: block.workspace.slug,
+                    projectSlug: project.slug
+                )
             }
         }
         return nil

@@ -29,8 +29,9 @@ export const codingSessionsRouter = router({
         .values({
           issueId: input.issueId,
           // Set explicitly (also trigger-denormalized) so the row is valid even
-          // if the populate_coding_session_workspace_id trigger isn't applied.
+          // if the populate_* triggers aren't applied.
           workspaceId: issueCtx.workspaceId,
+          projectId: issueCtx.projectId,
           userId: ctx.session.user.id,
           deviceLabel: input.deviceLabel ?? null,
           status: `running`,

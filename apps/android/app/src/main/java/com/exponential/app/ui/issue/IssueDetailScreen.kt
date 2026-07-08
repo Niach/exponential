@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -51,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -93,7 +96,9 @@ fun IssueDetailScreen(
     val startState by viewModel.startState.collectAsStateWithLifecycle()
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
+    val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
+    val context = LocalContext.current
     val issue = state.issue
     var titleField by remember { mutableStateOf("") }
     var descriptionField by remember { mutableStateOf("") }
@@ -140,6 +145,25 @@ fun IssueDetailScreen(
                 },
                 actions = {
                     if (issue != null) {
+                        val url = shareUrl
+                        if (url != null) {
+                            IconButton(onClick = {
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(
+                                        Intent.EXTRA_TEXT,
+                                        "${issue.identifier}: ${issue.title}\n$url",
+                                    )
+                                }
+                                runCatching {
+                                    context.startActivity(
+                                        Intent.createChooser(send, "Share issue"),
+                                    )
+                                }
+                            }) {
+                                Icon(Icons.Filled.Share, contentDescription = "Share issue")
+                            }
+                        }
                         IconButton(onClick = { viewModel.toggleSubscribe() }) {
                             Icon(
                                 if (isSubscribed) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,

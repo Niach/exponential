@@ -4,11 +4,12 @@
 export {
   assertWorkspaceAccess,
   assertMatchingWorkspaceIds,
-  getPublicWorkspaceIds,
+  getPublicProjectScope,
+  getPublicLabelIds,
+  invalidatePublicProjectCache,
   getReadableWorkspaceIds,
   getReadableProjectIds,
   getReadableUserIdsInWorkspaces,
-  invalidatePublicWorkspaceCache,
   getUserWorkspaceIds,
   getUserProjectIds,
   getWorkspaceMember,
@@ -19,9 +20,8 @@ export {
   getIssueWorkspaceContext,
   getAttachmentWorkspaceContext,
   getWorkspaceById,
-  assertNotPublicWorkspace,
-  isWorkspaceModerator,
 } from "@/lib/auth/membership"
+export type { PublicProjectScope } from "@/lib/auth/membership"
 
 // Canonical authorization predicates (capability/action-driven). These replace
 // the old per-action assertCan* helpers.
@@ -29,13 +29,13 @@ export {
   resolveWorkspaceAccess,
   assertIssueAccess,
   assertIssueLabelWorkspaceMatch,
-  MODERATION_RESTRICTED_FIELDS,
-  isModerationRestricted,
-  applyModerationRestrictions,
 } from "@/lib/auth/access"
 export type { WorkspaceCapability, IssueAction } from "@/lib/auth/access"
 
 export {
   sqlStringLiteral,
   buildWhereClause,
+  buildTextInClause,
+  andClauses,
+  orClauses,
 } from "@/lib/auth/shape-where"

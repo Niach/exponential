@@ -226,6 +226,7 @@ export async function createWidgetSubmission(args: {
         await tx.insert(attachments).values({
           id: attachmentId,
           workspaceId: config.workspaceId,
+          projectId: config.projectId,
           issueId,
           uploaderId: config.widgetUserId,
           filename: screenshot.name || `screenshot.png`,
@@ -248,6 +249,7 @@ export async function createWidgetSubmission(args: {
           userId: null,
           email: fields.data.email,
           workspaceId: config.workspaceId,
+          projectId: config.projectId,
           source: `widget_reporter`,
           unsubscribed: false,
         })

@@ -35,21 +35,43 @@ public struct CreateProjectInput: Encodable, Sendable {
     public let name: String
     public let prefix: String
     public var color: String?
-    // Required in v4 — a repo-less project can no longer exist.
-    public let repository: ProjectRepositoryChoice
+    // Board type: dev | tasks | feedback (DomainContract.projectType*). The
+    // server defaults to `dev` when omitted; sent explicitly here.
+    public let type: String
+    // Required for `dev` projects, optional for `tasks`/`feedback` (repo-less
+    // boards). The server rejects a `dev` project without a repository.
+    public let repository: ProjectRepositoryChoice?
 
     public init(
         workspaceId: String,
         name: String,
         prefix: String,
         color: String? = nil,
-        repository: ProjectRepositoryChoice
+        type: String = DomainContract.projectTypeDev,
+        repository: ProjectRepositoryChoice? = nil
     ) {
         self.workspaceId = workspaceId
         self.name = name
         self.prefix = prefix
         self.color = color
+        self.type = type
         self.repository = repository
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case workspaceId, name, prefix, color, type, repository
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(workspaceId, forKey: .workspaceId)
+        try c.encode(name, forKey: .name)
+        try c.encode(prefix, forKey: .prefix)
+        try c.encodeIfPresent(color, forKey: .color)
+        try c.encode(type, forKey: .type)
+        // Omit `repository` entirely when nil so the server's optional schema
+        // sees an absent key (not JSON null, which the union would reject).
+        try c.encodeIfPresent(repository, forKey: .repository)
     }
 }
 

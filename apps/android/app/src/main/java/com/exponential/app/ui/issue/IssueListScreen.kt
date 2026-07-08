@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,6 +104,19 @@ fun IssueListScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
+    val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val shareBoard: () -> Unit = {
+        val url = shareUrl
+        val project = state.project
+        if (url != null && project != null) {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "${project.name}\n$url")
+            }
+            runCatching { context.startActivity(Intent.createChooser(send, "Share board")) }
+        }
+    }
     var showFilters by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
     var showCreateProject by remember { mutableStateOf(false) }
@@ -136,6 +152,9 @@ fun IssueListScreen(
                     IssueListMode.Pushed -> {
                         CircleIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
                         Spacer(Modifier.weight(1f))
+                        if (shareUrl != null) {
+                            CircleIconButton(Icons.Filled.Share, "Share board", onClick = shareBoard)
+                        }
                     }
                     IssueListMode.Root -> {
                         ProjectSwitcherControl(
@@ -144,6 +163,10 @@ fun IssueListScreen(
                             onClick = { showSwitcher = true },
                         )
                         Spacer(Modifier.weight(1f))
+                        if (shareUrl != null) {
+                            CircleIconButton(Icons.Filled.Share, "Share board", onClick = shareBoard)
+                            Spacer(Modifier.width(8.dp))
+                        }
                         CircleIconButton(Icons.Filled.Settings, "Settings", onClick = onOpenSettings)
                     }
                 }

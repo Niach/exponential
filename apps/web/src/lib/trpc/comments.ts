@@ -62,6 +62,7 @@ export const commentsRouter = router({
           .values({
             issueId: input.issueId,
             workspaceId: issueContext.workspaceId,
+            projectId: issueContext.projectId,
             authorId: ctx.session.user.id,
             body: input.body,
           })

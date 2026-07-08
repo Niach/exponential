@@ -278,6 +278,25 @@ pub fn local_session_for<'a>(
     sessions.get(issue_id)
 }
 
+/// The synced project row backing `issue_id`, if both are in the collections.
+/// Used by the header affordance to decide whether Start coding even applies
+/// (a repo-less non-dev board never codes) and by the §P7 activity gating.
+pub(crate) fn issue_project(issue_id: &str, cx: &App) -> Option<domain::rows::Project> {
+    let store = Store::global(cx);
+    let project_id = store
+        .collections()
+        .issues
+        .read(cx)
+        .get(issue_id)
+        .map(|issue| issue.project_id.clone())?;
+    store
+        .collections()
+        .projects
+        .read(cx)
+        .get(&project_id)
+        .cloned()
+}
+
 // ---------------------------------------------------------------------------
 // Window plumbing — this window's TerminalManager (§06 dock)
 // ---------------------------------------------------------------------------
@@ -372,6 +391,7 @@ pub fn build_launch(
 pub fn spawn_into_window(
     prepared: coding::PreparedLaunch,
     issue_id: String,
+    keep_private: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), String> {
@@ -402,16 +422,20 @@ pub fn spawn_into_window(
 
     match coding::spawn_prepared_with(prepared, &manager, cx, Arc::clone(&trpc), Some(exit_notify))
     {
-        Ok(LaunchOutcome::Spawned { session_id, terminal_tab, .. }) => {
+        Ok(LaunchOutcome::Spawned { session_id, terminal_tab, worktree, .. }) => {
             // §08 steer publisher attach — tee this session's PTY out to the
             // relay for phone steering. Best-effort: a no-op when steer is
             // disabled/unreachable or the account is signed out. This is the
-            // single hookup the §08 wiring owns (`ui::steer_wiring`).
+            // single hookup the §08 wiring owns (`ui::steer_wiring`). The
+            // worktree + keep_private flag ride along for the §P7 public
+            // activity emitter (started only for a live feedback board).
             crate::steer_wiring::attach_publisher(
                 &session_id,
                 &issue_id,
                 terminal_tab,
                 &manager,
+                worktree,
+                keep_private,
                 cx,
             );
             LocalSessions::insert(
@@ -457,6 +481,9 @@ pub struct StartCodingControl {
     /// A launch-time `DisabledReason` (GithubAppMissing / SessionLimit /
     /// TokenDenied / doctor) — rendered with the exact §7 copy + a retry.
     runtime_disabled: Option<DisabledReason>,
+    /// §P7 per-session opt-out: on a live feedback board, checking this keeps
+    /// THIS session out of the public activity stream. Default off (publish).
+    keep_private: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -476,6 +503,7 @@ impl StartCodingControl {
             probe_generation: 0,
             launching: false,
             runtime_disabled: None,
+            keep_private: false,
             _subscriptions: subscriptions,
         }
     }
@@ -490,6 +518,7 @@ impl StartCodingControl {
         self.probe = RepoProbe::Idle;
         self.runtime_disabled = None;
         self.launching = false;
+        self.keep_private = false;
         cx.notify();
     }
 
@@ -568,7 +597,9 @@ impl StartCodingControl {
                 this.launching = false;
                 match prepared {
                     Ok(Prepared::Ready(prepared)) => {
-                        if let Err(message) = spawn_into_window(prepared, issue_id, window, cx) {
+                        if let Err(message) =
+                            spawn_into_window(prepared, issue_id, this.keep_private, window, cx)
+                        {
                             window.push_notification(Notification::error(message), cx);
                         }
                     }
@@ -667,21 +698,57 @@ impl Render for StartCodingControl {
         let Some(issue_id) = self.issue_id.clone() else {
             return div().into_any_element();
         };
+        // A repo-less non-dev board (a task/feedback project that never runs
+        // coding sessions) shows NO Start-coding affordance — not even the
+        // disabled "link a repository" nudge, which only makes sense for dev
+        // projects (they REQUIRE a repo). A non-dev board WITH a repo (the
+        // dogfood feedback board) keeps the button: coding gates on repo
+        // presence, not type. Hidden here before the probe so it never fetches.
+        let project = issue_project(&issue_id, cx);
+        if let Some(project) = &project {
+            if !project.is_dev() && project.repository_id.is_none() {
+                return div().into_any_element();
+            }
+        }
+        // §P7: a live feedback board streams sessions publicly — offer the
+        // per-session "Keep private" opt-out and, while coding, the LIVE badge.
+        let live_public_project = project
+            .as_ref()
+            .map(|project| project.is_live_public_coding())
+            .unwrap_or(false);
         // Lazy kicks: the hub (doctor) exists once anything coding renders;
         // the probe follows the current issue.
         let _ = CodingHub::global(cx);
         self.ensure_probe(cx);
 
         // Local session running → "Coding…" + the play button becomes STOP.
-        let local = LocalSessions::global(cx)
+        let session_id = LocalSessions::global(cx)
             .read(cx)
             .get(&issue_id)
-            .is_some();
-        if local {
-            return h_flex()
-                .flex_shrink_0()
-                .gap_1()
-                .items_center()
+            .map(|session| session.session_id.clone());
+        if let Some(session_id) = session_id {
+            // §P7: show the "LIVE — public" badge while this session is
+            // actually publishing its activity stream to public viewers.
+            let live = crate::steer_wiring::is_publishing_live(&session_id, cx);
+            let mut row = h_flex().flex_shrink_0().gap_1().items_center();
+            if live {
+                row = row.child(
+                    h_flex()
+                        .gap_1p5()
+                        .items_center()
+                        .text_xs()
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(theme::tokens::RED.to_hsla())
+                        .child(
+                            div()
+                                .size_1p5()
+                                .rounded_full()
+                                .bg(theme::tokens::RED.to_hsla()),
+                        )
+                        .child("LIVE — public"),
+                );
+            }
+            return row
                 .child(
                     h_flex()
                         .gap_1p5()
@@ -767,6 +834,27 @@ impl Render for StartCodingControl {
                         .on_click(cx.listener(|this, _, window, cx| this.launch(window, cx))),
                 );
             }
+        }
+        // §P7 opt-out: on a live feedback board, let the user keep THIS session
+        // out of the public activity stream before starting it.
+        if live_public_project {
+            let checked = self.keep_private;
+            let mut checkbox = Button::new("keep-session-private")
+                .ghost()
+                .xsmall()
+                .label("Keep private")
+                .tooltip(
+                    "This project streams coding sessions publicly. \
+                     Check to keep this session out of the public view.",
+                );
+            if checked {
+                checkbox = checkbox
+                    .icon(Icon::new(IconName::Check).text_color(theme::tokens::GREEN.to_hsla()));
+            }
+            row = row.child(checkbox.on_click(cx.listener(|this, _, _, cx| {
+                this.keep_private = !this.keep_private;
+                cx.notify();
+            })));
         }
         row.into_any_element()
     }

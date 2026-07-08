@@ -50,8 +50,10 @@ class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * Create a project. The server uppercases `prefix` and defaults `color` to
-     * `#6366f1` when omitted. The inline-connect path needs owner/admin (repo
-     * management). Returns the new project id.
+     * `#6366f1` when omitted. `type` is one of dev|tasks|feedback: `dev`
+     * requires a `repository` (server rejects otherwise); tasks/feedback boards
+     * are repo-optional, so `repository` may be null. The inline-connect path
+     * needs owner/admin (repo management). Returns the new project id.
      */
     suspend fun create(
         accountId: String,
@@ -59,7 +61,8 @@ class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
         name: String,
         prefix: String,
         color: String?,
-        repository: ProjectRepositoryChoice,
+        type: String,
+        repository: ProjectRepositoryChoice?,
     ): String {
         // Built as a raw JsonObject so the `repository` union encodes exactly as
         // the server's `z.union` expects (registry vs inline shapes differ).
@@ -68,7 +71,8 @@ class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
             put("name", name)
             put("prefix", prefix)
             color?.let { put("color", it) }
-            put("repository", repository.toJson())
+            put("type", type)
+            repository?.let { put("repository", it.toJson()) }
         }
         return trpc.mutation(
             accountId,

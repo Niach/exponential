@@ -32,11 +32,11 @@ export function useWorkspaceBySlug(workspaceSlug: string) {
   return (data?.[0] ?? null) as Workspace | null
 }
 
-// A workspace is "solo" when it is non-public and has at most one human member.
-// Bot users (users.isAgent — the widget helpdesk bot) are excluded from the
-// count so a widget config on a private workspace never makes it look shared.
-// Defaults to `true` while data loads to avoid a flash of workspace chrome in
-// the common solo case.
+// A workspace is "solo" when it has at most one human member. Bot users
+// (users.isAgent — the widget helpdesk bot) are excluded from the count so a
+// widget config on a private workspace never makes it look shared. Defaults to
+// `true` while data loads to avoid a flash of workspace chrome in the common
+// solo case.
 export function useIsSolo(workspaceId?: string): boolean {
   const { data: members } = useLiveQuery(
     (query) =>
@@ -48,23 +48,12 @@ export function useIsSolo(workspaceId?: string): boolean {
     [workspaceId]
   )
 
-  const { data: workspaces } = useLiveQuery(
-    (query) =>
-      workspaceId
-        ? query
-            .from({ workspaces: workspaceCollection })
-            .where(({ workspaces }) => eq(workspaces.id, workspaceId))
-        : undefined,
-    [workspaceId]
-  )
-
   const { data: allUsers } = useLiveQuery((query) =>
     query.from({ users: userCollection })
   )
 
   return useMemo(() => {
-    if (!members || !workspaces) return true
-    if (workspaces[0]?.isPublic) return false
+    if (!members) return true
     const botUserIds = new Set(
       (allUsers ?? []).filter((user) => user.isAgent).map((user) => user.id)
     )
@@ -72,17 +61,13 @@ export function useIsSolo(workspaceId?: string): boolean {
       (member) => !botUserIds.has(member.userId)
     ).length
     return humanMembers <= 1
-  }, [members, workspaces, allUsers])
+  }, [members, allUsers])
 }
 
-// Count of non-public workspaces the user OWNS (role 'owner'). Drives the
-// per-plan workspace cap UI and the "reveal switcher when you have 2+" rule.
-// The public feedback workspace is excluded (it's shared infra, not owned).
+// Count of workspaces the user OWNS (role 'owner'). Drives the per-plan
+// workspace cap UI and the "reveal switcher when you have 2+" rule. (v7:
+// workspaces are always private; only members sync workspace rows at all.)
 export function useOwnedWorkspaceCount(userId?: string): number {
-  const { data: allWorkspaces } = useLiveQuery((query) =>
-    query.from({ workspaces: workspaceCollection })
-  )
-
   const { data: memberships } = useLiveQuery(
     (query) =>
       userId
@@ -94,35 +79,22 @@ export function useOwnedWorkspaceCount(userId?: string): number {
   )
 
   return useMemo(() => {
-    if (!memberships || !allWorkspaces) return 0
-    const publicIds = new Set(
-      allWorkspaces.filter((workspace) => workspace.isPublic).map((w) => w.id)
-    )
-    return memberships.filter(
-      (member) => member.role === `owner` && !publicIds.has(member.workspaceId)
-    ).length
-  }, [allWorkspaces, memberships])
+    if (!memberships) return 0
+    return memberships.filter((member) => member.role === `owner`).length
+  }, [memberships])
 }
 
 // Whether to show workspace-level chrome (the switcher, "New workspace", the
 // workspace name). Revealed when the current workspace is no longer solo, OR
-// the user has explicit memberships in more than one workspace (they clearly
-// already reason about multiple workspaces). The public workspace counts only
-// for users with a membership row in it (e.g. its owner) — for everyone else
-// it is just implicitly visible. Biased to hidden while data loads.
+// the user has memberships in more than one workspace (they clearly already
+// reason about multiple workspaces). Biased to hidden while data loads.
 export function useShowWorkspaceChrome(
   workspaceId?: string,
   userId?: string
 ): boolean {
   const isSolo = useIsSolo(workspaceId)
-  const { memberships, myWorkspaces } = useWorkspaceMemberships(userId)
-  const membershipIds = new Set(
-    memberships.map((member) => member.workspaceId)
-  )
-  const explicitCount = myWorkspaces.filter(
-    (workspace) => !workspace.isPublic || membershipIds.has(workspace.id)
-  ).length
-  return !isSolo || explicitCount > 1
+  const { myWorkspaces } = useWorkspaceMemberships(userId)
+  return !isSolo || myWorkspaces.length > 1
 }
 
 export function useWorkspaceProjects(workspaceId?: string) {
@@ -160,20 +132,13 @@ export function useWorkspaceMemberships(userId?: string) {
       return []
     }
 
-    const explicit = memberships
+    return memberships
       .map((membership) =>
         allWorkspaces.find(
           (workspace) => workspace.id === membership.workspaceId
         )
       )
       .filter(isDefined)
-    // The public workspace is visible to all authed users without a
-    // membership row. Append it once so it shows up in the switcher.
-    const publicWorkspace = allWorkspaces.find((w) => w.isPublic)
-    if (publicWorkspace && !explicit.some((w) => w.id === publicWorkspace.id)) {
-      explicit.push(publicWorkspace)
-    }
-    return explicit
   }, [allWorkspaces, memberships])
 
   return {

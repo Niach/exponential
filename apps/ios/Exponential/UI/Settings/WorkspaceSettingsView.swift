@@ -69,8 +69,9 @@ struct WorkspaceSettingsView: View {
                         labelsApi: deps.labelsApi
                     )
 
-                    // Delete workspace (only for non-public workspaces)
-                    if let workspace, !workspace.isPublic {
+                    // Delete workspace (never offer it for the shared feedback
+                    // workspace — the server rejects deleting it anyway).
+                    if let workspace, workspace.slug != "feedback" {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Danger Zone")
                                 .font(.subheadline.weight(.semibold))

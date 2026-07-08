@@ -43,6 +43,8 @@
 //! foreground task, because they touch the gpui-held `Terminal` / registry.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gpui::{App, AppContext as _, Entity, Global, WeakEntity};
@@ -51,9 +53,9 @@ use terminal::{RawSink, TabId, TerminalManager};
 use coding::{prepare_launch, LaunchOrigin, Prepared};
 use steer::publisher::{pty_writer_input_hook, term_geometry_hook};
 use steer::{
-    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, Presence, PublishSpec,
-    PublisherHandle, PublisherHooks, PublisherTickets, SteerRuntime, TrpcControlApi,
-    TrpcPublisherTickets,
+    spawn_activity_emitter, spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity,
+    EmitterConfig, Presence, PublishSpec, PublisherHandle, PublisherHooks, PublisherTickets,
+    SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
 };
 use sync::{KillWatch, Store};
 
@@ -249,7 +251,11 @@ fn handle_remote_start(issue_id: String, cx: &mut App) {
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
-                if let Err(message) = coding_flow::spawn_into_window(prepared, issue_id, window, cx)
+                // Remote start defaults to NOT private — the phone user
+                // initiating it opted the project into live coding; publish if
+                // the project is a live feedback board.
+                if let Err(message) =
+                    coding_flow::spawn_into_window(prepared, issue_id, false, window, cx)
                 {
                     log::warn!("steer: remote start spawn failed: {message}");
                 }
@@ -273,6 +279,12 @@ struct PublisherEntry {
     sink: Arc<dyn RawSink>,
     /// The current remote steerer's display name, if any (§8.5 banner state).
     steerer: Option<String>,
+    /// §P7: the activity emitter's run flag when this session publishes a
+    /// PUBLIC live stream (feedback board + `publicShowCoding='live'`, not
+    /// opted private). `None` when nothing is being published publicly.
+    /// Flipping it `false` stops the emitter thread on teardown; its presence
+    /// also drives the "LIVE — public" indicator.
+    activity_active: Option<Arc<AtomicBool>>,
 }
 
 /// Session-keyed publisher handles — parallels `coding_flow::LocalSessions`
@@ -322,6 +334,8 @@ pub fn attach_publisher(
     issue_id: &str,
     tab: TabId,
     manager: &Entity<TerminalManager>,
+    worktree: PathBuf,
+    keep_private: bool,
     cx: &mut App,
 ) {
     let Some(runtime) = runtime(cx) else {
@@ -397,6 +411,28 @@ pub fn attach_publisher(
             resize_notifier.notify(cols, rows);
         }));
 
+    // §P7: start the PUBLIC live-coding activity emitter when the issue's
+    // project is a feedback board with `publicShowCoding='live'` AND the user
+    // hasn't opted this session private. The emitter tails the Claude
+    // transcript + worktree diffs, redacts, and publishes over the SAME
+    // publisher socket (activity frames the relay fans to public viewers only).
+    // Best-effort: a relay-disabled instance just drops the sends.
+    let publish_live = !keep_private
+        && coding_flow::issue_project(issue_id, cx)
+            .map(|project| project.is_live_public_coding())
+            .unwrap_or(false);
+    let activity_active = if publish_live {
+        let active = Arc::new(AtomicBool::new(true));
+        spawn_activity_emitter(
+            EmitterConfig { worktree },
+            handle.activity_sender(),
+            active.clone(),
+        );
+        Some(active)
+    } else {
+        None
+    };
+
     // Register the session (banner state + take-over + teardown).
     let registry = PublisherRegistry::global(cx);
     registry.update(cx, |registry, _| {
@@ -406,6 +442,7 @@ pub fn attach_publisher(
                 handle,
                 sink,
                 steerer: None,
+                activity_active,
             },
         );
     });
@@ -545,6 +582,10 @@ fn teardown_session(
     registry.update(cx, |registry, cx| {
         if let Some(entry) = registry.entries.get(session_id) {
             entry.handle.session_ended();
+            // §P7: stop the activity emitter thread promptly.
+            if let Some(active) = &entry.activity_active {
+                active.store(false, Ordering::SeqCst);
+            }
         }
         registry.entries.remove(session_id);
         cx.notify();
@@ -559,6 +600,26 @@ fn teardown_session(
 // ---------------------------------------------------------------------------
 // The §8.5 "Remote steering" surface — consumed by the terminal-tab banner
 // ---------------------------------------------------------------------------
+
+/// Whether this session is publishing a PUBLIC live activity stream right now
+/// (§P7) — the emitter is running and still active. Drives the "LIVE — public"
+/// indicator on the coding-session UI. `false` for private/non-live sessions.
+pub fn is_publishing_live(session_id: &str, cx: &App) -> bool {
+    PublisherRegistry::global_ref(cx)
+        .and_then(|registry| {
+            registry
+                .read(cx)
+                .entries
+                .get(session_id)
+                .map(|entry| {
+                    entry
+                        .activity_active
+                        .as_ref()
+                        .is_some_and(|active| active.load(Ordering::SeqCst))
+                })
+        })
+        .unwrap_or(false)
+}
 
 /// The remote steerer's display name for a published session, if one is
 /// steering right now (§8.5). Drives the terminal-tab "Remote steering — {name}"

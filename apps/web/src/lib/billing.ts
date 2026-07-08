@@ -9,7 +9,7 @@ import {
   widgetConfigs,
   users,
 } from "@/db/schema"
-import { isCloudInstance } from "@/lib/bootstrap-cloud"
+import { getFeedbackWorkspaceId, isCloudInstance } from "@/lib/bootstrap-cloud"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
 
 export type PlanTier = `free` | `pro` | `business` | `unlimited`
@@ -173,15 +173,16 @@ export async function getUserPlan(
   return { plan: bestPlan, limits: PLAN_LIMITS[bestPlan] }
 }
 
-// Number of non-public workspaces the user OWNS. The public feedback workspace
-// is excluded (it's shared infra that admins "own" but shouldn't be billed for).
+// Number of workspaces the user OWNS. The bootstrap feedback workspace is
+// excluded (it's shared infra that admins "own" but shouldn't be billed for).
 export async function countOwnedWorkspaces(userId: string): Promise<number> {
+  const feedbackWorkspaceId = await getFeedbackWorkspaceId()
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(workspaceMembers)
     .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
     .where(
-      sql`${workspaceMembers.userId} = ${userId} AND ${workspaceMembers.role} = 'owner' AND ${workspaces.isPublic} = false`
+      sql`${workspaceMembers.userId} = ${userId} AND ${workspaceMembers.role} = 'owner'${feedbackWorkspaceId ? sql` AND ${workspaces.id} <> ${feedbackWorkspaceId}` : sql``}`
     )
   return row?.count ?? 0
 }

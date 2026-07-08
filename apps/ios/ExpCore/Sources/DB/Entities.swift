@@ -35,15 +35,13 @@ public struct ElectricOffset: Codable, FetchableRecord, PersistableRecord, Senda
 
 // MARK: - Workspace
 
-public struct WorkspaceEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct WorkspaceEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "workspaces"
 
     public let id: String
     public let name: String
     public let slug: String
     public let iconUrl: String?
-    public let isPublic: Bool
-    public let publicWritePolicy: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -52,8 +50,6 @@ public struct WorkspaceEntity: FetchableRecord, PersistableRecord, Identifiable,
         name: String,
         slug: String,
         iconUrl: String?,
-        isPublic: Bool,
-        publicWritePolicy: String?,
         createdAt: String,
         updatedAt: String
     ) {
@@ -61,47 +57,25 @@ public struct WorkspaceEntity: FetchableRecord, PersistableRecord, Identifiable,
         self.name = name
         self.slug = slug
         self.iconUrl = iconUrl
-        self.isPublic = isPublic
-        self.publicWritePolicy = publicWritePolicy
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
+    // The public-board machinery moved to a per-project `type` — the workspace
+    // shape no longer carries `is_public` / `public_write_policy`. This decoder
+    // simply ignores any such legacy keys Electric might still deliver during
+    // the one-time shape rotation (unknown keys are dropped by Codable).
     enum CodingKeys: String, CodingKey {
         case id, name, slug
         case iconUrl = "icon_url"
-        case isPublic = "is_public"
-        case publicWritePolicy = "public_write_policy"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
 }
 
-// Custom Codable: Electric may deliver `is_public` as JSON boolean (true/false)
-// or as the integer 0/1 (SQLite-style). Decode permissively.
-extension WorkspaceEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        slug = try container.decode(String.self, forKey: .slug)
-        iconUrl = try container.decodeIfPresent(String.self, forKey: .iconUrl)
-        if let boolValue = try? container.decode(Bool.self, forKey: .isPublic) {
-            isPublic = boolValue
-        } else if let intValue = try? container.decode(Int.self, forKey: .isPublic) {
-            isPublic = intValue != 0
-        } else {
-            isPublic = false
-        }
-        publicWritePolicy = try container.decodeIfPresent(String.self, forKey: .publicWritePolicy)
-        createdAt = try container.decode(String.self, forKey: .createdAt)
-        updatedAt = try container.decode(String.self, forKey: .updatedAt)
-    }
-}
-
 // MARK: - Project
 
-public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "projects"
 
     public let id: String
@@ -116,8 +90,18 @@ public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identi
     // v4: the repo backing this project (server-only `repositories` registry
     // row). Synced ride-along on the projects shape — the uuid resolves to a
     // fullName/defaultBranch via the repositories tRPC API (cached per
-    // workspace). Nullable only for dangling-data safety.
+    // workspace). Now nullable at the source too: only `dev` projects require a
+    // repo; `tasks`/`feedback` boards can exist without one.
     public let repositoryId: String?
+    // Board type: dev | tasks | feedback (DomainContract.projectType*). Drives
+    // the type icon + the repo-required gate on creation. Defaults to `dev`.
+    public let type: String
+    // Anonymous-visitor visibility toggles — only meaningful on `feedback`
+    // boards, inert otherwise.
+    public let publicShowComments: Bool
+    public let publicShowActivity: Bool
+    // off | badge | live (DomainContract.publicCodingVisibility*).
+    public let publicShowCoding: String
     // Display-only mirror of the preview run targets + feedback routing target
     // (jsonb in Postgres). Stored as the raw JSON text; never executed.
     public let previewConfig: String?
@@ -135,6 +119,10 @@ public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identi
         archivedAt: String?,
         githubRepo: String?,
         repositoryId: String?,
+        type: String = DomainContract.projectTypeDev,
+        publicShowComments: Bool = true,
+        publicShowActivity: Bool = false,
+        publicShowCoding: String = DomainContract.publicCodingVisibilityOff,
         previewConfig: String?,
         createdAt: String,
         updatedAt: String
@@ -149,21 +137,68 @@ public struct ProjectEntity: Codable, FetchableRecord, PersistableRecord, Identi
         self.archivedAt = archivedAt
         self.githubRepo = githubRepo
         self.repositoryId = repositoryId
+        self.type = type
+        self.publicShowComments = publicShowComments
+        self.publicShowActivity = publicShowActivity
+        self.publicShowCoding = publicShowCoding
         self.previewConfig = previewConfig
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
+    /// True for `feedback` boards (public, read-only for anonymous visitors).
+    public var isFeedbackBoard: Bool { type == DomainContract.projectTypeFeedback }
+
     enum CodingKeys: String, CodingKey {
-        case id, name, slug, prefix, color
+        case id, name, slug, prefix, color, type
         case workspaceId = "workspace_id"
         case sortOrder = "sort_order"
         case archivedAt = "archived_at"
         case githubRepo = "github_repo"
         case repositoryId = "repository_id"
+        case publicShowComments = "public_show_comments"
+        case publicShowActivity = "public_show_activity"
+        case publicShowCoding = "public_show_coding"
         case previewConfig = "preview_config"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// Custom Codable: the type + public-visibility columns land in the one-time
+// shape rotation; a pre-rotation snapshot (or a partial update touching other
+// columns) may omit them, so decode each permissively with the schema default
+// instead of throwing. `public_show_*` may arrive as JSON bool or 0/1.
+extension ProjectEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        workspaceId = try c.decode(String.self, forKey: .workspaceId)
+        name = try c.decode(String.self, forKey: .name)
+        slug = try c.decode(String.self, forKey: .slug)
+        prefix = try c.decode(String.self, forKey: .prefix)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        sortOrder = try c.decodeIfPresent(Double.self, forKey: .sortOrder)
+        archivedAt = try c.decodeIfPresent(String.self, forKey: .archivedAt)
+        githubRepo = try c.decodeIfPresent(String.self, forKey: .githubRepo)
+        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
+        type = (try? c.decodeIfPresent(String.self, forKey: .type))
+            .flatMap { $0 } ?? DomainContract.projectTypeDev
+        publicShowComments = Self.decodeBool(c, .publicShowComments, default: true)
+        publicShowActivity = Self.decodeBool(c, .publicShowActivity, default: false)
+        publicShowCoding = (try? c.decodeIfPresent(String.self, forKey: .publicShowCoding))
+            .flatMap { $0 } ?? DomainContract.publicCodingVisibilityOff
+        previewConfig = try c.decodeIfPresent(String.self, forKey: .previewConfig)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+
+    private static func decodeBool(
+        _ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys, default def: Bool
+    ) -> Bool {
+        if let b = try? c.decode(Bool.self, forKey: key) { return b }
+        if let i = try? c.decode(Int.self, forKey: key) { return i != 0 }
+        return def
     }
 }
 

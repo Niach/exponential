@@ -54,11 +54,28 @@ pub struct Project {
     pub prefix: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
-    /// `projects.repository_id` (v4 §3.1) — the one repository this project
-    /// clones/branches against. Additive shape column (shape count unchanged);
-    /// `None` on legacy rows until the server backfill lands.
+    /// `project_type` (v7) — `dev` / `tasks` / `feedback`. `type` is a Rust
+    /// keyword, so this renames onto the snake_case column `type`. `None` on
+    /// legacy rows (deployed before the column existed) — treated as `dev`
+    /// everywhere via [`Project::is_dev`], matching the server default.
+    #[serde(default, rename = "type")]
+    pub project_type: Option<String>,
+    /// `projects.repository_id` (v4 §3.1, nullable since v7) — the one
+    /// repository this project clones/branches against. `None` for repo-less
+    /// `tasks`/`feedback` boards and legacy rows until the server backfill
+    /// lands.
     #[serde(default)]
     pub repository_id: Option<String>,
+    /// Feedback-board anonymous-visitor toggles (v7). Inert on other types;
+    /// carried so the desktop mirrors the full shape (P7 live-coding reads
+    /// `public_show_coding`). `None` on legacy/other rows.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub public_show_comments: Option<bool>,
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub public_show_activity: Option<bool>,
+    /// `off` / `badge` / `live` — raw wire value (contract-locked).
+    #[serde(default)]
+    pub public_show_coding: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -67,6 +84,34 @@ pub struct Project {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+impl Project {
+    /// Whether this is a repo-backed `dev` board. An absent/unknown
+    /// `project_type` counts as `dev` — the server default and the type every
+    /// legacy row predates. Drives the coding affordances (a non-dev repo-less
+    /// board never shows Start coding) and the picker glyph.
+    pub fn is_dev(&self) -> bool {
+        match self.project_type.as_deref() {
+            Some(crate::contract::PROJECT_TYPE_TASKS)
+            | Some(crate::contract::PROJECT_TYPE_FEEDBACK) => false,
+            _ => true,
+        }
+    }
+
+    /// Whether this is a public `feedback` board.
+    pub fn is_feedback(&self) -> bool {
+        self.project_type.as_deref() == Some(crate::contract::PROJECT_TYPE_FEEDBACK)
+    }
+
+    /// Whether coding sessions on this project publish a PUBLIC live activity
+    /// stream (§P7): a feedback board with `public_show_coding == 'live'`. Gates
+    /// both the "Keep private" opt-out UI and the activity emitter itself.
+    pub fn is_live_public_coding(&self) -> bool {
+        self.is_feedback()
+            && self.public_show_coding.as_deref()
+                == Some(crate::contract::PUBLIC_CODING_VISIBILITY_LIVE)
+    }
 }
 
 /// `issues` shape row (§5.5's exemplar struct plus the full column set).
@@ -426,6 +471,42 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(ws.is_public, Some(true));
+    }
+
+    #[test]
+    fn project_type_renames_from_type_column_and_classifies() {
+        // The wire column is `type` (a Rust keyword) — it must land on
+        // `project_type` and drive is_dev/is_feedback.
+        let feedback: Project = serde_json::from_value(json!({
+            "id": "p-1",
+            "workspace_id": "w-1",
+            "name": "Feedback",
+            "type": "feedback",
+            "public_show_comments": "t",
+            "public_show_coding": "badge"
+        }))
+        .unwrap();
+        assert_eq!(feedback.project_type.as_deref(), Some("feedback"));
+        assert!(feedback.is_feedback());
+        assert!(!feedback.is_dev());
+        assert_eq!(feedback.public_show_comments, Some(true));
+        assert_eq!(feedback.public_show_coding.as_deref(), Some("badge"));
+
+        let tasks: Project = serde_json::from_value(json!({
+            "id": "p-2", "workspace_id": "w-1", "name": "Tasks", "type": "tasks"
+        }))
+        .unwrap();
+        assert!(!tasks.is_dev());
+        assert!(!tasks.is_feedback());
+
+        // A legacy row (deployed before the column existed) has no `type` —
+        // it must classify as dev, matching the server default.
+        let legacy: Project = serde_json::from_value(json!({
+            "id": "p-3", "workspace_id": "w-1", "name": "Legacy"
+        }))
+        .unwrap();
+        assert_eq!(legacy.project_type, None);
+        assert!(legacy.is_dev());
     }
 
     #[test]

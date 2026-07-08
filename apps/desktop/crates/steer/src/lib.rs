@@ -42,6 +42,7 @@
 //!    `handle.session_ended()` so the publisher stops reconnecting and says
 //!    a clean `bye`.
 
+pub mod activity;
 pub mod control_channel;
 pub mod frames;
 pub mod publisher;
@@ -56,12 +57,13 @@ pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig, SteerDevice};
 pub use control_channel::{
     spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, TrpcControlApi,
 };
+pub use activity::{spawn_emitter as spawn_activity_emitter, EmitterConfig, Redactor};
 pub use frames::{
-    output_frame, ClientFrame, PresenceViewer, ServerFrame, SteerPerm, SteerRole,
+    output_frame, ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, SteerPerm, SteerRole,
     CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, OUTPUT_OPCODE,
 };
 pub use publisher::{
-    publish, KillSignal, Presence, PublishSpec, PublisherHandle, PublisherHooks,
+    publish, ActivitySender, KillSignal, Presence, PublishSpec, PublisherHandle, PublisherHooks,
     PublisherTickets, TrpcPublisherTickets, IN_FLIGHT_CAP,
 };
 pub use ring::{RingBuffer, RING_CAP_BYTES};

@@ -51,6 +51,40 @@ export const byeFrame = z.object({
   outcome: z.string().max(64).optional(),
 })
 
+// Publisher → relay: one PUBLIC activity event (feedback boards with
+// publicShowCoding='live'). The desktop emits these from the Claude session
+// transcript + worktree diffs, ALREADY REDACTED (known-secret masking +
+// gitleaks-style patterns) — the relay stays a dumb pipe and fans them out to
+// public_viewer sockets only, never to the PTY audience and never vice versa.
+//   narration: assistant prose        { kind, text }
+//   tool:      tool-call headline     { kind, name, detail? }
+//   diff:      worktree unified diff  { kind, diff }  (latest replaces prior)
+export const activityEventSchema = z.discriminatedUnion(`kind`, [
+  z.object({
+    kind: z.literal(`narration`),
+    text: z.string().max(16 * 1024),
+    at: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal(`tool`),
+    name: z.string().max(128),
+    detail: z.string().max(1024).optional(),
+    at: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal(`diff`),
+    diff: z.string().max(512 * 1024),
+    at: z.number().optional(),
+  }),
+])
+
+export type ActivityEvent = z.infer<typeof activityEventSchema>
+
+export const activityFrame = z.object({
+  t: z.literal(`activity`),
+  event: activityEventSchema,
+})
+
 export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
   helloFrame,
@@ -61,6 +95,7 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   releaseFrame,
   killFrame,
   byeFrame,
+  activityFrame,
 ])
 
 export type ClientFrame = z.infer<typeof clientFrame>
@@ -82,6 +117,7 @@ export type ServerFrame =
   | { t: `kill` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
+  | { t: `activity`; event: ActivityEvent } // relay → public_viewer only
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 

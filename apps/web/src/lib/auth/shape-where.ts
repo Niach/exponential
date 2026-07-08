@@ -22,3 +22,29 @@ export function buildWhereClause(column: string, ids: string[]): string {
   const escapedIds = [...ids].sort().map(sqlStringLiteral).join(`,`)
   return `"${column}" IN (${escapedIds})`
 }
+
+/**
+ * IN-clause over non-id text values (e.g. an enum column). Values MUST be
+ * enum literals from the domain contract — never user input (same warning as
+ * sqlStringLiteral). Sorted for stable shape identity.
+ */
+export function buildTextInClause(column: string, values: string[]): string {
+  if (values.length === 0) {
+    // Impossible-match fallback mirroring buildWhereClause.
+    return `"${column}" = ${sqlStringLiteral(`__none__`)}`
+  }
+  const escaped = [...values].sort().map(sqlStringLiteral).join(`,`)
+  return `"${column}" IN (${escaped})`
+}
+
+/** AND-combines clauses, parenthesizing each. */
+export function andClauses(...clauses: string[]): string {
+  if (clauses.length === 1) return clauses[0]
+  return clauses.map((clause) => `(${clause})`).join(` AND `)
+}
+
+/** OR-combines clauses, parenthesizing each. */
+export function orClauses(...clauses: string[]): string {
+  if (clauses.length === 1) return clauses[0]
+  return clauses.map((clause) => `(${clause})`).join(` OR `)
+}

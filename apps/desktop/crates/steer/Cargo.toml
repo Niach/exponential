@@ -21,3 +21,6 @@ serde_json = { workspace = true }
 flume = { workspace = true }
 uuid = { workspace = true }
 log = "0.4"
+# Secret-redaction patterns for the public activity emitter (§P7). Already in
+# the workspace lock via transitive deps — adds no new build.
+regex = "1"

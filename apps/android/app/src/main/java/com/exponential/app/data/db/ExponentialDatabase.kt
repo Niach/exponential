@@ -35,9 +35,15 @@ import androidx.room.RoomDatabase
     //     additive column on the existing projects shape, no shape-count change).
     // v9: added electric_offsets.is_live (live-gating: only long-poll live=true
     //     after up-to-date; catch-up polls stay non-live).
+    // v10: project types — projects gained type + public_show_* toggles and
+    //      repository_id went nullable; workspaces dropped is_public /
+    //      public_write_policy. The six issue-child tables gained a denormalized
+    //      project_id column server-side; ignoreUnknownKeys absorbs it (we don't
+    //      store it locally). Shapes rotate once on the deploy → destructive
+    //      resync repopulates.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

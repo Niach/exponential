@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Github, GitBranch, Trash2 } from "lucide-react"
+import { Check, Copy, Github, GitBranch, Globe, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import type { PublicCodingVisibility } from "@exp/db-schema/domain"
+import { getProjectTypeOption } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Card,
   CardContent,
@@ -27,8 +38,10 @@ type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 
 export function WorkspaceProjectsSection({
   workspaceId,
+  workspaceSlug,
 }: {
   workspaceId: string
+  workspaceSlug: string
 }) {
   const projects = useWorkspaceProjects(workspaceId)
   const visibleProjects = projects.filter((p) => !p.archivedAt)
@@ -58,6 +71,10 @@ export function WorkspaceProjectsSection({
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [repoTarget, setRepoTarget] = useState<Project | null>(null)
+  const [publicTargetId, setPublicTargetId] = useState<string | null>(null)
+  // Live row so toggle writes reflect immediately via Electric sync.
+  const publicTarget =
+    visibleProjects.find((p) => p.id === publicTargetId) ?? null
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -95,28 +112,33 @@ export function WorkspaceProjectsSection({
                 const repo = project.repositoryId
                   ? repoMap.get(project.repositoryId)
                   : undefined
+                const TypeIcon = getProjectTypeOption(project.type).icon
+                const isDev = project.type === `dev`
+                const isFeedback = project.type === `feedback`
                 return (
                   <div
                     key={project.id}
                     className="flex items-center gap-3 px-3 py-2.5"
                   >
-                    <div
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: project.color }}
+                    <TypeIcon
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: project.color }}
                     />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {project.name}
                     </span>
-                    <Badge
-                      variant="outline"
-                      className="hidden max-w-[12rem] shrink-0 gap-1 sm:inline-flex"
-                      title={repo?.fullName ?? `No repository`}
-                    >
-                      <Github className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      <span className="truncate">
-                        {repo?.fullName ?? `No repository`}
-                      </span>
-                    </Badge>
+                    {(isDev || repo) && (
+                      <Badge
+                        variant="outline"
+                        className="hidden max-w-[12rem] shrink-0 gap-1 sm:inline-flex"
+                        title={repo?.fullName ?? `No repository`}
+                      >
+                        <Github className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">
+                          {repo?.fullName ?? `No repository`}
+                        </span>
+                      </Badge>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -126,6 +148,17 @@ export function WorkspaceProjectsSection({
                     >
                       <GitBranch className="h-3.5 w-3.5" />
                     </Button>
+                    {isFeedback && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground"
+                        title="Public board settings"
+                        onClick={() => setPublicTargetId(project.id)}
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     <Badge
                       variant="outline"
                       className="shrink-0 font-mono text-xs"
@@ -195,7 +228,158 @@ export function WorkspaceProjectsSection({
         }}
         onChanged={() => void refreshRepos()}
       />
+
+      <PublicBoardDialog
+        project={publicTarget}
+        workspaceSlug={workspaceSlug}
+        onOpenChange={(open) => {
+          if (!open) setPublicTargetId(null)
+        }}
+      />
     </>
+  )
+}
+
+// Owner controls for a feedback board's public surface. The board itself is
+// always publicly readable (that's what a feedback board IS); these toggles
+// govern what visitors see beyond the issues.
+function PublicBoardDialog({
+  project,
+  workspaceSlug,
+  onOpenChange,
+}: {
+  project: Project | null
+  workspaceSlug: string
+  onOpenChange: (open: boolean) => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    setCopied(false)
+  }, [project?.id])
+
+  const publicUrl = project
+    ? `${window.location.origin}/w/${workspaceSlug}/projects/${project.slug}`
+    : ``
+
+  const update = async (
+    updates: Partial<{
+      publicShowComments: boolean
+      publicShowActivity: boolean
+      publicShowCoding: PublicCodingVisibility
+    }>
+  ) => {
+    if (!project) return
+    setBusy(true)
+    try {
+      await trpc.projects.update.mutate({ id: project.id, ...updates })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={project !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[26rem]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            Public board
+          </DialogTitle>
+          <DialogDescription>
+            Anyone with the link can read{` `}
+            <span className="font-medium text-foreground">
+              {project?.name}
+            </span>
+            : issue titles, descriptions and @mentions are public. Visitors
+            submit feedback through the embeddable widget.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1 truncate rounded-md border px-3 py-2 text-xs text-muted-foreground">
+            {publicUrl}
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            title="Copy public link"
+            onClick={() => {
+              void navigator.clipboard.writeText(publicUrl)
+              setCopied(true)
+            }}
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-primary" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label className="text-sm">Show comments</Label>
+              <p className="text-xs text-muted-foreground">
+                Visitors see issue discussions (authors stay anonymized).
+              </p>
+            </div>
+            <Switch
+              checked={project?.publicShowComments ?? true}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                void update({ publicShowComments: checked })
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label className="text-sm">Show activity</Label>
+              <p className="text-xs text-muted-foreground">
+                Status and label changes appear on public issues.
+              </p>
+            </div>
+            <Switch
+              checked={project?.publicShowActivity ?? false}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                void update({ publicShowActivity: checked })
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label className="text-sm">Show coding sessions</Label>
+              <p className="text-xs text-muted-foreground">
+                Badge shows when someone is coding an issue; Live additionally
+                streams tool activity and diffs to visitors.
+              </p>
+            </div>
+            <Select
+              value={project?.publicShowCoding ?? `off`}
+              disabled={busy}
+              onValueChange={(value) =>
+                void update({
+                  publicShowCoding: value as PublicCodingVisibility,
+                })
+              }
+            >
+              <SelectTrigger className="w-28 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">Off</SelectItem>
+                <SelectItem value="badge">Badge</SelectItem>
+                <SelectItem value="live">Live</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

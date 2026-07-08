@@ -18,6 +18,7 @@ use gpui_component::{ActiveTheme as _, Icon, IconNamed};
 use gpui_component_macros::icon_named;
 
 use domain::options::{ColorToken, IconGlyph, IssueOption};
+use domain::rows::Project;
 
 // Generates `pub enum ExpIcon { CalendarDays, Circle, CircleCheck, … }` from
 // the SVG files (path relative to this crate's CARGO_MANIFEST_DIR).
@@ -66,6 +67,36 @@ pub fn token_color(token: ColorToken, cx: &App) -> Hsla {
 /// The colored icon of one option-table row (`web <Icon className={color}>`).
 pub fn option_icon<V: 'static>(option: &IssueOption<V>, cx: &App) -> Icon {
     glyph_icon(option.icon).text_color(token_color(option.color, cx))
+}
+
+/// The type glyph for a raw `project_type` string (mirrors web `Code2` /
+/// `SquareKanban` / `Megaphone`, masterplan v7): dev boards get code brackets,
+/// task boards a kanban, feedback boards a megaphone. Unknown resolves to dev.
+pub fn project_type_glyph(project_type: &str) -> Icon {
+    let glyph = if project_type == domain::contract::PROJECT_TYPE_FEEDBACK {
+        ExpIcon::Megaphone
+    } else if project_type == domain::contract::PROJECT_TYPE_TASKS {
+        ExpIcon::SquareKanban
+    } else {
+        ExpIcon::Code
+    };
+    Icon::from(glyph)
+}
+
+/// A project row's type glyph. Absent/unknown `project_type` resolves to dev.
+pub fn project_type_icon(project: &Project) -> Icon {
+    project_type_glyph(
+        project
+            .project_type
+            .as_deref()
+            .unwrap_or(domain::contract::PROJECT_TYPE_DEV),
+    )
+}
+
+/// The public-board marker glyph (a globe) — appended next to feedback-board
+/// projects, which are readable by anyone with the link.
+pub fn public_board_icon() -> Icon {
+    Icon::from(ExpIcon::Globe)
 }
 
 #[cfg(test)]

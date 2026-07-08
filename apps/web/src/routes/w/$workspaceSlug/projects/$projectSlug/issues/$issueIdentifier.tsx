@@ -112,7 +112,6 @@ function IssueDetailPage() {
       workspaceSlug={workspaceSlug}
       workspaceId={workspace.id}
       readOnly={!permissions.canMutateIssue(issue)}
-      restrictModeration={!permissions.isModerator && workspace.isPublic}
     />
   )
 }

@@ -22,7 +22,17 @@ export const issuePriorityValues = [
 
 export const workspaceRoleValues = [`owner`, `member`] as const
 
-export const publicWritePolicyValues = [`members`, `everyone`] as const
+// What a project IS (projects.type). `dev` is repo-backed (repository required,
+// coding sessions/PRs); `tasks` is plain issue tracking with no repo; `feedback`
+// is a PUBLIC read-only board (anonymous browsing, writes only via the embedded
+// widget) with an optional repo. Coding features gate on repo presence, not type.
+export const projectTypeValues = [`dev`, `tasks`, `feedback`] as const
+
+// Anonymous visibility of coding sessions on a feedback board
+// (projects.public_show_coding). `badge` exposes only the "coding now" badge;
+// `live` additionally allows the stripped public activity stream (tool
+// headlines + scrubbed diffs) — never raw terminal bytes.
+export const publicCodingVisibilityValues = [`off`, `badge`, `live`] as const
 
 export const recurrenceUnitValues = [`day`, `week`, `month`] as const
 
@@ -85,7 +95,9 @@ export const issueEventTypeValues = [
 export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
 export type WorkspaceRole = (typeof workspaceRoleValues)[number]
-export type PublicWritePolicy = (typeof publicWritePolicyValues)[number]
+export type ProjectType = (typeof projectTypeValues)[number]
+export type PublicCodingVisibility =
+  (typeof publicCodingVisibilityValues)[number]
 export type RecurrenceUnit = (typeof recurrenceUnitValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
@@ -97,7 +109,8 @@ export type IssueEventType = (typeof issueEventTypeValues)[number]
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const workspaceRoleSchema = z.enum(workspaceRoleValues)
-export const publicWritePolicySchema = z.enum(publicWritePolicyValues)
+export const projectTypeSchema = z.enum(projectTypeValues)
+export const publicCodingVisibilitySchema = z.enum(publicCodingVisibilityValues)
 export const recurrenceUnitSchema = z.enum(recurrenceUnitValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)

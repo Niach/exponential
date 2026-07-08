@@ -206,7 +206,6 @@ function ProjectPage() {
         defaultStatus={defaultStatus}
         prefill={prefill}
         users={users}
-        restrictModeration={!permissions.isModerator && workspace.isPublic}
       />
     </div>
   )

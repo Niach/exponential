@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
   buildWhereClause,
-  getReadableWorkspaceIds,
+  getPublicProjectScope,
+  getUserWorkspaceIds,
 } from "@/lib/workspace-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
@@ -11,8 +12,14 @@ export const Route = createFileRoute(`/api/shapes/projects`)({
       GET: createShapeRouteHandler({
         table: `projects`,
         getWhere: async (userId) => {
-          const workspaceIds = await getReadableWorkspaceIds(userId)
-          return buildWhereClause(`workspace_id`, workspaceIds)
+          if (userId) {
+            const workspaceIds = await getUserWorkspaceIds(userId)
+            return buildWhereClause(`workspace_id`, workspaceIds)
+          }
+          // Anonymous: only the public feedback-board projects themselves —
+          // never sibling projects of the host workspace.
+          const scope = await getPublicProjectScope()
+          return buildWhereClause(`id`, scope.projectIds)
         },
       }),
     },

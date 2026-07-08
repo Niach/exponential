@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "start": "node .output/server/index.mjs",
-    "build": "vite build",
+    "build": "vite build && bun run scripts/fix-server-trace.ts",
     "migrate": "drizzle-kit migrate",
     "migrate:generate": "drizzle-kit generate",
     "backfill:default-branches": "bun scripts/backfill-default-branches.ts",

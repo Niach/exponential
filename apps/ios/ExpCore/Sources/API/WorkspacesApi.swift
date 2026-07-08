@@ -54,23 +54,27 @@ public struct GetWorkspaceBySlugInput: Encodable, Sendable {
     }
 }
 
-/// `workspaces.getBySlug` — the public-aware lookup the web join gate uses.
-/// Membership-only sync means a public board never appears locally for a
-/// non-member, so this is the only way to resolve it before joining.
-/// `membership` is the caller's role ("owner"/"member") or nil when not a
-/// member; private workspaces the caller can't read come back as NOT_FOUND.
+/// `workspaces.getBySlug` — the public-aware workspace lookup. Membership-only
+/// sync means a workspace hosting a public feedback board never appears locally
+/// for a non-member, so this resolves it (name/slug/icon) for the board handoff.
+/// `hasPublicBoard` is true when the workspace holds at least one public
+/// (feedback-type) project; `membership` is the caller's role ("owner"/"member")
+/// or nil when not a member. A private workspace the caller can't read comes
+/// back as NOT_FOUND.
 public struct WorkspaceBySlugResult: Decodable, Sendable {
     public let id: String
     public let name: String
     public let slug: String
-    public let isPublic: Bool
+    public let iconUrl: String?
+    public let hasPublicBoard: Bool
     public let membership: String?
 
-    public init(id: String, name: String, slug: String, isPublic: Bool, membership: String?) {
+    public init(id: String, name: String, slug: String, iconUrl: String? = nil, hasPublicBoard: Bool, membership: String?) {
         self.id = id
         self.name = name
         self.slug = slug
-        self.isPublic = isPublic
+        self.iconUrl = iconUrl
+        self.hasPublicBoard = hasPublicBoard
         self.membership = membership
     }
 }

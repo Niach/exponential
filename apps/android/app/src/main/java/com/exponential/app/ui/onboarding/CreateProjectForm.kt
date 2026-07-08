@@ -39,6 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ProjectRepositoryChoice
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.ProjectTypeInfo
+import com.exponential.app.ui.components.ProjectTypeInfos
 import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
@@ -80,14 +83,29 @@ fun CreateProjectForm(
     // Once the user hand-edits the prefix, stop auto-deriving from the name.
     var prefixEdited by remember { mutableStateOf(false) }
     var color by remember { mutableStateOf(DEFAULT_COLOR) }
+    var type by remember { mutableStateOf(DomainContract.projectTypeDev) }
     var repository by remember { mutableStateOf<ProjectRepositoryChoice?>(null) }
+
+    val repoRequired = type == DomainContract.projectTypeDev
 
     LaunchedEffect(workspaceId) { viewModel.loadRepos(workspaceId) }
 
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    val canCreate = name.isNotBlank() && prefix.isNotBlank() && repository != null && !state.submitting
+    val canCreate = name.isNotBlank() && prefix.isNotBlank() &&
+        (!repoRequired || repository != null) && !state.submitting
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Board type", style = MaterialTheme.typography.labelMedium, color = secondary)
+            ProjectTypeInfos.forEach { info ->
+                ProjectTypeCard(
+                    info = info,
+                    selected = info.type == type,
+                    onClick = { type = info.type },
+                )
+            }
+        }
+
         OutlinedTextField(
             value = name,
             onValueChange = {
@@ -142,15 +160,19 @@ fun CreateProjectForm(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Repository (required)", style = MaterialTheme.typography.labelMedium, color = secondary)
-            RepositorySelector(
-                accountId = accountId,
-                repos = state.repos,
-                loading = state.loadingRepos,
-                selection = repository,
-                onSelect = { repository = it },
-            )
+        // Repo picker is dev-only — task/feedback boards are repo-optional, so
+        // it's hidden entirely for them (the server requires a repo iff dev).
+        if (repoRequired) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Repository (required)", style = MaterialTheme.typography.labelMedium, color = secondary)
+                RepositorySelector(
+                    accountId = accountId,
+                    repos = state.repos,
+                    loading = state.loadingRepos,
+                    selection = repository,
+                    onSelect = { repository = it },
+                )
+            }
         }
 
         state.error?.let { message ->
@@ -168,8 +190,10 @@ fun CreateProjectForm(
 
         Button(
             onClick = {
-                val repo = repository ?: return@Button
-                viewModel.create(workspaceId, name, prefix, color, repo, onCreated)
+                // Dev boards must carry a repo (guarded by canCreate); task and
+                // feedback boards send no repository.
+                val repo = if (repoRequired) (repository ?: return@Button) else null
+                viewModel.create(workspaceId, name, prefix, color, type, repo, onCreated)
             },
             enabled = canCreate,
             modifier = Modifier.fillMaxWidth(),
@@ -181,6 +205,61 @@ fun CreateProjectForm(
             } else {
                 Text(submitLabel)
             }
+        }
+    }
+}
+
+// One selectable board-type card: icon + label + one-line description, with a
+// primary-colored border + check when selected (mirrors the color swatches).
+@Composable
+private fun ProjectTypeCard(
+    info: ProjectTypeInfo,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val borderColor =
+        if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                if (selected) 2.dp else 1.dp,
+                borderColor,
+                androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            info.icon,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                info.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                info.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
+        if (selected) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

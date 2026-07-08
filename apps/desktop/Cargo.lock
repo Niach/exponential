@@ -6391,6 +6391,7 @@ dependencies = [
  "flume",
  "futures-util",
  "log",
+ "regex",
  "serde",
  "serde_json",
  "terminal",

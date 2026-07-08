@@ -114,13 +114,23 @@ struct ProjectSwitcherSheet: View {
     @ViewBuilder
     private func projectRow(_ project: ProjectEntity, isCurrent: Bool) -> some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(Color(hex: project.color ?? "#888888") ?? .gray)
-                .frame(width: 10, height: 10)
+            // Type glyph tinted with the project color (replaces the plain
+            // color dot). Feedback boards get a small globe suffix to flag
+            // their public affordance.
+            Image(systemName: ProjectTypeDisplay.symbol(for: project.type))
+                .font(.caption)
+                .foregroundStyle(Color(hex: project.color ?? "#888888") ?? .gray)
+                .frame(width: 16, height: 16)
 
             Text(project.name)
                 .font(.body)
                 .foregroundStyle(.white)
+
+            if project.isFeedbackBoard {
+                Image(systemName: "globe")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
 
             Spacer()
 

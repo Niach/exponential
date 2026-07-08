@@ -4,37 +4,29 @@ import GRDB
 // Mirror of apps/web/src/hooks/use-workspace-permissions.ts. Server enforces
 // these rules too — the helper exists so the UI can disable controls a viewer
 // can't change instead of bouncing them on submit.
+//
+// Public boards moved to a per-project `type='feedback'`; workspace membership
+// is once again a simple binary (no self-service public join), so the old
+// "privileged member" / public-workspace special cases collapse: any member is
+// a moderator and can create/mutate.
 public struct WorkspacePermissions: Sendable {
     public let isAuthed: Bool
     public let isMember: Bool
     public let isOwner: Bool
     public let isAdmin: Bool
 
-    // Public-workspace membership is an open self-service join, so a plain
-    // member there is a participant, not a moderator — mirrors the server's
-    // isWorkspaceModerator / assertIssueAccess rules. A member is privileged
-    // only in a private workspace, or as the workspace owner.
-    public var isPrivilegedMember: Bool {
-        isMember && (workspaceIsPublic != true || isOwner)
-    }
-
-    // Privileged members and admins are moderators. Non-moderators in public
-    // workspaces can only set title, description, and labels — never status,
-    // priority, assignee, due date / time, or recurrence.
-    public var isModerator: Bool { isPrivilegedMember || isAdmin }
+    /// Members and admins moderate. There is no longer a lesser "participant"
+    /// tier — membership is invite-only again.
+    public var isModerator: Bool { isMember || isAdmin }
 
     public let canCreate: Bool
 
     public func canMutateIssue(creatorId: String?) -> Bool {
         guard isAuthed else { return false }
-        if isPrivilegedMember { return true }
-        if workspaceIsPublic == true, creatorId == currentUserId { return true }
-        if isAdmin { return true }
-        return false
+        return isMember || isAdmin
     }
 
     fileprivate let currentUserId: String?
-    fileprivate let workspaceIsPublic: Bool?
 }
 
 extension WorkspacePermissions {
@@ -44,8 +36,7 @@ extension WorkspacePermissions {
         isOwner: false,
         isAdmin: false,
         canCreate: false,
-        currentUserId: nil,
-        workspaceIsPublic: nil
+        currentUserId: nil
     )
 
     public static func resolve(
@@ -62,8 +53,7 @@ extension WorkspacePermissions {
                 isOwner: false,
                 isAdmin: isAdmin,
                 canCreate: false,
-                currentUserId: currentUserId,
-                workspaceIsPublic: nil
+                currentUserId: currentUserId
             )
         }
 
@@ -79,10 +69,7 @@ extension WorkspacePermissions {
         }()
         let isMember = memberRole != nil
         let isOwner = memberRole == "owner"
-
-        let everyoneCanWrite =
-            workspace.isPublic && workspace.publicWritePolicy == "everyone"
-        let canCreate = isAuthed && (isMember || isAdmin || everyoneCanWrite)
+        let canCreate = isAuthed && (isMember || isAdmin)
 
         return WorkspacePermissions(
             isAuthed: isAuthed,
@@ -90,8 +77,7 @@ extension WorkspacePermissions {
             isOwner: isOwner,
             isAdmin: isAdmin,
             canCreate: canCreate,
-            currentUserId: currentUserId,
-            workspaceIsPublic: workspace.isPublic
+            currentUserId: currentUserId
         )
     }
 }

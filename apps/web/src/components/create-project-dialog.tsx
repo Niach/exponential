@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
-import { Check, Github } from "lucide-react"
+import { ArrowLeft, Check, Github, Globe } from "lucide-react"
+import type { ProjectType } from "@exp/db-schema/domain"
+import { PROJECT_TYPE_OPTIONS } from "@/lib/project-types"
 import {
   Dialog,
   DialogContent,
@@ -35,6 +37,7 @@ export function CreateProjectDialog({
   workspaceId: string
 }) {
   const { createProject } = useCreateProject()
+  const [type, setType] = useState<ProjectType | null>(null)
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
@@ -60,6 +63,7 @@ export function CreateProjectDialog({
   }, [])
 
   const resetAll = () => {
+    setType(null)
     setName(``)
     setPrefix(``)
     setColor(`#6366f1`)
@@ -76,17 +80,23 @@ export function CreateProjectDialog({
     setSelection({ kind: `inline`, repo })
   }
 
+  // A dev board needs a repo; task/feedback boards don't.
+  const needsRepo = type === `dev`
   const canSubmit =
-    Boolean(name.trim()) && Boolean(prefix.trim()) && selection !== null
+    Boolean(name.trim()) &&
+    Boolean(prefix.trim()) &&
+    (!needsRepo || selection !== null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || !prefix.trim() || !selection) return
+    if (!type || !name.trim() || !prefix.trim()) return
+    if (needsRepo && !selection) return
 
     setSubmitting(true)
     setError(null)
-    const repository =
-      selection.kind === `registry`
+    const repository = !selection
+      ? undefined
+      : selection.kind === `registry`
         ? { repositoryId: selection.repositoryId }
         : {
             fullName: selection.repo.fullName,
@@ -98,6 +108,7 @@ export function CreateProjectDialog({
       name,
       prefix,
       color,
+      type,
       repository,
     })
     setSubmitting(false)
@@ -128,9 +139,47 @@ export function CreateProjectDialog({
       >
         <DialogContent className="sm:max-w-[26rem]">
           <DialogHeader>
-            <DialogTitle>Create project</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {type !== null && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-6 w-6 p-0"
+                  onClick={() => setType(null)}
+                  aria-label="Back to project type"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              )}
+              Create project
+            </DialogTitle>
           </DialogHeader>
 
+          {type === null ? (
+            <div className="space-y-2">
+              {PROJECT_TYPE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setType(option.value)}
+                  className="flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/60 hover:bg-accent/40"
+                >
+                  <option.icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      {option.label}
+                      {option.value === `feedback` && (
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {option.description}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="project-name">Name</Label>
@@ -157,6 +206,7 @@ export function CreateProjectDialog({
               <ColorSwatchGrid value={color} onChange={setColor} />
             </div>
 
+            {needsRepo && (
             <div className="space-y-2">
               <Label>Repository</Label>
               <ConnectedRepoPicker
@@ -183,6 +233,15 @@ export function CreateProjectDialog({
                 }
               />
             </div>
+            )}
+
+            {type === `feedback` && (
+              <p className="rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground">
+                Feedback boards are public: issues, comments and @mentions in
+                them are visible to anyone with the link. The workspace name is
+                shown on the board.
+              </p>
+            )}
 
             {error && (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -196,6 +255,7 @@ export function CreateProjectDialog({
               </Button>
             </DialogFooter>
           </form>
+          )}
         </DialogContent>
       </Dialog>
 

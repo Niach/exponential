@@ -34,6 +34,12 @@ export const Route = createRootRoute({
         content: `Real-time issue tracker`,
       },
       {
+        // App pages are not indexable by default; server-bun.ts flips this to
+        // index,follow only for public feedback-board pages via injectMeta().
+        name: `robots`,
+        content: `noindex`,
+      },
+      {
         name: `apple-mobile-web-app-capable`,
         content: `yes`,
       },

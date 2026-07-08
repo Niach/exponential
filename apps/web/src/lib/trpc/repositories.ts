@@ -7,7 +7,6 @@ import { issues, projects, repositories } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
-  isWorkspaceModerator,
 } from "@/lib/workspace-membership"
 import { isUserAdmin } from "@/lib/admin"
 import {
@@ -55,26 +54,19 @@ const fullNameSchema = z
 
 // Repo management (add/remove/retarget) is owner-or-admin, mirroring member
 // management. Reads (list/forIssue/branchDiff) and token minting are
-// member-gated — and moderator-only on public workspaces (below).
+// member-gated (below).
 export async function assertCanManageRepos(userId: string, workspaceId: string) {
   if (await isUserAdmin(userId)) return
   await assertWorkspaceMember(userId, workspaceId, [`owner`])
 }
 
 // Repo-backed capabilities (list/forIssue/branchDiff reads, JIT token minting)
-// reach into the backing GitHub repo, so on a PUBLIC workspace — where
-// membership is an open self-service join — they are moderator-only: a plain
-// self-joined member must never see private-repo contents or hold an
-// installation token. In a private workspace every member passes
-// (isWorkspaceModerator semantics).
+// reach into the backing GitHub repo. Member-gated: since v7 every membership
+// is an explicit invite (the self-service public join is gone), so the old
+// moderator-only clamp for self-joined public-workspace members is obsolete —
+// anonymous public-board viewers never reach these procedures at all.
 async function assertRepoCapability(userId: string, workspaceId: string) {
   await assertWorkspaceMember(userId, workspaceId)
-  if (!(await isWorkspaceModerator(userId, workspaceId))) {
-    throw new TRPCError({
-      code: `FORBIDDEN`,
-      message: `Repository access on a public workspace is restricted to moderators`,
-    })
-  }
 }
 
 type Db = typeof db

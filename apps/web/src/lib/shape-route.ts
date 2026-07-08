@@ -24,8 +24,11 @@ interface ShapeRouteHandlerOptions {
   requireAuth?: boolean
   // Optional column allowlist forwarded as Electric's `columns` param. Use to
   // keep sensitive columns out of a synced shape entirely (must include the
-  // primary key). Set server-side, so clients cannot widen it.
-  columns?: string[]
+  // primary key). Set server-side, so clients cannot widen it. May be a
+  // function of the resolved userId so anonymous requests can pin a TIGHTER
+  // list than members (deterministic per caller class — columns are part of
+  // Electric's shape identity, same stability rule as the where clause).
+  columns?: string[] | ((userId: string | null) => string[] | undefined)
 }
 
 export function createShapeRouteHandler({
@@ -54,11 +57,14 @@ export function createShapeRouteHandler({
     const originUrl = prepareElectricUrl(request.url)
     originUrl.searchParams.set(`table`, table)
 
-    if (columns) {
-      originUrl.searchParams.set(`columns`, columns.join(`,`))
+    const userId = session?.user?.id ?? null
+    const resolvedColumns =
+      typeof columns === `function` ? columns(userId) : columns
+    if (resolvedColumns) {
+      originUrl.searchParams.set(`columns`, resolvedColumns.join(`,`))
     }
 
-    const where = await getWhere?.(session?.user?.id ?? null)
+    const where = await getWhere?.(userId)
 
     if (where) {
       originUrl.searchParams.set(`where`, where)

@@ -18,14 +18,6 @@ public struct RemoveMemberInput: Encodable, Sendable {
     }
 }
 
-public struct JoinWorkspaceInput: Encodable, Sendable {
-    public let workspaceId: String
-
-    public init(workspaceId: String) {
-        self.workspaceId = workspaceId
-    }
-}
-
 public final class WorkspaceMembersApi: Sendable {
     private let trpc: TrpcClient
 
@@ -33,14 +25,10 @@ public final class WorkspaceMembersApi: Sendable {
         self.trpc = trpc
     }
 
-    /// Self-service join of a PUBLIC workspace (the server rejects private
-    /// ones — those require an invite). Idempotent server-side, so retries are
-    /// safe. Membership is what makes a public board sync for a signed-in
-    /// user, so after this succeeds the shape pipeline must re-request for the
-    /// board's data to appear (SyncManager.restartPipeline).
-    public func join(accountId: String, workspaceId: String) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "workspaceMembers.join", input: JoinWorkspaceInput(workspaceId: workspaceId))
-    }
+    // The self-service `workspaceMembers.join` procedure was removed: public
+    // boards are now per-project (`type='feedback'`) and read-only for
+    // non-members, so there is no public workspace to join. Membership is
+    // invite-only again.
 
     public func updateRole(accountId: String, memberId: String, role: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "workspaceMembers.updateRole", input: UpdateRoleInput(memberId: memberId, role: role))

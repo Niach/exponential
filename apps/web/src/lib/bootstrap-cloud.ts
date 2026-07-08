@@ -9,7 +9,7 @@ import {
   workspaces,
 } from "@/db/schema"
 import { users } from "@/db/auth-schema"
-import { invalidatePublicWorkspaceCache } from "@/lib/workspace-membership"
+import { invalidatePublicProjectCache } from "@/lib/workspace-membership"
 import { emailEnabled } from "@/lib/email"
 import { generateWidgetKey } from "@/lib/widget/key"
 import { createWidgetUser } from "@/lib/widget/widget-user"
@@ -18,19 +18,21 @@ import { createWidgetUser } from "@/lib/widget/widget-user"
 // required at runtime (which Vite also can't tree-shake for browser builds).
 import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
 
-const PUBLIC_WORKSPACE_SLUG = `feedback`
-const PUBLIC_WORKSPACE_NAME = `Exponential Feedback`
-// The public workspace holds exactly ONE project: the dogfood "Exponential"
-// project. Feedback (widget + /feedback route) and dogfood coding share it —
-// a separate `feedback` project only split the same triage board in two.
+const FEEDBACK_WORKSPACE_SLUG = `feedback`
+const FEEDBACK_WORKSPACE_NAME = `Exponential Feedback`
+// The feedback workspace holds exactly ONE project: the dogfood "Exponential"
+// project — a PUBLIC feedback board (type='feedback') since v7; the workspace
+// itself is a normal private workspace. Feedback (widget + /feedback route)
+// and dogfood coding share it — a separate `feedback` project only split the
+// same triage board in two.
 const PUBLIC_PROJECT_SLUG = `exponential`
 const PUBLIC_PROJECT_NAME = `Exponential`
 const PUBLIC_PROJECT_PREFIX = `EXP`
-// v4: every project is backed by exactly one repository (projects.repository_id
-// NOT NULL). The canonical dogfood project is always backed by this repo. On
-// this internal bootstrap path we upsert the registry row DIRECTLY, with no
-// GitHub App validation — `installation_id` stays null and the empty-
-// installationId self-heal (github-app.ts) fills it in later.
+// The canonical dogfood project is always backed by this repo (a feedback
+// board with an OPTIONAL repo — v7 allows both). On this internal bootstrap
+// path we upsert the registry row DIRECTLY, with no GitHub App validation —
+// `installation_id` stays null and the empty-installationId self-heal
+// (github-app.ts) fills it in later.
 const PUBLIC_REPO_FULL_NAME = `Niach/exponential`
 // Pre-collapse deployments seeded this second project next to the dogfood one;
 // collapseLegacyFeedbackProject folds it away.
@@ -45,52 +47,65 @@ function parseAdminEmails(): string[] {
     .filter(Boolean)
 }
 
-async function ensurePublicWorkspace() {
+// The (now private, v7) workspace hosting the public dogfood feedback board.
+// Membership is bootstrap-managed owners (admins) plus regular invites — the
+// migration purged the old self-joined members once; no recurring purge here,
+// because invited triagers are legitimate members now.
+async function ensureFeedbackWorkspace() {
   const [existing] = await db
     .select({ id: workspaces.id })
     .from(workspaces)
-    .where(eq(workspaces.slug, PUBLIC_WORKSPACE_SLUG))
+    .where(eq(workspaces.slug, FEEDBACK_WORKSPACE_SLUG))
     .limit(1)
+  if (existing) return existing.id
 
-  let workspaceId: string
-  if (existing) {
-    workspaceId = existing.id
-  } else {
-    const [workspace] = await db
-      .insert(workspaces)
-      .values({
-        name: PUBLIC_WORKSPACE_NAME,
-        slug: PUBLIC_WORKSPACE_SLUG,
-        isPublic: true,
-        publicWritePolicy: `everyone`,
-      })
-      .returning({ id: workspaces.id })
-
-    invalidatePublicWorkspaceCache()
-    workspaceId = workspace.id
-  }
-
-  // Idempotently align the Feedback workspace's flags with the intended state
-  // even if it predates the publicWritePolicy column (or was migrated with the
-  // default 'members'). Public + everyone is the feedback workspace's contract.
-  await db
-    .update(workspaces)
-    .set({ isPublic: true, publicWritePolicy: `everyone` })
-    .where(eq(workspaces.id, workspaceId))
-
-  return workspaceId
+  const [workspace] = await db
+    .insert(workspaces)
+    .values({
+      name: FEEDBACK_WORKSPACE_NAME,
+      slug: FEEDBACK_WORKSPACE_SLUG,
+    })
+    .returning({ id: workspaces.id })
+  return workspace.id
 }
 
-// The public workspace's single canonical `exponential` project. Runs on
-// every boot and is deliberately INDEPENDENT of DOGFOOD_REPO: the /feedback
-// route redirects to this slug unconditionally, the widget config targets it,
-// and collapseLegacyFeedbackProject folds the legacy project into it — all of
+// Cached id of the bootstrap feedback workspace (cloud-only; null on
+// self-hosted instances, which have no bootstrap board). This replaces the old
+// `workspaces.isPublic` column as the "shared infra workspace" marker used by
+// personal-workspace resolution, onboarding evidence, billing workspace
+// counts, and the delete guards.
+let feedbackWorkspaceIdPromise: Promise<string | null> | null = null
+
+export function getFeedbackWorkspaceId(): Promise<string | null> {
+  if (!isCloudInstance()) return Promise.resolve(null)
+  if (!feedbackWorkspaceIdPromise) {
+    feedbackWorkspaceIdPromise = (async () => {
+      const [row] = await db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.slug, FEEDBACK_WORKSPACE_SLUG))
+        .limit(1)
+      return row?.id ?? null
+    })().catch((err) => {
+      feedbackWorkspaceIdPromise = null
+      throw err
+    })
+  }
+  return feedbackWorkspaceIdPromise
+}
+
+// The feedback workspace's single canonical `exponential` project — the
+// public dogfood feedback board (type='feedback', repo-backed). Runs on every
+// boot and is deliberately INDEPENDENT of DOGFOOD_REPO: the /feedback route
+// redirects to this slug unconditionally, the widget config targets it, and
+// collapseLegacyFeedbackProject folds the legacy project into it — all of
 // which must work on already-bootstrapped pre-collapse DBs where the project
-// was never seeded (it used to be created only alongside a fresh workspace or
-// behind DOGFOOD_REPO). Idempotent; returns the project id.
+// was never seeded. Idempotent; returns the project id. Also idempotently
+// re-aligns the type on pre-v7 rows (replacing the old workspace-flag
+// forcing).
 async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
   const [existing] = await db
-    .select({ id: projects.id })
+    .select({ id: projects.id, type: projects.type })
     .from(projects)
     .where(
       and(
@@ -99,10 +114,19 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
       )
     )
     .limit(1)
-  if (existing) return existing.id
+  if (existing) {
+    if (existing.type !== `feedback`) {
+      await db
+        .update(projects)
+        .set({ type: `feedback`, publicShowComments: true })
+        .where(eq(projects.id, existing.id))
+      invalidatePublicProjectCache()
+    }
+    return existing.id
+  }
 
-  // v4: a project can't be inserted without a backing repository row — upsert
-  // the dogfood repo first (idempotent) and pass its id into project creation.
+  // The dogfood board is feedback + repo-backed — upsert the dogfood repo
+  // first (idempotent) and pass its id into project creation.
   const repositoryId = await ensurePublicRepository(publicWorkspaceId)
 
   const [project] = await db
@@ -112,9 +136,12 @@ async function ensurePublicProject(publicWorkspaceId: string): Promise<string> {
       name: PUBLIC_PROJECT_NAME,
       slug: PUBLIC_PROJECT_SLUG,
       prefix: PUBLIC_PROJECT_PREFIX,
+      type: `feedback`,
+      publicShowComments: true,
       repositoryId,
     })
     .returning({ id: projects.id })
+  invalidatePublicProjectCache()
   return project.id
 }
 
@@ -161,10 +188,10 @@ async function ensurePublicRepository(
 const FEEDBACK_WIDGET_NAME = `Exponential App`
 
 // The dogfood widget: the Exponential web app itself embeds the feedback
-// widget pointed at the public feedback workspace. Domains stay open
-// (allow-all) on purpose — self-hosted instances with arbitrary hostnames
-// load this same cloud widget, and the workspace is already
-// publicWritePolicy=everyone; rate limiting is the abuse control.
+// widget pointed at the public feedback board. Domains stay open (allow-all)
+// on purpose — self-hosted instances with arbitrary hostnames load this same
+// cloud widget, and the widget is the ONLY anonymous write path to the board;
+// rate limiting is the abuse control.
 async function ensureFeedbackWidgetConfig(publicWorkspaceId: string) {
   const [existing] = await db
     .select({ id: widgetConfigs.id })
@@ -321,12 +348,12 @@ export function bootstrapCloud(): Promise<void> {
       await applyCustomSql()
       await promoteInitialAdmins()
       if (isCloudInstance()) {
-        const publicWorkspaceId = await ensurePublicWorkspace()
+        const publicWorkspaceId = await ensureFeedbackWorkspace()
         await addAdminsAsPublicWorkspaceOwners(publicWorkspaceId)
-        // Canonical project first — it upserts its mandatory backing
-        // repository row inline (v4). Then fold the legacy feedback project
-        // into the canonical one, then seed the widget config — which needs
-        // the Exponential project to exist as its target.
+        // Canonical project first — it upserts its backing repository row
+        // inline (the dogfood board is feedback + repo-backed). Then fold the
+        // legacy feedback project into the canonical one, then seed the
+        // widget config — which needs the Exponential project as its target.
         await ensurePublicProject(publicWorkspaceId)
         await collapseLegacyFeedbackProject(publicWorkspaceId)
         await ensureFeedbackWidgetConfig(publicWorkspaceId)
@@ -343,7 +370,7 @@ export function bootstrapCloud(): Promise<void> {
 // Promote a single user if their email matches the admin list. Used by Better
 // Auth's user.create.after hook (so first-sign-in promotion doesn't need to
 // wait for a server restart) and again from afterEmailVerification. Also adds
-// the freshly-promoted admin as an owner of every public workspace.
+// the freshly-promoted admin as an owner of the bootstrap feedback workspace.
 //
 // When email flows are enabled, promotion requires a verified email: sign-up
 // is open on the cloud and does not prove mailbox ownership, so an attacker
@@ -363,14 +390,11 @@ export async function maybePromoteNewUser(
     .set({ isAdmin: true, updatedAt: new Date() })
     .where(eq(users.id, userId))
 
-  const publicWorkspaces = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.isPublic, true))
-  for (const ws of publicWorkspaces) {
+  const feedbackWorkspaceId = await getFeedbackWorkspaceId()
+  if (feedbackWorkspaceId) {
     await db
       .insert(workspaceMembers)
-      .values({ workspaceId: ws.id, userId, role: `owner` })
+      .values({ workspaceId: feedbackWorkspaceId, userId, role: `owner` })
       .onConflictDoNothing()
   }
 }

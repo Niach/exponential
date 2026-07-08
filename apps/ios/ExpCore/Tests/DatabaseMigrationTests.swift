@@ -42,7 +42,7 @@ final class DatabaseMigrationTests: XCTestCase {
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 3)
+        XCTAssertEqual(try appliedMigrations(pool).count, 4)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -59,7 +59,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 3)
+        XCTAssertEqual(try appliedMigrations(pool).count, 4)
         let offsetCols = try columnNames(pool, "electric_offsets")
         XCTAssertTrue(offsetCols.contains("needs_refetch"))
         XCTAssertTrue(offsetCols.contains("is_live"))
@@ -74,7 +74,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "electric_offsets").contains("is_live"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 3)
+        XCTAssertEqual(try appliedMigrations(pool).count, 4)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -98,5 +98,11 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
         XCTAssertTrue(try columnNames(pool, "issue_subscribers").contains("email"))
+        // v4 project-type columns must be present after a full migration.
+        let projectCols = try columnNames(pool, "projects")
+        XCTAssertTrue(projectCols.contains("type"))
+        XCTAssertTrue(projectCols.contains("public_show_comments"))
+        XCTAssertTrue(projectCols.contains("public_show_activity"))
+        XCTAssertTrue(projectCols.contains("public_show_coding"))
     }
 }

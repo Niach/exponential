@@ -9,8 +9,6 @@ import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
   getProjectWorkspaceId,
-  isModerationRestricted,
-  applyModerationRestrictions,
 } from "@/lib/workspace-membership"
 import {
   fetchPullFiles,
@@ -108,14 +106,6 @@ export const issuesRouter = router({
         `create_issue`
       )
 
-      // Non-moderators submitting to a public workspace can only set
-      // title/description/labels — clamp the moderation fields so a stale or
-      // tampered client can't bypass the UI restrictions.
-      const restrictModeration = await isModerationRestricted(
-        ctx.session.user.id,
-        project.workspaceId
-      )
-
       assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
 
       if (input.description && hasMarkdownImages(input.description)) {
@@ -132,19 +122,15 @@ export const issuesRouter = router({
           .values({
             projectId: input.projectId,
             title: input.title,
-            status: restrictModeration ? `backlog` : (input.status ?? `backlog`),
-            priority: restrictModeration ? `none` : (input.priority ?? `none`),
-            assigneeId: restrictModeration ? null : (input.assigneeId ?? null),
+            status: input.status ?? `backlog`,
+            priority: input.priority ?? `none`,
+            assigneeId: input.assigneeId ?? null,
             description: input.description ?? null,
-            dueDate: restrictModeration ? null : (input.dueDate ?? null),
-            dueTime: restrictModeration ? null : (input.dueTime ?? null),
-            endTime: restrictModeration ? null : (input.endTime ?? null),
-            recurrenceInterval: restrictModeration
-              ? null
-              : (input.recurrenceInterval ?? null),
-            recurrenceUnit: restrictModeration
-              ? null
-              : (input.recurrenceUnit ?? null),
+            dueDate: input.dueDate ?? null,
+            dueTime: input.dueTime ?? null,
+            endTime: input.endTime ?? null,
+            recurrenceInterval: input.recurrenceInterval ?? null,
+            recurrenceUnit: input.recurrenceUnit ?? null,
             creatorId: ctx.session.user.id,
           })
           .returning()
@@ -170,6 +156,7 @@ export const issuesRouter = router({
               issueId: issue.id,
               labelId,
               workspaceId: project.workspaceId,
+              projectId: input.projectId,
             }))
           )
         }
@@ -237,21 +224,6 @@ export const issuesRouter = router({
         id,
         `write`
       )
-
-      // Non-moderators (e.g., a non-member who created the issue in a public
-      // workspace) may only touch title/description; strip moderation fields
-      // before applying so a stale or tampered client can't bypass UI gating.
-      if (
-        await isModerationRestricted(
-          ctx.session.user.id,
-          issueContext.workspaceId
-        )
-      ) {
-        applyModerationRestrictions(updates as Record<string, unknown>)
-        // duplicateOfId isn't in the shared moderation field list (it's
-        // web-schema-specific), but it drives a status change — strip it too.
-        delete updates.duplicateOfId
-      }
 
       if (
         updates.recurrenceInterval !== undefined ||
@@ -536,23 +508,13 @@ export const issuesRouter = router({
   mergePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
-      // Full issue-write moderation gate (NOT bare membership): on a PUBLIC
-      // workspace membership is an open self-service join, so plain members
-      // must never be able to merge into the backing repo. assertIssueAccess
-      // (write) still admits the issue CREATOR there — that exists so
-      // reporters can edit their own submissions — but merging is a moderator
-      // action, so clamp that case too.
-      const { workspaceId, projectId } = await assertIssueAccess(
+      // Member-gated issue write (v7: every member is invited/trusted — the
+      // old public-workspace moderator clamp is gone with self-service joins).
+      const { projectId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
         `write`
       )
-      if (await isModerationRestricted(ctx.session.user.id, workspaceId)) {
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `Merging pull requests on a public workspace is restricted to moderators`,
-        })
-      }
 
       const [row] = await ctx.db
         .select({
@@ -660,16 +622,11 @@ export const issuesRouter = router({
   prFiles: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      // PR diffs can expose private-repo file contents — member-only, NEVER
+      // public: anonymous feedback-board viewers have no authed session and
+      // the issues shape hides pr_url/branch from them entirely.
       const { workspaceId } = await getIssueWorkspaceContext(input.issueId)
       await assertWorkspaceMember(ctx.session.user.id, workspaceId)
-      // PR diffs can expose private-repo file contents — on a PUBLIC
-      // workspace (open self-service join) that read is moderator-only.
-      if (await isModerationRestricted(ctx.session.user.id, workspaceId)) {
-        throw new TRPCError({
-          code: `FORBIDDEN`,
-          message: `Pull request files on a public workspace are restricted to moderators`,
-        })
-      }
 
       const [row] = await ctx.db
         .select({

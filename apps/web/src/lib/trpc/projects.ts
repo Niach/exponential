@@ -4,9 +4,14 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { projects, repositories } from "@/db/schema"
 import { and, eq, isNull } from "drizzle-orm"
 import {
+  projectTypeSchema,
+  publicCodingVisibilitySchema,
+} from "@exp/db-schema/domain"
+import {
   assertProjectMember,
   resolveWorkspaceAccess,
   assertWorkspaceOwner,
+  invalidatePublicProjectCache,
 } from "@/lib/workspace-membership"
 import type { db } from "@/db/connection"
 import {
@@ -16,9 +21,11 @@ import {
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
-// Every project is backed by exactly one repo (v4). Create either points at an
-// existing registry repo (`repositoryId`) or connects one inline (`fullName`,
-// same validation as repositories.add).
+// A `dev` project is backed by exactly one repo; `tasks`/`feedback` projects
+// may have one (the dogfood feedback board does) but don't need one (v7 —
+// this is what unlocks project creation on instances without a GitHub App).
+// Create either points at an existing registry repo (`repositoryId`) or
+// connects one inline (`fullName`, same validation as repositories.add).
 const fullNameSchema = z
   .string()
   .min(1)
@@ -81,10 +88,16 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-        // v4: a project is a repo. Either target an existing registry repo or
-        // connect one inline in the same transaction (onboarding/create dialogs
-        // stay a single call).
-        repository: repositoryInputSchema,
+        type: projectTypeSchema.default(`dev`),
+        // Anonymous-visitor visibility toggles (feedback boards only; inert on
+        // other types).
+        publicShowComments: z.boolean().optional(),
+        publicShowActivity: z.boolean().optional(),
+        publicShowCoding: publicCodingVisibilitySchema.optional(),
+        // Required for `dev` projects, optional otherwise. Either target an
+        // existing registry repo or connect one inline in the same transaction
+        // (onboarding/create dialogs stay a single call).
+        repository: repositoryInputSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -93,20 +106,33 @@ export const projectsRouter = router({
         input.workspaceId,
         `mutate_resources`
       )
-      const inlineConnect = `fullName` in input.repository
+      if (input.type === `dev` && !input.repository) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Dev projects require a repository`,
+        })
+      }
+      const repositoryInput = input.repository
+      const inlineConnect =
+        repositoryInput != null && `fullName` in repositoryInput
       if (inlineConnect) {
         // The inline connect path needs owner/admin (repo management), beyond
         // the member-level project create. Projects & repos are unlimited on
         // every tier now (v5 per-seat model), so there is no plan cap here.
         await assertCanManageRepos(ctx.session.user.id, input.workspaceId)
       }
+      if (input.type === `feedback`) {
+        // Flipping content public is a privacy-significant act — owner-only,
+        // mirroring the update path. (Free on every tier — no plan gate.)
+        await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
+      }
 
-      const repositoryInput = input.repository
-      return await ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
 
-        const repositoryId =
-          `fullName` in repositoryInput
+        const repositoryId = !repositoryInput
+          ? null
+          : `fullName` in repositoryInput
             ? await connectRepositoryInTx(tx, {
                 userId: ctx.session.user.id,
                 workspaceId: input.workspaceId,
@@ -128,22 +154,30 @@ export const projectsRouter = router({
             slug: slugify(input.name),
             prefix: input.prefix.toUpperCase(),
             color: input.color ?? `#6366f1`,
+            type: input.type,
+            publicShowComments: input.publicShowComments ?? true,
+            publicShowActivity: input.publicShowActivity ?? false,
+            publicShowCoding: input.publicShowCoding ?? `off`,
             repositoryId,
           })
           .returning()
 
         return { project, txId }
       })
+
+      if (input.type === `feedback`) invalidatePublicProjectCache()
+      return result
     }),
 
-  // Owner/admin: retarget a project's backing repo. Existing worktrees for
+  // Owner/admin: retarget a project's backing repo — or detach it entirely
+  // (repositoryId: null) from a non-dev project. Existing worktrees for
   // old-repo issues keep working locally (they're just git); new launches use
   // the new repo.
   setRepository: authedProcedure
     .input(
       z.object({
         projectId: z.string().uuid(),
-        repositoryId: z.string().uuid(),
+        repositoryId: z.string().uuid().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -158,11 +192,27 @@ export const projectsRouter = router({
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        const repositoryId = await assertRepositoryInWorkspace(
-          tx,
-          input.repositoryId,
-          projectRecord.workspaceId
-        )
+        if (input.repositoryId === null) {
+          const [current] = await tx
+            .select({ type: projects.type })
+            .from(projects)
+            .where(eq(projects.id, input.projectId))
+            .limit(1)
+          if (current?.type === `dev`) {
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: `Dev projects require a repository — switch the project type first`,
+            })
+          }
+        }
+        const repositoryId =
+          input.repositoryId === null
+            ? null
+            : await assertRepositoryInWorkspace(
+                tx,
+                input.repositoryId,
+                projectRecord.workspaceId
+              )
         const [project] = await tx
           .update(projects)
           .set({ repositoryId })
@@ -181,6 +231,10 @@ export const projectsRouter = router({
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
+        type: projectTypeSchema.optional(),
+        publicShowComments: z.boolean().optional(),
+        publicShowActivity: z.boolean().optional(),
+        publicShowCoding: publicCodingVisibilitySchema.optional(),
         archivedAt: z
           .string()
           .datetime()
@@ -194,11 +248,34 @@ export const projectsRouter = router({
 
       const projectRecord = await assertProjectMember(ctx.session.user.id, id)
 
-      if (Object.hasOwn(updates, `archivedAt`)) {
+      // Archiving, type changes and public-visibility toggles are
+      // privacy/structure-significant — workspace-owner-only. Name/color stay
+      // member-editable.
+      const ownerGated =
+        Object.hasOwn(updates, `archivedAt`) ||
+        updates.type !== undefined ||
+        updates.publicShowComments !== undefined ||
+        updates.publicShowActivity !== undefined ||
+        updates.publicShowCoding !== undefined
+      if (ownerGated) {
         await assertWorkspaceOwner(
           ctx.session.user.id,
           projectRecord.workspaceId
         )
+      }
+
+      if (updates.type === `dev`) {
+        const [current] = await ctx.db
+          .select({ repositoryId: projects.repositoryId })
+          .from(projects)
+          .where(eq(projects.id, id))
+          .limit(1)
+        if (!current?.repositoryId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Connect a repository before switching to a dev project`,
+          })
+        }
       }
 
       const [project] = await ctx.db
@@ -206,6 +283,9 @@ export const projectsRouter = router({
         .set(updates)
         .where(eq(projects.id, id))
         .returning()
+
+      // Type/toggle/archive changes can alter the instance's public surface.
+      if (ownerGated) invalidatePublicProjectCache()
 
       return { project }
     }),
@@ -226,10 +306,12 @@ export const projectsRouter = router({
 
       await assertWorkspaceOwner(ctx.session.user.id, project.workspaceId)
 
-      return await ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx.delete(projects).where(eq(projects.id, input.projectId))
         return { ok: true, txId }
       })
+      invalidatePublicProjectCache()
+      return result
     }),
 })

@@ -77,7 +77,7 @@ struct OnboardingView: View {
 
             Spacer().frame(height: 8)
 
-            Text("Every project is backed by a GitHub repository.")
+            Text("Pick a board type to get started — dev boards connect a GitHub repo, task and feedback boards don't.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .multilineTextAlignment(.center)

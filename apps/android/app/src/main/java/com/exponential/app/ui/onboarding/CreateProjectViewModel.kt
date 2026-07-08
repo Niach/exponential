@@ -91,7 +91,8 @@ class CreateProjectViewModel @Inject constructor(
         name: String,
         prefix: String,
         color: String,
-        repository: ProjectRepositoryChoice,
+        type: String,
+        repository: ProjectRepositoryChoice?,
         onCreated: (projectId: String) -> Unit,
     ) {
         if (_state.value.submitting) return
@@ -105,6 +106,7 @@ class CreateProjectViewModel @Inject constructor(
                     name = name.trim(),
                     prefix = prefix.trim(),
                     color = color,
+                    type = type,
                     repository = repository,
                 )
             }.onSuccess { projectId ->

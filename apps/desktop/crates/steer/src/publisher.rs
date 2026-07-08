@@ -29,8 +29,8 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::frames::{
-    output_frame, ClientFrame, PresenceViewer, ServerFrame, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
-    CLOSE_UNAUTHORIZED,
+    output_frame, ActivityEvent, ClientFrame, PresenceViewer, ServerFrame, CLOSE_REPLACED,
+    CLOSE_SESSION_ENDED, CLOSE_UNAUTHORIZED,
 };
 use crate::ring::RingBuffer;
 use crate::{dial, Backoff, DialError, SteerRuntime, WsStream, BACKOFF_RESET_AFTER};
@@ -204,6 +204,10 @@ enum PublisherCmd {
     /// §8.5 "Take over": publisher-sent `claim` force-clears the remote
     /// steerer (relay `publisherTakeover`).
     TakeOver,
+    /// §P7: one PUBLIC activity event (already redacted) → `activity` text
+    /// frame. Rides the unbounded control channel like the others; low-rate
+    /// (per assistant turn / debounced diff), so it never backs up.
+    Activity(ActivityEvent),
     /// Clean end: send `bye {outcome}` and close (child exit, local stop,
     /// kill-watch).
     Shutdown { outcome: Option<String> },
@@ -231,6 +235,23 @@ impl LocalResizeNotifier {
     /// Forward a genuine local grid change so remote viewers reflow (§8.4).
     pub fn notify(&self, cols: u16, rows: u16) {
         let _ = self.cmd_tx.send(PublisherCmd::LocalResize { cols, rows });
+    }
+}
+
+/// A cheap `Send + Sync` clone of the publisher's control sender, dedicated to
+/// §P7 public activity events. The activity emitter thread holds one and pushes
+/// already-redacted narration/tool/diff events; sending is fire-and-forget and
+/// never blocks the emitter (unbounded flume). Sending after the publisher has
+/// stopped is a harmless no-op (the pump drops the receiver).
+#[derive(Clone)]
+pub struct ActivitySender {
+    cmd_tx: flume::Sender<PublisherCmd>,
+}
+
+impl ActivitySender {
+    /// Publish one already-redacted activity event (best-effort).
+    pub fn send(&self, event: ActivityEvent) {
+        let _ = self.cmd_tx.send(PublisherCmd::Activity(event));
     }
 }
 
@@ -265,6 +286,15 @@ impl PublisherHandle {
     /// The §8.5 "Take over" button: revoke the remote steerer.
     pub fn take_over(&self) {
         let _ = self.cmd_tx.send(PublisherCmd::TakeOver);
+    }
+
+    /// A cheap [`ActivitySender`] for the §P7 activity emitter thread — pushes
+    /// public activity events onto the same unbounded control channel without
+    /// coupling the emitter to the whole handle.
+    pub fn activity_sender(&self) -> ActivitySender {
+        ActivitySender {
+            cmd_tx: self.cmd_tx.clone(),
+        }
     }
 
     /// Clean end (§8.4 End): `bye {outcome}` + close(1000). Outcome format
@@ -538,6 +568,14 @@ async fn pump_connection(
                     PublisherCmd::TakeOver => {
                         // §8.5: publisher-sent claim = relay publisherTakeover.
                         if ws.send(Message::Text(ClientFrame::Claim.to_json())).await.is_err() {
+                            return LoopEnd::Dropped;
+                        }
+                    }
+                    PublisherCmd::Activity(event) => {
+                        // §P7: publish one already-redacted public activity
+                        // event. The relay fans it to public viewers only.
+                        let frame = ClientFrame::Activity { event }.to_json();
+                        if ws.send(Message::Text(frame)).await.is_err() {
                             return LoopEnd::Dropped;
                         }
                     }

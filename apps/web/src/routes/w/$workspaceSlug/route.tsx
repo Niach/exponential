@@ -15,7 +15,7 @@ import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
 import { MentionProvider } from "@/components/mention-provider"
-import { WorkspaceJoinGate } from "@/components/workspace/join-gate"
+import { PublicWorkspaceView } from "@/components/public-board/public-board-view"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
@@ -43,19 +43,17 @@ export const Route = createFileRoute(`/w/$workspaceSlug`)({
           params: { workspaceSlug: workspace.slug },
         })
       }
-      return { session, user, joinGateWorkspace: null }
+      return { session, user, publicView: false }
     }
 
-    // Public-aware lookup. Anonymous callers can resolve a public workspace
-    // and continue; authed non-members of a private workspace get NOT_FOUND.
+    // Public-aware lookup. Members get the normal live app; every other
+    // visitor of a workspace hosting a public feedback board — anonymous OR
+    // signed-in non-member — gets the read-only public view (v7: no join
+    // gate; the widget is the write path). Anything else is NOT_FOUND.
     try {
       const workspace = await trpc.workspaces.getBySlug.query({ slug })
-      // Public boards don't sync for signed-in non-members — instead of an
-      // empty shell, show the explicit join gate.
-      if (workspace.isPublic && session && workspace.membership === null) {
-        return { session, user, joinGateWorkspace: workspace }
-      }
-      return { session, user, joinGateWorkspace: null }
+      const publicView = workspace.membership === null
+      return { session, user, publicView }
     } catch (e) {
       const isNotFound =
         e instanceof TRPCClientError && e.data?.code === `NOT_FOUND`
@@ -77,7 +75,7 @@ export const Route = createFileRoute(`/w/$workspaceSlug`)({
 
 function WorkspaceLayout() {
   const { workspaceSlug } = Route.useParams()
-  const { joinGateWorkspace } = Route.useRouteContext()
+  const { session, publicView } = Route.useRouteContext()
   const workspace = useWorkspaceBySlug(workspaceSlug)
   const projects = useWorkspaceProjects(workspace?.id)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -96,12 +94,15 @@ function WorkspaceLayout() {
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [])
 
-  if (joinGateWorkspace) {
+  // Non-members (anonymous or signed-in) see the read-only public board —
+  // their Electric shapes are membership-scoped, so the live tree below would
+  // render an empty shell. The public view fetches through the publicBoard
+  // tRPC router instead and owns the whole subtree (no Outlet).
+  if (publicView) {
     return (
-      <WorkspaceJoinGate
+      <PublicWorkspaceView
         workspaceSlug={workspaceSlug}
-        workspaceName={joinGateWorkspace.name}
-        workspaceId={joinGateWorkspace.id}
+        isAuthed={Boolean(session)}
       />
     )
   }

@@ -107,7 +107,14 @@ pub const SHAPES: [ShapeSpec; 14] = [
             "slug",
             "prefix",
             "color",
+            // v7: project type + nullable repo + feedback-board visibility
+            // toggles. `heal_missing_columns` ALTERs these onto existing
+            // tables on the next open (all TEXT).
+            "type",
             "repository_id",
+            "public_show_comments",
+            "public_show_activity",
+            "public_show_coding",
             "sort_order",
             "archived_at",
             "created_at",

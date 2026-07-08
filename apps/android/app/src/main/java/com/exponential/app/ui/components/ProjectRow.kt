@@ -1,17 +1,15 @@
 package com.exponential.app.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,6 +37,7 @@ fun ProjectRow(
     modifier: Modifier = Modifier,
 ) {
     val color = remember(project.color) { parseColor(project.color) }
+    val typeInfo = remember(project.type) { projectTypeInfo(project.type) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -47,7 +46,13 @@ fun ProjectRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(10.dp).background(color, CircleShape))
+        // Board-type glyph tinted with the project color (replaces the plain dot).
+        Icon(
+            typeInfo.icon,
+            contentDescription = typeInfo.label,
+            tint = color,
+            modifier = Modifier.size(16.dp),
+        )
         Spacer(Modifier.width(12.dp))
         Text(
             project.name,
@@ -57,6 +62,15 @@ fun ProjectRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (typeInfo.isPublic) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Filled.Public,
+                contentDescription = "Public board",
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.size(14.dp),
+            )
+        }
         Spacer(Modifier.width(8.dp))
         Text(
             project.prefix,

@@ -97,6 +97,11 @@ impl TopBar {
         let label: SharedString = active
             .map(|p| SharedString::from(p.name.clone()))
             .unwrap_or_else(|| "Select project".into());
+        // The active project's type drives the leading glyph (code / kanban /
+        // megaphone, color-tinted) and the feedback globe marker. Without an
+        // active project fall back to the neutral color dot.
+        let type_glyph = active.map(crate::icons::project_type_icon);
+        let is_feedback = active.map(|p| p.is_feedback()).unwrap_or(false);
 
         // Captured snapshot for the menu builder (menus render lazily in the
         // overlay; they must not read `self`).
@@ -111,35 +116,51 @@ impl TopBar {
             })
             .collect();
 
+        let leading = match type_glyph {
+            Some(icon) => icon
+                .xsmall()
+                .text_color(dot_color)
+                .flex_shrink_0()
+                .into_any_element(),
+            None => div()
+                .size_3()
+                .flex_shrink_0()
+                .rounded_full()
+                .bg(dot_color)
+                .into_any_element(),
+        };
+
+        let mut trigger_inner = h_flex()
+            .gap_2()
+            .items_center()
+            .max_w(px(240.))
+            .overflow_hidden()
+            .child(leading)
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(label),
+            );
+        if is_feedback {
+            trigger_inner = trigger_inner.child(
+                crate::icons::public_board_icon()
+                    .xsmall()
+                    .flex_shrink_0()
+                    .text_color(cx.theme().muted_foreground),
+            );
+        }
+
         div()
             .flex_shrink_0()
             .child(
                 SidebarHeader::new()
                     .px_2()
                     .py_1()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .max_w(px(240.))
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .size_3()
-                                    .flex_shrink_0()
-                                    .rounded_full()
-                                    .bg(dot_color),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .whitespace_nowrap()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .child(label),
-                            ),
-                    )
+                    .child(trigger_inner)
                     .child(
                         Icon::new(IconName::ChevronsUpDown)
                             .xsmall()

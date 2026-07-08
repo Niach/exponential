@@ -22,15 +22,28 @@ async function getAttachment({
   // instead of leaking them as 500s.
   const session = await resolveSession(request)
 
-  if (!session?.user) {
-    throw new TRPCError({
-      code: `UNAUTHORIZED`,
-      message: `Unauthorized`,
-    })
-  }
-
   const attachment = await getAttachmentWorkspaceContext(params.attachmentId)
-  await assertWorkspaceMember(session.user.id, attachment.workspaceId)
+
+  if (session?.user) {
+    await assertWorkspaceMember(session.user.id, attachment.workspaceId)
+  } else {
+    // Anonymous byte reads are allowed ONLY for public feedback boards
+    // (inline images in issue descriptions must load for logged-out
+    // visitors); comment attachments additionally require the board to show
+    // comments publicly. Same predicate as the attachments shape's anonymous
+    // where clause. 401 (not 404) to match the historic no-session behavior
+    // and avoid an existence oracle.
+    const publiclyReadable =
+      attachment.projectType === `feedback` &&
+      attachment.projectArchivedAt === null &&
+      (attachment.commentId === null || attachment.projectPublicShowComments)
+    if (!publiclyReadable) {
+      throw new TRPCError({
+        code: `UNAUTHORIZED`,
+        message: `Unauthorized`,
+      })
+    }
+  }
 
   const object = await getObject(attachment.storageKey)
 

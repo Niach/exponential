@@ -153,6 +153,21 @@ class IssueListViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspacePermissions.Denied)
 
+    // Canonical web URL for the board share sheet: {base}/w/{ws}/projects/{proj}.
+    // Null until project + workspace + instance URL are all resolved.
+    val shareUrl: StateFlow<String?> = combine(
+        _project,
+        workspaceForProject,
+        auth.instanceUrl,
+    ) { project, workspace, base ->
+        if (project == null || workspace == null || base.isNullOrBlank()) null
+        else com.exponential.app.domain.WebLinks.boardUrl(
+            base = base,
+            workspaceSlug = workspace.slug,
+            projectSlug = project.slug,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /**
      * The target project's workspace issues, newest-first — drives the create
      * screen's `#IDENTIFIER` autocomplete (masterplan §5e). Same scoping as

@@ -36,25 +36,14 @@ export function useWorkspacePermissions(
       ? members.find((m) => m.userId === currentUserId)
       : undefined
     const isMember = Boolean(currentMember)
-    // Public-workspace membership is an open self-service join, so a plain
-    // member there is a participant, not a moderator — mirrors the server's
-    // isWorkspaceModerator / assertIssueAccess rules.
-    const isPrivilegedMember = Boolean(
-      currentMember &&
-        (!workspace?.isPublic || currentMember.role === `owner`)
-    )
-    const isModerator = isPrivilegedMember || isAdmin
-    const canCreate = isAuthed
-      ? isMember ||
-        Boolean(workspace?.isPublic && workspace?.publicWritePolicy === `everyone`)
-      : false
-    const canMutateIssue = (issue: Pick<Issue, `creatorId`>) => {
-      if (!isAuthed) return false
-      if (isPrivilegedMember) return true
-      if (workspace?.isPublic && issue.creatorId === currentUserId) return true
-      if (isAdmin) return true
-      return false
-    }
+    // v7: membership is the only capability gate (every membership is an
+    // explicit invite — the public-workspace self-join and its moderation
+    // clamp are gone). Mirrors the server's resolveWorkspaceAccess /
+    // assertIssueAccess rules exactly: non-members (including instance
+    // admins) get no mutation affordances.
+    const isModerator = isMember
+    const canCreate = isMember
+    const canMutateIssue = (_issue: Pick<Issue, `creatorId`>) => isMember
 
     // Seats replaced the old member cap (per-seat model, §3.2); a non-agent
     // member can be added while usage is below the purchased seat count.
@@ -80,13 +69,5 @@ export function useWorkspacePermissions(
       canAddMoreProjects,
       canAddMoreStorage,
     }
-  }, [
-    currentUserId,
-    isAdmin,
-    isAuthed,
-    members,
-    workspace?.isPublic,
-    workspace?.publicWritePolicy,
-    billingPlan,
-  ])
+  }, [currentUserId, isAdmin, isAuthed, members, billingPlan])
 }

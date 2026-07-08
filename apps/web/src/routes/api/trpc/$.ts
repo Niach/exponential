@@ -24,8 +24,10 @@ import { onboardingRouter } from "@/lib/trpc/onboarding"
 import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
 import { notificationsRouter } from "@/lib/trpc/notifications"
 import { widgetsRouter } from "@/lib/trpc/widgets"
+import { publicBoardRouter } from "@/lib/trpc/public-board"
 
 export const appRouter = router({
+  publicBoard: publicBoardRouter,
   workspaces: workspacesRouter,
   projects: projectsRouter,
   issues: issuesRouter,

@@ -1,20 +1,22 @@
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, isNull, ne } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { projects, users, workspaceMembers, workspaces } from "@/db/schema"
+import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 
 // The single definition of "needs onboarding". Web, iOS and Android all gate
 // the first-run wizard purely on `onboardingCompletedAt` from the session, so
 // this is the one place the rule lives: a user who already has a project in a
-// non-public workspace they're an explicit member of doesn't need the wizard —
-// the flag is backfilled on session read (covers accounts that predate the
-// wizard). Membership in the public feedback workspace deliberately does NOT
-// count: joining a public board is not the same as setting up your own space.
+// workspace they're an explicit member of doesn't need the wizard — the flag
+// is backfilled on session read (covers accounts that predate the wizard).
+// Membership in the bootstrap feedback workspace deliberately does NOT count:
+// its projects are shared infra, not evidence the user set up their own space.
 export async function resolveOnboardingCompletedAt(user: {
   id: string
   onboardingCompletedAt?: Date | string | null
 }): Promise<Date | string | null> {
   if (user.onboardingCompletedAt != null) return user.onboardingCompletedAt
 
+  const feedbackWorkspaceId = await getFeedbackWorkspaceId()
   const [evidence] = await db
     .select({ projectId: projects.id })
     .from(workspaceMembers)
@@ -22,7 +24,9 @@ export async function resolveOnboardingCompletedAt(user: {
       workspaces,
       and(
         eq(workspaces.id, workspaceMembers.workspaceId),
-        eq(workspaces.isPublic, false)
+        feedbackWorkspaceId
+          ? ne(workspaces.id, feedbackWorkspaceId)
+          : undefined
       )
     )
     .innerJoin(projects, eq(projects.workspaceId, workspaces.id))

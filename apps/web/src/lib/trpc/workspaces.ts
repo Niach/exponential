@@ -12,11 +12,12 @@ import { randomBytes } from "crypto"
 import { isUserAdmin } from "@/lib/admin"
 import {
   createPersonalWorkspace,
-  findNonPublicMembership,
+  findPersonalMembership,
 } from "@/lib/auth/personal-workspace"
+import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 import {
   assertWorkspaceOwner,
-  assertNotPublicWorkspace,
+  getPublicProjectScope,
   getWorkspaceMember,
 } from "@/lib/workspace-membership"
 import {
@@ -64,9 +65,9 @@ export const workspacesRouter = router({
     return await ctx.db.transaction(async (tx) => {
       // Normally the signup hook already created the personal workspace
       // (lib/auth/personal-workspace.ts); this is the self-heal path for
-      // legacy accounts. We never pick the public workspace as the user's
-      // "default" landing spot.
-      const membership = await findNonPublicMembership(tx, userId)
+      // legacy accounts. We never pick the bootstrap feedback workspace as
+      // the user's "default" landing spot.
+      const membership = await findPersonalMembership(tx, userId)
 
       if (membership) {
         const [workspace] = await tx
@@ -130,10 +131,8 @@ export const workspacesRouter = router({
       })
     }),
 
-  // `isPublic`/`publicWritePolicy` are deliberately NOT updatable here: the
-  // only public workspace is the bootstrap-created feedback board, and its
-  // flags are written directly by the bootstrap. Regular workspaces stay
-  // private, always.
+  // Workspaces are always private (v7) — publicness lives on projects
+  // (type='feedback'), so there are no visibility flags to update here.
   update: authedProcedure
     .input(
       z.object({
@@ -162,11 +161,14 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
 
-      // Block deletion of the public workspace
-      await assertNotPublicWorkspace(input.workspaceId, {
-        message: `Cannot delete the public workspace`,
-        code: `BAD_REQUEST`,
-      })
+      // Block deletion of the bootstrap feedback workspace — the cloud boot
+      // would recreate it EMPTY, silently losing every feedback issue.
+      if (input.workspaceId === (await getFeedbackWorkspaceId())) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Cannot delete the feedback workspace`,
+        })
+      }
 
       // Capture BEFORE the delete: creem_subscriptions.workspace_id goes
       // `set null` when the workspace row is deleted, after which the remote
@@ -190,10 +192,12 @@ export const workspacesRouter = router({
     }),
 
   // Public read of minimal workspace metadata by slug. Used by the route guard
-  // to decide whether anonymous viewing is permitted and whether an authed
-  // caller needs the join gate (`membership` is the caller's role, null for
-  // anonymous callers and non-members). Returns NOT_FOUND for private
-  // workspaces the caller can't access, to avoid leaking existence.
+  // to decide whether anonymous viewing is permitted (`hasPublicBoard`: the
+  // workspace hosts at least one public feedback-board project). `membership`
+  // is the caller's role, null for anonymous callers and non-members — a
+  // non-member of a board-hosting workspace gets the anonymous read-only view
+  // (there is no join gate since v7). Returns NOT_FOUND for workspaces the
+  // caller can't see at all, to avoid leaking existence.
   getBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1).max(255) }))
     .query(async ({ ctx, input }) => {
@@ -203,8 +207,6 @@ export const workspacesRouter = router({
           name: workspaces.name,
           slug: workspaces.slug,
           iconUrl: workspaces.iconUrl,
-          isPublic: workspaces.isPublic,
-          publicWritePolicy: workspaces.publicWritePolicy,
         })
         .from(workspaces)
         .where(eq(workspaces.slug, input.slug))
@@ -214,14 +216,17 @@ export const workspacesRouter = router({
         throw new TRPCError({ code: `NOT_FOUND` })
       }
 
+      const scope = await getPublicProjectScope()
+      const hasPublicBoard = scope.workspaceIds.includes(workspace.id)
+
       const userId = ctx.session?.user?.id
       const member = userId
         ? await getWorkspaceMember(userId, workspace.id)
         : undefined
 
-      if (!workspace.isPublic && !member) {
+      if (!hasPublicBoard && !member) {
         throw new TRPCError({ code: `NOT_FOUND` })
       }
-      return { ...workspace, membership: member?.role ?? null }
+      return { ...workspace, hasPublicBoard, membership: member?.role ?? null }
     }),
 })

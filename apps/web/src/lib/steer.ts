@@ -81,6 +81,10 @@ export type SteerTicketSeed =
       /** Display name (or email), shown in viewer presence. */
       name: string
     }
+  // Anonymous public-activity audience (feedback boards with
+  // publicShowCoding='live'). Read-only, activity-channel-only; the tRPC mint
+  // verifies the project's toggle — no user identity involved.
+  | { kind: `public_viewer`; sessionId: string }
 
 // Workspace owners may steer; plain members watch. (The role enum is
 // owner|member only — there is no admin role.)
@@ -93,11 +97,19 @@ export function buildSteerTicketClaims(
   nowSeconds = Math.floor(Date.now() / 1000)
 ): SteerTicketClaims {
   const base = {
-    sub: seed.userId,
+    sub: seed.kind === `public_viewer` ? `anon` : seed.userId,
     iat: nowSeconds,
     exp: nowSeconds + STEER_TICKET_TTL_SECONDS,
   }
   switch (seed.kind) {
+    case `public_viewer`:
+      return {
+        ...base,
+        ws: ``,
+        sessionId: seed.sessionId,
+        role: `public_viewer`,
+        perm: `view`,
+      }
     case `control`:
       // Control tickets are account-scoped, not workspace-scoped — ws is the
       // empty string by convention (see SteerTicketClaims docs).
