@@ -45,6 +45,7 @@ import com.exponential.app.ui.theme.glassRow
 @Composable
 fun RepositorySelector(
     accountId: String,
+    workspaceId: String,
     repos: List<WorkspaceRepo>,
     loading: Boolean,
     selection: ProjectRepositoryChoice?,
@@ -130,6 +131,7 @@ fun RepositorySelector(
     if (showPicker) {
         GithubRepoPickerSheet(
             accountId = accountId,
+            workspaceId = workspaceId,
             onPick = { repo ->
                 addedRepo = repo
                 onSelect(

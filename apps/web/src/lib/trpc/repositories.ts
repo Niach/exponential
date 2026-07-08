@@ -8,7 +8,6 @@ import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
-import { isUserAdmin } from "@/lib/admin"
 import {
   fetchBranchDiff,
   githubAppConfigured,
@@ -16,8 +15,17 @@ import {
   resolveRepoDefaultBranch,
   resolveRepoDefaultBranchCached,
   resolveRepoInstallationToken,
+  resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
-import { assertRepoInstallationAccess } from "@/lib/trpc/integrations"
+import {
+  assertCanManageRepos,
+  assertRepoInstallationAccess,
+  isInstallationLinkedToWorkspace,
+} from "@/lib/trpc/integrations"
+
+// assertCanManageRepos moved to integrations.ts (both routers need it and the
+// import direction only works that way) — re-exported for existing callers.
+export { assertCanManageRepos }
 
 // GitHub installation tokens last ~1h; we hand back a conservative 55-minute
 // horizon so the desktop launcher refreshes before the real expiry. (The
@@ -52,14 +60,6 @@ const fullNameSchema = z
   .max(255)
   .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`)
 
-// Repo management (add/remove/retarget) is owner-or-admin, mirroring member
-// management. Reads (list/forIssue/branchDiff) and token minting are
-// member-gated (below).
-export async function assertCanManageRepos(userId: string, workspaceId: string) {
-  if (await isUserAdmin(userId)) return
-  await assertWorkspaceMember(userId, workspaceId, [`owner`])
-}
-
 // Repo-backed capabilities (list/forIssue/branchDiff reads, JIT token minting)
 // reach into the backing GitHub repo. Member-gated: since v7 every membership
 // is an explicit invite (the self-service public join is gone), so the old
@@ -74,13 +74,13 @@ type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
 
 // The exact `repositories.add` validation + upsert, reusable inside another
 // transaction (projects.create's inline connect path). Verifies the repo
-// resolves to a GitHub App installation the CALLER is attributed to — the App
-// JWT can reach every installation of the App, so this check (not mere
-// installed-ness) is what stops one user binding another user's private repo
-// to their own workspace. Upserts + un-archives, returns the repository id.
-// Owner/admin + plan-cap checks are the caller's responsibility (done before
-// opening the tx). The persisted installation id is the authoritative one
-// resolved from GitHub, never the client-supplied claim.
+// resolves to a GitHub App installation LINKED to the target workspace — the
+// App JWT can reach every installation of the App, so this check (not mere
+// installed-ness) is what stops an owner binding an unrelated account's
+// private repo to their workspace. Upserts + un-archives, returns the
+// repository id. Owner/admin + plan-cap checks are the caller's responsibility
+// (done before opening the tx). The persisted installation id is the
+// authoritative one resolved from GitHub, never the client-supplied claim.
 export async function connectRepositoryInTx(
   tx: Tx,
   input: {
@@ -92,7 +92,7 @@ export async function connectRepositoryInTx(
   }
 ): Promise<string> {
   const installationId = await assertRepoInstallationAccess(
-    input.userId,
+    input.workspaceId,
     input.fullName
   )
 
@@ -126,6 +126,7 @@ export async function connectRepositoryInTx(
       defaultBranch,
       private: input.private ?? false,
       installationId,
+      inaccessibleAt: null,
     })
     .onConflictDoNothing({
       target: [repositories.workspaceId, repositories.fullName],
@@ -133,10 +134,12 @@ export async function connectRepositoryInTx(
     .returning({ id: repositories.id })
   if (inserted) return inserted.id
 
-  // Already registered — un-archive and return the existing row.
+  // Already registered — un-archive, refresh the installation binding, clear
+  // any stale no-access flag (a re-connect just proved access), and return the
+  // existing row.
   const [existing] = await tx
     .update(repositories)
-    .set({ archivedAt: null })
+    .set({ archivedAt: null, installationId, inaccessibleAt: null })
     .where(
       and(
         eq(repositories.workspaceId, input.workspaceId),
@@ -158,14 +161,26 @@ export async function connectRepositoryInTx(
 
 // Heal a batch of repo rows against GitHub's authoritative default branch (L30):
 // return each row carrying the live value when it's known and disagrees, and
-// persist the fix best-effort (`persist` failures never fail the read). The
-// `resolve` lookup defaults to the short-cached resolver so a fan-out read can't
-// hammer GitHub; both `resolve` and `persist` are injectable for tests.
+// persist the fix best-effort (`persist` failures never fail the read). A
+// resolved live branch also proves the App can still reach the repo, so it
+// clears a stale `inaccessibleAt` flag; a null result never SETS the flag —
+// the lookup is too flaky to be evidence of lost access (only webhooks and the
+// verified token mint set it). The `resolve` lookup defaults to the
+// short-cached resolver so a fan-out read can't hammer GitHub; both `resolve`
+// and `persist` are injectable for tests.
 export async function healRepoDefaultBranches<
-  R extends { id: string; fullName: string; defaultBranch: string }
+  R extends {
+    id: string
+    fullName: string
+    defaultBranch: string
+    inaccessibleAt?: Date | null
+  }
 >(
   repos: R[],
-  persist: (id: string, defaultBranch: string) => Promise<void>,
+  persist: (
+    id: string,
+    patch: { defaultBranch?: string; clearInaccessible?: boolean }
+  ) => Promise<void>,
   resolve: (fullName: string) => Promise<string | null> = resolveRepoDefaultBranchCached
 ): Promise<R[]> {
   return Promise.all(
@@ -179,16 +194,24 @@ export async function healRepoDefaultBranches<
           err
         )
       }
-      if (!live || live === repo.defaultBranch) return repo
+      if (!live) return repo
+      const patch: { defaultBranch?: string; clearInaccessible?: boolean } = {}
+      if (live !== repo.defaultBranch) patch.defaultBranch = live
+      if (repo.inaccessibleAt != null) patch.clearInaccessible = true
+      if (!patch.defaultBranch && !patch.clearInaccessible) return repo
       try {
-        await persist(repo.id, live)
+        await persist(repo.id, patch)
       } catch (err) {
         console.warn(
           `[repositories] default-branch heal write failed for ${repo.fullName}`,
           err
         )
       }
-      return { ...repo, defaultBranch: live }
+      return {
+        ...repo,
+        defaultBranch: live,
+        ...(patch.clearInaccessible ? { inaccessibleAt: null } : {}),
+      }
     })
   )
 }
@@ -221,6 +244,7 @@ async function loadRepository(repositoryId: string) {
       fullName: repositories.fullName,
       defaultBranch: repositories.defaultBranch,
       installationId: repositories.installationId,
+      inaccessibleAt: repositories.inaccessibleAt,
     })
     .from(repositories)
     .where(eq(repositories.id, repositoryId))
@@ -254,11 +278,16 @@ export const repositoriesRouter = router({
       // Heal a stale/misseeded `defaultBranch` the same way `installationToken`
       // does — GitHub is authoritative (L30). Bounded by a short in-process
       // cache so a fan-out read can't hammer GitHub; the write is best-effort but
-      // the returned rows always carry the live value when known.
-      const repos = await healRepoDefaultBranches(rawRepos, (id, defaultBranch) =>
+      // the returned rows always carry the live value when known. A successful
+      // lookup doubles as an accessibility proof and clears a stale no-access
+      // flag.
+      const repos = await healRepoDefaultBranches(rawRepos, (id, patch) =>
         ctx.db
           .update(repositories)
-          .set({ defaultBranch })
+          .set({
+            ...(patch.defaultBranch ? { defaultBranch: patch.defaultBranch } : {}),
+            ...(patch.clearInaccessible ? { inaccessibleAt: null } : {}),
+          })
           .where(eq(repositories.id, id))
           .then(() => {})
       )
@@ -425,16 +454,52 @@ export const repositoriesRouter = router({
       }
 
       // Fall back to the installation persisted at connect time when GitHub's
-      // per-repo lookup misses — see resolveRepoInstallationToken (fixes the
-      // spurious 412 when the repo IS covered by a known installation).
-      const token = await resolveRepoInstallationToken(repo.fullName, {
+      // per-repo lookup misses — see resolveRepoInstallationTokenInfo (fixes
+      // the spurious 412 when the repo IS covered by a known installation). The
+      // fallback token is VERIFIED against the repo, so a null here means the
+      // App genuinely lost access (repo removed from the installation's
+      // selection, or uninstalled) — stamp the row so the settings UI shows the
+      // no-access badge, and tell the caller how to fix it.
+      const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
         fallbackInstallationId: repo.installationId,
       })
-      if (!token) {
+      if (!resolved) {
+        await ctx.db
+          .update(repositories)
+          .set({ inaccessibleAt: new Date() })
+          .where(
+            and(eq(repositories.id, repo.id), isNull(repositories.inaccessibleAt))
+          )
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The Exponential GitHub App is not installed on ${repo.fullName}. Reconnect it in workspace settings.`,
+          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (workspace settings → Repositories), then retry.`,
         })
+      }
+      // Link-gate: the installation serving this repo must still be claimed by
+      // the repo's workspace — a workspace must not keep minting through a
+      // GitHub account it never connected (or disconnected).
+      if (
+        !(await isInstallationLinkedToWorkspace(
+          repo.workspaceId,
+          resolved.installationId
+        ))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this workspace. Reconnect it in workspace settings → Repositories.`,
+        })
+      }
+      const token = resolved.token
+      // The mint just proved access — heal a drifted stored installation id and
+      // clear a stale no-access flag (best-effort bookkeeping).
+      if (
+        repo.installationId !== resolved.installationId ||
+        repo.inaccessibleAt != null
+      ) {
+        await ctx.db
+          .update(repositories)
+          .set({ installationId: resolved.installationId, inaccessibleAt: null })
+          .where(eq(repositories.id, repo.id))
       }
       // GitHub is authoritative on the default branch — a stale/misseeded row
       // (e.g. `main` for a `master` repo) would break the launcher's

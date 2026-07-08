@@ -185,7 +185,11 @@ docker run -d --name exponential-web \\
             (or your org&apos;s equivalent). Set the homepage URL to your
             instance and the <strong>Setup URL</strong> to{` `}
             <code>{`\${BETTER_AUTH_URL}/api/integrations/github/setup`}</code>{` `}
-            — GitHub redirects there after each install.
+            with <strong>&quot;Redirect on update&quot;</strong> ticked — GitHub
+            redirects there after each install or repo-access change. Set the
+            OAuth <strong>Callback URL</strong> to{` `}
+            <code>{`\${BETTER_AUTH_URL}/api/integrations/github/callback`}</code>{` `}
+            — that&apos;s where the lightweight connect flow lands back.
           </p>
 
           <h3>2. Permissions &amp; events</h3>
@@ -193,8 +197,10 @@ docker run -d --name exponential-web \\
             Repository permissions: <strong>Contents — Read &amp; write</strong>{` `}
             and <strong>Pull requests — Read &amp; write</strong> (Metadata —
             Read is added automatically). Subscribe to the{` `}
-            <strong>Installation</strong> and <strong>Pull request</strong>{` `}
-            webhook events; the webhook URL is{` `}
+            <strong>Pull request</strong> webhook event — installation and
+            repo-selection events are delivered to GitHub Apps automatically
+            once the webhook is active, so they never appear in the subscribe
+            list. The webhook URL is{` `}
             <code>{`\${BETTER_AUTH_URL}/api/webhooks/github`}</code> with a
             secret of your choosing (goes into{` `}
             <code>GITHUB_WEBHOOK_SECRET</code>).
@@ -218,15 +224,37 @@ GITHUB_APP_ID=123456                  # the App's numeric ID
 GITHUB_APP_SLUG=your-app-slug         # from the App's URL — builds the install link
 GITHUB_APP_PRIVATE_KEY=<base64 PEM>
 GITHUB_WEBHOOK_SECRET=<webhook secret>
+GITHUB_APP_CLIENT_ID=<oauth client id>          # optional — enables the lightweight connect flow
+GITHUB_APP_CLIENT_SECRET=<oauth client secret>
 `}</DocsCode>
-
-          <h3>4. Install it</h3>
           <p>
-            Restart the app, then connect a repository from{` `}
-            <strong>workspace settings → Repositories</strong> — the connect
-            dialog sends you to the App&apos;s install page on GitHub and
-            picks up the installation when you land back.
+            <code>GITHUB_APP_CLIENT_ID</code> and{` `}
+            <code>GITHUB_APP_CLIENT_SECRET</code> are the App&apos;s own OAuth
+            credentials — the client ID is on the App page, and you generate the
+            secret there too. They power the lightweight connect flow: the user
+            token they mint is transient, used once to enumerate installations
+            and then discarded, never stored. Leave them unset and connecting a
+            repository falls back to the install-page round-trip.
           </p>
+
+          <h3>4. Connect an account</h3>
+          <p>
+            Restart the app, then connect a GitHub account from{` `}
+            <strong>workspace settings → Repositories</strong>. With the OAuth
+            credentials above configured, this opens a lightweight GitHub
+            authorization — one consent screen, and if you manage several
+            installations you pick which to connect from an in-app account
+            picker. Without them it falls back to the install-page round-trip,
+            which is also how you install the App on a new account or grant it
+            access to more repositories.
+          </p>
+          <DocsCallout kind="note" title="If the App loses repo access">
+            Drop a repo from the installation on GitHub and{` `}
+            <strong>workspace settings → Repositories</strong> flags it with a{` `}
+            <strong>&quot;no access — re-grant on GitHub&quot;</strong> badge and
+            a re-grant link; coding-session token minting fails with a clear
+            message instead of handing out a broken token.
+          </DocsCallout>
         </DocsSection>
 
         {/* ── 03 Push notifications ── */}
@@ -355,6 +383,16 @@ PUSH_RELAY_SECRET=<shared secret>
             </EnvVar>
             <EnvVar name="GITHUB_WEBHOOK_SECRET">
               GitHub App webhook secret (PR-merge detection via webhook).
+            </EnvVar>
+            <EnvVar name="GITHUB_APP_CLIENT_ID">
+              GitHub App OAuth client ID — optional. Enables the lightweight
+              connect flow (a single GitHub consent screen); unset falls back
+              to the install-page round-trip.
+            </EnvVar>
+            <EnvVar name="GITHUB_APP_CLIENT_SECRET">
+              GitHub App OAuth client secret (generate it on the App page). The
+              user token it mints is transient — used once to enumerate
+              installations, never stored.
             </EnvVar>
             <EnvVar name="GITHUB_POLLING">
               Set to <code>true</code> to poll for PR merges instead — for

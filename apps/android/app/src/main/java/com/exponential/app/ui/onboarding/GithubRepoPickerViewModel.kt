@@ -37,6 +37,7 @@ class GithubRepoPickerViewModel @Inject constructor(
     val error: StateFlow<String?> = _error.asStateFlow()
 
     private var lastAccountId: String? = null
+    private var lastWorkspaceId: String? = null
     private var loadJob: Job? = null
 
     init {
@@ -48,21 +49,26 @@ class GithubRepoPickerViewModel @Inject constructor(
             deepLinkBus.target.collect { target ->
                 if (target is DeepLinkBus.Target.GithubConnected) {
                     deepLinkBus.consume()
-                    lastAccountId?.let { load(it, refresh = true) }
+                    val account = lastAccountId
+                    val workspace = lastWorkspaceId
+                    if (account != null && workspace != null) {
+                        load(account, workspace, refresh = true)
+                    }
                 }
             }
         }
     }
 
-    fun load(accountId: String, refresh: Boolean = false) {
+    fun load(accountId: String, workspaceId: String, refresh: Boolean = false) {
         lastAccountId = accountId
+        lastWorkspaceId = workspaceId
         // The deep link and the sheet's on-resume refresh can fire back to back;
         // restarting keeps a single in-flight query.
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _loading.value = true
             try {
-                _result.value = integrationsApi.githubRepos(accountId, refresh)
+                _result.value = integrationsApi.githubRepos(accountId, workspaceId, refresh)
                 _error.value = null
                 _loading.value = false
             } catch (e: CancellationException) {

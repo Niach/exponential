@@ -20,6 +20,8 @@ const STATE_TTL_MS = 60 * 60 * 1000
 
 interface SetupStatePayload {
   u: string // initiating user id
+  w?: string // workspace the claim links the installation to
+  o?: boolean // OAuth-claim purpose (consumed only by the OAuth callback)
   d?: boolean // launched from an in-app dialog → self-closing landing page
   m?: boolean // launched from a native mobile client → exp:// deep-link page
   n: string // single-use nonce
@@ -46,13 +48,20 @@ function pruneConsumedNonces(now: number) {
 
 export function mintGithubSetupState(
   userId: string,
-  opts?: { dialog?: boolean; mobile?: boolean },
+  opts?: {
+    dialog?: boolean
+    mobile?: boolean
+    workspaceId?: string
+    oauth?: boolean
+  },
   now: number = Date.now()
 ): string | undefined {
   const key = secret()
   if (!key) return undefined
   const payload: SetupStatePayload = {
     u: userId,
+    ...(opts?.workspaceId ? { w: opts.workspaceId } : {}),
+    ...(opts?.oauth ? { o: true } : {}),
     ...(opts?.dialog ? { d: true } : {}),
     ...(opts?.mobile ? { m: true } : {}),
     n: crypto.randomBytes(16).toString(`base64url`),
@@ -100,16 +109,20 @@ export function githubSetupStateWantsMobile(state: string | null): boolean {
   return decodePayload(state)?.m === true
 }
 
-// Verify + consume: returns the initiating user id only when the signature,
-// expiry, and single-use nonce all hold AND the token was minted for
-// `sessionUserId` (the user the callback's browser session resolves to). The
-// nonce is burned only on full success, so a callback that lands without a
-// session doesn't invalidate the link for a signed-in retry.
+// Verify + consume: returns the initiating user id (+ target workspace) only
+// when the signature, expiry, and single-use nonce all hold AND the token was
+// minted for `sessionUserId` (the user the callback's browser session resolves
+// to). The nonce is burned only on full success, so a callback that lands
+// without a session doesn't invalidate the link for a signed-in retry.
+// `expectOauth` pins the token's purpose: an install-flow state can't be
+// replayed against the OAuth callback (or vice versa) — the two callbacks
+// create workspace links under different proofs of control.
 export function consumeGithubSetupState(
   state: string | null,
   sessionUserId: string | null,
+  opts?: { expectOauth?: boolean },
   now: number = Date.now()
-): { userId: string } | null {
+): { userId: string; workspaceId: string | null } | null {
   if (!state || !sessionUserId) return null
   const key = secret()
   if (!key) return null
@@ -125,8 +138,81 @@ export function consumeGithubSetupState(
   if (!payload) return null
   if (payload.exp <= now) return null
   if (payload.u !== sessionUserId) return null
+  if ((payload.o === true) !== (opts?.expectOauth === true)) return null
   pruneConsumedNonces(now)
   if (consumedNonces.has(payload.n)) return null
   consumedNonces.set(payload.n, payload.exp)
-  return { userId: payload.u }
+  return { userId: payload.u, workspaceId: payload.w ?? null }
+}
+
+// ---------------------------------------------------------------------------
+// Claim ticket — the OAuth callback's hand-off to the /integrations/github/
+// claim page when the user's GitHub account has SEVERAL installations to pick
+// from. Same HMAC scheme as the setup state, but deliberately NOT single-use:
+// linking is idempotent and the ticket is bound to user + workspace + the
+// exact installation-id set the callback enumerated, so replaying it can only
+// re-create the same links. Short TTL keeps the window tight.
+// ---------------------------------------------------------------------------
+
+const CLAIM_TICKET_TTL_MS = 15 * 60 * 1000
+
+export interface GithubClaimTicket {
+  u: string // claiming user id
+  w: string // workspace the links target
+  ids: number[] // installation ids the OAuth enumeration proved control of
+  m?: boolean // mobile flow → claim page shows the exp:// return card
+  d?: boolean // dialog flow → claim page self-closes into the opener
+  exp: number
+}
+
+export function mintGithubClaimTicket(
+  payload: Omit<GithubClaimTicket, `exp`>,
+  now: number = Date.now()
+): string | undefined {
+  const key = secret()
+  if (!key) return undefined
+  const full: GithubClaimTicket = { ...payload, exp: now + CLAIM_TICKET_TTL_MS }
+  const body = Buffer.from(JSON.stringify(full)).toString(`base64url`)
+  return `${body}.${sign(body, key)}`
+}
+
+// Verify a claim ticket: signature + expiry + minted-for-this-user. Returns
+// null on any mismatch — the claim procedures treat that as "restart the
+// connect flow".
+export function readGithubClaimTicket(
+  ticket: string | null,
+  sessionUserId: string | null,
+  now: number = Date.now()
+): GithubClaimTicket | null {
+  if (!ticket || !sessionUserId) return null
+  const key = secret()
+  if (!key) return null
+  const dot = ticket.lastIndexOf(`.`)
+  if (dot <= 0) return null
+  const body = ticket.slice(0, dot)
+  const sig = Buffer.from(ticket.slice(dot + 1))
+  const expected = Buffer.from(sign(body, key))
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(sig, expected)) {
+    return null
+  }
+  let payload: GithubClaimTicket
+  try {
+    payload = JSON.parse(
+      Buffer.from(body, `base64url`).toString(`utf8`)
+    ) as GithubClaimTicket
+  } catch {
+    return null
+  }
+  if (
+    typeof payload?.u !== `string` ||
+    typeof payload?.w !== `string` ||
+    !Array.isArray(payload?.ids) ||
+    payload.ids.some((id) => typeof id !== `number`) ||
+    typeof payload?.exp !== `number`
+  ) {
+    return null
+  }
+  if (payload.exp <= now) return null
+  if (payload.u !== sessionUserId) return null
+  return payload
 }

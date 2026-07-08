@@ -23,55 +23,74 @@ type ReposResult = {
   configured: boolean
   installed: boolean
   installUrl: string | null
+  connectUrl: string | null
   repos: PickerRepo[]
   hasMore: boolean
 }
 
 // Repo-first connect surface shared by workspace settings → Repositories, the
 // onboarding project step, and the create-project dialog. Self-contained: loads
-// the user's installable repos, offers an inline GitHub App connect when none
-// are installed, and re-detects after the user returns from the GitHub install
-// tab (window focus). Calls `onSelect` with the chosen repo.
+// the workspace's installable repos (its linked GitHub accounts), offers an
+// inline connect when none are linked, and re-detects after the user returns
+// from the GitHub hop (window focus). Calls `onSelect` with the chosen repo.
+//
+// The connect hop prefers `connectUrl` (the OAuth claim flow — one authorize
+// screen, no configure page) and falls back to `installUrl` (the install-page
+// round-trip) when the instance has no OAuth client secret. "Add more repos"
+// always uses the install page — that's where GitHub keeps repo grants.
 //
 // v4: repo-less projects no longer exist, so there is no skip escape. Every
 // surface uses the built-in inline install CTA; `installEmptyState` remains
 // for callers that need a custom App-absent state.
 export function GithubRepoPicker({
+  workspaceId,
   onSelect,
   installEmptyState,
 }: {
+  workspaceId: string
   onSelect: (repo: PickerRepo) => void
   installEmptyState?: ReactNode
 }) {
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const refresh = useCallback(async (force = false) => {
-    setLoading(true)
-    try {
-      setData(
-        await trpc.integrations.github.repos.query(
-          force ? { refresh: true } : undefined
+  const refresh = useCallback(
+    async (force = false) => {
+      setLoading(true)
+      try {
+        setData(
+          await trpc.integrations.github.repos.query({
+            workspaceId,
+            ...(force ? { refresh: true } : {}),
+          })
         )
-      )
-    } catch {
-      // Leave `data` as-is; the configured/installed branches degrade safely.
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      } catch {
+        // Leave `data` as-is; the configured/installed branches degrade safely.
+      } finally {
+        setLoading(false)
+      }
+    },
+    [workspaceId]
+  )
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
-  // Re-detect the connection after the user returns from the GitHub install
-  // tab — avoids brittle popup postMessage relays.
+  // Re-detect the connection after the user returns from the GitHub hop —
+  // avoids brittle popup postMessage relays.
   useEffect(() => {
     const onFocus = () => void refresh(true)
     window.addEventListener(`focus`, onFocus)
     return () => window.removeEventListener(`focus`, onFocus)
   }, [refresh])
+
+  const openConnect = () => {
+    const url = data?.connectUrl ?? data?.installUrl
+    if (url) {
+      window.open(url, `gh-install`, `popup,width=980,height=820`)
+    }
+  }
 
   const openInstall = () => {
     if (data?.installUrl) {
@@ -102,7 +121,8 @@ export function GithubRepoPicker({
     )
   }
 
-  // Configured but not installed → inline connect (or the caller's own CTA).
+  // Configured but no GitHub account linked to this workspace → inline connect
+  // (or the caller's own CTA).
   if (!data.installed) {
     if (installEmptyState) return <>{installEmptyState}</>
     return (
@@ -110,11 +130,12 @@ export function GithubRepoPicker({
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
           <Github className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            Connect the Exponential GitHub App to pick a repository to code in.
+            Connect a GitHub account to this workspace to pick a repository to
+            code in.
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" onClick={openInstall}>
+          <Button type="button" onClick={openConnect}>
             <Github className="mr-2 h-4 w-4" />
             Connect GitHub
           </Button>

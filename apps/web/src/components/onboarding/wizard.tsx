@@ -210,7 +210,7 @@ export function OnboardingWizard({
                     </Button>
                   </div>
                 ) : (
-                  <GithubRepoPicker onSelect={setRepo} />
+                  <GithubRepoPicker workspaceId={workspaceId} onSelect={setRepo} />
                 )}
               </div>
             )}

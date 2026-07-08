@@ -263,7 +263,7 @@ impl CreateProjectDialogView {
                 .spawn(async move {
                     let registry = fetch_repositories(&trpc, &workspace_id)
                         .map_err(|err| err.to_string());
-                    let github = fetch_github_repos(&trpc, refresh)
+                    let github = fetch_github_repos(&trpc, &workspace_id, refresh)
                         .map_err(|err| err.to_string());
                     (registry, github)
                 })
@@ -593,9 +593,16 @@ impl CreateProjectDialogView {
             .map(|result| result.configured && !result.installed)
             .unwrap_or(false);
         if configured_not_installed {
-            let install_url = github_result.and_then(|result| result.install_url.clone());
+            // Connect claims the account for the workspace: prefer the
+            // single-consent connect URL, fall back to the App install page.
+            let connect_url = github_result.and_then(|result| {
+                result
+                    .connect_url
+                    .clone()
+                    .or_else(|| result.install_url.clone())
+            });
             let mut row = h_flex().flex_wrap().gap_2().items_center();
-            if let Some(url) = install_url {
+            if let Some(url) = connect_url {
                 row = row.child(
                     Button::new("project-repo-connect-gh")
                         .outline()

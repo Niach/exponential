@@ -1,22 +1,76 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// One installation resolves for every user; the repos query then dedupes across
-// installations. Keeping db + install resolution stable lets the tests isolate
-// the per-user repo cache behavior (fresh serve, refresh bypass, invalidation).
-const INSTALL_ROWS = [{ installationId: 1, accountLogin: `acme` }]
+// One linked installation resolves for every workspace; the repos query then
+// aggregates + caches per workspace. A queue lets individual tests override
+// specific SELECT results (e.g. unlink's in-use check); everything else gets
+// the default link row, which keeps the cache tests isolated to cache
+// behavior (fresh serve, refresh bypass, invalidation, per-workspace keys).
+const DEFAULT_ROWS = [
+  { installationId: 1, accountLogin: `acme`, accountType: `User` },
+]
+const selectQueue: unknown[][] = []
+function nextRows(): unknown[] {
+  return selectQueue.length > 0 ? selectQueue.shift()! : DEFAULT_ROWS
+}
+
+const inserted: Record<string, unknown>[] = []
+const deletes: number[] = []
 
 vi.mock(`@/db/connection`, () => ({
   db: {
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(INSTALL_ROWS),
-        limit: () => Promise.resolve(INSTALL_ROWS),
-      }),
+    select: () => {
+      const rows = nextRows()
+      const chain: {
+        from: () => typeof chain
+        innerJoin: () => typeof chain
+        where: () => typeof chain
+        limit: () => Promise<unknown[]>
+        then: (
+          onFulfilled: (rows: unknown[]) => unknown,
+          onRejected?: (err: unknown) => unknown
+        ) => Promise<unknown>
+      } = {
+        from: () => chain,
+        innerJoin: () => chain,
+        where: () => chain,
+        limit: () => Promise.resolve(rows),
+        then: (onFulfilled, onRejected) =>
+          Promise.resolve(rows).then(onFulfilled, onRejected),
+      }
+      return chain
+    },
+    insert: () => {
+      const chain = {
+        values: (v: Record<string, unknown> | Record<string, unknown>[]) => {
+          inserted.push(...(Array.isArray(v) ? v : [v]))
+          return chain
+        },
+        onConflictDoNothing: () => Promise.resolve(),
+      }
+      return chain
+    },
+    delete: () => ({
+      where: () => {
+        deletes.push(1)
+        return Promise.resolve()
+      },
     }),
   },
 }))
 
-const listInstallationRepos = vi.fn(async () => ({
+vi.mock(`@/lib/admin`, () => ({
+  isUserAdmin: vi.fn(async () => false),
+}))
+
+const assertWorkspaceMember = vi.fn(
+  async (..._args: unknown[]) => ({ role: `owner` })
+)
+vi.mock(`@/lib/workspace-membership`, () => ({
+  assertWorkspaceMember: (...args: unknown[]) => assertWorkspaceMember(...args),
+  getUserWorkspaceIds: vi.fn(async () => [`ws-union`]),
+}))
+
+const listAllInstallationRepos = vi.fn(async (_installationId: number) => ({
   repos: [
     {
       fullName: `acme/repo`,
@@ -28,15 +82,11 @@ const listInstallationRepos = vi.fn(async () => ({
   hasMore: false,
 }))
 
-// resolveInstallations now admin-gates unattributed rows; treat the test
-// caller as a regular user with attributed rows.
-vi.mock(`@/lib/admin`, () => ({
-  isUserAdmin: vi.fn(async () => false),
-}))
-
-// Captures the signed setup-state token passed into each minted install URL
-// so the platform tests can decode its markers.
+// Captures the signed state tokens passed into each minted URL so the
+// platform/purpose tests can decode their markers (the setup-state module
+// stays REAL — minting and consuming exercise the true HMAC path).
 const installUrlStates: (string | undefined)[] = []
+const connectUrlStates: (string | undefined)[] = []
 
 vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => true,
@@ -44,8 +94,15 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
     installUrlStates.push(state)
     return `https://install.example`
   },
-  listAppInstallations: vi.fn(async () => []),
-  listInstallationRepos: () => listInstallationRepos(),
+  githubOAuthAuthorizeUrl: (state?: string) => {
+    connectUrlStates.push(state)
+    return state ? `https://oauth.example` : null
+  },
+  installationIdForRepo: vi.fn(async () => 1),
+  installationManageUrl: (inst: { installationId: number }) =>
+    `https://manage.example/${inst.installationId}`,
+  listAllInstallationRepos: (...args: unknown[]) =>
+    listAllInstallationRepos(...(args as [number])),
 }))
 
 import {
@@ -53,82 +110,181 @@ import {
   invalidateRepoCache,
 } from "@/lib/trpc/integrations"
 import {
+  consumeGithubSetupState,
   githubSetupStateWantsDialog,
   githubSetupStateWantsMobile,
+  mintGithubClaimTicket,
 } from "@/lib/integrations/github-setup-state"
 
- 
 function callerFor(userId: string) {
   return integrationsRouter.createCaller({
     session: { user: { id: userId } },
-     
-  } as any)
+  } as never)
 }
 
-describe(`integrations.github.repos cache`, () => {
-  beforeEach(() => {
-    listInstallationRepos.mockClear()
+let wsCounter = 0
+function freshWorkspaceId(): string {
+  wsCounter += 1
+  return `00000000-0000-4000-8000-${String(wsCounter).padStart(12, `0`)}`
+}
+
+beforeEach(() => {
+  process.env.BETTER_AUTH_SECRET = `test-secret-test-secret-test-secret!`
+  listAllInstallationRepos.mockClear()
+  assertWorkspaceMember.mockClear()
+  selectQueue.length = 0
+  inserted.length = 0
+  deletes.length = 0
+  installUrlStates.length = 0
+  connectUrlStates.length = 0
+})
+
+describe(`integrations.github.repos scoping`, () => {
+  it(`member-gates the workspace-scoped path`, async () => {
+    const workspaceId = freshWorkspaceId()
+    await callerFor(`user-a`).github.repos({ workspaceId })
+    expect(assertWorkspaceMember).toHaveBeenCalledWith(`user-a`, workspaceId)
   })
 
-  it(`serves a fresh cache entry without re-hitting GitHub`, async () => {
+  it(`rejects a call without a workspaceId (the shim is gone)`, async () => {
+    await expect(
+      // @ts-expect-error — the input now requires workspaceId; simulate an
+      // outdated client sending none.
+      callerFor(`user-legacy`).github.repos()
+    ).rejects.toThrow()
+    expect(assertWorkspaceMember).not.toHaveBeenCalled()
+  })
+
+  it(`mints a workspace-bound connect URL`, async () => {
+    const workspaceId = freshWorkspaceId()
+    const result = await callerFor(`user-a`).github.repos({ workspaceId })
+    expect(result.connectUrl).toBe(`https://oauth.example`)
+    // The state inside carries the OAuth purpose + the target workspace.
+    const state = connectUrlStates.at(-1) ?? null
+    expect(
+      consumeGithubSetupState(state, `user-a`, { expectOauth: true })
+    ).toEqual({ userId: `user-a`, workspaceId })
+  })
+})
+
+describe(`integrations.github.repos cache`, () => {
+  it(`serves a fresh cache entry without re-hitting GitHub (keyed per workspace)`, async () => {
     const caller = callerFor(`user-fresh`)
-    await caller.github.repos()
-    expect(listInstallationRepos).toHaveBeenCalledTimes(1)
+    const wsA = freshWorkspaceId()
+    const wsB = freshWorkspaceId()
+
+    await caller.github.repos({ workspaceId: wsA })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
 
     // Second call within the TTL is served from cache — GitHub not re-hit.
-    await caller.github.repos()
-    expect(listInstallationRepos).toHaveBeenCalledTimes(1)
+    await caller.github.repos({ workspaceId: wsA })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
+
+    // A different workspace never shares the entry.
+    await caller.github.repos({ workspaceId: wsB })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(2)
   })
 
   it(`bypasses the cache when refresh is set`, async () => {
     const caller = callerFor(`user-refresh`)
-    await caller.github.repos()
-    expect(listInstallationRepos).toHaveBeenCalledTimes(1)
+    const workspaceId = freshWorkspaceId()
+    await caller.github.repos({ workspaceId })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
 
     // refresh: true drops the cached entry before fetching → re-hits GitHub.
-    await caller.github.repos({ refresh: true })
-    expect(listInstallationRepos).toHaveBeenCalledTimes(2)
+    await caller.github.repos({ workspaceId, refresh: true })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(2)
   })
 
-  it(`re-hits GitHub after invalidateRepoCache (the setup-redirect path)`, async () => {
-    const userId = `user-setup`
-    const caller = callerFor(userId)
-    await caller.github.repos()
-    expect(listInstallationRepos).toHaveBeenCalledTimes(1)
+  it(`re-hits GitHub after invalidateRepoCache (the claim/setup path)`, async () => {
+    const caller = callerFor(`user-setup`)
+    const workspaceId = freshWorkspaceId()
+    await caller.github.repos({ workspaceId })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
 
-    // The setup route invalidates the user's entry when an install lands.
-    invalidateRepoCache(userId)
+    // The claim callback / setup route invalidates the workspace's entry when
+    // a link lands.
+    invalidateRepoCache(workspaceId)
 
-    await caller.github.repos()
-    expect(listInstallationRepos).toHaveBeenCalledTimes(2)
+    await caller.github.repos({ workspaceId })
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(2)
   })
 })
 
 describe(`integrations.github.repos install URL platform marker`, () => {
-  beforeEach(() => {
-    process.env.BETTER_AUTH_SECRET = `test-secret-test-secret-test-secret!`
-    installUrlStates.length = 0
-  })
-
   it(`marks the minted state mobile only when platform is "mobile"`, async () => {
     const caller = callerFor(`user-platform`)
+    const workspaceId = freshWorkspaceId()
 
-    await caller.github.repos({ platform: `mobile` })
+    await caller.github.repos({ workspaceId, platform: `mobile` })
     const mobileState = installUrlStates.at(-1) ?? null
     expect(githubSetupStateWantsMobile(mobileState)).toBe(true)
     // The mobile marker rides alongside the dialog flag, never instead of it.
     expect(githubSetupStateWantsDialog(mobileState)).toBe(true)
 
-    // Cached serve (same user, within TTL) still mints per-request, so a web
-    // call right after a mobile one must NOT inherit the mobile marker.
-    await caller.github.repos()
+    // Cached serve (same workspace, within TTL) still mints per-request, so a
+    // web call right after a mobile one must NOT inherit the mobile marker.
+    await caller.github.repos({ workspaceId })
     const webState = installUrlStates.at(-1) ?? null
     expect(githubSetupStateWantsMobile(webState)).toBe(false)
     expect(githubSetupStateWantsDialog(webState)).toBe(true)
 
-    await caller.github.repos({ platform: `web` })
+    await caller.github.repos({ workspaceId, platform: `web` })
     expect(githubSetupStateWantsMobile(installUrlStates.at(-1) ?? null)).toBe(
       false
     )
+  })
+})
+
+describe(`integrations.github.claimLinks guards`, () => {
+  it(`refuses installation ids outside the ticket's verified set`, async () => {
+    const workspaceId = freshWorkspaceId()
+    const ticket = mintGithubClaimTicket({
+      u: `user-claim`,
+      w: workspaceId,
+      ids: [1, 2],
+    })!
+    await expect(
+      callerFor(`user-claim`).github.claimLinks({
+        ticket,
+        installationIds: [999],
+      })
+    ).rejects.toThrow(/didn't verify/)
+  })
+
+  it(`refuses a ticket minted for another user`, async () => {
+    const ticket = mintGithubClaimTicket({
+      u: `victim`,
+      w: freshWorkspaceId(),
+      ids: [1],
+    })!
+    await expect(
+      callerFor(`attacker`).github.claimLinks({ ticket, installationIds: [1] })
+    ).rejects.toThrow(/expired or belongs to another session/)
+  })
+})
+
+describe(`integrations.github.unlink`, () => {
+  it(`CONFLICTs while connected repos still use the installation`, async () => {
+    // First SELECT in unlink = the in-use repos check.
+    selectQueue.push([{ id: `repo-1` }, { id: `repo-2` }])
+    await expect(
+      callerFor(`user-unlink`).github.unlink({
+        workspaceId: freshWorkspaceId(),
+        installationId: 1,
+      })
+    ).rejects.toThrow(/2 connected repositories use this GitHub account/)
+    expect(deletes).toHaveLength(0)
+  })
+
+  it(`deletes the link once no repos use the installation`, async () => {
+    selectQueue.push([]) // in-use check → none
+    selectQueue.push([{ id: `gi-row-uuid` }]) // installation row lookup
+    const result = await callerFor(`user-unlink`).github.unlink({
+      workspaceId: freshWorkspaceId(),
+      installationId: 1,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(deletes).toHaveLength(1)
   })
 })

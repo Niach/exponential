@@ -151,8 +151,9 @@ impl RepositoriesPane {
                 .background_executor()
                 .spawn(async move {
                     // Banner is best-effort (web: status errors are ignored);
-                    // the repo list carries its own error state.
-                    let status = fetch_github_status(&trpc).ok();
+                    // the repo list carries its own error state. Status is
+                    // scoped to the workspace's claimed installations.
+                    let status = fetch_github_status(&trpc, &workspace_id).ok();
                     let repos = fetch_repositories(&trpc, &workspace_id)
                         .map_err(|err| err.to_string());
                     Loaded { status, repos }
@@ -274,12 +275,19 @@ impl Render for RepositoriesPane {
                                      repositories here.",
                                 ),
                             );
-                        if let Some(url) = status.install_url.clone() {
+                        // Connect claims the account for the workspace: prefer
+                        // the single-consent connect URL, fall back to the App
+                        // install page.
+                        let connect_url = status
+                            .connect_url
+                            .clone()
+                            .or_else(|| status.install_url.clone());
+                        if let Some(url) = connect_url {
                             banner = banner.child(
                                 Button::new("gh-install")
                                     .outline()
                                     .xsmall()
-                                    .label("Install GitHub App")
+                                    .label("Connect GitHub")
                                     .icon(IconName::ExternalLink)
                                     .on_click(move |_, _, cx| open_url(cx, url.clone())),
                             );

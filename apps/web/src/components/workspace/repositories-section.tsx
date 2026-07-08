@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from "react"
-import { ExternalLink, Github, Lock, Sparkles, Trash2 } from "lucide-react"
+import {
+  AlertTriangle,
+  Building2,
+  ExternalLink,
+  Github,
+  Lock,
+  Sparkles,
+  Trash2,
+  Unlink,
+  User,
+} from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +44,7 @@ type RepoRowData = RepoList[number]
 type GithubStatus = Awaited<
   ReturnType<typeof trpc.integrations.github.status.query>
 >
+type GithubInstallation = GithubStatus[`installations`][number]
 
 export function WorkspaceRepositoriesSection({
   workspaceId,
@@ -48,8 +59,9 @@ export function WorkspaceRepositoriesSection({
   // lib/billing.ts) — renders the inline upgrade nudge instead of a bare error.
   const [limitError, setLimitError] = useState<string | null>(null)
 
-  // GitHub App install state (per-user — github_installations rows belong to
-  // the signed-in user, not the workspace). Drives the banner above Connect.
+  // The GitHub accounts (App installations) linked to THIS workspace — drives
+  // the chips above Connect. Linking happens via the OAuth claim flow
+  // (connectUrl) or the install-page round-trip fallback (installUrl).
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null)
 
   const refresh = useCallback(async () => {
@@ -66,36 +78,36 @@ export function WorkspaceRepositoriesSection({
 
   const refreshGithubStatus = useCallback(async () => {
     try {
-      setGithubStatus(await trpc.integrations.github.status.query())
+      setGithubStatus(
+        await trpc.integrations.github.status.query({ workspaceId })
+      )
     } catch {
       // Banner is a best-effort hint; the connect dialog self-detects anyway.
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void refreshGithubStatus()
   }, [refreshGithubStatus])
 
-  // Re-detect the install after the user returns from the GitHub install
-  // popup — same window-focus convention as GithubRepoPicker.
+  // Re-detect links + repo flags after the user returns from a GitHub popup —
+  // same window-focus convention as GithubRepoPicker.
   useEffect(() => {
-    const onFocus = () => void refreshGithubStatus()
+    const onFocus = () => {
+      void refreshGithubStatus()
+      void refresh()
+    }
     window.addEventListener(`focus`, onFocus)
     return () => window.removeEventListener(`focus`, onFocus)
-  }, [refreshGithubStatus])
+  }, [refresh, refreshGithubStatus])
 
-  const openInstall = () => {
-    if (!githubStatus?.installUrl) return
-    // The install URL already carries a signed per-user state token (it drives
-    // both install attribution and the self-closing /integrations/github/
-    // installed landing page) — never append query params to it. The focus
-    // listener above re-detects the install when the popup hands focus back,
-    // the picker's popup convention.
-    window.open(
-      githubStatus.installUrl,
-      `gh-install`,
-      `popup,width=980,height=820`
-    )
+  const openGithubPopup = (url: string | null | undefined) => {
+    if (!url) return
+    // Connect/install URLs carry a signed single-use state token (it drives
+    // the workspace claim and the self-closing landing page) — never append
+    // query params. The focus listener above re-detects when the popup hands
+    // focus back.
+    window.open(url, `gh-install`, `popup,width=980,height=820`)
   }
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -105,6 +117,7 @@ export function WorkspaceRepositoriesSection({
     try {
       await fn()
       await refresh()
+      await refreshGithubStatus()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (isPlanLimitError(err)) {
@@ -137,7 +150,22 @@ export function WorkspaceRepositoriesSection({
       }
     })
 
+  const handleUnlink = (installationId: number) =>
+    run(() =>
+      trpc.integrations.github.unlink.mutate(
+        { workspaceId, installationId },
+        { context: { skipErrorToast: true } }
+      )
+    )
+
   const count = repos?.length ?? 0
+  const connectHopUrl = githubStatus
+    ? (githubStatus.connectUrl ?? githubStatus.installUrl)
+    : null
+  const installations = githubStatus?.installations ?? []
+  const manageUrlForRepo = (repo: RepoRowData) =>
+    installations.find((inst) => inst.installationId === repo.installationId)
+      ?.manageUrl ?? githubStatus?.installUrl ?? null
 
   return (
     <>
@@ -160,43 +188,47 @@ export function WorkspaceRepositoriesSection({
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
               <Github className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 flex-1">
-                The Exponential GitHub App isn&apos;t installed for your
-                account yet. Install it to connect repositories here.
+                No GitHub account is connected to this workspace yet. Connect
+                one to pick repositories here.
               </span>
-              {githubStatus.installUrl && (
-                <Button size="sm" variant="outline" onClick={openInstall}>
-                  Install GitHub App
+              {connectHopUrl && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openGithubPopup(connectHopUrl)}
+                >
+                  Connect GitHub
                 </Button>
               )}
             </div>
           )}
 
-          {githubStatus?.configured && githubStatus.installed && (
-            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              <Github className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                GitHub App installed
-                {githubStatus.accounts.length > 0
-                  ? ` as ${githubStatus.accounts.join(`, `)}`
-                  : ``}
-              </span>
-              {githubStatus.installUrl && (
-                <Button
-                  asChild
-                  variant="link"
-                  size="sm"
-                  className="h-auto px-0 text-xs text-muted-foreground"
-                >
-                  <a
-                    href={githubStatus.installUrl}
-                    target="_blank"
-                    rel="noreferrer"
+          {githubStatus?.configured && installations.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <Github className="h-3.5 w-3.5 shrink-0" />
+                <span>Connected GitHub accounts</span>
+                {connectHopUrl && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto px-0 text-xs text-muted-foreground"
+                    onClick={() => openGithubPopup(connectHopUrl)}
                   >
-                    Manage on GitHub
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </Button>
-              )}
+                    Connect another…
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {installations.map((inst) => (
+                  <InstallationChip
+                    key={inst.installationId}
+                    installation={inst}
+                    busy={busy}
+                    onUnlink={() => handleUnlink(inst.installationId)}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
@@ -235,6 +267,7 @@ export function WorkspaceRepositoriesSection({
                   key={repo.id}
                   repo={repo}
                   busy={busy}
+                  manageUrl={manageUrlForRepo(repo)}
                   onRemove={() =>
                     run(() =>
                       trpc.repositories.remove.mutate(
@@ -255,24 +288,74 @@ export function WorkspaceRepositoriesSection({
           <DialogHeader>
             <DialogTitle>Connect a repository</DialogTitle>
             <DialogDescription>
-              Pick a repository the Exponential GitHub App is installed on. It
-              becomes available to point this workspace&apos;s projects at.
+              Pick a repository from this workspace&apos;s connected GitHub
+              accounts. It becomes available to point this workspace&apos;s
+              projects at.
             </DialogDescription>
           </DialogHeader>
-          <GithubRepoPicker onSelect={handleConnect} />
+          <GithubRepoPicker workspaceId={workspaceId} onSelect={handleConnect} />
         </DialogContent>
       </Dialog>
     </>
   )
 }
 
+// One linked GitHub account: login + manage link + unlink. Unlink is blocked
+// server-side (CONFLICT) while connected repos still use the account — the
+// error renders in the section's inline error box.
+function InstallationChip({
+  installation,
+  busy,
+  onUnlink,
+}: {
+  installation: GithubInstallation
+  busy: boolean
+  onUnlink: () => void
+}) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
+      {installation.accountType === `Organization` ? (
+        <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      ) : (
+        <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      )}
+      <span className="font-medium">
+        {installation.accountLogin ?? `Installation ${installation.installationId}`}
+      </span>
+      <Button
+        asChild
+        variant="ghost"
+        size="icon"
+        className="h-5 w-5 text-muted-foreground"
+        title="Manage repository access on GitHub"
+      >
+        <a href={installation.manageUrl} target="_blank" rel="noreferrer">
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-5 w-5 text-muted-foreground hover:text-destructive"
+        disabled={busy}
+        onClick={onUnlink}
+        title="Disconnect this GitHub account from the workspace"
+      >
+        <Unlink className="h-3 w-3" />
+      </Button>
+    </div>
+  )
+}
+
 function RepoRow({
   repo,
   busy,
+  manageUrl,
   onRemove,
 }: {
   repo: RepoRowData
   busy: boolean
+  manageUrl: string | null
   onRemove: () => void
 }) {
   const inUse = repo.projects.length > 0
@@ -331,6 +414,29 @@ function RepoRow({
           </Button>
         )}
       </div>
+
+      {repo.inaccessibleAt && (
+        <div className="ml-6 flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            The GitHub App lost access to this repository — re-grant it on
+            GitHub.
+          </span>
+          {manageUrl && (
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+            >
+              <a href={manageUrl} target="_blank" rel="noreferrer">
+                Re-grant
+                <ExternalLink className="ml-1 h-3 w-3" />
+              </a>
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5 pl-6">
         {inUse ? (

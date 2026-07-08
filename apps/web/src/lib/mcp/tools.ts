@@ -1301,7 +1301,7 @@ export function registerExponentialTools(
     `exponential_repositories_add`,
     {
       title: `Register a repository`,
-      description: `Register a GitHub repository ("owner/name") in a workspace so projects can be backed by it. The Exponential GitHub App must already be installed on the repo. Owner/admin only.`,
+      description: `Register a GitHub repository ("owner/name") in a workspace so projects can be backed by it. The repo must belong to a GitHub account (App installation) connected to the workspace — connect one in workspace settings → Repositories. Owner/admin only.`,
       inputSchema: {
         workspaceId: z.string().uuid(),
         fullName: z

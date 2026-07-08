@@ -1,13 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
-import { eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { githubInstallations, issues } from "@/db/schema"
+import { githubInstallations, issues, repositories } from "@/db/schema"
 import {
   applyPrMergeState,
   applyPrOpenedState,
   findIssueIdByBranch,
 } from "@/lib/integrations/pr-sync"
+import { invalidateRepoCacheForInstallation } from "@/lib/trpc/integrations"
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -53,11 +54,11 @@ async function resolveIssueForPr(args: {
 // GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
 // (self-hosted uses the outbound cron for merges instead). Acts on
 // `installation` `created`/`unsuspend`/`deleted`/`suspend` (keep
-// github_installations in sync for the UI "installed" state), `pull_request`
-// `opened` (link an out-of-band PR to its issue) and `closed`+`merged` (flip
-// prState). Issues
-// resolve by exact prUrl OR by the `exp/<IDENTIFIER>` head-branch parse;
-// everything else is acked and ignored.
+// github_installations in sync), `installation_repositories` (repo-selection
+// changes → flag/heal `repositories.inaccessible_at`), `pull_request` `opened`
+// (link an out-of-band PR to its issue) and `closed`+`merged` (flip prState).
+// Issues resolve by exact prUrl OR by the `exp/<IDENTIFIER>` head-branch
+// parse; everything else is acked and ignored.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -110,13 +111,75 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         payload.action === `deleted` ||
         payload.action === `suspend`
       ) {
-        // A suspended installation can't mint tokens, so treat it like a
-        // removal: drop the row and stop reporting "installed". `unsuspend`
-        // re-inserts it above.
+        // A suspended installation can't mint tokens: flag every repo bound to
+        // it as inaccessible (the settings badge + the launcher's 412), then
+        // drop the row — its workspace links CASCADE away with it. `unsuspend`
+        // re-inserts above; the flag heals on the next successful mint/list.
+        await db
+          .update(repositories)
+          .set({ inaccessibleAt: new Date() })
+          .where(eq(repositories.installationId, installation.id))
         await db
           .delete(githubInstallations)
           .where(eq(githubInstallations.installationId, installation.id))
       }
+      await invalidateRepoCacheForInstallation(installation.id)
+      return jsonResponse(200, { ok: true })
+    }
+
+    // Repo-selection changes on an installation ("Only select repositories").
+    // `removed` repos lose token access instantly — flag their registry rows so
+    // the settings UI shows the no-access badge instead of the launcher
+    // discovering it at clone time. `added` repos regain access — clear the
+    // flag and heal a stale/NULL installation binding (match by full_name so
+    // rows connected before this webhook existed heal too).
+    if (event === `installation_repositories`) {
+      const payload = JSON.parse(rawBody) as {
+        action?: string
+        installation?: { id?: number; account?: { login?: string; type?: string } }
+        repositories_added?: Array<{ full_name?: string }>
+        repositories_removed?: Array<{ full_name?: string }>
+      }
+      const installation = payload.installation
+      if (!installation?.id) {
+        return jsonResponse(200, { ok: true })
+      }
+      // Keep the mirror row fresh (this event can arrive before any
+      // install/setup round-trip on instances that added the webhook late).
+      await db
+        .insert(githubInstallations)
+        .values({
+          installationId: installation.id,
+          accountLogin: installation.account?.login ?? null,
+          accountType: installation.account?.type ?? null,
+        })
+        .onConflictDoNothing()
+
+      const added = (payload.repositories_added ?? [])
+        .map((r) => r.full_name)
+        .filter((name): name is string => Boolean(name))
+      const removed = (payload.repositories_removed ?? [])
+        .map((r) => r.full_name)
+        .filter((name): name is string => Boolean(name))
+
+      if (removed.length > 0) {
+        await db
+          .update(repositories)
+          .set({ inaccessibleAt: new Date() })
+          .where(
+            and(
+              eq(repositories.installationId, installation.id),
+              inArray(repositories.fullName, removed)
+            )
+          )
+      }
+      if (added.length > 0) {
+        await db
+          .update(repositories)
+          .set({ inaccessibleAt: null, installationId: installation.id })
+          .where(inArray(repositories.fullName, added))
+      }
+      await invalidateRepoCacheForInstallation(installation.id)
       return jsonResponse(200, { ok: true })
     }
 

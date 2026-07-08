@@ -87,6 +87,7 @@ export function ConnectedRepoPicker({
     if (onConnectNew)
       return (
         <GithubRepoPicker
+          workspaceId={workspaceId}
           onSelect={handlePickerSelect}
           installEmptyState={installEmptyState}
         />
@@ -125,6 +126,7 @@ export function ConnectedRepoPicker({
       {onConnectNew &&
         (pickerOpen ? (
           <GithubRepoPicker
+            workspaceId={workspaceId}
             onSelect={handlePickerSelect}
             installEmptyState={installEmptyState}
           />

@@ -473,9 +473,11 @@ export const fcmTokens = pgTable(`fcm_tokens`, {
   ...timestamps,
 })
 
-// GitHub App installations (server-only, not synced). Captured by the install
-// setup route so the UI can show "installed" per user; token resolution itself
-// is storage-free (the App JWT looks up a repo's installation on demand).
+// GitHub App installations (server-only, not synced). Mirrored from the setup
+// redirect, the OAuth claim callback, and installation webhooks; token
+// resolution itself is storage-free (the App JWT looks up a repo's installation
+// on demand). Visibility is granted per workspace via githubInstallationLinks —
+// an unlinked row is invisible to every picker.
 export const githubInstallations = pgTable(`github_installations`, {
   id: uuidPk(),
   installationId: bigint(`installation_id`, { mode: `number` })
@@ -483,9 +485,39 @@ export const githubInstallations = pgTable(`github_installations`, {
     .unique(),
   accountLogin: text(`account_login`),
   accountType: varchar(`account_type`, { length: 20 }),
-  userId: text(`user_id`).references(() => users.id, { onDelete: `set null` }),
   ...timestamps,
 })
+
+// Workspace ↔ GitHub App installation claims (SERVER-ONLY, never synced).
+// A link means "this workspace may browse/connect this installation's repos".
+// Created by the OAuth claim flow (or the install-page round-trip fallback) —
+// both prove control of the GitHub account before linking. Many-to-many: one
+// org install can serve several workspaces, one workspace can link several
+// GitHub accounts. CASCADE on the installation FK: when an uninstall webhook
+// deletes the github_installations row, its links vanish with it.
+export const githubInstallationLinks = pgTable(
+  `github_installation_links`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    githubInstallationId: uuid(`github_installation_id`)
+      .notNull()
+      .references(() => githubInstallations.id, { onDelete: `cascade` }),
+    // Audit only — who completed the claim; never used for authorization.
+    createdByUserId: text(`created_by_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.workspaceId, table.githubInstallationId),
+    index(`idx_github_installation_links_installation`).on(
+      table.githubInstallationId
+    ),
+  ]
+)
 
 export const notifications = pgTable(
   `notifications`,
@@ -612,6 +644,10 @@ export const repositories = pgTable(
     // Cached GitHub App installation id; nullable — the App JWT can still
     // resolve it on demand (github-app.ts is storage-free).
     installationId: bigint(`installation_id`, { mode: `number` }),
+    // The App lost access to this repo (installation_repositories webhook, or a
+    // verified token mint failed). NULL = accessible as far as we know. Cleared
+    // by connect, a webhook re-grant, and the list heal pass.
+    inaccessibleAt: timestamp(`inaccessible_at`, { withTimezone: true }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
     ...timestamps,

@@ -14,11 +14,13 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => {
   }
 })
 
-// The connect gate (caller must be attributed to the repo's installation)
-// lives in the integrations router module; stub it so connect tests drive it
-// directly.
+// The connect gate (the repo must resolve to an installation linked to the
+// target workspace) lives in the integrations router module; stub it so
+// connect tests drive it directly.
 vi.mock(`@/lib/trpc/integrations`, () => ({
   assertRepoInstallationAccess: vi.fn(),
+  assertCanManageRepos: vi.fn(),
+  isInstallationLinkedToWorkspace: vi.fn(async () => true),
 }))
 
 import {
@@ -316,7 +318,7 @@ describe(`connectRepositoryInTx`, () => {
     await expect(
       connectRepositoryInTx(tx as never, input)
     ).resolves.toBe(`r1`)
-    expect(mockAssertRepoAccess).toHaveBeenCalledWith(`u1`, `acme/app`)
+    expect(mockAssertRepoAccess).toHaveBeenCalledWith(`ws1`, `acme/app`)
     // The persisted id is GitHub's authoritative one, never a client claim.
     expect(captured.values?.installationId).toBe(7)
   })
@@ -385,13 +387,14 @@ describe(`connectRepositoryInTx`, () => {
 // The `list` procedure heals stale default branches through this helper. A
 // custom `resolve` + `persist` exercise each branch without a live GitHub call.
 describe(`healRepoDefaultBranches`, () => {
+  type HealPatch = { defaultBranch?: string; clearInaccessible?: boolean }
   const rows = [
     { id: `r1`, fullName: `acme/one`, defaultBranch: `main` },
     { id: `r2`, fullName: `acme/two`, defaultBranch: `main` },
   ]
 
   it(`returns the live value and persists the fix when the stored branch disagrees`, async () => {
-    const persist = vi.fn<(id: string, branch: string) => Promise<void>>(
+    const persist = vi.fn<(id: string, patch: HealPatch) => Promise<void>>(
       async () => {}
     )
     const resolve = vi.fn(async (fullName: string) =>
@@ -404,11 +407,11 @@ describe(`healRepoDefaultBranches`, () => {
     expect(healed[1].defaultBranch).toBe(`master`)
     // Only the disagreeing row is written.
     expect(persist).toHaveBeenCalledTimes(1)
-    expect(persist).toHaveBeenCalledWith(`r2`, `master`)
+    expect(persist).toHaveBeenCalledWith(`r2`, { defaultBranch: `master` })
   })
 
   it(`leaves the stored value when the live lookup yields nothing`, async () => {
-    const persist = vi.fn<(id: string, branch: string) => Promise<void>>(
+    const persist = vi.fn<(id: string, patch: HealPatch) => Promise<void>>(
       async () => {}
     )
     const resolve = vi.fn(async () => null)
@@ -419,9 +422,47 @@ describe(`healRepoDefaultBranches`, () => {
     expect(persist).not.toHaveBeenCalled()
   })
 
+  it(`clears a stale no-access flag when the live lookup succeeds`, async () => {
+    // A resolved branch proves the App can reach the repo again — the heal
+    // clears `inaccessibleAt` even when the branch itself didn't change.
+    const flagged = {
+      id: `r1`,
+      fullName: `acme/one`,
+      defaultBranch: `main`,
+      inaccessibleAt: new Date(`2026-01-01T00:00:00Z`),
+    }
+    const persist = vi.fn<(id: string, patch: HealPatch) => Promise<void>>(
+      async () => {}
+    )
+    const resolve = vi.fn(async () => `main`)
+
+    const healed = await healRepoDefaultBranches([flagged], persist, resolve)
+
+    expect(healed[0].inaccessibleAt).toBeNull()
+    expect(persist).toHaveBeenCalledWith(`r1`, { clearInaccessible: true })
+  })
+
+  it(`never clears the no-access flag on a failed lookup`, async () => {
+    const flagged = {
+      id: `r1`,
+      fullName: `acme/one`,
+      defaultBranch: `main`,
+      inaccessibleAt: new Date(`2026-01-01T00:00:00Z`),
+    }
+    const persist = vi.fn<(id: string, patch: HealPatch) => Promise<void>>(
+      async () => {}
+    )
+    const resolve = vi.fn(async () => null)
+
+    const healed = await healRepoDefaultBranches([flagged], persist, resolve)
+
+    expect(healed[0].inaccessibleAt).toEqual(flagged.inaccessibleAt)
+    expect(persist).not.toHaveBeenCalled()
+  })
+
   it(`still returns the healed value when the persist write fails`, async () => {
     const persist = vi
-      .fn<(id: string, branch: string) => Promise<void>>()
+      .fn<(id: string, patch: HealPatch) => Promise<void>>()
       .mockRejectedValue(new Error(`db down`))
     const resolve = vi.fn(async () => `master`)
 
@@ -435,7 +476,7 @@ describe(`healRepoDefaultBranches`, () => {
   })
 
   it(`keeps the stored value when the resolve lookup throws`, async () => {
-    const persist = vi.fn<(id: string, branch: string) => Promise<void>>(
+    const persist = vi.fn<(id: string, patch: HealPatch) => Promise<void>>(
       async () => {}
     )
     const resolve = vi.fn(async () => {

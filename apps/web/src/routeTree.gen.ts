@@ -63,7 +63,9 @@ import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$worksp
 import { Route as WWorkspaceSlugAgentsIndexRouteImport } from './routes/w/$workspaceSlug/agents/index'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
+import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
+import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
 import { Route as WWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/index'
 import { Route as WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
 
@@ -350,10 +352,22 @@ const ApiIntegrationsGithubSetupRoute =
     path: '/api/integrations/github/setup',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiIntegrationsGithubCallbackRoute =
+  ApiIntegrationsGithubCallbackRouteImport.update({
+    id: '/api/integrations/github/callback',
+    path: '/api/integrations/github/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedIntegrationsGithubInstalledRoute =
   AuthenticatedIntegrationsGithubInstalledRouteImport.update({
     id: '/integrations/github/installed',
     path: '/integrations/github/installed',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedIntegrationsGithubClaimRoute =
+  AuthenticatedIntegrationsGithubClaimRouteImport.update({
+    id: '/integrations/github/claim',
+    path: '/integrations/github/claim',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const WWorkspaceSlugProjectsProjectSlugIndexRoute =
@@ -416,7 +430,9 @@ export interface FileRoutesByFullPath {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
+  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
@@ -472,7 +488,9 @@ export interface FileRoutesByTo {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
+  '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
+  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/agents': typeof WWorkspaceSlugAgentsIndexRoute
@@ -532,7 +550,9 @@ export interface FileRoutesById {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/_authenticated/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
+  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
@@ -592,7 +612,9 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/admin/'
     | '/w/$workspaceSlug/'
+    | '/integrations/github/claim'
     | '/integrations/github/installed'
+    | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/agents/'
@@ -648,7 +670,9 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/admin'
     | '/w/$workspaceSlug'
+    | '/integrations/github/claim'
     | '/integrations/github/installed'
+    | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/agents'
@@ -707,7 +731,9 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/_authenticated/admin/'
     | '/w/$workspaceSlug/'
+    | '/_authenticated/integrations/github/claim'
     | '/_authenticated/integrations/github/installed'
+    | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
     | '/w/$workspaceSlug/agents/'
@@ -759,6 +785,7 @@ export interface RootRouteChildren {
   ApiWebhooksGithubRoute: typeof ApiWebhooksGithubRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
+  ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
   ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
 }
@@ -1143,11 +1170,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIntegrationsGithubSetupRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/integrations/github/callback': {
+      id: '/api/integrations/github/callback'
+      path: '/api/integrations/github/callback'
+      fullPath: '/api/integrations/github/callback'
+      preLoaderRoute: typeof ApiIntegrationsGithubCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/integrations/github/installed': {
       id: '/_authenticated/integrations/github/installed'
       path: '/integrations/github/installed'
       fullPath: '/integrations/github/installed'
       preLoaderRoute: typeof AuthenticatedIntegrationsGithubInstalledRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/integrations/github/claim': {
+      id: '/_authenticated/integrations/github/claim'
+      path: '/integrations/github/claim'
+      fullPath: '/integrations/github/claim'
+      preLoaderRoute: typeof AuthenticatedIntegrationsGithubClaimRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/w/$workspaceSlug/projects/$projectSlug/': {
@@ -1190,6 +1231,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedFeedbackRoute: typeof AuthenticatedFeedbackRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
+  AuthenticatedIntegrationsGithubClaimRoute: typeof AuthenticatedIntegrationsGithubClaimRoute
   AuthenticatedIntegrationsGithubInstalledRoute: typeof AuthenticatedIntegrationsGithubInstalledRoute
 }
 
@@ -1199,6 +1241,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedAccountNotificationsRoute:
     AuthenticatedAccountNotificationsRoute,
+  AuthenticatedIntegrationsGithubClaimRoute:
+    AuthenticatedIntegrationsGithubClaimRoute,
   AuthenticatedIntegrationsGithubInstalledRoute:
     AuthenticatedIntegrationsGithubInstalledRoute,
 }
@@ -1276,6 +1320,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksGithubRoute: ApiWebhooksGithubRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
+  ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
   ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
 }

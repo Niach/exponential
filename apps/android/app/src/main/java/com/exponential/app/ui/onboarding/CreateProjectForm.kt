@@ -167,6 +167,7 @@ fun CreateProjectForm(
                 Text("Repository (required)", style = MaterialTheme.typography.labelMedium, color = secondary)
                 RepositorySelector(
                     accountId = accountId,
+                    workspaceId = workspaceId,
                     repos = state.repos,
                     loading = state.loadingRepos,
                     selection = repository,

@@ -18,6 +18,9 @@ import SwiftUI
 // newly connected repos appear without any manual step.
 struct GithubRepoPicker: View {
     let accountId: String
+    /// Scopes the repo query + connect hop to this workspace's linked GitHub
+    /// accounts (per-workspace installation claiming).
+    let workspaceId: String
     let integrationsApi: IntegrationsApi
     /// Called with the picked repo; the sheet dismisses itself afterwards.
     var onPick: (GithubPickerRepo) -> Void
@@ -86,7 +89,7 @@ struct GithubRepoPicker: View {
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Button {
-                openInstall(data)
+                openConnect(data)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left.forwardslash.chevron.right")
@@ -151,7 +154,7 @@ struct GithubRepoPicker: View {
             }
 
             if data.hasMore {
-                Button { openInstall(data) } label: {
+                Button { openManage(data) } label: {
                     Text("Don't see your repo? Manage repositories on GitHub.")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -161,13 +164,26 @@ struct GithubRepoPicker: View {
         }
     }
 
-    // Web parity (github-repo-picker.tsx): only the server-provided GitHub App
-    // install URL — the old `/account/integrations` fallback was removed in v5
-    // (repo management lives in workspace settings → Repositories). Opened in an
-    // ASWebAuthenticationSession: mobile-width rendering, and the server's
-    // `exp://github-connected` redirect dismisses it and hands control back.
-    private func openInstall(_ data: GithubReposResult) {
-        guard let urlString = data.installUrl, let url = URL(string: urlString) else { return }
+    // Connect action: claim a GitHub account for this workspace. Prefer the
+    // mobile-friendly OAuth `connectUrl` (single consent screen) and fall back
+    // to the GitHub App install page when it's absent.
+    private func openConnect(_ data: GithubReposResult) {
+        openInBrowser(data.connectUrl ?? data.installUrl)
+    }
+
+    // Manage action: grant more repos to an existing installation — always the
+    // GitHub App install/configure page.
+    private func openManage(_ data: GithubReposResult) {
+        openInBrowser(data.installUrl)
+    }
+
+    // Web parity (github-repo-picker.tsx): the old `/account/integrations`
+    // fallback was removed in v5 (repo management lives in workspace settings →
+    // Repositories). Opened in an ASWebAuthenticationSession: mobile-width
+    // rendering, and the server's `exp://github-connected` redirect dismisses it
+    // and hands control back.
+    private func openInBrowser(_ urlString: String?) {
+        guard let urlString, let url = URL(string: urlString) else { return }
         installSession.start(url: url) {
             Task { await load(refresh: true) }
         }
@@ -176,7 +192,7 @@ struct GithubRepoPicker: View {
     private func load(refresh: Bool = false) async {
         await MainActor.run { loading = true }
         do {
-            let r = try await integrationsApi.githubRepos(accountId: accountId, refresh: refresh)
+            let r = try await integrationsApi.githubRepos(accountId: accountId, workspaceId: workspaceId, refresh: refresh)
             await MainActor.run {
                 result = r
                 error = nil

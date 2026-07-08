@@ -69,11 +69,13 @@ export function DocsPage() {
 
           <h3>Create a project</h3>
           <p>
-            Every project is backed by exactly one GitHub repository. The
-            first-run wizard walks you through it: install the GitHub App,
+            The first-run wizard walks you through it: connect a GitHub
+            account to your workspace — a quick GitHub authorization — then
             pick the repo, name the project, and choose a short prefix (e.g.{` `}
             <code>EXP</code>) — issues are numbered with it (<code>EXP-1</code>,{` `}
-            <code>EXP-2</code>, …).
+            <code>EXP-2</code>, …). Repo pickers only offer repos from the
+            accounts your workspace has connected; granting access to more
+            repositories happens on GitHub&apos;s installation settings page.
           </p>
 
           <h3>Invite members</h3>

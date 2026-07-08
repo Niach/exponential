@@ -1,6 +1,8 @@
 import { and, eq, inArray, notExists, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  githubInstallationLinks,
+  githubInstallations,
   issues,
   projects,
   repositories,
@@ -31,8 +33,9 @@ const PUBLIC_PROJECT_PREFIX = `EXP`
 // The canonical dogfood project is always backed by this repo (a feedback
 // board with an OPTIONAL repo — v7 allows both). On this internal bootstrap
 // path we upsert the registry row DIRECTLY, with no GitHub App validation —
-// `installation_id` stays null and the empty-installationId self-heal
-// (github-app.ts) fills it in later.
+// `installation_id` starts null; ensurePublicRepositoryInstallation backfills
+// it (and the feedback workspace's installation link) from a live GitHub
+// lookup on every boot, best-effort.
 const PUBLIC_REPO_FULL_NAME = `Niach/exponential`
 // Pre-collapse deployments seeded this second project next to the dogfood one;
 // collapseLegacyFeedbackProject folds it away.
@@ -183,6 +186,71 @@ async function ensurePublicRepository(
     )
   }
   return row.id
+}
+
+// Best-effort self-heal for the dogfood repo's GitHub wiring: resolve the
+// repo's installation live (App JWT), mirror the installation row, backfill
+// the bootstrap repo row's null `installation_id`, and link the installation
+// to the feedback workspace so its pickers/token mints pass the workspace
+// link-gate. Idempotent; a GitHub outage or unconfigured App just logs and
+// retries next boot.
+async function ensurePublicRepositoryInstallation(publicWorkspaceId: string) {
+  const {
+    githubAppConfigured,
+    getInstallation,
+    installationIdForRepo,
+  } = await import(`@/lib/integrations/github-app`)
+  if (!githubAppConfigured()) return
+  try {
+    const installationId = await installationIdForRepo(PUBLIC_REPO_FULL_NAME)
+    if (installationId == null) {
+      console.warn(
+        `[bootstrap-cloud] GitHub App not installed on ${PUBLIC_REPO_FULL_NAME} — dogfood repo left unlinked`
+      )
+      return
+    }
+    const info = await getInstallation(installationId)
+    const [installationRow] = await db
+      .insert(githubInstallations)
+      .values({
+        installationId,
+        accountLogin: info?.account ?? null,
+        accountType: info?.accountType ?? null,
+      })
+      .onConflictDoUpdate({
+        target: githubInstallations.installationId,
+        set: {
+          accountLogin: info?.account ?? null,
+          accountType: info?.accountType ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ id: githubInstallations.id })
+    if (!installationRow) return
+
+    await db
+      .update(repositories)
+      .set({ installationId })
+      .where(
+        and(
+          eq(repositories.workspaceId, publicWorkspaceId),
+          eq(repositories.fullName, PUBLIC_REPO_FULL_NAME),
+          sql`${repositories.installationId} IS DISTINCT FROM ${installationId}`
+        )
+      )
+    await db
+      .insert(githubInstallationLinks)
+      .values({
+        workspaceId: publicWorkspaceId,
+        githubInstallationId: installationRow.id,
+      })
+      .onConflictDoNothing()
+  } catch (err) {
+    console.warn(
+      `[bootstrap-cloud] dogfood repo installation self-heal failed:`,
+      err
+    )
+  }
 }
 
 const FEEDBACK_WIDGET_NAME = `Exponential App`
@@ -355,6 +423,7 @@ export function bootstrapCloud(): Promise<void> {
         // legacy feedback project into the canonical one, then seed the
         // widget config — which needs the Exponential project as its target.
         await ensurePublicProject(publicWorkspaceId)
+        await ensurePublicRepositoryInstallation(publicWorkspaceId)
         await collapseLegacyFeedbackProject(publicWorkspaceId)
         await ensureFeedbackWidgetConfig(publicWorkspaceId)
       }

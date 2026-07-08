@@ -60,6 +60,7 @@ import com.exponential.app.ui.theme.glassRow
 @Composable
 fun GithubRepoPickerSheet(
     accountId: String,
+    workspaceId: String,
     onPick: (GithubPickerRepo) -> Unit,
     onDismiss: () -> Unit,
     viewModel: GithubRepoPickerViewModel = hiltViewModel(),
@@ -72,8 +73,8 @@ fun GithubRepoPickerSheet(
     // (new repos granted) refreshes without a manual tap. The first load isn't a
     // forced refresh; later resumes bypass the server cache.
     var hasLoaded by remember { mutableStateOf(false) }
-    LifecycleResumeEffect(accountId) {
-        viewModel.load(accountId, refresh = hasLoaded)
+    LifecycleResumeEffect(accountId, workspaceId) {
+        viewModel.load(accountId, workspaceId, refresh = hasLoaded)
         hasLoaded = true
         onPauseOrDispose {}
     }
@@ -102,7 +103,7 @@ fun GithubRepoPickerSheet(
                 data == null || !data.configured -> NotConfigured()
                 !data.installed -> NotInstalled(
                     data = data,
-                    onConnect = { viewModel.load(accountId, refresh = true) },
+                    onConnect = { viewModel.load(accountId, workspaceId, refresh = true) },
                 )
                 else -> InstalledList(
                     data = data,
@@ -155,14 +156,17 @@ private fun NotInstalled(data: GithubReposResult, onConnect: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
+        // Prefer the single-consent OAuth connect URL that claims the account for
+        // the workspace; fall back to the App install page on older servers.
+        val connectUrl = data.connectUrl ?: data.installUrl
         Button(
             onClick = {
-                data.installUrl?.let {
+                connectUrl?.let {
                     CustomTabsIntent.Builder().build()
                         .launchUrl(context, android.net.Uri.parse(it))
                 }
             },
-            enabled = data.installUrl != null,
+            enabled = connectUrl != null,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(16.dp))

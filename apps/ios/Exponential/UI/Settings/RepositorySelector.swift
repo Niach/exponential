@@ -101,6 +101,7 @@ struct RepositorySelector: View {
         .sheet(isPresented: $showAddByName) {
             GithubRepoPicker(
                 accountId: accountId,
+                workspaceId: workspaceId,
                 integrationsApi: deps.integrationsApi
             ) { repo in
                 addedRepo = repo

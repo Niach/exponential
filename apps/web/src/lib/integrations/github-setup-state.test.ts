@@ -3,7 +3,9 @@ import {
   consumeGithubSetupState,
   githubSetupStateWantsDialog,
   githubSetupStateWantsMobile,
+  mintGithubClaimTicket,
   mintGithubSetupState,
+  readGithubClaimTicket,
 } from "@/lib/integrations/github-setup-state"
 
 describe(`github setup state token`, () => {
@@ -16,6 +18,7 @@ describe(`github setup state token`, () => {
     expect(state).toBeTruthy()
     expect(consumeGithubSetupState(state!, `user-1`)).toEqual({
       userId: `user-1`,
+      workspaceId: null,
     })
   })
 
@@ -53,6 +56,7 @@ describe(`github setup state token`, () => {
     const state = mintGithubSetupState(`user-1`)!
     expect(consumeGithubSetupState(state, `user-1`)).toEqual({
       userId: `user-1`,
+      workspaceId: null,
     })
     expect(consumeGithubSetupState(state, `user-1`)).toBeNull()
   })
@@ -101,8 +105,90 @@ describe(`github setup state token`, () => {
     })!
     expect(consumeGithubSetupState(state, `user-1`)).toEqual({
       userId: `user-1`,
+      workspaceId: null,
     })
     // Single-use holds regardless of markers.
     expect(consumeGithubSetupState(state, `user-1`)).toBeNull()
+  })
+
+  it(`round-trips the target workspace id`, () => {
+    const state = mintGithubSetupState(`user-1`, { workspaceId: `ws-9` })!
+    expect(consumeGithubSetupState(state, `user-1`)).toEqual({
+      userId: `user-1`,
+      workspaceId: `ws-9`,
+    })
+  })
+
+  it(`pins the token purpose: an install state never consumes as an OAuth state (and vice versa)`, () => {
+    const installState = mintGithubSetupState(`user-1`, { workspaceId: `ws-9` })!
+    const oauthState = mintGithubSetupState(`user-1`, {
+      workspaceId: `ws-9`,
+      oauth: true,
+    })!
+    // Cross-purpose replays refuse without burning the nonce…
+    expect(
+      consumeGithubSetupState(installState, `user-1`, { expectOauth: true })
+    ).toBeNull()
+    expect(consumeGithubSetupState(oauthState, `user-1`)).toBeNull()
+    // …so the right callback can still consume each one.
+    expect(consumeGithubSetupState(installState, `user-1`)).toEqual({
+      userId: `user-1`,
+      workspaceId: `ws-9`,
+    })
+    expect(
+      consumeGithubSetupState(oauthState, `user-1`, { expectOauth: true })
+    ).toEqual({ userId: `user-1`, workspaceId: `ws-9` })
+  })
+})
+
+describe(`github claim ticket`, () => {
+  beforeEach(() => {
+    process.env.BETTER_AUTH_SECRET = `test-secret-test-secret-test-secret!`
+  })
+
+  const payload = { u: `user-1`, w: `ws-9`, ids: [1, 2, 3] }
+
+  it(`round-trips for the minting user`, () => {
+    const ticket = mintGithubClaimTicket(payload)!
+    const read = readGithubClaimTicket(ticket, `user-1`)
+    expect(read).toMatchObject(payload)
+  })
+
+  it(`is NOT single-use (linking is idempotent) but stays user-bound`, () => {
+    const ticket = mintGithubClaimTicket(payload)!
+    expect(readGithubClaimTicket(ticket, `user-1`)).toMatchObject(payload)
+    expect(readGithubClaimTicket(ticket, `user-1`)).toMatchObject(payload)
+    expect(readGithubClaimTicket(ticket, `attacker`)).toBeNull()
+    expect(readGithubClaimTicket(ticket, null)).toBeNull()
+  })
+
+  it(`refuses a tampered installation-id set`, () => {
+    const ticket = mintGithubClaimTicket(payload)!
+    const sig = ticket.slice(ticket.lastIndexOf(`.`) + 1)
+    const forged = Buffer.from(
+      JSON.stringify({ ...payload, ids: [999], exp: Date.now() + 60_000 })
+    ).toString(`base64url`)
+    expect(readGithubClaimTicket(`${forged}.${sig}`, `user-1`)).toBeNull()
+  })
+
+  it(`refuses an expired ticket`, () => {
+    const past = Date.now() - 60 * 60 * 1000
+    const ticket = mintGithubClaimTicket(payload, past)!
+    expect(readGithubClaimTicket(ticket, `user-1`)).toBeNull()
+  })
+
+  it(`refuses malformed payloads under a valid signature`, () => {
+    const ticket = mintGithubClaimTicket(payload)!
+    expect(readGithubClaimTicket(ticket.replaceAll(`.`, `,`), `user-1`)).toBeNull()
+    expect(readGithubClaimTicket(``, `user-1`)).toBeNull()
+    expect(readGithubClaimTicket(null, `user-1`)).toBeNull()
+  })
+
+  it(`carries the mobile/dialog markers`, () => {
+    const ticket = mintGithubClaimTicket({ ...payload, m: true, d: true })!
+    expect(readGithubClaimTicket(ticket, `user-1`)).toMatchObject({
+      m: true,
+      d: true,
+    })
   })
 })

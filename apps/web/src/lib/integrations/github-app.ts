@@ -9,9 +9,55 @@ import type { PullFile } from "@/lib/integrations/github-pr"
 const APP_ID = process.env.GITHUB_APP_ID
 const APP_SLUG = process.env.GITHUB_APP_SLUG
 const PRIVATE_KEY_B64 = process.env.GITHUB_APP_PRIVATE_KEY
+// The App's built-in OAuth credentials — powers the workspace claim flow (a
+// TRANSIENT user token used once to enumerate /user/installations, never
+// stored). Optional: unset → clients fall back to the install-page round-trip.
+const OAUTH_CLIENT_ID = process.env.GITHUB_APP_CLIENT_ID
+const OAUTH_CLIENT_SECRET = process.env.GITHUB_APP_CLIENT_SECRET
 
 export function githubAppConfigured(): boolean {
   return Boolean(APP_ID && PRIVATE_KEY_B64)
+}
+
+export function githubOAuthConfigured(): boolean {
+  return githubAppConfigured() && Boolean(OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET)
+}
+
+// The OAuth authorize hop for the workspace claim flow. Unlike the install
+// page, this is a single lightweight consent screen (instant auto-redirect on
+// re-authorization) — GitHub Apps take no scopes here; the token's reach is
+// fixed by the App's permissions. `state` is the same signed single-use token
+// as the install flow, minted with the oauth purpose flag.
+export function githubOAuthAuthorizeUrl(state?: string): string | null {
+  if (!githubOAuthConfigured() || !state) return null
+  return `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
+    OAUTH_CLIENT_ID!
+  )}&state=${encodeURIComponent(state)}`
+}
+
+// Exchange the callback's `code` for a user-to-server token. Used exactly once
+// (to list the user's installations) and discarded — never persisted, so token
+// expiry/refresh never matters. Null on any failure (expired/reused code).
+export async function exchangeGithubOAuthCode(
+  code: string
+): Promise<string | null> {
+  if (!githubOAuthConfigured()) return null
+  const res = await fetch(`https://github.com/login/oauth/access_token`, {
+    method: `POST`,
+    headers: {
+      accept: `application/json`,
+      "content-type": `application/json`,
+      "user-agent": `exponential`,
+    },
+    body: JSON.stringify({
+      client_id: OAUTH_CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+      code,
+    }),
+  })
+  if (!res.ok) return null
+  const data = (await res.json()) as { access_token?: string }
+  return data.access_token ?? null
 }
 
 // `state` is echoed back to the App's Setup URL (our /api/integrations/github/
@@ -107,6 +153,13 @@ async function installationToken(installationId: number): Promise<string> {
   return data.token
 }
 
+// A minted token plus the installation it came from — callers that gate on the
+// installation (workspace link checks) or heal a drifted stored id need both.
+export interface RepoInstallationToken {
+  token: string
+  installationId: number
+}
+
 // The main entry: a short-lived, repo-scoped token that can clone/push/open PRs
 // on `repo` ("owner/name"). Null when the App isn't configured or the repo
 // can't be resolved to any installation the App can mint a token for.
@@ -119,46 +172,89 @@ async function installationToken(installationId: number): Promise<string> {
 // the App is installed on several accounts (org + user), or the repo's owner
 // login differs from the account the visible install is attributed to. Observed
 // in prod: workspace settings shows the repo connected, yet the desktop token
-// mint 412s. When the live lookup misses we fall back to minting against the
-// stored installation id; only when THAT also fails has the App genuinely lost
-// access (→ the caller's actionable "reconnect" 412).
+// mint 412s. When the live lookup misses we mint against the stored
+// installation id and VERIFY the token can actually reach the repo — an
+// installation token is scoped to exactly its installation's repo set, so the
+// probe distinguishes the flaky live-404 (repo still covered → token works)
+// from a real removal (repo dropped from the installation's selection → the
+// caller's actionable "reconnect/re-grant" 412).
 export async function resolveRepoInstallationToken(
   repo: string,
   opts?: { fallbackInstallationId?: number | null }
 ): Promise<string | null> {
+  const resolved = await resolveRepoInstallationTokenInfo(repo, opts)
+  return resolved?.token ?? null
+}
+
+// Same resolution, but returns the installation id alongside the token.
+export async function resolveRepoInstallationTokenInfo(
+  repo: string,
+  opts?: { fallbackInstallationId?: number | null }
+): Promise<RepoInstallationToken | null> {
   if (!githubAppConfigured()) return null
   return resolveInstallationTokenWith(repo, opts?.fallbackInstallationId, {
     resolveId: installationIdForRepo,
     mintToken: installationToken,
+    verifyRepo: verifyRepoAccessible,
   })
 }
 
-// Pure resolution policy behind `resolveRepoInstallationToken`, with the two
-// GitHub round-trips injected so it stays unit-testable without a real App JWT.
+// Pure resolution policy behind `resolveRepoInstallationToken`, with the GitHub
+// round-trips injected so it stays unit-testable without a real App JWT.
 // Prefers GitHub's authoritative per-repo installation lookup (handles
 // transfers/renames/re-installs); falls back to a known installation id when
-// that lookup 404s. A throw on the LIVE path propagates (a transient GitHub
-// error must not masquerade as "not installed"); a throw on the FALLBACK mint
-// is swallowed to null — that path is only reached after the live lookup
-// already said "not installed", so a null (→ 412) is the correct outcome.
+// that lookup 404s, then verifies the fallback token actually reaches the repo
+// (the blind fallback used to mint tokens that couldn't clone after a repo was
+// removed from the installation's selection). A throw on the LIVE path
+// propagates (a transient GitHub error must not masquerade as "not installed");
+// a throw on the FALLBACK mint is swallowed to null — that path is only reached
+// after the live lookup already said "not installed", so a null (→ 412) is the
+// correct outcome. A throw from the VERIFY probe returns the token anyway — a
+// transient GitHub error must not fabricate "no access".
 export async function resolveInstallationTokenWith(
   repo: string,
   fallbackInstallationId: number | null | undefined,
   ops: {
     resolveId: (repo: string) => Promise<number | null>
     mintToken: (installationId: number) => Promise<string>
+    verifyRepo: (repo: string, token: string) => Promise<boolean>
   }
-): Promise<string | null> {
+): Promise<RepoInstallationToken | null> {
   const liveId = await ops.resolveId(repo)
-  if (liveId != null) return ops.mintToken(liveId)
+  if (liveId != null) {
+    return { token: await ops.mintToken(liveId), installationId: liveId }
+  }
   if (fallbackInstallationId != null) {
+    let token: string
     try {
-      return await ops.mintToken(fallbackInstallationId)
+      token = await ops.mintToken(fallbackInstallationId)
     } catch {
       return null
     }
+    try {
+      if (!(await ops.verifyRepo(repo, token))) return null
+    } catch {
+      // Transient verify failure — hand out the token rather than invent a
+      // "no access" the caller would surface as a reconnect demand.
+    }
+    return { token, installationId: fallbackInstallationId }
   }
   return null
+}
+
+// Can this (installation) token actually reach the repo? 200 = yes; 404/403 =
+// the repo is outside the token's installation selection. Used to verify the
+// fallback mint above and exported for connect-time probes.
+export async function verifyRepoAccessible(
+  repo: string,
+  token: string
+): Promise<boolean> {
+  const res = await fetch(`https://api.github.com/repos/${repo}`, {
+    headers: githubApiHeaders(token),
+  })
+  if (res.ok) return true
+  if (res.status === 404 || res.status === 403) return false
+  throw new Error(`GitHub repo probe failed (${res.status}) for ${repo}`)
 }
 
 // GitHub's authoritative default branch for a repo ("owner/name"), or null if
@@ -380,18 +476,71 @@ export async function listInstallationRepos(
   }
 }
 
-// All installations of this App (used to reflect install state in the UI).
-export async function listAppInstallations(): Promise<AppInstallation[]> {
-  if (!githubAppConfigured()) return []
-  const res = await ghApp(`/app/installations?per_page=100`)
-  if (!res.ok) return []
-  const data = (await res.json()) as Array<{
-    id: number
-    account: { login: string; type: string }
-  }>
-  return data.map((i) => ({
-    id: i.id,
-    account: i.account?.login ?? ``,
-    accountType: i.account?.type ?? ``,
-  }))
+// Every page of an installation's accessible repos, up to `maxPages` (the repo
+// picker wants the full set — the old single-page call silently hid repos past
+// 100). `hasMore` is true only when the cap truncated a genuinely larger set.
+export async function listAllInstallationRepos(
+  installationId: number,
+  opts?: { maxPages?: number }
+): Promise<{ repos: InstallationRepo[]; hasMore: boolean }> {
+  const maxPages = opts?.maxPages ?? 5
+  const all: InstallationRepo[] = []
+  for (let page = 1; page <= maxPages; page++) {
+    const { repos, hasMore } = await listInstallationRepos(installationId, page)
+    all.push(...repos)
+    if (!hasMore) return { repos: all, hasMore: false }
+  }
+  return { repos: all, hasMore: true }
+}
+
+// The installations the OAuth'd GitHub user can access — the claim flow's
+// authoritative enumeration (`GET /user/installations` with the transient
+// user-to-server token). GitHub returns exactly the installs this GitHub user
+// controls or was granted, so no configure-page round-trip is needed to prove
+// control.
+export async function listUserInstallations(
+  userToken: string,
+  opts?: { maxPages?: number }
+): Promise<AppInstallation[]> {
+  const maxPages = opts?.maxPages ?? 10
+  const all: AppInstallation[] = []
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await fetch(
+      `https://api.github.com/user/installations?per_page=100&page=${page}`,
+      { headers: githubApiHeaders(userToken) }
+    )
+    if (!res.ok) {
+      throw new Error(`GitHub user installations failed (${res.status})`)
+    }
+    const data = (await res.json()) as {
+      total_count: number
+      installations: Array<{
+        id: number
+        account: { login?: string; type?: string } | null
+      }>
+    }
+    all.push(
+      ...data.installations.map((i) => ({
+        id: i.id,
+        account: i.account?.login ?? ``,
+        accountType: i.account?.type ?? ``,
+      }))
+    )
+    if (page * 100 >= data.total_count) break
+  }
+  return all
+}
+
+// Where a user grants/revokes the repos of an installation — GitHub's
+// installation settings page (per account type). This is the ONLY place repo
+// selection can change; the claim flow never needs it.
+export function installationManageUrl(inst: {
+  installationId: number
+  accountLogin: string | null
+  accountType: string | null
+}): string {
+  if (inst.accountType === `Organization` && inst.accountLogin) {
+    return `https://github.com/organizations/${inst.accountLogin}/settings/installations/${inst.installationId}`
+  }
+  return `https://github.com/settings/installations/${inst.installationId}`
 }
