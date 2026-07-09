@@ -13,8 +13,8 @@ import SwiftUI
 //
 // EXP-8: the install URL opens in an ASWebAuthenticationSession (mobile-width
 // page, in-app) instead of kicking out to system Safari. The server's
-// post-install page fires `exp://github-connected`, which auto-dismisses the
-// session; either way the completion re-queries with `refresh: true` so the
+// post-install page fires `exponential://github-connected`, which auto-dismisses
+// the session; either way the completion re-queries with `refresh: true` so the
 // newly connected repos appear without any manual step.
 struct GithubRepoPicker: View {
     let accountId: String
@@ -59,7 +59,7 @@ struct GithubRepoPicker: View {
                 // just-granted repo shows up.
                 if phase == .active { Task { await load(refresh: true) } }
             }
-            // The app-level deep-link path for `exp://github-connected` — covers
+            // The app-level deep-link path for `exponential://github-connected` — covers
             // an install that finishes outside the in-app auth session.
             .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { _ in
                 Task { await load(refresh: true) }
@@ -250,8 +250,8 @@ struct GithubRepoPicker: View {
     // Web parity (github-repo-picker.tsx): the old `/account/integrations`
     // fallback was removed in v5 (repo management lives in workspace settings →
     // Repositories). Opened in an ASWebAuthenticationSession: mobile-width
-    // rendering, and the server's `exp://github-connected` redirect dismisses it
-    // and hands control back.
+    // rendering, and the server's `exponential://github-connected` redirect
+    // dismisses it and hands control back.
     private func openInBrowser(_ urlString: String?) {
         guard let urlString, let url = URL(string: urlString) else { return }
         installSession.start(url: url) {
@@ -277,9 +277,9 @@ struct GithubRepoPicker: View {
 /// Presents the GitHub App install page in an ASWebAuthenticationSession so it
 /// (a) renders as a phone-sized in-app page instead of desktop Safari and
 /// (b) auto-dismisses when the server's post-install page fires the
-/// `exp://github-connected` deep link (callback scheme `exp`). The completion
-/// fires on callback AND on manual dismissal — the install may have landed
-/// either way, so callers should re-query regardless.
+/// `exponential://github-connected` deep link (callback scheme `exponential`).
+/// The completion fires on callback AND on manual dismissal — the install may
+/// have landed either way, so callers should re-query regardless.
 @MainActor
 final class InstallWebAuthSession: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?
@@ -288,7 +288,7 @@ final class InstallWebAuthSession: NSObject, ASWebAuthenticationPresentationCont
         session?.cancel()
         let session = ASWebAuthenticationSession(
             url: url,
-            callbackURLScheme: "exp"
+            callbackURLScheme: "exponential"
         ) { [weak self] _, _ in
             Task { @MainActor in
                 self?.session = nil

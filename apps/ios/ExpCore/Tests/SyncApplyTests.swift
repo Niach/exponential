@@ -74,7 +74,7 @@ final class SyncApplyTests: XCTestCase {
     }
 
     func testCompositePkPartialIsSkipped() async throws {
-        try pool.write { db in
+        try await pool.write { db in
             try IssueLabelEntity(issueId: "i1", labelId: "l1", workspaceId: "ws1").save(db)
         }
         // issue_labels has a composite PK — a partial would emit a `WHERE id`
@@ -84,7 +84,7 @@ final class SyncApplyTests: XCTestCase {
             columns: columns(["workspace_id": "ws2"])
         )
         try await applyBatch(messages: [message], name: "issue-labels", table: "issue_labels", pool: pool)
-        let workspaceId = try pool.read { db in
+        let workspaceId = try await pool.read { db in
             try IssueLabelEntity.filter(Column("issue_id") == "i1").fetchOne(db)?.workspaceId
         }
         XCTAssertEqual(workspaceId, "ws1")
@@ -105,7 +105,7 @@ final class SyncApplyTests: XCTestCase {
             key: #""public"."projects"/"p1""#, value: project
         )
         try await applyBatch(messages: [message], name: "projects", table: "projects", pool: pool)
-        let stored = try pool.read { try ProjectEntity.fetchOne($0, key: "p1") }
+        let stored = try await pool.read { try ProjectEntity.fetchOne($0, key: "p1") }
         XCTAssertEqual(stored?.isProtected, true)
     }
 

@@ -124,7 +124,7 @@ public final class IntegrationsApi: Sendable {
     /// Repos the user's GitHub App is installed on, for the connect-repo picker.
     /// `platform: "mobile"` marks the caller so the server returns an install
     /// URL whose post-install page renders phone-sized and deep-links back into
-    /// the app via `exp://github-connected` (instead of stranding the user in
+    /// the app via `exponential://github-connected` (instead of stranding the user in
     /// the browser). Pass `workspaceId` to scope the result to that workspace's
     /// linked GitHub accounts; omit it to fall back to the server's deprecated
     /// union-across-memberships shim. `refresh` bypasses the server's per-user

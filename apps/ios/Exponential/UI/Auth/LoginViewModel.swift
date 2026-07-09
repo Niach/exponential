@@ -145,7 +145,7 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
 
         let session = ASWebAuthenticationSession(
             url: url,
-            callbackURLScheme: "exp"
+            callbackURLScheme: "exponential"
         ) { [weak self] callbackURL, authError in
             guard let self else { return }
 

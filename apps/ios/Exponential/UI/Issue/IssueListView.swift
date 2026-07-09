@@ -5,6 +5,9 @@ import GRDB
 
 struct IssueListView: View {
     let projectId: String
+    /// False when pushed on a bar-less surface (Settings → feedback board,
+    /// where MainNavigator hides the floating tab bar): no clearance then.
+    var showsTabBarClearance = true
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -152,9 +155,9 @@ struct IssueListView: View {
             .refreshable {
                 await vm.refresh()
             }
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: 16)
-            }
+            // Clearance for the floating tab bar (EXP-36) — the bar is an
+            // ancestor overlay, so the List must reserve the space itself.
+            .tabBarBottomInset(showsTabBarClearance)
         }
     }
 

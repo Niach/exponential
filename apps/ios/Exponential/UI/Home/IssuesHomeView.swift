@@ -1,6 +1,7 @@
 import ExpUI
 import ExpCore
 import SwiftUI
+import GRDB
 
 /// Root of the Issues tab: the issue list of the current project, with an
 /// inline project switcher in the navigation bar (project name + up/down
@@ -177,6 +178,21 @@ struct IssuesHomeView: View {
         preparingCreate = true
         defer { preparingCreate = false }
         if let workspace = try? await deps.workspacesApi.ensureDefault(accountId: accountId) {
+            // If the workspace isn't in the local synced set, ensureDefault
+            // just CREATED it — the membership change rotates every shape's
+            // server-derived where clause, and the in-flight live long-polls
+            // would keep the OLD scope for up to ~60s, so the project created
+            // next would "show up nowhere". Relaunch the pipeline so the fresh
+            // scope syncs in seconds (EXP-46; same drain-lag gap as EXP-43).
+            var alreadySynced = false
+            if let pool = try? deps.db.pool(forAccountId: accountId) {
+                alreadySynced = (try? await pool.read { db in
+                    try WorkspaceEntity.fetchOne(db, key: workspace.id) != nil
+                }) ?? false
+            }
+            if !alreadySynced {
+                await deps.syncManager.restartPipeline(accountId: accountId)
+            }
             createTarget = CreateTarget(accountId: accountId, workspaceId: workspace.id)
         }
     }

@@ -67,9 +67,12 @@ final class MyIssuesViewModel {
     }
 
     func issuesForStatus(_ status: IssueStatus) -> [IssueEntity] {
-        issues
-            .filter { IssueStatus.from($0.status) == status }
-            .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+        // Canonical in-group ordering (EXP-38) — same comparator as the
+        // project board, so "Assigned to you" matches every other surface.
+        IssueSorting.sorted(
+            issues.filter { IssueStatus.from($0.status) == status },
+            status: status
+        )
     }
 
     func project(forId id: String) -> ProjectEntity? {

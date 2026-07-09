@@ -147,11 +147,13 @@ final class IssueListViewModel {
     }
 
     func issuesForStatus(_ status: IssueStatus) -> [IssueEntity] {
-        filteredIssues
-            .filter { IssueStatus.from($0.status) == status }
-            .sorted { a, b in
-                (a.sortOrder ?? 0) < (b.sortOrder ?? 0)
-            }
+        // Canonical in-group ordering (EXP-38, cross-platform contract):
+        // overdue → priority → due date → number for the non-terminal groups,
+        // resolution recency for done/cancelled/duplicate.
+        IssueSorting.sorted(
+            filteredIssues.filter { IssueStatus.from($0.status) == status },
+            status: status
+        )
     }
 
     func labelsFor(issueId: String) -> [LabelEntity] {

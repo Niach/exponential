@@ -147,9 +147,9 @@ struct SearchView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 16)
-        }
+        // Clearance for the floating tab bar (EXP-36). The empty-query
+        // "Assigned to you" state gets its own inside MyIssuesListContent.
+        .tabBarBottomInset()
     }
 
     @ViewBuilder

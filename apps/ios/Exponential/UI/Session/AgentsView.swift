@@ -77,9 +77,8 @@ struct AgentsView: View {
             }
             .padding()
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 16)
-        }
+        // Clearance for the floating tab bar (EXP-36).
+        .tabBarBottomInset()
     }
 
     // The primary tap target and the trailing info affordance are siblings

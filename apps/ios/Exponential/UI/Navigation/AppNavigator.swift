@@ -1,3 +1,4 @@
+import Combine
 import ExpUI
 import ExpCore
 import SwiftUI
@@ -53,8 +54,8 @@ struct AppNavigator: View {
             }
         }
         // URL handling lives at the ROOT view (mounted from first render), so a
-        // cold launch via exp:// lands in the bus even before MainNavigator
-        // exists; MainNavigator drains the bus when it appears.
+        // cold launch via exponential:// lands in the bus even before
+        // MainNavigator exists; MainNavigator drains the bus when it appears.
         .onOpenURL { url in
             handleDeepLink(url)
         }
@@ -62,7 +63,7 @@ struct AppNavigator: View {
     }
 
     private func handleDeepLink(_ url: URL) {
-        // exp://oauth-return#token=...
+        // exponential://oauth-return#token=...
         if url.host == "oauth-return", let fragment = url.fragment {
             let params = fragment.split(separator: "&").reduce(into: [String: String]()) { dict, pair in
                 let parts = pair.split(separator: "=", maxSplits: 1)
@@ -74,7 +75,7 @@ struct AppNavigator: View {
                 NotificationCenter.default.post(name: .oauthTokenReceived, object: nil, userInfo: ["token": token])
             }
         }
-        // exp://github-connected — the GitHub App install flow finished (fired
+        // exponential://github-connected — the GitHub App install flow finished (fired
         // by the server's post-install page). The in-app install surface
         // (ASWebAuthenticationSession) normally consumes this as its callback;
         // this path covers installs that finish in an external browser. The
@@ -82,11 +83,11 @@ struct AppNavigator: View {
         if url.host == "github-connected" {
             NotificationCenter.default.post(name: .githubConnected, object: nil)
         }
-        // exp://issue/<issueId>
+        // exponential://issue/<issueId>
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToIssue(String(issueId))
         }
-        // exp://invite/<token>
+        // exponential://invite/<token>
         if url.host == "invite", let token = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToInvite(String(token))
         }
@@ -182,6 +183,11 @@ struct MainNavigator: View {
                 _ = deps.deepLinkBus.consumeInvite()
             }
         }
+        // A workspace was deleted in-app (EXP-43): pop to root so no pushed
+        // view (workspace settings, server detail) still targets it.
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceDeleted)) { _ in
+            path = []
+        }
         // Drain links that arrived before this navigator mounted (cold launch).
         // The Issues tab already lands in the last-used project, so there is no
         // auto-push anymore — deep links are the only cold-launch navigation.
@@ -194,7 +200,12 @@ struct MainNavigator: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // Attached as an OVERLAY, not a safeAreaInset (EXP-36): an ancestor
+        // inset outside the NavigationStack never reliably reaches the pushed
+        // scrollables' content insets, so each bar-visible scrollable reserves
+        // its own clearance via `.tabBarBottomInset()` instead — one source of
+        // truth, no double-inset.
+        .overlay(alignment: .bottom) {
             if showsTabBar {
                 MobileTabBar(
                     issuesActive: path.isEmpty,
@@ -338,6 +349,22 @@ struct MainNavigator: View {
             do {
                 for try await ws in wsObs.values(in: pool) {
                     workspaceState.workspaces = ws
+                    // Re-resolve a dangling selection (EXP-43): after a
+                    // workspace delete syncs out, an activeWorkspaceId
+                    // pointing at a vanished row must not stick around.
+                    // Non-empty emissions only — "Resync now" wipes every
+                    // table before relaunching the pipeline, so this
+                    // observation emits a transient []; nilling there would
+                    // silently re-point a still-valid selection at the
+                    // arbitrary first row once the refetch lands. A real
+                    // delete still heals: its 409 refetch replaces rows in
+                    // one transaction, so the emission is non-empty (or
+                    // becomes non-empty via the personal-workspace heal).
+                    if !ws.isEmpty,
+                       let active = workspaceState.activeWorkspaceId,
+                       !ws.contains(where: { $0.id == active }) {
+                        workspaceState.activeWorkspaceId = nil
+                    }
                     if workspaceState.activeWorkspaceId == nil, let first = ws.first {
                         workspaceState.activeWorkspaceId = first.id
                     }
@@ -429,6 +456,10 @@ struct MainNavigator: View {
 
 extension Notification.Name {
     static let oauthTokenReceived = Notification.Name("oauthTokenReceived")
-    /// `exp://github-connected` arrived — a GitHub App install just completed.
+    /// `exponential://github-connected` arrived — a GitHub App install just
+    /// completed.
     static let githubConnected = Notification.Name("githubConnected")
+    /// A workspace was deleted in-app (EXP-43) — MainNavigator pops to root so
+    /// no pushed view still targets the deleted workspace.
+    static let workspaceDeleted = Notification.Name("workspaceDeleted")
 }

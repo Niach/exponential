@@ -51,6 +51,11 @@ struct InviteAcceptView: View {
                 try await deps.workspaceInvitesApi.accept(accountId: accountId, token: token)
                 accepted = true
                 loading = false
+                // Membership just changed: every shape's server-derived where
+                // clause rotated, and the in-flight live long-polls would keep
+                // the OLD scope for up to ~60s. Relaunch the pipeline so the
+                // joined workspace syncs in seconds (EXP-43 drain-lag fix).
+                await deps.syncManager.restartPipeline(accountId: accountId)
                 try? await Task.sleep(for: .seconds(1.5))
                 dismiss()
             } catch {

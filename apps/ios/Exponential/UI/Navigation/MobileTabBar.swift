@@ -4,8 +4,9 @@ import SwiftUI
 /// Linear-style floating bottom navigation: a glass pill with the four
 /// top-level destinations (Issues, Search, Agents — with a running-session
 /// dot — and Inbox — with an unread dot) plus a detached circular compose
-/// button on the right. Overlaid via safeAreaInset so content scrolls
-/// underneath it; MainNavigator hides it on detail screens.
+/// button on the right. Attached via `.overlay(alignment: .bottom)` so content
+/// scrolls underneath it; each bar-visible scrollable reserves clearance with
+/// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
     let issuesActive: Bool
     let searchActive: Bool
@@ -124,6 +125,28 @@ struct MobileTabBar: View {
                 .scaledToFit()
                 .frame(width: 20, height: 20)
                 .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+        }
+    }
+}
+
+extension View {
+    /// Bottom clearance for the floating MobileTabBar (EXP-36): bar height
+    /// (42pt tab frame + 2×5pt pill padding + 8pt top + 4pt bottom = 64pt)
+    /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
+    /// MainNavigator) — ancestor safe-area insets don't reliably reach List
+    /// content inside pushed destinations, so every bar-visible scrollable
+    /// (Issues list, Search results, "Assigned to you", Agents, Inbox) applies
+    /// this ONE modifier directly. Detail screens (showsTabBar == false) must
+    /// NOT reserve it — pass `false` when the same scrollable is reused on a
+    /// bar-less surface.
+    @ViewBuilder
+    func tabBarBottomInset(_ enabled: Bool = true) -> some View {
+        if enabled {
+            safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: 80)
+            }
+        } else {
+            self
         }
     }
 }

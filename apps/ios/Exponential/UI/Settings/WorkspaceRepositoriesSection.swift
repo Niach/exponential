@@ -1,3 +1,4 @@
+import Combine
 import ExpCore
 import ExpUI
 import SwiftUI
@@ -9,11 +10,13 @@ import SwiftUI
 /// still points at it, and that message is surfaced inline. The primary-star and
 /// per-project link/unlink UI is gone (a project now owns exactly one repo, set
 /// at creation or via the projects section's "Change repository"). Connecting
-/// NEW repos (the GitHub-App install flow) stays web-only, but the grant-model
-/// reconnect (re-capturing which repos the user can access) runs in-app — a
-/// workspace linked before per-user grants existed lists zero repos until
-/// someone re-runs the OAuth connect, and an iOS-only user must be able to do
-/// that without a desktop (web parity: repositories-section.tsx).
+/// GitHub (the App install / grant-capture OAuth hop) runs fully IN-APP
+/// (EXP-45), same ASWebAuthenticationSession flow as GithubRepoPicker — the
+/// old "connect on the web" Safari bounce survives only as a fallback when the
+/// server has no GitHub App configured. The grant-model reconnect (re-capturing
+/// which repos the user can access) uses the same hop — a workspace linked
+/// before per-user grants existed lists zero repos until the owner re-runs the
+/// OAuth connect (web parity: repositories-section.tsx).
 struct WorkspaceRepositoriesSection: View {
     let accountId: String
     let workspace: WorkspaceEntity?
@@ -31,10 +34,10 @@ struct WorkspaceRepositoriesSection: View {
     @State private var loading = true
     @State private var errorText: String?
     @State private var removeTarget: WorkspaceRepo?
-    // GitHub grant state — drives the reconnect notice. Fetched via the `repos`
-    // endpoint (not `status`) because only it accepts `platform: "mobile"`, so
-    // the minted connect URL deep-links back via `exp://github-connected` and
-    // auto-dismisses the in-app auth session.
+    // GitHub grant state — drives the connect button + reconnect notice.
+    // Fetched via the `repos` endpoint (not `status`) because only it accepts
+    // `platform: "mobile"`, so the minted connect URL deep-links back via
+    // `exponential://github-connected` and auto-dismisses the in-app session.
     @State private var github: GithubReposResult?
     @State private var connectSession = InstallWebAuthSession()
 
@@ -66,10 +69,13 @@ struct WorkspaceRepositoriesSection: View {
             }
 
             // Grant-model fail-closed state: a linked installation with no
-            // captured grants yields zero repos everywhere until a member
-            // re-runs the OAuth connect. Any member's reconnect captures THEIR
-            // grants, so this isn't owner-gated.
-            if let github, github.installations.contains(where: { $0.needsReauth }) {
+            // captured grants yields zero repos everywhere until the owner
+            // re-runs the OAuth connect. Owner-gated like every connect
+            // surface (web/Android parity) — the hop always runs the workspace
+            // CLAIM, whose callback is assertCanManageRepos (owner-only), so a
+            // member would finish the whole OAuth dance only to dead-end on a
+            // forbidden page that never fires exponential://github-connected.
+            if isOwner, let github, github.installations.contains(where: { $0.needsReauth }) {
                 reconnectNotice(github)
             }
 
@@ -79,7 +85,31 @@ struct WorkspaceRepositoriesSection: View {
                     .foregroundStyle(.red.opacity(0.8))
             }
 
-            if isOwner, let url = webSettingsURL {
+            // In-app connect (EXP-45): the same ASWebAuthenticationSession hop
+            // as GithubRepoPicker.openConnect. Owner-gated (web hides the whole
+            // section behind canManageRepos; Android wraps this button in
+            // isOwner): the connect hop always ends in the workspace claim,
+            // which is owner-only server-side — see the reconnect note above.
+            // The web link survives only as an owner fallback when the server
+            // has no GitHub App configured / mints no URLs.
+            if isOwner, let github, github.configured,
+               (github.connectUrl ?? github.installUrl) != nil {
+                Button {
+                    openConnect(github)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.caption)
+                        Text("Connect GitHub")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .glassButton()
+                .buttonStyle(.plain)
+            } else if isOwner, let url = webSettingsURL {
                 Link(destination: url) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.up.right.square")
@@ -92,6 +122,13 @@ struct WorkspaceRepositoriesSection: View {
             }
         }
         .task(id: workspace?.id) { await reload() }
+        // An install/connect that finishes in an EXTERNAL browser comes back
+        // via the app-level `exponential://github-connected` deep link instead
+        // of the auth-session callback — re-query so the new grants appear
+        // (GithubRepoPicker parity).
+        .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { _ in
+            Task { await reload(refreshGithub: true) }
+        }
         .alert("Remove Repository", isPresented: Binding(
             get: { removeTarget != nil },
             set: { if !$0 { removeTarget = nil } }
@@ -184,7 +221,7 @@ struct WorkspaceRepositoriesSection: View {
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             if (github.connectUrl ?? github.installUrl) != nil {
                 Button {
-                    reconnect(github)
+                    openConnect(github)
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.triangle.2.circlepath")
@@ -205,11 +242,13 @@ struct WorkspaceRepositoriesSection: View {
     }
 
     // The in-app OAuth connect hop (ASWebAuthenticationSession, same flow as
-    // GithubRepoPicker): re-captures which repos this user can access. It must
-    // be `connectUrl` — the install page does NOT re-capture grants — with
+    // GithubRepoPicker.openConnect): claims a GitHub account for the workspace
+    // and (re-)captures which repos this user can access. It must be
+    // `connectUrl` — the install page does NOT re-capture grants — with
     // `installUrl` only as the no-OAuth-secret fallback. The completion fires
-    // on callback AND manual dismissal, so re-query regardless.
-    private func reconnect(_ github: GithubReposResult) {
+    // on callback AND manual dismissal, so re-query regardless. Shared by the
+    // "Connect GitHub" button and the reconnect notice.
+    private func openConnect(_ github: GithubReposResult) {
         guard let urlString = github.connectUrl ?? github.installUrl,
               let url = URL(string: urlString) else { return }
         connectSession.start(url: url) {

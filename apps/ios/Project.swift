@@ -99,7 +99,7 @@ let sharedInfoPlist: [String: Plist.Value] = [
     "UILaunchScreen": .dictionary([:]),
     "CFBundleURLTypes": .array([
         .dictionary([
-            "CFBundleURLSchemes": .array([.string("exp")]),
+            "CFBundleURLSchemes": .array([.string("exponential")]),
             "CFBundleURLName": .string("at.exponential.oauth"),
         ]),
     ]),

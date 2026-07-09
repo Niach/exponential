@@ -41,8 +41,9 @@ struct WorkspaceSettingsView: View {
 
                     // Repositories registry (server-only, read over tRPC —
                     // masterplan §6). A pure registry with "used by" chips;
-                    // adding NEW repos happens on the web (GitHub-App install),
-                    // but the grant-model "Reconnect GitHub" hop runs in-app.
+                    // both the GitHub connect (App install / grant capture)
+                    // and the grant-model "Reconnect GitHub" hop run in-app
+                    // (EXP-45), web parity with repositories-section.tsx.
                     WorkspaceRepositoriesSection(
                         accountId: accountId,
                         workspace: workspace,
@@ -158,7 +159,22 @@ struct WorkspaceSettingsView: View {
         defer { deletingWorkspace = false }
         do {
             try await deps.workspacesApi.delete(accountId: accountId, workspaceId: workspaceId)
-            await MainActor.run { dismiss() }
+            // Deleting the LAST workspace must not strand the app in the
+            // empty state until a relaunch (EXP-43): ensureDefault is
+            // idempotent — it returns the surviving personal workspace, or
+            // recreates one server-side when none is left.
+            _ = try? await deps.workspacesApi.ensureDefault(accountId: accountId)
+            // Membership changed, so every shape's server-derived where clause
+            // rotated — relaunch the pipeline so all 14 shapes re-scope
+            // immediately instead of waiting out the in-flight live long-polls
+            // (up to ~60s of "deleted workspace still there / new personal
+            // workspace missing").
+            await deps.syncManager.restartPipeline(accountId: accountId)
+            await MainActor.run {
+                // Pop the whole stack to root — parent views (server detail /
+                // settings) may still target the deleted workspace.
+                NotificationCenter.default.post(name: .workspaceDeleted, object: nil)
+            }
         } catch {
             dangerError = error.trpcUserMessage
         }

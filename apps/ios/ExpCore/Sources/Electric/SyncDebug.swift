@@ -11,6 +11,14 @@ public struct AccountHealth: Sendable {
     public var lastSuccessAt: Date?
     public var lastErrorAt: Date?
     public var lastErrorWasUnauthorized = false
+    /// Start of the CURRENT uninterrupted failure streak: set on the first
+    /// failure after a success (or ever), left alone while failures repeat,
+    /// cleared by ANY 2xx, and RESTARTED when a failure lands after a long
+    /// quiet gap (the retry loops weren't running — app suspended mid-outage).
+    /// The banner alarms only once a streak has PERSISTED (EXP-44) — a single
+    /// failed long-poll or the app-wake burst (all 14 shapes dying
+    /// simultaneously on resume) must never flash it.
+    public var failureStreakStartedAt: Date?
     public init() {}
 }
 
@@ -84,13 +92,47 @@ public final class SyncDebug: @unchecked Sendable {
         case unauthorized
     }
 
-    /// Health for one account's pipelines (the active account drives the banner).
+    /// How long a failure streak must persist (with no intervening success)
+    /// before the banner may alarm. TIME-based by design: on app wake all 14
+    /// shape long-polls fail simultaneously before the first fresh success, so
+    /// any consecutive-failure COUNT would trip instantly on healthy servers.
+    /// The same grace also absorbs one-off 401 token-refresh races.
+    private static let failureStreakGrace: TimeInterval = 12
+
+    /// An error older than this no longer alarms (health()'s staleness guard),
+    /// and a failure GAP this long breaks the streak's continuity. While
+    /// genuinely failing, the retry loops report at most ~30s apart
+    /// (ShapeClient's backoff cap) — a far longer gap means they weren't
+    /// running (app suspended mid-outage), so the wake burst's first fresh
+    /// failure must RESTART the EXP-44 debounce instead of inheriting an
+    /// hours-old streak start (which would flash the banner immediately on
+    /// resume). Deliberately much larger than failureStreakGrace: during a
+    /// real outage the capped backoff keeps gaps well under it, so the streak
+    /// — and the banner — stay solid.
+    private static let errorStalenessWindow: TimeInterval = 300
+
+    /// Whether a fresh failure starts a NEW streak instead of extending the
+    /// current one (see errorStalenessWindow). Shared by both failure paths.
+    private static func streakBroken(previousErrorAt: Date?, streakStartedAt: Date?) -> Bool {
+        guard streakStartedAt != nil, let previousErrorAt else { return true }
+        return Date().timeIntervalSince(previousErrorAt) >= errorStalenessWindow
+    }
+
+    /// Health for one account's pipelines (the active account drives the
+    /// banner). PURE READ — all state mutation stays in the report* methods
+    /// (this is re-evaluated in view bodies on observation ticks).
     public func health(forAccountId accountId: String?) -> Health {
         guard let accountId, let h = accountHealth[accountId], let err = h.lastErrorAt else { return .ok }
+        // ANY success after the last failure clears instantly.
         if let ok = h.lastSuccessAt, ok > err { return .ok }
-        // Require a few seconds of sustained failure before alarming.
-        guard Date().timeIntervalSince(err) < 300 else { return .ok }
-        if let ok = h.lastSuccessAt, Date().timeIntervalSince(ok) < 8 { return .ok }
+        // Staleness guard: an error that stopped repeating long ago (the retry
+        // loops died with the app suspended) mustn't alarm on wake.
+        guard Date().timeIntervalSince(err) < Self.errorStalenessWindow else { return .ok }
+        // Alarm only once the failure streak has persisted through the grace
+        // window — the wake-up burst resolves via a 2xx (streak cleared) well
+        // inside it, while a genuine outage keeps the streak alive.
+        guard let streakStart = h.failureStreakStartedAt,
+              Date().timeIntervalSince(streakStart) >= Self.failureStreakGrace else { return .ok }
         return h.lastErrorWasUnauthorized ? .unauthorized : .offline
     }
 
@@ -135,9 +177,14 @@ public final class SyncDebug: @unchecked Sendable {
             var h = self.accountHealth[accountId] ?? AccountHealth()
             if (200...299).contains(httpStatus) {
                 h.lastSuccessAt = .now
+                h.failureStreakStartedAt = nil // any 2xx clears the streak
             } else {
+                let previousErrorAt = h.lastErrorAt
                 h.lastErrorAt = .now
                 h.lastErrorWasUnauthorized = httpStatus == 401
+                if Self.streakBroken(previousErrorAt: previousErrorAt, streakStartedAt: h.failureStreakStartedAt) {
+                    h.failureStreakStartedAt = .now
+                }
             }
             self.accountHealth[accountId] = h
         }
@@ -147,8 +194,12 @@ public final class SyncDebug: @unchecked Sendable {
     public func reportTransportError(name _: String, accountId: String) {
         Task { @MainActor in
             var h = self.accountHealth[accountId] ?? AccountHealth()
+            let previousErrorAt = h.lastErrorAt
             h.lastErrorAt = .now
             h.lastErrorWasUnauthorized = false
+            if Self.streakBroken(previousErrorAt: previousErrorAt, streakStartedAt: h.failureStreakStartedAt) {
+                h.failureStreakStartedAt = .now
+            }
             self.accountHealth[accountId] = h
         }
     }

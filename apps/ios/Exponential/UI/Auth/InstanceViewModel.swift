@@ -102,7 +102,7 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
 
         let session = ASWebAuthenticationSession(
             url: url,
-            callbackURLScheme: "exp"
+            callbackURLScheme: "exponential"
         ) { [weak self] callbackURL, authError in
             guard let self else { return }
 

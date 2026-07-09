@@ -40,7 +40,10 @@ struct SettingsView: View {
                 .environment(\.accountId, target.accountId)
         }
         .navigationDestination(item: $pendingFeedbackBoard) { target in
-            IssueListView(projectId: target.projectId)
+            // Item-based push: MainNavigator's typed path still ends on
+            // .settings, so the floating tab bar stays hidden here — no
+            // tab-bar clearance (EXP-36).
+            IssueListView(projectId: target.projectId, showsTabBarClearance: false)
                 .environment(\.accountId, target.accountId)
         }
         .onAppear {
