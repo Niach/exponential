@@ -80,16 +80,23 @@ export type SteerTicketSeed =
       role: WorkspaceRole
       /** Display name (or email), shown in viewer presence. */
       name: string
+      /** The caller owns the coding_sessions row — grants steer regardless
+       *  of workspace role (you may always steer your own session). */
+      isSessionOwner?: boolean
     }
   // Anonymous public-activity audience (feedback boards with
   // publicShowCoding='live'). Read-only, activity-channel-only; the tRPC mint
   // verifies the project's toggle — no user identity involved.
   | { kind: `public_viewer`; sessionId: string }
 
-// Workspace owners may steer; plain members watch. (The role enum is
-// owner|member only — there is no admin role.)
-export function viewerPermFor(role: WorkspaceRole): SteerPerm {
-  return role === `owner` ? `steer` : `view`
+// Workspace owners may steer, and so may the coding session's own starter
+// (isSessionOwner); plain members watch. (The role enum is owner|member only
+// — there is no admin role.)
+export function viewerPermFor(
+  role: WorkspaceRole,
+  isSessionOwner = false
+): SteerPerm {
+  return role === `owner` || isSessionOwner ? `steer` : `view`
 }
 
 export function buildSteerTicketClaims(
@@ -135,7 +142,7 @@ export function buildSteerTicketClaims(
         sessionId: seed.sessionId,
         name: seed.name,
         role: `viewer`,
-        perm: viewerPermFor(seed.role),
+        perm: viewerPermFor(seed.role, seed.isSessionOwner),
       }
   }
 }

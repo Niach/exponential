@@ -183,9 +183,30 @@ describe(`ticket claim composition`, () => {
     expect(member.name).toBe(`member@example.com`)
   })
 
+  it(`viewer: the coding session's own starter steers regardless of role`, () => {
+    const sessionOwner = buildSteerTicketClaims(
+      {
+        kind: `viewer`,
+        userId: `user-2`,
+        workspaceId: `ws-1`,
+        sessionId: `session-1`,
+        role: `member`,
+        isSessionOwner: true,
+        name: `member@example.com`,
+      },
+      NOW
+    )
+    expect(sessionOwner.perm).toBe(`steer`)
+    expect(sessionOwner.role).toBe(`viewer`)
+  })
+
   it(`maps roles to perms (owner|member only — there is no admin role)`, () => {
     expect(viewerPermFor(`owner`)).toBe(`steer`)
     expect(viewerPermFor(`member`)).toBe(`view`)
+    // Session ownership grants steer independent of workspace role.
+    expect(viewerPermFor(`member`, true)).toBe(`steer`)
+    expect(viewerPermFor(`member`, false)).toBe(`view`)
+    expect(viewerPermFor(`owner`, false)).toBe(`steer`)
   })
 })
 

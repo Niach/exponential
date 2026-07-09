@@ -105,8 +105,9 @@ export const steerRouter = router({
         })
       }
 
-      // Viewers must be members of the session's workspace; owners may steer,
-      // plain members watch (viewerPermFor).
+      // Viewers must be members of the session's workspace; workspace owners
+      // may steer, and so may the session's own starter — plain members watch
+      // (viewerPermFor).
       const member = await assertWorkspaceMember(userId, session.workspaceId)
       return mintSteerTicket(config, {
         kind: `viewer`,
@@ -114,6 +115,7 @@ export const steerRouter = router({
         workspaceId: session.workspaceId,
         sessionId: session.id,
         role: member.role,
+        isSessionOwner: session.userId === userId,
         name: ctx.session.user.name || ctx.session.user.email,
       })
     }),
