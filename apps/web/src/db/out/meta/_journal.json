@@ -85,6 +85,13 @@
       "when": 1783547613992,
       "tag": "0011_sudden_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783610746562,
+      "tag": "0012_parallel_ikaris",
+      "breakpoints": true
     }
   ]
 }

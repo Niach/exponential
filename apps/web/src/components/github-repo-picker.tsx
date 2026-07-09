@@ -26,6 +26,10 @@ type ReposResult = {
   connectUrl: string | null
   repos: PickerRepo[]
   hasMore: boolean
+  // A linked GitHub account whose user-scoped repo grants haven't been captured
+  // yet (or need refreshing). `needsReauth` is optional so the not-configured
+  // return branches (which omit it) stay assignable.
+  installations?: Array<{ needsReauth?: boolean }>
 }
 
 // Repo-first connect surface shared by workspace settings → Repositories, the
@@ -153,31 +157,72 @@ export function GithubRepoPicker({
     )
   }
 
-  // Installed → searchable repo list.
+  // Installed → searchable repo list. We only ever show repositories a member
+  // proved user-scoped access to at connect time (the grant snapshot), so a repo
+  // created or shared AFTER the last connect won't appear until "Refresh from
+  // GitHub" (a re-auth) re-captures the set. `needsReauth` flags a linked
+  // account whose grants haven't been captured at all.
+  const needsReauth = (data.installations ?? []).some((i) => i.needsReauth)
+  const empty = data.repos.length === 0
   return (
     <div className="space-y-2">
-      <Command className="rounded-md border">
-        <CommandInput placeholder="Search repositories…" />
-        <CommandList>
-          <CommandEmpty>No repositories found.</CommandEmpty>
-          <CommandGroup>
-            {data.repos.map((repo) => (
-              <CommandItem
-                key={repo.fullName}
-                value={repo.fullName}
-                onSelect={() => onSelect(repo)}
-              >
-                <Github className="mr-2 h-4 w-4 shrink-0" />
-                <span className="truncate">{repo.fullName}</span>
-                {repo.private && (
-                  <Lock className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-                )}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        </CommandList>
-      </Command>
-      <div className="flex items-center justify-between">
+      {needsReauth && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">
+          <Github className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {empty
+              ? `Reconnect GitHub to load the repositories you can access.`
+              : `Reconnect GitHub to refresh — repos created or shared with you since your last connect won’t appear until you do.`}
+          </span>
+          <Button type="button" size="sm" variant="outline" onClick={openConnect}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Reconnect GitHub
+          </Button>
+        </div>
+      )}
+
+      {!empty && (
+        <Command className="rounded-md border">
+          <CommandInput placeholder="Search repositories…" />
+          <CommandList>
+            <CommandEmpty>No repositories found.</CommandEmpty>
+            <CommandGroup>
+              {data.repos.map((repo) => (
+                <CommandItem
+                  key={repo.fullName}
+                  value={repo.fullName}
+                  onSelect={() => onSelect(repo)}
+                >
+                  <Github className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">{repo.fullName}</span>
+                  {repo.private && (
+                    <Lock className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      )}
+
+      {empty && !needsReauth && (
+        <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+          No repositories found for your connected GitHub accounts.
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="px-0 text-xs text-muted-foreground"
+          onClick={openConnect}
+          title="Re-syncs your repositories from GitHub — pick up repos created or shared with you since you last connected"
+        >
+          <RefreshCw className="mr-1.5 h-3 w-3" />
+          Don’t see your repo? Refresh from GitHub
+        </Button>
         <Button
           type="button"
           variant="link"
@@ -185,9 +230,7 @@ export function GithubRepoPicker({
           className="px-0 text-xs text-muted-foreground"
           onClick={openInstall}
         >
-          {data.hasMore
-            ? `Don’t see your repo? Add repos on GitHub`
-            : `Add more repos on GitHub`}
+          Manage repo access on GitHub
         </Button>
       </div>
     </div>

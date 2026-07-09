@@ -531,6 +531,53 @@ export async function listUserInstallations(
   return all
 }
 
+// The repos of ONE installation as the OAuth'd GitHub USER can access them —
+// `GET /user/installations/{id}/repositories` with the transient user-to-server
+// token. Unlike `listInstallationRepos` (installation token → the WHOLE
+// installation selection), GitHub intersects this with the user's own repo
+// access, which is exactly what the grant capture persists: a collaborator on
+// one repo must not discover/connect the rest of the installation. Paginated
+// and deduped like `listAllInstallationRepos`; `hasMore` is true only when the
+// page cap truncated a genuinely larger set.
+export async function listUserInstallationRepos(
+  userToken: string,
+  installationId: number,
+  opts?: { maxPages?: number }
+): Promise<{ repos: InstallationRepo[]; hasMore: boolean }> {
+  const maxPages = opts?.maxPages ?? 5
+  const seen = new Set<string>()
+  const all: InstallationRepo[] = []
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await fetch(
+      `https://api.github.com/user/installations/${installationId}/repositories?per_page=100&page=${page}`,
+      { headers: githubApiHeaders(userToken) }
+    )
+    if (!res.ok) {
+      throw new Error(`GitHub user installation repos failed (${res.status})`)
+    }
+    const data = (await res.json()) as {
+      total_count: number
+      repositories: Array<{
+        full_name: string
+        private: boolean
+        default_branch: string
+      }>
+    }
+    for (const r of data.repositories) {
+      if (seen.has(r.full_name)) continue
+      seen.add(r.full_name)
+      all.push({
+        fullName: r.full_name,
+        private: r.private,
+        defaultBranch: r.default_branch,
+        installationId,
+      })
+    }
+    if (page * 100 >= data.total_count) return { repos: all, hasMore: false }
+  }
+  return { repos: all, hasMore: true }
+}
+
 // Where a user grants/revokes the repos of an installation — GitHub's
 // installation settings page (per account type). This is the ONLY place repo
 // selection can change; the claim flow never needs it.

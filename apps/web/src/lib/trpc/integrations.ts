@@ -4,6 +4,7 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import {
   githubInstallationLinks,
+  githubInstallationRepoGrants,
   githubInstallations,
   repositories,
 } from "@/db/schema"
@@ -14,6 +15,7 @@ import {
   githubAppConfigured,
   githubAppInstallUrl,
   githubOAuthAuthorizeUrl,
+  githubOAuthConfigured,
   installationIdForRepo,
   installationManageUrl,
   listAllInstallationRepos,
@@ -101,6 +103,76 @@ async function resolveWorkspaceInstallations(
     .where(eq(githubInstallationLinks.workspaceId, workspaceId))
 }
 
+// --- Repo grants (the user-scoped access boundary) --------------------------
+// A workspace ↔ installation LINK is installation-granular, but GitHub
+// attributes an installation to a user who can access even ONE of its repos.
+// github_installation_repo_grants (captured at OAuth-callback time from
+// `GET /user/installations/{id}/repositories`) records what the connecting
+// user could actually access; when the App's OAuth secret is configured, repo
+// DISCOVERY (the `repos` query) and CONNECT (assertRepoInstallationAccess)
+// are confined to granted repos. Without the OAuth secret there is no
+// user-scoped capture path at all (single-tenant/trusted self-host), so the
+// installation-wide behavior stays — exactly mirroring setup.ts's
+// githubOAuthConfigured() split. Token minting is deliberately NOT grant-gated
+// (already-connected repos keep working; the gate is for discovery/connect).
+
+// Every granted (installationId, fullName, …) for a workspace, restricted to
+// the given linked installation ids. Any member's grant counts — entitlement
+// is the union across members.
+async function workspaceGrantRows(
+  workspaceId: string,
+  installationIds: number[]
+): Promise<
+  Array<{
+    installationId: number
+    fullName: string
+    private: boolean
+    defaultBranch: string | null
+  }>
+> {
+  if (installationIds.length === 0) return []
+  return db
+    .select({
+      installationId: githubInstallationRepoGrants.installationId,
+      fullName: githubInstallationRepoGrants.fullName,
+      private: githubInstallationRepoGrants.private,
+      defaultBranch: githubInstallationRepoGrants.defaultBranch,
+    })
+    .from(githubInstallationRepoGrants)
+    .where(
+      and(
+        eq(githubInstallationRepoGrants.workspaceId, workspaceId),
+        inArray(githubInstallationRepoGrants.installationId, installationIds)
+      )
+    )
+}
+
+// The connect-time grant gate. No-op when the OAuth secret isn't configured
+// (no capture path exists — trusted single-tenant fallback).
+async function assertRepoGrant(
+  workspaceId: string,
+  installationId: number,
+  fullName: string
+): Promise<void> {
+  if (!githubOAuthConfigured()) return
+  const [row] = await db
+    .select({ id: githubInstallationRepoGrants.id })
+    .from(githubInstallationRepoGrants)
+    .where(
+      and(
+        eq(githubInstallationRepoGrants.workspaceId, workspaceId),
+        eq(githubInstallationRepoGrants.installationId, installationId),
+        eq(githubInstallationRepoGrants.fullName, fullName)
+      )
+    )
+    .limit(1)
+  if (row) return
+  throw new TRPCError({
+    code: `FORBIDDEN`,
+    message: `You don't have access to ${fullName} on GitHub, or your connection is stale — reconnect GitHub in workspace settings → Repositories to refresh which repositories you can access.`,
+  })
+}
+
 // Short-lived in-process cache of a workspace's installable repos so
 // re-opening the project dialog doesn't hammer GitHub (and its secondary rate
 // limits). Keyed per workspace.
@@ -108,7 +180,9 @@ const REPOS_TTL_MS = 60_000
 interface CachedRepos {
   repos: InstallationRepo[]
   hasMore: boolean
-  installations: Array<ResolvedInstallation & { hasMore: boolean }>
+  installations: Array<
+    ResolvedInstallation & { hasMore: boolean; needsReauth: boolean }
+  >
   expiresAt: number
 }
 const repoCache = new Map<string, CachedRepos>()
@@ -145,6 +219,10 @@ export async function invalidateRepoCacheForInstallation(
 // the client-supplied one. When GitHub's per-repo lookup 404s (it's flaky when
 // the App spans several accounts), fall back to scanning the workspace's
 // linked installations' repo lists — bounded, connect-time only.
+// On OAuth-configured instances the resolved installation must ALSO carry a
+// user-scoped grant for this exact repo (assertRepoGrant) — the link alone is
+// installation-granular, and a single-repo collaborator must not connect the
+// rest of the account's repos.
 export async function assertRepoInstallationAccess(
   workspaceId: string,
   fullName: string
@@ -164,14 +242,25 @@ export async function assertRepoInstallationAccess(
         message: `${fullName} belongs to a GitHub App installation that isn't connected to this workspace. Connect that GitHub account in workspace settings → Repositories first.`,
       })
     }
+    // The link alone is installation-granular; the grant (captured user-scoped
+    // at OAuth time) proves a member can actually access THIS repo.
+    await assertRepoGrant(workspaceId, repoInstallationId, fullName)
     return repoInstallationId
   }
   for (const inst of installs) {
+    // On GitHub a full_name maps to exactly one repo (and so one installation
+    // of this App) — a scan hit is authoritative; gate it and stop. The grant
+    // check runs OUTSIDE the try so its FORBIDDEN is never swallowed.
+    let found = false
     try {
       const { repos } = await listAllInstallationRepos(inst.installationId)
-      if (repos.some((r) => r.fullName === fullName)) return inst.installationId
+      found = repos.some((r) => r.fullName === fullName)
     } catch {
       // A revoked/suspended installation must not fail the whole scan.
+    }
+    if (found) {
+      await assertRepoGrant(workspaceId, inst.installationId, fullName)
+      return inst.installationId
     }
   }
   throw new TRPCError({
@@ -232,10 +321,26 @@ export const integrationsRouter = router({
             installUrl: null as string | null,
             connectUrl: null as string | null,
             accounts: [] as string[],
-            installations: [] as ReturnType<typeof installationSummary>[],
+            installations: [] as Array<
+              ReturnType<typeof installationSummary> & { needsReauth: boolean }
+            >,
           }
         }
         const installs = await resolveWorkspaceInstallations(workspaceId)
+        // Additive UX signal: a linked installation with ZERO grants for this
+        // workspace (e.g. linked before grants existed) yields no repos and
+        // refuses connects until a member re-runs the OAuth connect flow —
+        // surface that as `needsReauth` so the settings UI can prompt.
+        const grantedIds = githubOAuthConfigured()
+          ? new Set(
+              (
+                await workspaceGrantRows(
+                  workspaceId,
+                  installs.map((i) => i.installationId)
+                )
+              ).map((g) => g.installationId)
+            )
+          : null
         return {
           configured: true as const,
           installed: installs.length > 0,
@@ -245,7 +350,12 @@ export const integrationsRouter = router({
           accounts: installs
             .map((r) => r.accountLogin)
             .filter((a): a is string => Boolean(a)),
-          installations: installs.map(installationSummary),
+          installations: installs.map((inst) => ({
+            ...installationSummary(inst),
+            needsReauth: grantedIds
+              ? !grantedIds.has(inst.installationId)
+              : false,
+          })),
         }
       }),
 
@@ -278,7 +388,12 @@ export const integrationsRouter = router({
             connectUrl: null as string | null,
             repos: [] as InstallationRepo[],
             hasMore: false,
-            installations: [] as ReturnType<typeof installationSummary>[],
+            installations: [] as Array<
+              ReturnType<typeof installationSummary> & {
+                hasMore: boolean
+                needsReauth: boolean
+              }
+            >,
           }
         }
 
@@ -295,7 +410,12 @@ export const integrationsRouter = router({
             ...urls,
             repos: [] as InstallationRepo[],
             hasMore: false,
-            installations: [] as ReturnType<typeof installationSummary>[],
+            installations: [] as Array<
+              ReturnType<typeof installationSummary> & {
+                hasMore: boolean
+                needsReauth: boolean
+              }
+            >,
           }
         }
 
@@ -310,6 +430,7 @@ export const integrationsRouter = router({
             installations: cached.installations.map((inst) => ({
               ...installationSummary(inst),
               hasMore: inst.hasMore,
+              needsReauth: inst.needsReauth,
             })),
           }
         }
@@ -317,24 +438,61 @@ export const integrationsRouter = router({
         const seen = new Set<string>()
         const merged: InstallationRepo[] = []
         let hasMore = false
-        const withMeta: Array<ResolvedInstallation & { hasMore: boolean }> = []
-        for (const inst of installs) {
-          let instHasMore = false
-          try {
-            const { repos, hasMore: more } = await listAllInstallationRepos(
-              inst.installationId
-            )
-            instHasMore = more
-            if (more) hasMore = true
-            for (const repo of repos) {
-              if (seen.has(repo.fullName)) continue
-              seen.add(repo.fullName)
-              merged.push(repo)
-            }
-          } catch {
-            // A single revoked/404 installation must not fail the whole list.
+        const withMeta: Array<
+          ResolvedInstallation & { hasMore: boolean; needsReauth: boolean }
+        > = []
+        if (githubOAuthConfigured()) {
+          // Grant path (OAuth configured): the pickers list exactly the repos
+          // some member proved USER-SCOPED access to at OAuth time — never the
+          // installation-wide selection (which leaks every repo of an account
+          // to a single-repo collaborator), and with zero GitHub round-trips.
+          // The grant snapshot is bounded (capture pages are capped), so
+          // hasMore is always false here; re-running the connect flow is the
+          // refresh. A linked installation with no grants at all needs exactly
+          // that — surfaced as `needsReauth`.
+          const grants = await workspaceGrantRows(
+            workspaceId,
+            installs.map((i) => i.installationId)
+          )
+          const grantedIds = new Set(grants.map((g) => g.installationId))
+          for (const grant of grants) {
+            if (seen.has(grant.fullName)) continue
+            seen.add(grant.fullName)
+            merged.push({
+              fullName: grant.fullName,
+              private: grant.private,
+              defaultBranch: grant.defaultBranch ?? `main`,
+              installationId: grant.installationId,
+            })
           }
-          withMeta.push({ ...inst, hasMore: instHasMore })
+          for (const inst of installs) {
+            withMeta.push({
+              ...inst,
+              hasMore: false,
+              needsReauth: !grantedIds.has(inst.installationId),
+            })
+          }
+        } else {
+          // No OAuth secret ⇒ no user-scoped capture path exists (trusted
+          // single-tenant self-host) — keep the installation-wide listing.
+          for (const inst of installs) {
+            let instHasMore = false
+            try {
+              const { repos, hasMore: more } = await listAllInstallationRepos(
+                inst.installationId
+              )
+              instHasMore = more
+              if (more) hasMore = true
+              for (const repo of repos) {
+                if (seen.has(repo.fullName)) continue
+                seen.add(repo.fullName)
+                merged.push(repo)
+              }
+            } catch {
+              // A single revoked/404 installation must not fail the whole list.
+            }
+            withMeta.push({ ...inst, hasMore: instHasMore, needsReauth: false })
+          }
         }
         merged.sort((a, b) => a.fullName.localeCompare(b.fullName))
         repoCache.set(workspaceId, {
@@ -353,6 +511,7 @@ export const integrationsRouter = router({
           installations: withMeta.map((inst) => ({
             ...installationSummary(inst),
             hasMore: inst.hasMore,
+            needsReauth: inst.needsReauth,
           })),
         }
       }),

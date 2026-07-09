@@ -90,6 +90,13 @@ const listAllInstallationRepos = vi.fn(async (_installationId: number) => ({
   hasMore: false,
 }))
 
+// OAuth-configured toggles the grant gate: false (the default here) keeps the
+// legacy installation-wide behavior every pre-existing test pins; the grant
+// tests flip it to true. `installationIdForRepo` is hoisted the same way so
+// the fallback-scan test can make the live lookup 404 (null).
+const githubOAuthConfigured = vi.fn(() => false)
+const installationIdForRepo = vi.fn(async (_repo: string): Promise<number | null> => 1)
+
 // Captures the signed state tokens passed into each minted URL so the
 // platform/purpose tests can decode their markers (the setup-state module
 // stays REAL — minting and consuming exercise the true HMAC path).
@@ -98,6 +105,7 @@ const connectUrlStates: (string | undefined)[] = []
 
 vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => true,
+  githubOAuthConfigured: () => githubOAuthConfigured(),
   githubAppInstallUrl: (state?: string) => {
     installUrlStates.push(state)
     return `https://install.example`
@@ -106,7 +114,8 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
     connectUrlStates.push(state)
     return state ? `https://oauth.example` : null
   },
-  installationIdForRepo: vi.fn(async () => 1),
+  installationIdForRepo: (...args: unknown[]) =>
+    installationIdForRepo(...(args as [string])),
   installationManageUrl: (inst: { installationId: number }) =>
     `https://manage.example/${inst.installationId}`,
   listAllInstallationRepos: (...args: unknown[]) =>
@@ -114,6 +123,7 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
 }))
 
 import {
+  assertRepoInstallationAccess,
   integrationsRouter,
   invalidateRepoCache,
 } from "@/lib/trpc/integrations"
@@ -140,6 +150,8 @@ beforeEach(() => {
   process.env.BETTER_AUTH_SECRET = `test-secret-test-secret-test-secret!`
   listAllInstallationRepos.mockClear()
   assertWorkspaceMember.mockClear()
+  githubOAuthConfigured.mockReturnValue(false)
+  installationIdForRepo.mockClear()
   selectQueue.length = 0
   inserted.length = 0
   deletes.length = 0
@@ -241,6 +253,109 @@ describe(`integrations.github.repos install URL platform marker`, () => {
     expect(githubSetupStateWantsMobile(installUrlStates.at(-1) ?? null)).toBe(
       false
     )
+  })
+})
+
+describe(`assertRepoInstallationAccess grant gate`, () => {
+  // Select order on the live-resolution path: #1 the workspace's linked
+  // installations, #2 the grant lookup for (workspace, installation, repo).
+  it(`denies a linked-installation repo with NO grant when OAuth is configured`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([]) // grant lookup → none
+    await expect(
+      assertRepoInstallationAccess(freshWorkspaceId(), `acme/other-private`)
+    ).rejects.toThrow(/reconnect GitHub in workspace settings/)
+  })
+
+  it(`allows a granted repo and returns the authoritative installation id`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    selectQueue.push(DEFAULT_ROWS)
+    selectQueue.push([{ id: `grant-1` }])
+    await expect(
+      assertRepoInstallationAccess(freshWorkspaceId(), `acme/repo`)
+    ).resolves.toBe(1)
+  })
+
+  it(`gates the fallback scan too (live per-repo lookup 404s)`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    installationIdForRepo.mockResolvedValueOnce(null)
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([]) // grant lookup after the scan hit → none
+    await expect(
+      assertRepoInstallationAccess(freshWorkspaceId(), `acme/repo`)
+    ).rejects.toThrow(/reconnect GitHub in workspace settings/)
+    // The scan itself ran (installation-wide listing) — the DENY came from the
+    // missing grant, not from the repo being absent.
+    expect(listAllInstallationRepos).toHaveBeenCalledTimes(1)
+  })
+
+  it(`bypasses the grant gate when OAuth is NOT configured (trusted self-hosted fallback)`, async () => {
+    githubOAuthConfigured.mockReturnValue(false)
+    selectQueue.push(DEFAULT_ROWS)
+    // Poison the next select: if the gate wrongly ran, it would see no grant
+    // row and throw.
+    selectQueue.push([])
+    await expect(
+      assertRepoInstallationAccess(freshWorkspaceId(), `acme/repo`)
+    ).resolves.toBe(1)
+  })
+})
+
+describe(`integrations.github.repos grant scoping (OAuth configured)`, () => {
+  it(`lists only granted repos — never GitHub's installation-wide listing`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const workspaceId = freshWorkspaceId()
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([
+      // Two grant rows for the same repo (two members proved access) — the
+      // picker output dedups by fullName.
+      {
+        installationId: 1,
+        fullName: `acme/granted`,
+        private: true,
+        defaultBranch: `dev`,
+      },
+      {
+        installationId: 1,
+        fullName: `acme/granted`,
+        private: true,
+        defaultBranch: `dev`,
+      },
+    ])
+    const result = await callerFor(`user-grant`).github.repos({ workspaceId })
+    expect(result.repos).toEqual([
+      {
+        fullName: `acme/granted`,
+        private: true,
+        defaultBranch: `dev`,
+        installationId: 1,
+      },
+    ])
+    expect(result.hasMore).toBe(false)
+    expect(result.installations[0]).toMatchObject({
+      installationId: 1,
+      needsReauth: false,
+    })
+    // The whole point: the installation-token WHOLE-selection listing (which
+    // leaks every repo of the account) is never consulted on this path.
+    expect(listAllInstallationRepos).not.toHaveBeenCalled()
+  })
+
+  it(`returns an empty list + needsReauth for a linked installation with zero grants`, async () => {
+    githubOAuthConfigured.mockReturnValue(true)
+    const workspaceId = freshWorkspaceId()
+    selectQueue.push(DEFAULT_ROWS) // linked installations
+    selectQueue.push([]) // no grants (e.g. a pre-grant legacy link)
+    const result = await callerFor(`user-grant`).github.repos({ workspaceId })
+    expect(result.repos).toEqual([])
+    expect(result.installations[0]).toMatchObject({ needsReauth: true })
+    expect(listAllInstallationRepos).not.toHaveBeenCalled()
+
+    // Cached serve preserves the grant-derived list and the needsReauth flag.
+    const cached = await callerFor(`user-grant`).github.repos({ workspaceId })
+    expect(cached.repos).toEqual([])
+    expect(cached.installations[0]).toMatchObject({ needsReauth: true })
   })
 })
 

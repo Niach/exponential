@@ -534,6 +534,54 @@ export const githubInstallationLinks = pgTable(
   ]
 )
 
+// User-scoped repo entitlements under a workspace ↔ installation claim
+// (SERVER-ONLY, never synced). A link alone is INSTALLATION-granular, but
+// GitHub attributes an installation to a user who can access even ONE of its
+// repos — so a lone collaborator must not get to browse/connect the WHOLE
+// installation. These rows capture what the connecting user could actually
+// access, recorded at OAuth-callback time via
+// `GET /user/installations/{id}/repositories` (the only moment a user-scoped
+// token exists — it is transient, never persisted). A row means "workspace W
+// may see/connect repo `fullName` under installation I because user U proved
+// user-scoped GitHub access". Effective entitlement = EXISTS(any grant for
+// (W, I, fullName)) — union across members; the per-user unique key makes each
+// re-auth a clean per-user REPLACE. Keyed on GitHub's NUMERIC installation id
+// (like repositories.installation_id) so capture never depends on link-row
+// creation timing. Gates DISCOVERY (integrations.repos) and CONNECT
+// (assertRepoInstallationAccess) only — never token minting.
+export const githubInstallationRepoGrants = pgTable(
+  `github_installation_repo_grants`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    installationId: bigint(`installation_id`, { mode: `number` }).notNull(),
+    // `owner/name` as GitHub reports it.
+    fullName: text(`full_name`).notNull(),
+    private: boolean().notNull().default(false),
+    defaultBranch: text(`default_branch`),
+    grantedByUserId: text(`granted_by_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    ...timestamps,
+  },
+  (table) => [
+    // Named explicitly: drizzle's default composite name here exceeds
+    // Postgres's 63-byte identifier limit (silent truncation).
+    unique(`github_installation_repo_grants_scope_unique`).on(
+      table.workspaceId,
+      table.installationId,
+      table.fullName,
+      table.grantedByUserId
+    ),
+    index(`idx_github_installation_repo_grants_ws_inst`).on(
+      table.workspaceId,
+      table.installationId
+    ),
+  ]
+)
+
 export const notifications = pgTable(
   `notifications`,
   {

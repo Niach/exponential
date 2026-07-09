@@ -1,9 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { githubInstallationLinks, githubInstallations } from "@/db/schema"
+import {
+  githubInstallationLinks,
+  githubInstallationRepoGrants,
+  githubInstallations,
+} from "@/db/schema"
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import {
   exchangeGithubOAuthCode,
+  listUserInstallationRepos,
   listUserInstallations,
 } from "@/lib/integrations/github-app"
 import { mobileConnectedResponse } from "@/lib/integrations/github-return-page"
@@ -59,7 +65,6 @@ async function handleCallback(request: Request): Promise<Response> {
     if (!userToken) return errorRedirect(`exchange`)
 
     const installations = await listUserInstallations(userToken)
-    // Token's job is done — it never leaves this scope.
 
     // Mirror every enumerated installation (account fields only). The rows
     // must exist before the claim page can render account names, and the
@@ -84,6 +89,56 @@ async function handleCallback(request: Request): Promise<Response> {
         .returning({ id: githubInstallations.id })
       if (row) rowIds.set(inst.id, row.id)
     }
+
+    // Capture this user's USER-SCOPED repo entitlement per installation while
+    // the transient token still exists — `GET /user/installations` attributes
+    // an installation to anyone who can access even ONE of its repos, so the
+    // link alone must never open the whole installation. These grant rows are
+    // what integrations.repos (discovery) and assertRepoInstallationAccess
+    // (connect) gate on. REPLACE semantics per (workspace, installation, user)
+    // so a re-auth cleanly refreshes this user's set. Best-effort per
+    // installation: one failed listing must not abort the linking below (that
+    // installation just contributes no grants until the next re-auth).
+    // Captured for ALL enumerated installations regardless of which the user
+    // ultimately links — the pickers only ever read grants for LINKED
+    // installations, so grants for un-linked ones are inert.
+    for (const inst of installations) {
+      try {
+        const { repos } = await listUserInstallationRepos(userToken, inst.id)
+        await db.transaction(async (tx) => {
+          await tx
+            .delete(githubInstallationRepoGrants)
+            .where(
+              and(
+                eq(githubInstallationRepoGrants.workspaceId, workspaceId),
+                eq(githubInstallationRepoGrants.installationId, inst.id),
+                eq(githubInstallationRepoGrants.grantedByUserId, sessionUserId)
+              )
+            )
+          if (repos.length > 0) {
+            await tx.insert(githubInstallationRepoGrants).values(
+              repos.map((repo) => ({
+                workspaceId,
+                installationId: inst.id,
+                fullName: repo.fullName,
+                private: repo.private,
+                defaultBranch: repo.defaultBranch ?? null,
+                grantedByUserId: sessionUserId,
+              }))
+            )
+          }
+        })
+      } catch (err) {
+        console.warn(
+          `[github-callback] repo-grant capture failed for installation ${inst.id}:`,
+          err
+        )
+      }
+    }
+    // Token's job is done — it never leaves this scope. The grant set just
+    // changed, so any cached (grant-derived) repo list for this workspace is
+    // stale even when no new link lands below.
+    invalidateRepoCache(workspaceId)
 
     if (installations.length === 0) {
       return errorRedirect(`none`)

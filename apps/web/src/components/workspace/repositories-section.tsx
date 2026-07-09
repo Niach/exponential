@@ -234,6 +234,26 @@ export function WorkspaceRepositoriesSection({
                   />
                 ))}
               </div>
+              {installations.some((inst) => inst.needsReauth) &&
+                connectHopUrl && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span className="min-w-0 flex-1">
+                      Reconnect GitHub to refresh which repositories you can
+                      access. We only list repos you can access on GitHub, so
+                      any created or shared with you since your last connect
+                      won&rsquo;t appear until you reconnect.
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openGithubPopup(connectHopUrl)}
+                    >
+                      <Github className="mr-1.5 h-3.5 w-3.5" />
+                      Reconnect
+                    </Button>
+                  </div>
+                )}
             </div>
           )}
 
@@ -329,6 +349,11 @@ function InstallationChip({
       <span className="font-medium">
         {installation.accountLogin ?? `Installation ${installation.installationId}`}
       </span>
+      {installation.needsReauth && (
+        <span title="Reconnect GitHub to load this account's repositories">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        </span>
+      )}
       <Button
         asChild
         variant="ghost"
