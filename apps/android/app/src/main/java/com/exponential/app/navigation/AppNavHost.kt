@@ -37,9 +37,10 @@ import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
+import com.exponential.app.ui.issue.ChangesScreen
 import com.exponential.app.ui.search.SearchScreen
+import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.session.AgentsScreen
-import com.exponential.app.ui.session.SteerTerminalScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
@@ -388,10 +389,18 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenChanges = { navController.navigate("issue/$issueId/changes") },
             )
         }
+        composable("issue/{issueId}/changes") {
+            // Dedicated diff page (EXP-34): PR/branch changes with per-file
+            // expandable unified patches.
+            ChangesScreen(onBack = { navController.popBackStack() })
+        }
         composable("steer/{codingSessionId}") {
-            SteerTerminalScreen(onBack = { navController.popBackStack() })
+            // The chat-style agent session viewer (EXP-32) — replaced the old
+            // live-terminal mirror; the route string is unchanged.
+            AgentSessionScreen(onBack = { navController.popBackStack() })
         }
         composable("invite/{token}") { entry ->
             val token = entry.arguments?.getString("token").orEmpty()

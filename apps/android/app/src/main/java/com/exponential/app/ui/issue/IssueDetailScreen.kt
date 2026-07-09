@@ -84,6 +84,7 @@ fun IssueDetailScreen(
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit = {},
     onOpenSteer: (String) -> Unit = {},
+    onOpenChanges: () -> Unit = {},
     viewModel: IssueDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -406,11 +407,9 @@ fun IssueDetailScreen(
                 )
             }
 
-            Spacer(Modifier.height(20.dp))
-            AttachmentList(issueId = issue.id)
-
-            // Changes (masterplan §4.8, mobile tiers 2–4): PR diff → pushed-branch
-            // diff → "being coded on <device>" opening the native steer viewer.
+            // Changes before attachments (iOS order — masterplan §4.8, mobile
+            // tiers 2–4): PR/branch summary linking to the dedicated diff page
+            // → "being coded on <device>" opening the native agent viewer.
             if (!issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank() || runningSession != null) {
                 Spacer(Modifier.height(20.dp))
                 ChangesSection(
@@ -420,11 +419,14 @@ fun IssueDetailScreen(
                     runningSessionDeviceLabel = runningSession?.deviceLabel,
                     steerEnabled = steerEnabled == true,
                     isMember = permissions.isMember,
-                    loadPrFiles = { viewModel.loadPrFiles() },
                     loadBranchDiff = { viewModel.loadBranchDiff() },
+                    onOpenChanges = onOpenChanges,
                     onWatch = onOpenSteer,
                 )
             }
+
+            Spacer(Modifier.height(20.dp))
+            AttachmentList(issueId = issue.id)
 
             Spacer(Modifier.height(8.dp))
             CommentThread(issueId = issue.id)

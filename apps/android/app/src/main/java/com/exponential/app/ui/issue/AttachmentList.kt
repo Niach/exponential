@@ -2,7 +2,6 @@ package com.exponential.app.ui.issue
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AttachFile
@@ -37,6 +35,8 @@ import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassRow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -63,61 +63,62 @@ fun AttachmentList(
 
     if (attachments.isEmpty()) return
 
+    // iOS AttachmentListView parity: a medium-weight secondary header over
+    // tightly-spaced glass rows (icon · filename + size · open glyph).
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             "Attachments (${attachments.size})",
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
         Spacer(Modifier.height(8.dp))
-        attachments.forEach { attachment ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 3.dp)
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        RoundedCornerShape(8.dp),
-                    )
-                    .clickable {
-                        runCatching {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(attachment.url))
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            attachments.forEach { attachment ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow()
+                        .clickable {
+                            runCatching {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(attachment.url))
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            }
                         }
-                    }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Icon(
-                    if (attachment.contentType.startsWith("image/"))
-                        Icons.Filled.Image
-                    else
-                        Icons.Filled.AttachFile,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        attachment.filename,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        if (attachment.contentType.startsWith("image/"))
+                            Icons.Filled.Image
+                        else
+                            Icons.Filled.AttachFile,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     )
-                    Text(
-                        formatBytes(attachment.sizeBytes),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            attachment.filename,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            formatBytes(attachment.sizeBytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Open",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 }
-                Icon(
-                    Icons.AutoMirrored.Filled.OpenInNew,
-                    contentDescription = "Open",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

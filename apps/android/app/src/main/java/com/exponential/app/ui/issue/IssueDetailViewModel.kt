@@ -6,9 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.PrFilesApi
 import com.exponential.app.data.api.PrFilesResult
-import com.exponential.app.data.api.PullFile
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.LabelsApi
@@ -73,7 +71,6 @@ class IssueDetailViewModel @Inject constructor(
     private val labelsApi: LabelsApi,
     private val subscriptionsApi: SubscriptionsApi,
     private val issueImagesApi: IssueImagesApi,
-    private val prFilesApi: PrFilesApi,
     private val repositoriesApi: RepositoriesApi,
     private val steerApi: SteerApi,
     private val stats: SyncStats,
@@ -545,12 +542,6 @@ class IssueDetailViewModel @Inject constructor(
         }
         issueImagesApi.upload(accountId, issueId, bytes, filename, contentType).url
     }.getOrNull()
-
-    // Changed files for this issue's PR (live GitHub fetch via the server).
-    suspend fun loadPrFiles(): List<PullFile> {
-        val accountId = auth.activeAccountId.value ?: return emptyList()
-        return prFilesApi.get(accountId, issueId).files
-    }
 
     // Middle Changes tier (masterplan §4.8): the exp/<IDENTIFIER> branch compared
     // against the repo default branch. Null when the branch was never pushed —
