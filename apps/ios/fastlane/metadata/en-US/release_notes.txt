@@ -1,5 +1,5 @@
-• Fixed switching accounts mid-session showing the previous account's data
-• Signing out now removes that account's local data from the device
-• The offline banner now reflects only the active account's connection
-• The Exponential feedback board is protected — no delete controls anywhere
-• Sync tolerance, separate per-account data, and crash fixes from 0.9.2
+• All-new live agent sessions: a native activity feed with a single message bar replaces the terminal — watch Claude narrate its work and steer it with one tap
+• New Changes screen: per-file unified diffs with a summary header and PR link
+• Issue list rows now align perfectly and the layout is tighter
+• The filter bar's Clear button is always visible
+• Smaller fixes and performance improvements

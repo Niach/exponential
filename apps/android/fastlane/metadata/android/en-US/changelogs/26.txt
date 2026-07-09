@@ -1,0 +1,5 @@
+• All-new live agent sessions: a native activity feed with a single message bar replaces the terminal
+• New Changes screen with per-file unified diffs
+• Deleting projects, labels and members now syncs reliably
+• Sharing into Exponential is one screen, matching iOS
+• Redesigned settings screen, aligned issue list, opaque editor toolbar, newline fix
