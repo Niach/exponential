@@ -26,7 +26,7 @@ struct IssueListView: View {
                             )
                             Spacer()
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(Color.white.opacity(0.04))
                     }
@@ -71,12 +71,12 @@ struct IssueListView: View {
 
             // Filter bar (search lives in the Search tab, not the issue list)
             filterBar(vm)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.vertical, 8)
 
             if !vm.filters.isEmpty {
                 activeFilterPills(vm)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             }
 
@@ -90,7 +90,7 @@ struct IssueListView: View {
                                     issueRow(issue: issue, vm: vm)
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
-                                        .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
+                                        .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
                                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                             if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
                                                 Button {
@@ -122,7 +122,7 @@ struct IssueListView: View {
                             }
                         } header: {
                             statusHeader(status: status, count: statusIssues.count, vm: vm)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 2, trailing: 12))
                                 .listRowBackground(Color.clear)
                         }
                     }
@@ -207,31 +207,33 @@ struct IssueListView: View {
                         }
                         .glassButton(isActive: vm.activeTab == tab)
                     }
-
-                    if !vm.filters.isEmpty {
-                        Divider()
-                            .frame(height: 20)
-                            .tint(.white.opacity(0.1))
-
-                        Button {
-                            vm.clearFilters()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("Clear")
-                                    .font(.caption)
-                                Image(systemName: "xmark")
-                                    .font(.caption2)
-                            }
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                        }
-                        .glassButton()
-                    }
                 }
-                // Trailing inset so the last chip's capsule stroke rests inside
-                // the scroll clip instead of being shaved by the edge.
+                // Trailing content margin so the last tab's capsule stroke rests
+                // inside the scroll clip instead of being shaved by the edge.
                 .padding(.trailing, 4)
+            }
+
+            // Clear chip is pinned OUTSIDE the ScrollView so it's always visible
+            // at the trailing edge (tabs scroll under it) — never cut off (EXP-27).
+            if !vm.filters.isEmpty {
+                Divider()
+                    .frame(height: 20)
+                    .tint(.white.opacity(0.1))
+
+                Button {
+                    vm.clearFilters()
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Clear")
+                            .font(.caption)
+                        Image(systemName: "xmark")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                }
+                .glassButton()
             }
         }
     }
@@ -337,13 +339,14 @@ struct IssueListView: View {
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
                     .frame(width: 20)
 
-                // Identifier
-                if let identifier = issue.identifier {
-                    Text(identifier)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                }
+                // Identifier — fixed leading-aligned width so the status icon
+                // and title never shift horizontally with digit count (EXP-24).
+                // Sized to fit "EXP-999" in .caption.monospaced.
+                Text(issue.identifier ?? "")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .frame(width: 58, alignment: .leading)
 
                 // Status icon
                 Image(systemName: IssueStatus.from(issue.status).sfSymbol)
