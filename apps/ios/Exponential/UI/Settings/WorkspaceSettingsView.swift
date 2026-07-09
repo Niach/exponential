@@ -41,12 +41,14 @@ struct WorkspaceSettingsView: View {
 
                     // Repositories registry (server-only, read over tRPC —
                     // masterplan §6). A pure registry with "used by" chips;
-                    // adding NEW repos happens on the web (GitHub-App install).
+                    // adding NEW repos happens on the web (GitHub-App install),
+                    // but the grant-model "Reconnect GitHub" hop runs in-app.
                     WorkspaceRepositoriesSection(
                         accountId: accountId,
                         workspace: workspace,
                         isOwner: isOwner,
                         repositoriesApi: deps.repositoriesApi,
+                        integrationsApi: deps.integrationsApi,
                         instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                         protectedRepositoryIds: protectedRepositoryIds
                     )

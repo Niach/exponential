@@ -22,12 +22,43 @@
 //! the URL in the system browser (`settings::open_url`), then re-fetch on an
 //! explicit Refresh — gpui has no reliable cross-app focus signal to hang an
 //! auto-refresh on.
+//!
+//! **Grant model:** the server lists only repos the signed-in user proved
+//! access to at OAuth-connect time (a per-user grant snapshot).
+//! `installations[].needs_reauth` flags a linked account whose grants were
+//! never captured (pre-grant link) — its repos stay hidden until the user
+//! re-runs the OAuth connect. Reconnect/refresh CTAs must open `connect_url`
+//! (the OAuth authorize re-captures grants); the App **install** page does
+//! NOT.
 
 use serde::{Deserialize, Serialize};
 
+/// One linked GitHub-App installation — `installations[]` on both the status
+/// and repos results. `needs_reauth` is the grant-model signal (see the
+/// module doc); the other fields are modeled for contract completeness but
+/// not consumed yet.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub(crate) struct GithubInstallation {
+    #[serde(default)]
+    pub installation_id: i64,
+    #[serde(default)]
+    pub account_login: Option<String>,
+    #[serde(default)]
+    pub account_type: Option<String>,
+    #[serde(default)]
+    pub manage_url: String,
+    #[serde(default)]
+    pub needs_reauth: bool,
+    /// Only present on the `repos` endpoint's installations (whether that
+    /// installation's repo listing was truncated).
+    #[serde(default)]
+    pub has_more: Option<bool>,
+}
+
 /// `integrations.github.status` (per-workspace App install state). Unknown
-/// fields (e.g. the server's `installations[]`) are ignored — this mirror
-/// carries only what the pane renders.
+/// fields are ignored — this mirror carries only what the panes render.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GithubStatus {
@@ -44,6 +75,10 @@ pub(crate) struct GithubStatus {
     pub connect_url: Option<String>,
     #[serde(default)]
     pub accounts: Vec<String>,
+    /// The workspace's linked installations — `needs_reauth` drives the
+    /// grant-model reconnect notice.
+    #[serde(default)]
+    pub installations: Vec<GithubInstallation>,
 }
 
 /// One repo the signed-in user can connect inline — a row of
@@ -62,7 +97,7 @@ pub(crate) struct GithubRepo {
 }
 
 /// `integrations.github.repos` result (mirrors the web `ReposResult`).
-/// Unknown fields (e.g. the server's `installations[]`) are ignored.
+/// Unknown fields are ignored.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GithubReposResult {
@@ -81,6 +116,10 @@ pub(crate) struct GithubReposResult {
     pub repos: Vec<GithubRepo>,
     #[serde(default)]
     pub has_more: bool,
+    /// The workspace's linked installations — `needs_reauth` drives the
+    /// grant-model reconnect notice.
+    #[serde(default)]
+    pub installations: Vec<GithubInstallation>,
 }
 
 /// `integrations.github.status` — per-workspace install state (best-effort

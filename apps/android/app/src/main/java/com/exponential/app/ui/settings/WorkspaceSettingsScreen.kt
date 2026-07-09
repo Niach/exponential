@@ -2,6 +2,7 @@ package com.exponential.app.ui.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -380,6 +381,33 @@ private fun RepositoriesSection(
             }
         }
         if (isOwner) {
+            // Grant-model reconnect (web parity): a linked installation with no
+            // captured grants (linked before grants existed, or OAuth revoked)
+            // returns no repos and flags `needsReauth` — re-running the OAuth
+            // connect in a Custom Tab re-captures them; the server's post-connect
+            // page fires exp://github-connected, which refreshes this section.
+            val github = state.github
+            if (github != null && github.installations.any { it.needsReauth }) {
+                val reconnectUrl = github.connectUrl ?: github.installUrl
+                Text(
+                    "GitHub needs to be reconnected to load this workspace's repositories.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+                OutlinedButton(
+                    onClick = {
+                        reconnectUrl?.let {
+                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it))
+                        }
+                    },
+                    enabled = reconnectUrl != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Code, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Reconnect GitHub")
+                }
+            }
             val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
                 state.workspace?.slug?.let { slug -> "$base/w/$slug/settings" }
             }

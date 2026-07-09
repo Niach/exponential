@@ -8,6 +8,7 @@ import com.exponential.app.data.api.ProjectsApi
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.WorkspaceRepo
 import com.exponential.app.data.api.WorkspacesApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -113,7 +114,11 @@ class CreateProjectViewModel @Inject constructor(
                 _state.value = _state.value.copy(submitting = false)
                 onCreated(projectId)
             }.onFailure { err ->
-                val message = err.message ?: "Failed to create project"
+                // Extract the server's human-readable message instead of the raw
+                // "HTTP 403: {json}" blob — e.g. the no-grant FORBIDDEN's
+                // "…reconnect GitHub in workspace settings → Repositories…" is
+                // itself the actionable instruction.
+                val message = trpcErrorMessage(err, err.message ?: "Failed to create project")
                 val looksLikeLimit = message.contains("limit", ignoreCase = true) ||
                     message.contains("plan", ignoreCase = true) ||
                     message.contains("upgrade", ignoreCase = true)

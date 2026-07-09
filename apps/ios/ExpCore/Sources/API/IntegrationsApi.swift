@@ -12,14 +12,50 @@ public struct GithubStatusResult: Decodable, Sendable {
     public let installUrl: String?
     public let connectUrl: String?
     public let accounts: [String]
+    /// Per-installation grant state (grant model); `[]` on servers that predate
+    /// the field.
+    public let installations: [GithubInstallation]
 
-    public init(configured: Bool, installed: Bool, installUrl: String?, connectUrl: String? = nil, accounts: [String]) {
+    public init(configured: Bool, installed: Bool, installUrl: String?, connectUrl: String? = nil, accounts: [String], installations: [GithubInstallation] = []) {
         self.configured = configured
         self.installed = installed
         self.installUrl = installUrl
         self.connectUrl = connectUrl
         self.accounts = accounts
+        self.installations = installations
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            configured: try container.decode(Bool.self, forKey: .configured),
+            installed: try container.decode(Bool.self, forKey: .installed),
+            installUrl: try container.decodeIfPresent(String.self, forKey: .installUrl),
+            connectUrl: try container.decodeIfPresent(String.self, forKey: .connectUrl),
+            accounts: try container.decode([String].self, forKey: .accounts),
+            installations: try container.decodeIfPresent([GithubInstallation].self, forKey: .installations) ?? []
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case configured, installed, installUrl, connectUrl, accounts, installations
+    }
+}
+
+/// One GitHub App installation linked to the workspace (mirrors the web
+/// `installationSummary` + grant flags). `needsReauth` marks an installation
+/// whose per-user repo grants were never captured (linked before the grant
+/// model existed) — it yields zero repos until a member re-runs the OAuth
+/// connect hop (`connectUrl`; the install page does NOT re-capture grants).
+/// `hasMore` exists only on the `repos` endpoint (nil on `status`).
+public struct GithubInstallation: Decodable, Sendable, Identifiable {
+    public var id: Int { installationId }
+    public let installationId: Int
+    public let accountLogin: String?
+    public let accountType: String?
+    public let manageUrl: String
+    public let needsReauth: Bool
+    public let hasMore: Bool?
 }
 
 /// One repo the user's GitHub App can connect (mirrors web `InstallationRepo`).
@@ -43,6 +79,24 @@ public struct GithubReposResult: Decodable, Sendable {
     public let connectUrl: String?
     public let repos: [GithubPickerRepo]
     public let hasMore: Bool
+    /// Per-installation grant state (grant model); `[]` on servers that predate
+    /// the field.
+    public let installations: [GithubInstallation]
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        configured = try container.decode(Bool.self, forKey: .configured)
+        installed = try container.decode(Bool.self, forKey: .installed)
+        installUrl = try container.decodeIfPresent(String.self, forKey: .installUrl)
+        connectUrl = try container.decodeIfPresent(String.self, forKey: .connectUrl)
+        repos = try container.decode([GithubPickerRepo].self, forKey: .repos)
+        hasMore = try container.decode(Bool.self, forKey: .hasMore)
+        installations = try container.decodeIfPresent([GithubInstallation].self, forKey: .installations) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case configured, installed, installUrl, connectUrl, repos, hasMore, installations
+    }
 }
 
 public final class IntegrationsApi: Sendable {

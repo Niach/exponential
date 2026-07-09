@@ -101,9 +101,26 @@ fun GithubRepoPickerSheet(
             when {
                 loading && data == null -> LoadingRow()
                 data == null || !data.configured -> NotConfigured()
-                !data.installed -> NotInstalled(
+                !data.installed -> ConnectPrompt(
                     data = data,
-                    onConnect = { viewModel.load(accountId, workspaceId, refresh = true) },
+                    message = "Connect the Exponential GitHub App to pick a repository. " +
+                        "You'll be brought back here when it's done.",
+                    buttonLabel = "Connect GitHub",
+                    onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
+                )
+                // Grant-scoped repos (see GithubInstallation): a pre-grant link —
+                // or one whose grants were revoked — is `installed` but returns no
+                // repos until the user re-runs the OAuth connect, so an empty list
+                // gets the full reconnect prompt instead of a "No repositories"
+                // dead-end. (A stale single account always lands here.) When SOME
+                // repos are granted but another account is stale, the list stays
+                // usable and the reconnect notice rides above it as a banner.
+                data.repos.isEmpty() -> ConnectPrompt(
+                    data = data,
+                    message = "Reconnect GitHub to load your repositories — we only " +
+                        "list repos you can access. You'll be brought back here when it's done.",
+                    buttonLabel = "Reconnect GitHub",
+                    onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
                 )
                 else -> InstalledList(
                     data = data,
@@ -147,17 +164,25 @@ private fun NotConfigured() {
     )
 }
 
+// Connect/reconnect prompt: not-installed and the needs-reauth/empty-grant
+// states share the same Custom-Tab hop, differing only in copy.
 @Composable
-private fun NotInstalled(data: GithubReposResult, onConnect: () -> Unit) {
+private fun ConnectPrompt(
+    data: GithubReposResult,
+    message: String,
+    buttonLabel: String,
+    onRefresh: () -> Unit,
+) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Connect the Exponential GitHub App to pick a repository. You'll be brought back here when it's done.",
+            message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
         // Prefer the single-consent OAuth connect URL that claims the account for
-        // the workspace; fall back to the App install page on older servers.
+        // the workspace AND captures the repo grants (the install page doesn't);
+        // fall back to the App install page on older servers.
         val connectUrl = data.connectUrl ?: data.installUrl
         Button(
             onClick = {
@@ -171,9 +196,9 @@ private fun NotInstalled(data: GithubReposResult, onConnect: () -> Unit) {
         ) {
             Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Connect GitHub")
+            Text(buttonLabel)
         }
-        OutlinedButton(onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text("I've connected — refresh")
@@ -190,6 +215,37 @@ private fun InstalledList(data: GithubReposResult, onPick: (GithubPickerRepo) ->
         query.isBlank() || it.fullName.contains(query.trim(), ignoreCase = true)
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Mixed-grant 2+-account case: some repos are granted (so the list stays
+        // usable) but another linked account is stale — a small banner nudges a
+        // reconnect without hiding the selectable repos.
+        val context = LocalContext.current
+        if (data.installations.any { it.needsReauth }) {
+            val reconnectUrl = data.connectUrl ?: data.installUrl
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassRow()
+                    .then(
+                        if (reconnectUrl != null) {
+                            Modifier.clickable {
+                                CustomTabsIntent.Builder().build()
+                                    .launchUrl(context, android.net.Uri.parse(reconnectUrl))
+                            }
+                        } else Modifier,
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Reconnect GitHub to load more repositories — we only list repos you can access.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondary,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
@@ -232,25 +288,43 @@ private fun InstalledList(data: GithubReposResult, onPick: (GithubPickerRepo) ->
                 }
             }
         }
-        if (data.hasMore) {
-            val context = LocalContext.current
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        data.installUrl?.let {
-                            CustomTabsIntent.Builder().build()
-                                .launchUrl(context, android.net.Uri.parse(it))
-                        }
+        // Grant-scoped repos go stale when new repos are created/shared on
+        // GitHub — re-running the OAuth connect re-captures the grants, and the
+        // exp://github-connected return refreshes this list. (`context` is
+        // declared at the top of this Column for the reconnect banner.)
+        val connectUrl = data.connectUrl ?: data.installUrl
+        OutlinedButton(
+            onClick = {
+                connectUrl?.let {
+                    CustomTabsIntent.Builder().build()
+                        .launchUrl(context, android.net.Uri.parse(it))
+                }
+            },
+            enabled = connectUrl != null,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Refresh from GitHub")
+        }
+        // Always offered (not just when the list is truncated): the App install
+        // page is where repo access itself is granted/managed.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    data.installUrl?.let {
+                        CustomTabsIntent.Builder().build()
+                            .launchUrl(context, android.net.Uri.parse(it))
                     }
-                    .padding(vertical = 6.dp),
-            ) {
-                Text(
-                    "Don't see your repo? Manage repositories on GitHub.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tertiary,
-                )
-            }
+                }
+                .padding(vertical = 6.dp),
+        ) {
+            Text(
+                "Don't see your repo? Manage repositories on GitHub.",
+                style = MaterialTheme.typography.bodySmall,
+                color = tertiary,
+            )
         }
     }
 }

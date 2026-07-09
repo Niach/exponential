@@ -14,6 +14,24 @@ import kotlinx.serialization.Serializable
 // that claims the GitHub account for the workspace; the connect hop prefers it
 // over `installUrl` (the App install page, which also grants more repos).
 
+/**
+ * One GitHub App installation the workspace has claimed (`installations[]` on
+ * both `status` and `repos`). Repos are grant-scoped per user now: a link made
+ * before the grant model (or whose grants were revoked) returns NO repos and
+ * flags `needsReauth` until a member re-runs the OAuth connect flow —
+ * reconnect via `connectUrl` (the install page never re-captures grants).
+ * `hasMore` (repos only) marks a truncated repo list for this installation.
+ */
+@Serializable
+data class GithubInstallation(
+    val installationId: Long,
+    val accountLogin: String? = null,
+    val accountType: String? = null,
+    val manageUrl: String,
+    val needsReauth: Boolean = false,
+    val hasMore: Boolean = false,
+)
+
 /** GitHub App install state for the signed-in user (`integrations.github.status`). */
 @Serializable
 data class GithubStatusResult(
@@ -22,6 +40,7 @@ data class GithubStatusResult(
     val installUrl: String? = null,
     val connectUrl: String? = null,
     val accounts: List<String> = emptyList(),
+    val installations: List<GithubInstallation> = emptyList(),
 )
 
 /**
@@ -45,6 +64,7 @@ data class GithubReposResult(
     val connectUrl: String? = null,
     val repos: List<GithubPickerRepo> = emptyList(),
     val hasMore: Boolean = false,
+    val installations: List<GithubInstallation> = emptyList(),
 )
 
 // Scopes the query to a workspace (installations are claimed per workspace;

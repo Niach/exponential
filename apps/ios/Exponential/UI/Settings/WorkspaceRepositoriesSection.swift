@@ -9,12 +9,17 @@ import SwiftUI
 /// still points at it, and that message is surfaced inline. The primary-star and
 /// per-project link/unlink UI is gone (a project now owns exactly one repo, set
 /// at creation or via the projects section's "Change repository"). Connecting
-/// NEW repos (the GitHub-App install flow) stays web-only.
+/// NEW repos (the GitHub-App install flow) stays web-only, but the grant-model
+/// reconnect (re-capturing which repos the user can access) runs in-app — a
+/// workspace linked before per-user grants existed lists zero repos until
+/// someone re-runs the OAuth connect, and an iOS-only user must be able to do
+/// that without a desktop (web parity: repositories-section.tsx).
 struct WorkspaceRepositoriesSection: View {
     let accountId: String
     let workspace: WorkspaceEntity?
     let isOwner: Bool
     let repositoriesApi: RepositoriesApi
+    let integrationsApi: IntegrationsApi
     let instanceBaseURL: URL?
     // Repository ids backing a protected project (the dogfood board). Removal is
     // refused server-side while any project points at a repo, and doubly so for
@@ -26,6 +31,12 @@ struct WorkspaceRepositoriesSection: View {
     @State private var loading = true
     @State private var errorText: String?
     @State private var removeTarget: WorkspaceRepo?
+    // GitHub grant state — drives the reconnect notice. Fetched via the `repos`
+    // endpoint (not `status`) because only it accepts `platform: "mobile"`, so
+    // the minted connect URL deep-links back via `exp://github-connected` and
+    // auto-dismisses the in-app auth session.
+    @State private var github: GithubReposResult?
+    @State private var connectSession = InstallWebAuthSession()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -52,6 +63,14 @@ struct WorkspaceRepositoriesSection: View {
 
             ForEach(repos) { repo in
                 repoRow(repo)
+            }
+
+            // Grant-model fail-closed state: a linked installation with no
+            // captured grants yields zero repos everywhere until a member
+            // re-runs the OAuth connect. Any member's reconnect captures THEIR
+            // grants, so this isn't owner-gated.
+            if let github, github.installations.contains(where: { $0.needsReauth }) {
+                reconnectNotice(github)
             }
 
             if let errorText {
@@ -147,6 +166,57 @@ struct WorkspaceRepositoriesSection: View {
         .glassRow()
     }
 
+    // MARK: - Reconnect (grant model)
+
+    @ViewBuilder
+    private func reconnectNotice(_ github: GithubReposResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.yellow.opacity(0.8))
+                Text("GitHub needs to be reconnected")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+            Text("We only list repositories you can access on GitHub, so repos created or shared with you since your last connect won't appear until you reconnect.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if (github.connectUrl ?? github.installUrl) != nil {
+                Button {
+                    reconnect(github)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Text("Reconnect GitHub")
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .glassButton()
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
+    }
+
+    // The in-app OAuth connect hop (ASWebAuthenticationSession, same flow as
+    // GithubRepoPicker): re-captures which repos this user can access. It must
+    // be `connectUrl` — the install page does NOT re-capture grants — with
+    // `installUrl` only as the no-OAuth-secret fallback. The completion fires
+    // on callback AND manual dismissal, so re-query regardless.
+    private func reconnect(_ github: GithubReposResult) {
+        guard let urlString = github.connectUrl ?? github.installUrl,
+              let url = URL(string: urlString) else { return }
+        connectSession.start(url: url) {
+            Task { await reload(refreshGithub: true) }
+        }
+    }
+
     // MARK: - Data (server-only registry; refetched after every mutation)
 
     private var webSettingsURL: URL? {
@@ -157,7 +227,7 @@ struct WorkspaceRepositoriesSection: View {
         return URL(string: "\(baseString)/w/\(slug)/settings")
     }
 
-    private func reload() async {
+    private func reload(refreshGithub: Bool = false) async {
         guard let workspaceId = workspace?.id else { return }
         loading = repos.isEmpty
         defer { loading = false }
@@ -167,6 +237,13 @@ struct WorkspaceRepositoriesSection: View {
         } catch {
             errorText = error.trpcUserMessage
         }
+        // Non-fatal: the grant state only powers the reconnect notice. Bypass
+        // the server's repo cache right after a reconnect hop.
+        github = try? await integrationsApi.githubRepos(
+            accountId: accountId,
+            workspaceId: workspaceId,
+            refresh: refreshGithub
+        )
     }
 
     private func mutate(_ operation: () async throws -> Void) async {

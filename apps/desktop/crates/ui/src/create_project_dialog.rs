@@ -13,7 +13,9 @@
 //! `onboarding.complete`); the close is gated on the new project appearing in
 //! the synced collection (§4.1 create flows), so the sidebar row is there the
 //! moment the dialog is gone. A plan-cap FORBIDDEN surfaces as the neutral
-//! "Upgrade on the web" notification (§4.9) — never an in-app purchase UI.
+//! "Upgrade on the web" notification (§4.9) — never an in-app purchase UI;
+//! the grant-model FORBIDDEN (403 + the server's "reconnect GitHub" hint) is
+//! detected first and surfaces a reconnect prompt instead.
 //!
 //! Opened by the sidebar's Projects `+` via the [`NewProject`]
 //! action; [`init`] owns the handler.
@@ -179,6 +181,10 @@ pub struct CreateProjectDialogView {
     fetch_generation: u64,
     submitting: bool,
     error: Option<SharedString>,
+    /// The last submit failed with the grant-model FORBIDDEN (stale/missing
+    /// GitHub grant for the picked repo) — pair the error with a "Reconnect
+    /// GitHub" hand-off.
+    grant_reconnect: bool,
     focused_once: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -235,6 +241,7 @@ impl CreateProjectDialogView {
             fetch_generation: 0,
             submitting: false,
             error: None,
+            grant_reconnect: false,
             focused_once: false,
             _subscriptions: subscriptions,
         };
@@ -306,6 +313,7 @@ impl CreateProjectDialogView {
         };
 
         self.error = None;
+        self.grant_reconnect = false;
         self.submitting = true;
         cx.notify();
 
@@ -369,6 +377,21 @@ impl CreateProjectDialogView {
                 }
                 Err(err) => {
                     let _ = this.update_in(window, |this, window, cx| {
+                        // Grant-model FORBIDDEN must be checked BEFORE the
+                        // plan-limit fallback — `is_plan_limit` matches any
+                        // 403, which would misread a stale GitHub grant as a
+                        // plan cap and tell the user to upgrade.
+                        if is_grant_forbidden(&err) {
+                            this.error = Some(
+                                "GitHub says you don't have access to this repository, or \
+                                 your connection is stale — reconnect GitHub and try again."
+                                    .into(),
+                            );
+                            this.grant_reconnect = true;
+                            this.submitting = false;
+                            cx.notify();
+                            return;
+                        }
                         if is_plan_limit(&err) {
                             // §4.9: neutral hand-off, never an upgrade dialog.
                             window.close_dialog(cx);
@@ -615,8 +638,67 @@ impl CreateProjectDialogView {
             column = column.child(row);
         }
 
-        // Empty/failure messaging when there is nothing to pick.
-        if !has_options && !configured_not_installed {
+        // Grant-model reconnect: installed but the per-user grant snapshot is
+        // missing/stale — a pre-grant link comes back `installed: true` with
+        // an empty `repos[]` and `needs_reauth` on the linked installation(s).
+        // Reconnect must run the OAuth connect (it re-captures grants); the
+        // App install page does NOT (web parity: `github-repo-picker.tsx`).
+        let github_repos_empty = github_result
+            .map(|result| result.repos.is_empty())
+            .unwrap_or(true);
+        let needs_reconnect = github_result
+            .map(|result| {
+                result.installed
+                    && (result.repos.is_empty()
+                        || result.installations.iter().any(|inst| inst.needs_reauth))
+            })
+            .unwrap_or(false);
+        if needs_reconnect {
+            let mut notice = h_flex()
+                .flex_wrap()
+                .gap_2()
+                .items_center()
+                .px_3()
+                .py_2()
+                .rounded(cx.theme().radius)
+                .border_1()
+                .border_dashed()
+                .border_color(cx.theme().border)
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    Icon::new(IconName::TriangleAlert)
+                        .xsmall()
+                        .text_color(theme::tokens::YELLOW.to_hsla()),
+                )
+                .child(div().flex_1().min_w_0().child(if github_repos_empty {
+                    "Reconnect GitHub to load the repositories you can access."
+                } else {
+                    "Reconnect GitHub to refresh — repos created or shared with you since \
+                     your last connect won't appear until you do."
+                }));
+            let reconnect_url = github_result.and_then(|result| {
+                result
+                    .connect_url
+                    .clone()
+                    .or_else(|| result.install_url.clone())
+            });
+            if let Some(url) = reconnect_url {
+                notice = notice.child(
+                    Button::new("project-repo-reconnect-gh")
+                        .outline()
+                        .xsmall()
+                        .icon(IconName::Github)
+                        .label("Reconnect GitHub")
+                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                );
+            }
+            column = column.child(notice);
+        }
+
+        // Empty/failure messaging when there is nothing to pick (the
+        // installed-but-grantless empty case is the reconnect notice above).
+        if !has_options && !configured_not_installed && !needs_reconnect {
             let message: SharedString = match (&self.repos, &self.github) {
                 (RepoLoad::Failed(message), _) => message.clone(),
                 (_, GithubLoad::Failed(message)) => message.clone(),
@@ -641,8 +723,11 @@ impl CreateProjectDialogView {
         }
 
         // Always offer a manual Refresh (re-detect after a browser install),
-        // plus a "manage on GitHub" link when the installed repo list was
-        // truncated (the target repo may need granting on GitHub first).
+        // plus — once installed — a "Refresh from GitHub" re-auth (the repo
+        // list is a grant snapshot: repos created or shared since the last
+        // OAuth connect only appear after reconnecting) and a "manage on
+        // GitHub" link when the installed repo list was truncated (the
+        // target repo may need granting on GitHub first).
         let mut actions = h_flex().gap_2().items_center().child(
             Button::new("project-repo-refresh")
                 .ghost()
@@ -650,6 +735,26 @@ impl CreateProjectDialogView {
                 .label("Refresh")
                 .on_click(cx.listener(|this, _, _, cx| this.spawn_fetches(true, cx))),
         );
+        if let Some(url) = github_result.and_then(|result| {
+            result
+                .installed
+                .then(|| {
+                    result
+                        .connect_url
+                        .clone()
+                        .or_else(|| result.install_url.clone())
+                })
+                .flatten()
+        }) {
+            actions = actions.child(
+                Button::new("project-repo-refresh-gh")
+                    .link()
+                    .xsmall()
+                    .label("Refresh from GitHub")
+                    .icon(IconName::ExternalLink)
+                    .on_click(move |_, _, cx| open_url(cx, url.clone())),
+            );
+        }
         if let Some(url) = github_result.and_then(|result| {
             (result.installed && result.has_more)
                 .then(|| result.install_url.clone())
@@ -708,12 +813,37 @@ impl Render for CreateProjectDialogView {
         );
 
         if let Some(error) = &self.error {
-            form = form.child(
+            let mut error_block = v_flex().gap_2().child(
                 div()
                     .text_sm()
                     .text_color(cx.theme().danger)
                     .child(error.clone()),
             );
+            // Grant-model FORBIDDEN: pair the message with the OAuth
+            // reconnect hand-off (`connect_url` re-captures grants; the App
+            // install page does not).
+            if self.grant_reconnect {
+                let url = match &self.github {
+                    GithubLoad::Ready(result) => result
+                        .connect_url
+                        .clone()
+                        .or_else(|| result.install_url.clone()),
+                    _ => None,
+                };
+                if let Some(url) = url {
+                    error_block = error_block.child(
+                        h_flex().child(
+                            Button::new("project-grant-reconnect-gh")
+                                .outline()
+                                .xsmall()
+                                .icon(IconName::Github)
+                                .label("Reconnect GitHub")
+                                .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                        ),
+                    );
+                }
+            }
+            form = form.child(error_block);
         }
 
         form.child(
@@ -800,9 +930,43 @@ pub(crate) fn is_plan_limit(err: &api::ApiError) -> bool {
     matches!(err, api::ApiError::Http { status: 403, .. })
 }
 
+/// The grant-model FORBIDDEN from `projects.create`'s inline `{fullName}`
+/// arm: HTTP 403 whose message carries the server's "reconnect GitHub" hint
+/// (`apps/web/src/lib/trpc/integrations.ts`). Check this BEFORE
+/// [`is_plan_limit`] — that helper matches ANY 403, so this error would
+/// otherwise be misread as a plan cap.
+fn is_grant_forbidden(err: &api::ApiError) -> bool {
+    matches!(
+        err,
+        api::ApiError::Http { status: 403, message } if message.contains("reconnect GitHub")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grant_forbidden_detected_before_plan_limit() {
+        let grant = api::ApiError::Http {
+            status: 403,
+            message: "You don't have access to acme/repo on GitHub, or your connection is \
+                      stale — reconnect GitHub in workspace settings → Repositories to \
+                      refresh which repositories you can access."
+                .into(),
+        };
+        // A grant FORBIDDEN also satisfies `is_plan_limit` (any 403) — the
+        // submit handler's ordering is what keeps it out of the upsell path.
+        assert!(is_grant_forbidden(&grant));
+        assert!(is_plan_limit(&grant));
+
+        let plan_cap = api::ApiError::Http {
+            status: 403,
+            message: "Plan limit reached".into(),
+        };
+        assert!(!is_grant_forbidden(&plan_cap));
+        assert!(is_plan_limit(&plan_cap));
+    }
 
     #[test]
     fn derive_prefix_matches_web() {

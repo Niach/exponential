@@ -107,61 +107,131 @@ struct GithubRepoPicker: View {
         }
     }
 
+    // Grant model: the list shows exactly the repos the user's last OAuth
+    // connect proved access to — never the installation-wide selection. So a
+    // repo created or shared since that connect only appears after re-running
+    // the connect hop (`openConnect`), and a workspace linked before grants
+    // existed (`needsReauth`) yields zero repos until someone reconnects.
     @ViewBuilder private func installedList(_ data: GithubReposResult) -> some View {
         let repos = data.repos.filter {
             query.isEmpty || $0.fullName.localizedCaseInsensitiveContains(query.trimmingCharacters(in: .whitespaces))
         }
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
+            if data.repos.isEmpty {
+                reconnectEmptyState(data)
+            } else {
+                if data.installations.contains(where: { $0.needsReauth }) {
+                    reconnectNotice(data)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    TextField("Search repositories…", text: $query)
+                        .textFieldStyle(.plain)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .foregroundStyle(.white)
+                }
+                .padding(12)
+                .background(Color.white.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                ForEach(repos) { repo in
+                    Button {
+                        onPick(repo)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            Text(repo.fullName)
+                                .font(.subheadline.monospaced())
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            Spacer()
+                            if repo.`private` {
+                                Image(systemName: "lock.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .glassRow()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Persistent footer actions (never gated on `hasMore` — the grant
+            // path always reports false). Re-connect re-syncs the repo list;
+            // the install page only changes which repos the App may touch.
+            Button { openConnect(data) } label: {
+                Text("Don't see your repo? Refresh from GitHub.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                TextField("Search repositories…", text: $query)
-                    .textFieldStyle(.plain)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .foregroundStyle(.white)
             }
-            .padding(12)
-            .background(Color.white.opacity(0.05))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            ForEach(repos) { repo in
-                Button {
-                    onPick(repo)
-                    dismiss()
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        Text(repo.fullName)
-                            .font(.subheadline.monospaced())
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Spacer()
-                        if repo.`private` {
-                            Image(systemName: "lock.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .glassRow()
-                }
-                .buttonStyle(.plain)
-            }
-
-            if data.hasMore {
+            .buttonStyle(.plain)
+            if data.installUrl != nil {
                 Button { openManage(data) } label: {
-                    Text("Don't see your repo? Manage repositories on GitHub.")
+                    Text("Manage repo access on GitHub.")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    // Fail-closed grant state: installed but zero repos — either the workspace
+    // was linked before per-user grants existed (`needsReauth`) or the last
+    // connect captured nothing. Reconnecting re-captures the user's grants
+    // either way; without this the picker used to dead-end.
+    @ViewBuilder private func reconnectEmptyState(_ data: GithubReposResult) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Reconnect GitHub to load your repositories")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+            Text("We only list repositories you can access on GitHub — reconnect to refresh the list.")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Button {
+                openConnect(data)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text("Reconnect GitHub")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    // A linked account whose grants were never captured — its repos are missing
+    // from the (non-empty) list until the user reconnects.
+    @ViewBuilder private func reconnectNotice(_ data: GithubReposResult) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Reconnect GitHub to refresh — repos created or shared with you since your last connect won't appear until you do.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Button {
+                openConnect(data)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text("Reconnect GitHub")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
     }
 
     // Connect action: claim a GitHub account for this workspace. Prefer the

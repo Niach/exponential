@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.data.api.CreateLabelInput
+import com.exponential.app.data.api.GithubReposResult
+import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.trpcErrorMessage
@@ -14,6 +16,7 @@ import com.exponential.app.data.api.WorkspaceInvitesApi
 import com.exponential.app.data.api.WorkspaceMembersApi
 import com.exponential.app.data.api.WorkspacesApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.ProjectEntity
@@ -48,6 +51,10 @@ data class WorkspaceSettingsState(
     val projects: List<ProjectEntity> = emptyList(),
     // Server-only repositories registry, loaded over tRPC (never synced).
     val repos: List<WorkspaceRepo> = emptyList(),
+    // GitHub grant state (integrations.github.repos, mobile-marked URLs) —
+    // drives the "Reconnect GitHub" affordance when a linked installation has
+    // no captured grants (needsReauth). Null while loading / not configured.
+    val github: GithubReposResult? = null,
     val currentUserId: String? = null,
     val transient: String? = null,
     val createdInviteToken: String? = null,
@@ -72,6 +79,8 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val labelsApi: LabelsApi,
     private val workspacesApi: WorkspacesApi,
     private val repositoriesApi: RepositoriesApi,
+    private val integrationsApi: IntegrationsApi,
+    private val deepLinkBus: DeepLinkBus,
 ) : ViewModel() {
 
     // Reactive account scoping: a Settings → Workspaces tap on a different
@@ -102,21 +111,48 @@ class WorkspaceSettingsViewModel @Inject constructor(
     private val _createdInviteToken = MutableStateFlow<String?>(null)
     private val _workspaceDeleted = MutableStateFlow(false)
     private val _repos = MutableStateFlow<List<WorkspaceRepo>>(emptyList())
+    private val _github = MutableStateFlow<GithubReposResult?>(null)
     val transient: StateFlow<String?> = _transient.asStateFlow()
 
     init {
         // Repositories aren't an Electric shape — (re)load the registry over
-        // tRPC whenever the active account or selected workspace changes.
+        // tRPC whenever the active account or selected workspace changes. The
+        // GitHub grant state rides along (needsReauth drives the reconnect row).
         viewModelScope.launch {
             combine(auth.activeAccountId, selection.selectedId) { a, w -> a to w }
                 .collectLatest { (accountId, workspaceId) ->
                     _repos.value = emptyList()
+                    _github.value = null
                     if (accountId != null && workspaceId != null) {
                         runCatching { repositoriesApi.list(accountId, workspaceId) }
                             .onSuccess { _repos.value = it }
+                        runCatching { integrationsApi.githubRepos(accountId, workspaceId) }
+                            .onSuccess { _github.value = it }
                     }
                 }
         }
+        // The reconnect Custom Tab ends on the server's "connected" page, which
+        // fires exp://github-connected — re-fetch so the needsReauth row clears
+        // without leaving the screen (mirrors GithubRepoPickerViewModel).
+        viewModelScope.launch {
+            deepLinkBus.target.collect { target ->
+                if (target is DeepLinkBus.Target.GithubConnected) {
+                    deepLinkBus.consume()
+                    refreshGithub()
+                }
+            }
+        }
+    }
+
+    // Re-fetch the registry + grant state (bypassing the server's repo cache)
+    // after a GitHub reconnect lands.
+    private fun refreshGithub() = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val workspaceId = selection.selectedId.value ?: return@launch
+        runCatching { repositoriesApi.list(accountId, workspaceId) }
+            .onSuccess { _repos.value = it }
+        runCatching { integrationsApi.githubRepos(accountId, workspaceId, refresh = true) }
+            .onSuccess { _github.value = it }
     }
 
     val state: StateFlow<WorkspaceSettingsState> = combine(
@@ -127,6 +163,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
             labelsFlow,
             projectsFlow,
             _repos,
+            _github,
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             auth.userId,
             auth.instanceUrl,
@@ -147,13 +184,14 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val projects = values[4] as List<ProjectEntity>
         @Suppress("UNCHECKED_CAST")
         val repos = values[5] as List<WorkspaceRepo>
+        val github = values[6] as GithubReposResult?
         @Suppress("UNCHECKED_CAST")
-        val users = values[6] as List<UserEntity>
-        val currentUserId = values[7] as String?
-        val instance = values[8] as String?
-        val transient = values[9] as String?
-        val invite = values[10] as String?
-        val deleted = values[11] as Boolean
+        val users = values[7] as List<UserEntity>
+        val currentUserId = values[8] as String?
+        val instance = values[9] as String?
+        val transient = values[10] as String?
+        val invite = values[11] as String?
+        val deleted = values[12] as Boolean
         WorkspaceSettingsState(
             workspace = workspace,
             // Synthetic agent users (widget reporters etc.) are workspace
@@ -167,6 +205,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
             labels = labels,
             projects = projects,
             repos = repos,
+            github = github,
             currentUserId = currentUserId,
             transient = transient,
             createdInviteToken = invite,

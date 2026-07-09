@@ -250,6 +250,51 @@ impl Render for RepositoriesPane {
                             );
                         }
                         body = body.child(banner);
+                        // Grant-model reconnect (web parity:
+                        // `repositories-section.tsx`): a linked installation
+                        // whose per-user repo grants were never captured
+                        // (`needs_reauth`) lists no repos until the user
+                        // re-runs the OAuth connect — `connect_url`, NOT the
+                        // install page (installing does not re-capture
+                        // grants).
+                        if status.installations.iter().any(|inst| inst.needs_reauth) {
+                            let mut notice = h_flex()
+                                .flex_wrap()
+                                .gap_2()
+                                .items_center()
+                                .px_3()
+                                .py_2()
+                                .rounded(cx.theme().radius)
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(
+                                    Icon::new(IconName::TriangleAlert)
+                                        .xsmall()
+                                        .text_color(theme::tokens::YELLOW.to_hsla()),
+                                )
+                                .child(div().flex_1().min_w_0().child(
+                                    "Reconnect GitHub to refresh which repositories you can \
+                                     access — repos created or shared with you since your \
+                                     last connect won't appear until you do.",
+                                ));
+                            let reconnect_url = status
+                                .connect_url
+                                .clone()
+                                .or_else(|| status.install_url.clone());
+                            if let Some(url) = reconnect_url {
+                                notice = notice.child(
+                                    Button::new("gh-reconnect")
+                                        .outline()
+                                        .xsmall()
+                                        .label("Reconnect GitHub")
+                                        .icon(IconName::Github)
+                                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                                );
+                            }
+                            body = body.child(notice);
+                        }
                     }
                     Some(status) => {
                         // Configured but not installed → the install nudge.
