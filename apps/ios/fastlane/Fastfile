@@ -95,6 +95,25 @@ platform :ios do
     pilot(**pilot_args)
   end
 
+  desc "Distribute the LATEST already-uploaded build to External Testers + Beta App"
+  desc "Review WITHOUT rebuilding — use when `beta` already uploaded the build (a build"
+  desc "number can only be uploaded once, so re-running `beta external:true` would be"
+  desc "rejected as a duplicate)."
+  lane :beta_external do
+    pilot(
+      api_key: asc_api_key,
+      app_identifier: "at.exponential",
+      # distribute_only has no ipa to infer the platform from, so pilot would
+      # prompt for it (and crash in non-interactive mode) — pin it.
+      app_platform: "ios",
+      distribute_only: true,
+      distribute_external: true,
+      groups: [ENV.fetch("TESTFLIGHT_EXTERNAL_GROUP", "External Testers")],
+      changelog: ENV["TESTFLIGHT_CHANGELOG"] ||
+        File.read("metadata/en-US/release_notes.txt").strip,
+    )
+  end
+
   desc "Upload listing metadata + screenshots to App Store Connect WITHOUT building."
   desc "Metadata lives in fastlane/metadata/, screenshots in fastlane/screenshots/."
   lane :sync_store do
