@@ -100,7 +100,7 @@ platform :ios do
   desc "number can only be uploaded once, so re-running `beta external:true` would be"
   desc "rejected as a duplicate)."
   lane :beta_external do
-    pilot(
+    args = {
       api_key: asc_api_key,
       app_identifier: "at.exponential",
       # distribute_only has no ipa to infer the platform from, so pilot would
@@ -111,7 +111,12 @@ platform :ios do
       groups: [ENV.fetch("TESTFLIGHT_EXTERNAL_GROUP", "External Testers")],
       changelog: ENV["TESTFLIGHT_CHANGELOG"] ||
         File.read("metadata/en-US/release_notes.txt").strip,
-    )
+    }
+    # "Latest build" resolves to the PREVIOUS build while the fresh upload is
+    # still processing — pin the target via env to distribute the right one.
+    args[:app_version] = ENV["TESTFLIGHT_APP_VERSION"] if ENV["TESTFLIGHT_APP_VERSION"]
+    args[:build_number] = ENV["TESTFLIGHT_BUILD_NUMBER"] if ENV["TESTFLIGHT_BUILD_NUMBER"]
+    pilot(**args)
   end
 
   desc "Upload listing metadata + screenshots to App Store Connect WITHOUT building."
