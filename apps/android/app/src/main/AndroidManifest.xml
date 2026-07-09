@@ -32,14 +32,21 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="exp" android:host="oauth-return" />
+                <data android:scheme="exponential" android:host="oauth-return" />
             </intent-filter>
 
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="exp" android:host="issue" />
+                <data android:scheme="exponential" android:host="issue" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="exponential" android:host="invite" />
             </intent-filter>
 
             <!-- Fired by the server's post-GitHub-App-install page so the connect
@@ -48,7 +55,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="exp" android:host="github-connected" />
+                <data android:scheme="exponential" android:host="github-connected" />
             </intent-filter>
 
             <!-- Share target: a shared link/text or a single image becomes a new issue. -->

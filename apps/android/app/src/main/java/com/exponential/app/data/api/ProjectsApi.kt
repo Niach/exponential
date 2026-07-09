@@ -1,11 +1,15 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.data.db.ProjectEntity
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 // Mirrors apps/web/src/lib/trpc/projects.ts `create`. v4: a project IS a repo, so
@@ -40,20 +44,30 @@ sealed interface ProjectRepositoryChoice {
 }
 
 @Serializable
-private data class CreatedProject(val id: String)
+private data class CreateProjectResult(val project: JsonObject)
 
-@Serializable
-private data class CreateProjectResult(val project: CreatedProject)
+/**
+ * `projects.create` result: the new project's id (always present) plus the
+ * full row when the server response decodes into a [ProjectEntity] (the server
+ * returns every column via `.returning()`). The entity drives the optimistic
+ * local Room upsert (EXP-46); it's null on older/self-hosted servers whose
+ * response is missing required fields — callers then just wait for Electric.
+ */
+data class CreatedProjectResult(val id: String, val entity: ProjectEntity?)
 
 @Singleton
-class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
+class ProjectsApi @Inject constructor(
+    private val trpc: TrpcClient,
+    private val json: Json,
+) {
 
     /**
      * Create a project. The server uppercases `prefix` and defaults `color` to
      * `#6366f1` when omitted. `type` is one of dev|tasks|feedback: `dev`
      * requires a `repository` (server rejects otherwise); tasks/feedback boards
      * are repo-optional, so `repository` may be null. The inline-connect path
-     * needs owner/admin (repo management). Returns the new project id.
+     * needs owner/admin (repo management). Returns the new project id plus the
+     * full row when decodable (see [CreatedProjectResult]).
      */
     suspend fun create(
         accountId: String,
@@ -63,7 +77,7 @@ class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
         color: String?,
         type: String,
         repository: ProjectRepositoryChoice?,
-    ): String {
+    ): CreatedProjectResult {
         // Built as a raw JsonObject so the `repository` union encodes exactly as
         // the server's `z.union` expects (registry vs inline shapes differ).
         val input: JsonElement = buildJsonObject {
@@ -74,12 +88,21 @@ class ProjectsApi @Inject constructor(private val trpc: TrpcClient) {
             put("type", type)
             repository?.let { put("repository", it.toJson()) }
         }
-        return trpc.mutation(
+        val project = trpc.mutation(
             accountId,
             path = "projects.create",
             input = input,
             inputSerializer = JsonElement.serializer(),
             outputSerializer = CreateProjectResult.serializer(),
-        ).project.id
+        ).project
+        val id = (project["id"] as? JsonPrimitive)?.contentOrNull
+            ?: throw TrpcException("projects.create returned no project id")
+        // Tolerant full-row decode (ProjectEntity accepts the tRPC camelCase
+        // names via @JsonNames): a server returning fewer fields degrades to
+        // id-only instead of failing the already-committed create.
+        val entity = runCatching {
+            json.decodeFromJsonElement(ProjectEntity.serializer(), project)
+        }.getOrNull()
+        return CreatedProjectResult(id = id, entity = entity)
     }
 }

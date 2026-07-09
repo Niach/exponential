@@ -93,7 +93,7 @@ class LoginViewModel @Inject constructor(
      * /sign-in/oauth2 is POST-only and Custom Tabs only emit GETs, so we
      * route through /api/mobile-oauth-start which POSTs server-side and
      * 302s to the IdP. The flow ends at /api/mobile-oauth-return which
-     * deep-links back into the app via exp://oauth-return#token=...
+     * deep-links back into the app via exponential://oauth-return#token=...
      */
     fun oidcStartUrl(providerId: String): String? {
         val baseUrl = auth.instanceUrl.value ?: return null

@@ -35,6 +35,10 @@ class CreateProjectViewModel @Inject constructor(
     data class UiState(
         val repos: List<WorkspaceRepo> = emptyList(),
         val loadingRepos: Boolean = true,
+        // Registry load failure — distinct from `error` (create/ensure failures)
+        // so a failed load renders as a retriable error row instead of silently
+        // looking like "no repos connected" (EXP-46).
+        val reposError: String? = null,
         val submitting: Boolean = false,
         val error: String? = null,
         val limitError: String? = null,
@@ -59,6 +63,8 @@ class CreateProjectViewModel @Inject constructor(
         if (_workspaceId.value != null) return
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
+            // A retry (the sheet's error state re-calls this) starts clean.
+            _state.value = _state.value.copy(error = null)
             runCatching {
                 val workspace = workspacesApi.ensureDefault(accountId)
                 holder.database(forAccountId = accountId).workspaceDao().upsert(workspace)
@@ -78,12 +84,20 @@ class CreateProjectViewModel @Inject constructor(
     fun loadRepos(workspaceId: String) {
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
-            _state.value = _state.value.copy(loadingRepos = true)
-            val repos = runCatching { repositoriesApi.list(accountId, workspaceId) }.getOrNull()
-            _state.value = _state.value.copy(
-                repos = repos ?: emptyList(),
-                loadingRepos = false,
-            )
+            _state.value = _state.value.copy(loadingRepos = true, reposError = null)
+            runCatching { repositoriesApi.list(accountId, workspaceId) }
+                .onSuccess { repos ->
+                    _state.value = _state.value.copy(repos = repos, loadingRepos = false)
+                }
+                .onFailure { err ->
+                    // Don't let a failed registry load masquerade as "no repos
+                    // connected" — surface it so the form can offer a retry.
+                    _state.value = _state.value.copy(
+                        repos = emptyList(),
+                        loadingRepos = false,
+                        reposError = trpcErrorMessage(err, "Couldn't load repositories"),
+                    )
+                }
         }
     }
 
@@ -110,9 +124,21 @@ class CreateProjectViewModel @Inject constructor(
                     type = type,
                     repository = repository,
                 )
-            }.onSuccess { projectId ->
+            }.onSuccess { created ->
+                // Mirror the new project into Room immediately instead of waiting
+                // for the Electric projects shape's next long-poll — without this
+                // a SUCCESSFUL create still shows the "Create your first project"
+                // empty state (EXP-46), inviting duplicate-create retries. Exact
+                // pattern of the issues upsertCreatedLocally head-start (EXP-19):
+                // Electric re-delivers the same row idempotently (REPLACE), and a
+                // local DB hiccup must not fail the already-committed create.
+                created.entity?.let { entity ->
+                    runCatching {
+                        holder.database(forAccountId = accountId).projectDao().upsert(entity)
+                    }
+                }
                 _state.value = _state.value.copy(submitting = false)
-                onCreated(projectId)
+                onCreated(created.id)
             }.onFailure { err ->
                 // Extract the server's human-readable message instead of the raw
                 // "HTTP 403: {json}" blob — e.g. the no-grant FORBIDDEN's

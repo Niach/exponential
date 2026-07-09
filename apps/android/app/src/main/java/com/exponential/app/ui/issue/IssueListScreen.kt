@@ -63,6 +63,7 @@ import com.exponential.app.domain.FilterTab
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkspacePermissions
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.LabelDot
@@ -270,7 +271,7 @@ private fun IssueListContent(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             // Large project title (scrolls with content, iOS .navigationTitle).

@@ -132,7 +132,7 @@ class WorkspaceSettingsViewModel @Inject constructor(
                 }
         }
         // The reconnect Custom Tab ends on the server's "connected" page, which
-        // fires exp://github-connected — re-fetch so the needsReauth row clears
+        // fires exponential://github-connected — re-fetch so the needsReauth row clears
         // without leaving the screen (mirrors GithubRepoPickerViewModel).
         viewModelScope.launch {
             deepLinkBus.target.collect { target ->

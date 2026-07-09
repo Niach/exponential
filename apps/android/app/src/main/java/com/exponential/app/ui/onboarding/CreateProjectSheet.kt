@@ -11,6 +11,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -39,6 +40,7 @@ fun CreateProjectSheet(
 ) {
     val resolvedWorkspaceId by viewModel.workspaceId.collectAsStateWithLifecycle()
     val accountId by viewModel.accountId.collectAsStateWithLifecycle()
+    val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(workspaceId) { viewModel.ensureWorkspace(workspaceId) }
 
@@ -64,17 +66,38 @@ fun CreateProjectSheet(
             val ws = resolvedWorkspaceId
             val acct = accountId
             if (ws == null || acct == null) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                    Text(
-                        "Setting up your workspace…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
+                // ensureDefault can fail (offline, server error) — without this
+                // branch the sheet would spin "Setting up your workspace…"
+                // forever (EXP-46); surface the error with a retry instead.
+                val setupError = state.error
+                if (setupError != null) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            setupError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        OutlinedButton(onClick = { viewModel.ensureWorkspace(workspaceId) }) {
+                            Text("Retry")
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        Text(
+                            "Setting up your workspace…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    }
                 }
             } else {
                 CreateProjectForm(

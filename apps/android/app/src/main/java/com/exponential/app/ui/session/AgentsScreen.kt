@@ -35,6 +35,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.issue.PulsingDot
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
@@ -69,7 +70,7 @@ fun AgentsScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(state.rows, key = { it.session.id }) { row ->

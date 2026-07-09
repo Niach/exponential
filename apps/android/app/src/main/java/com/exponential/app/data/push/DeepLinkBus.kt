@@ -17,7 +17,7 @@ class DeepLinkBus @Inject constructor() {
         data class Issue(val id: String) : Target
         data class Invite(val token: String) : Target
 
-        // exp://github-connected — the GitHub App install finished in the Custom
+        // exponential://github-connected — the GitHub App install finished in the Custom
         // Tab and the server's post-install page deep-linked back into the app.
         // Not a navigation target: the open repo-picker sheet consumes it and
         // re-fetches (refresh=true) so the new installation shows up.

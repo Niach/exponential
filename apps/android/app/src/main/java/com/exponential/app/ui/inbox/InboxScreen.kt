@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -93,7 +94,7 @@ fun InboxScreen(
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(state.groups, key = { it.issue.id }) { group ->

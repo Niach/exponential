@@ -13,8 +13,10 @@ import com.exponential.app.domain.DomainContract
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
@@ -50,6 +52,30 @@ class AppViewModel @Inject constructor(
             auth.activeAccountId
                 .drop(1)
                 .collect { workspaceSelection.clearSelection() }
+        }
+        // Stale-selection guard (EXP-43 hardening): a deleted workspace leaves
+        // the global selection pointing at a row that no longer exists in Room
+        // (Electric removes it), which future consumers of selectedId would
+        // trip over. Clear it once the id is confirmed gone. The delay absorbs
+        // legitimate transients — e.g. the cross-server Settings tap selects
+        // the target workspace BEFORE its account switch lands, so the id is
+        // briefly absent from the still-active DB; collectLatest cancels the
+        // pending clear as soon as the id resolves (or db/selection change).
+        @OptIn(ExperimentalCoroutinesApi::class)
+        viewModelScope.launch {
+            combine(
+                accountDatabaseFlow(auth, databaseHolder),
+                workspaceSelection.selectedId,
+            ) { db, id -> db to id }
+                .flatMapLatest { (db, id) ->
+                    if (db == null || id == null) flowOf(false)
+                    else db.workspaceDao().observeById(id).map { it == null }
+                }
+                .collectLatest { stale ->
+                    if (!stale) return@collectLatest
+                    delay(2_000)
+                    workspaceSelection.clearSelection()
+                }
         }
     }
 

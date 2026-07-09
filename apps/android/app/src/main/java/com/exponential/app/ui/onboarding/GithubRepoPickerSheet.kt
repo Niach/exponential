@@ -4,12 +4,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
@@ -33,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -52,7 +58,7 @@ import com.exponential.app.ui.theme.glassRow
 // the repos the user's GitHub App is installed on and returns the chosen one. When
 // the App isn't installed it offers an inline connect that opens the (mobile-marked)
 // install URL in a Chrome Custom Tab; the server's post-install page fires
-// exp://github-connected, which closes the tab, returns here, and re-fetches
+// exponential://github-connected, which closes the tab, returns here, and re-fetches
 // (see GithubRepoPickerViewModel). Returning any other way (older server, tab
 // dismissed by hand) still re-queries on lifecycle RESUME. The repo is connected
 // server-side by `projects.create`'s `repository: { fullName }` path.
@@ -79,35 +85,47 @@ fun GithubRepoPickerSheet(
         onPauseOrDispose {}
     }
 
+    // Search state is hoisted above the LazyColumn so the field (a header item)
+    // survives recompositions of the repo rows.
+    var query by remember { mutableStateOf("") }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = GlassTokens.BackgroundBottom,
     ) {
-        Column(
+        // Lazy + height-capped so a hundreds-of-repos account scrolls instead of
+        // clipping everything below the sheet fold (EXP-46) — heightIn(max) still
+        // lets the short states (loading / connect prompt) wrap their content.
+        val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.85f).dp
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .heightIn(max = maxSheetHeight),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Add repository",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            item(key = "title") {
+                Text(
+                    "Add repository",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
             val data = result
             when {
-                loading && data == null -> LoadingRow()
-                data == null || !data.configured -> NotConfigured()
-                !data.installed -> ConnectPrompt(
-                    data = data,
-                    message = "Connect the Exponential GitHub App to pick a repository. " +
-                        "You'll be brought back here when it's done.",
-                    buttonLabel = "Connect GitHub",
-                    onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
-                )
+                loading && data == null -> item(key = "loading") { LoadingRow() }
+                data == null || !data.configured -> item(key = "not-configured") { NotConfigured() }
+                !data.installed -> item(key = "connect") {
+                    ConnectPrompt(
+                        data = data,
+                        message = "Connect the Exponential GitHub App to pick a repository. " +
+                            "You'll be brought back here when it's done.",
+                        buttonLabel = "Connect GitHub",
+                        onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
+                    )
+                }
                 // Grant-scoped repos (see GithubInstallation): a pre-grant link —
                 // or one whose grants were revoked — is `installed` but returns no
                 // repos until the user re-runs the OAuth connect, so an empty list
@@ -115,24 +133,30 @@ fun GithubRepoPickerSheet(
                 // dead-end. (A stale single account always lands here.) When SOME
                 // repos are granted but another account is stale, the list stays
                 // usable and the reconnect notice rides above it as a banner.
-                data.repos.isEmpty() -> ConnectPrompt(
+                data.repos.isEmpty() -> item(key = "reconnect") {
+                    ConnectPrompt(
+                        data = data,
+                        message = "Reconnect GitHub to load your repositories — we only " +
+                            "list repos you can access. You'll be brought back here when it's done.",
+                        buttonLabel = "Reconnect GitHub",
+                        onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
+                    )
+                }
+                else -> installedRepoItems(
                     data = data,
-                    message = "Reconnect GitHub to load your repositories — we only " +
-                        "list repos you can access. You'll be brought back here when it's done.",
-                    buttonLabel = "Reconnect GitHub",
-                    onRefresh = { viewModel.load(accountId, workspaceId, refresh = true) },
-                )
-                else -> InstalledList(
-                    data = data,
+                    query = query,
+                    onQueryChange = { query = it },
                     onPick = { onPick(it); onDismiss() },
                 )
             }
             if (error != null && data == null) {
-                Text(
-                    error ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                item(key = "error") {
+                    Text(
+                        error ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }
@@ -206,20 +230,26 @@ private fun ConnectPrompt(
     }
 }
 
-@Composable
-private fun InstalledList(data: GithubReposResult, onPick: (GithubPickerRepo) -> Unit) {
-    var query by remember { mutableStateOf("") }
-    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+// The installed-repos list as LazyColumn items (EXP-46: repo lists can run to
+// hundreds of rows, so the rows are lazy and the sheet scrolls): reconnect
+// banner + search field as header items, one item per filtered repo, then the
+// refresh/manage footer items.
+private fun LazyListScope.installedRepoItems(
+    data: GithubReposResult,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onPick: (GithubPickerRepo) -> Unit,
+) {
     val filtered = data.repos.filter {
         query.isBlank() || it.fullName.contains(query.trim(), ignoreCase = true)
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Mixed-grant 2+-account case: some repos are granted (so the list stays
-        // usable) but another linked account is stale — a small banner nudges a
-        // reconnect without hiding the selectable repos.
-        val context = LocalContext.current
-        if (data.installations.any { it.needsReauth }) {
+    // Mixed-grant 2+-account case: some repos are granted (so the list stays
+    // usable) but another linked account is stale — a small banner nudges a
+    // reconnect without hiding the selectable repos.
+    if (data.installations.any { it.needsReauth }) {
+        item(key = "reconnect-banner") {
+            val context = LocalContext.current
+            val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
             val reconnectUrl = data.connectUrl ?: data.installUrl
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -246,52 +276,60 @@ private fun InstalledList(data: GithubReposResult, onPick: (GithubPickerRepo) ->
                 )
             }
         }
+    }
+    item(key = "search") {
         OutlinedTextField(
             value = query,
-            onValueChange = { query = it },
+            onValueChange = onQueryChange,
             singleLine = true,
             placeholder = { Text("Search repositories…") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
             modifier = Modifier.fillMaxWidth(),
         )
-        if (filtered.isEmpty()) {
+    }
+    if (filtered.isEmpty()) {
+        item(key = "no-results") {
             Text(
                 "No repositories found.",
                 style = MaterialTheme.typography.bodySmall,
-                color = tertiary,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 modifier = Modifier.padding(vertical = 8.dp),
             )
         }
-        filtered.forEach { repo ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassRow()
-                    .clickable { onPick(repo) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    repo.fullName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (repo.isPrivate) {
-                    Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
-                }
+    }
+    items(filtered, key = { it.fullName }) { repo ->
+        val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+        val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassRow()
+                .clickable { onPick(repo) }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                repo.fullName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (repo.isPrivate) {
+                Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = tertiary)
             }
         }
-        // Grant-scoped repos go stale when new repos are created/shared on
-        // GitHub — re-running the OAuth connect re-captures the grants, and the
-        // exp://github-connected return refreshes this list. (`context` is
-        // declared at the top of this Column for the reconnect banner.)
+    }
+    // Grant-scoped repos go stale when new repos are created/shared on
+    // GitHub — re-running the OAuth connect re-captures the grants, and the
+    // exponential://github-connected return refreshes this list.
+    item(key = "refresh") {
+        val context = LocalContext.current
         val connectUrl = data.connectUrl ?: data.installUrl
         OutlinedButton(
             onClick = {
@@ -307,8 +345,11 @@ private fun InstalledList(data: GithubReposResult, onPick: (GithubPickerRepo) ->
             Spacer(Modifier.width(8.dp))
             Text("Refresh from GitHub")
         }
-        // Always offered (not just when the list is truncated): the App install
-        // page is where repo access itself is granted/managed.
+    }
+    // Always offered (not just when the list is truncated): the App install
+    // page is where repo access itself is granted/managed.
+    item(key = "manage") {
+        val context = LocalContext.current
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -323,7 +364,7 @@ private fun InstalledList(data: GithubReposResult, onPick: (GithubPickerRepo) ->
             Text(
                 "Don't see your repo? Manage repositories on GitHub.",
                 style = MaterialTheme.typography.bodySmall,
-                color = tertiary,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
         }
     }

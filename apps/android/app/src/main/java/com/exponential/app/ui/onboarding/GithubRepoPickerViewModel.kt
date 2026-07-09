@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 // `integrations.github.repos` query (sent with platform="mobile" so the install
 // URL deep-links back into the app) and exposes a refresh so returning from the
 // GitHub App install re-detects the new connection. Two return paths re-fetch:
-// the exp://github-connected deep link the server's post-install page fires
+// the exponential://github-connected deep link the server's post-install page fires
 // (observed here via the DeepLinkBus), and the sheet's on-resume refresh as a
 // fallback for servers without the deep-link page / a manually closed tab.
 @HiltViewModel
@@ -42,7 +42,7 @@ class GithubRepoPickerViewModel @Inject constructor(
 
     init {
         // The install Custom Tab ends on the server's "connected" page, which
-        // fires exp://github-connected — that lands here (viewModelScope stays
+        // fires exponential://github-connected — that lands here (viewModelScope stays
         // active while the activity is stopped behind the tab), so the sheet
         // the user returns to already shows the fresh repo list.
         viewModelScope.launch {

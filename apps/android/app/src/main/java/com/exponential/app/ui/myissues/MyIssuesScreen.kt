@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.StatusIcon
@@ -61,7 +62,7 @@ fun MyIssuesListContent(
         )
         else -> LazyColumn(
             modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             state.groups.forEach { group ->

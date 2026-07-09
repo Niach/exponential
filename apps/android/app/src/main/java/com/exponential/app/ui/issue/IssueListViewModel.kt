@@ -27,6 +27,7 @@ import com.exponential.app.domain.WorkspacePermissions
 import com.exponential.app.domain.deriveTab
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.matchesFilters
+import com.exponential.app.domain.sortIssuesForGroup
 import com.exponential.app.domain.statuses
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
@@ -231,12 +232,15 @@ class IssueListViewModel @Inject constructor(
             IssueWithLabels(issue, resolvedLabels)
         }
 
+        // Canonical in-group order (EXP-38) — shared with MyIssues and the
+        // other clients; see sortIssuesForGroup in domain/IssueDomain.kt.
         val grouped = issueStatusOrder.map { st ->
             IssueGroup(
                 status = st,
-                issues = filteredAndDecorated
-                    .filter { IssueStatus.fromWire(it.issue.status) == st }
-                    .sortedBy { it.issue.sortOrder },
+                issues = sortIssuesForGroup(
+                    status = st,
+                    issues = filteredAndDecorated.filter { IssueStatus.fromWire(it.issue.status) == st },
+                ) { it.issue },
             )
         }.filter { it.issues.isNotEmpty() }
 

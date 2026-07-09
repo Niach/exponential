@@ -349,8 +349,10 @@ private fun DangerZone(
 // listing connected repos with the projects that use each (a repo backs one or
 // more projects). Owners can remove a repo — blocked (CONFLICT) while any
 // project still points at it. Primary-star / per-project link editing is gone
-// (a project = a repository now). Connecting NEW repos (the GitHub-App install
-// flow) is web-only — we link out to the web workspace settings for that.
+// (a project = a repository now). Connecting NEW repos happens in-app (EXP-45):
+// the OAuth connect / App install hop runs in a Custom Tab, exactly like the
+// repo picker — the web workspace settings link survives only as a fallback
+// when the GitHub grant state can't be loaded at all.
 @Composable
 private fun RepositoriesSection(
     state: WorkspaceSettingsState,
@@ -381,51 +383,74 @@ private fun RepositoriesSection(
             }
         }
         if (isOwner) {
-            // Grant-model reconnect (web parity): a linked installation with no
-            // captured grants (linked before grants existed, or OAuth revoked)
-            // returns no repos and flags `needsReauth` — re-running the OAuth
-            // connect in a Custom Tab re-captures them; the server's post-connect
-            // page fires exp://github-connected, which refreshes this section.
             val github = state.github
-            if (github != null && github.installations.any { it.needsReauth }) {
-                val reconnectUrl = github.connectUrl ?: github.installUrl
-                Text(
-                    "GitHub needs to be reconnected to load this workspace's repositories.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
+            if (github != null && github.configured) {
+                // Grant-model connect (web parity, same hop as the repo picker):
+                // the single-consent OAuth connect claims the installation for
+                // this workspace AND captures the repo grants; the server's
+                // post-connect page fires exponential://github-connected, which
+                // refreshes this section without leaving the screen. A linked
+                // installation with no captured grants (linked before grants
+                // existed, or OAuth revoked) flags `needsReauth` — same button,
+                // extra notice.
+                val connectUrl = github.connectUrl ?: github.installUrl
+                if (github.installations.any { it.needsReauth }) {
+                    Text(
+                        "GitHub needs to be reconnected to load this workspace's repositories.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
                 OutlinedButton(
                     onClick = {
-                        reconnectUrl?.let {
+                        connectUrl?.let {
                             CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it))
                         }
                     },
-                    enabled = reconnectUrl != null,
+                    enabled = connectUrl != null,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Filled.Code, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Reconnect GitHub")
+                    Text(if (github.installations.any { it.needsReauth }) "Reconnect GitHub" else "Connect GitHub")
                 }
-            }
-            val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
-                state.workspace?.slug?.let { slug -> "$base/w/$slug/settings" }
-            }
-            TextButton(
-                onClick = {
-                    webSettingsUrl?.let { url ->
-                        runCatching {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
+                // Repo access itself (which repos the App may see) is granted and
+                // managed on GitHub's install page — mirror the repo picker's footer.
+                TextButton(
+                    onClick = {
+                        github.installUrl?.let {
+                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it))
                         }
-                    }
-                },
-                enabled = webSettingsUrl != null,
-            ) {
-                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Connect repositories on the web", style = MaterialTheme.typography.labelMedium)
+                    },
+                    enabled = github.installUrl != null,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Manage repositories on GitHub", style = MaterialTheme.typography.labelMedium)
+                }
+            } else {
+                // Grant state unavailable (query failed) or the server has no
+                // GitHub App — fall back to the web workspace settings, which
+                // explain/handle both.
+                val webSettingsUrl = state.instanceUrl?.trimEnd('/')?.let { base ->
+                    state.workspace?.slug?.let { slug -> "$base/w/$slug/settings" }
+                }
+                TextButton(
+                    onClick = {
+                        webSettingsUrl?.let { url ->
+                            runCatching {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            }
+                        }
+                    },
+                    enabled = webSettingsUrl != null,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Connect repositories on the web", style = MaterialTheme.typography.labelMedium)
+                }
             }
         }
     }

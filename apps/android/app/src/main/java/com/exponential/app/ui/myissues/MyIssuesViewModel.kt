@@ -13,6 +13,7 @@ import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.issueStatusOrder
+import com.exponential.app.domain.sortIssuesForGroup
 import com.exponential.app.ui.issue.IssueGroup
 import com.exponential.app.ui.issue.IssueWithLabels
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -88,12 +89,15 @@ class MyIssuesViewModel @Inject constructor(
                 )
             }
 
+        // Canonical in-group order (EXP-38) — shared with the project board and
+        // the other clients; see sortIssuesForGroup in domain/IssueDomain.kt.
         val groups = issueStatusOrder.map { status ->
             IssueGroup(
                 status = status,
-                issues = decorated
-                    .filter { IssueStatus.fromWire(it.issue.status) == status }
-                    .sortedBy { it.issue.sortOrder },
+                issues = sortIssuesForGroup(
+                    status = status,
+                    issues = decorated.filter { IssueStatus.fromWire(it.issue.status) == status },
+                ) { it.issue },
             )
         }.filter { it.issues.isNotEmpty() }
 

@@ -41,6 +41,13 @@ import com.exponential.app.ui.theme.TextEmphasis
 // instead of the iOS material.)
 private val PillFill = Color(0xF2151518)
 
+// Bottom contentPadding for scrollable content on screens the floating bar
+// overlays (the bar stack is ~68dp above the system nav inset — 42dp tab +
+// 5dp pill padding ×2 + 8dp vertical padding ×2 — plus breathing room). Every
+// LazyColumn under the bar must use this so its last row scrolls clear of the
+// pill; keep them in sync here instead of hardcoding 96.dp per screen (EXP-36).
+val BottomBarInset = 96.dp
+
 // Live-session green, matching the steer UI's "Coding now" badge.
 private val AgentsLiveGreen = Color(0xFF34D399)
 

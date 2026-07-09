@@ -31,7 +31,7 @@ class FcmService : FirebaseMessagingService() {
         val issueId = data["issueId"]
 
         val intent = if (issueId != null) {
-            Intent(Intent.ACTION_VIEW, Uri.parse("exp://issue/$issueId")).apply {
+            Intent(Intent.ACTION_VIEW, Uri.parse("exponential://issue/$issueId")).apply {
                 setPackage(packageName)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }

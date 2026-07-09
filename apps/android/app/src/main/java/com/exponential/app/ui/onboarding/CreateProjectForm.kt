@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,11 +50,19 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 private const val DEFAULT_COLOR = "#6366f1"
 
-/** First letters of each word, uppercased, capped at 5 (mirrors web `derivePrefix`). */
+/**
+ * First letters of each word, uppercased, capped at 5 — mirrors web
+ * `derivePrefix` (apps/web/src/lib/project.ts) byte-for-byte. The server
+ * (projects.create, EXP-46 hardening) requires a letter-led alphanumeric
+ * prefix, so symbol initials and leading digits are dropped; symbol/digit-only
+ * names derive "" and the form requires a hand-typed prefix before submit.
+ */
 private fun derivePrefix(name: String): String =
     name.split(Regex("[\\s\\-_]+"))
         .mapNotNull { it.firstOrNull()?.toString() }
         .joinToString("")
+        .replace(Regex("[^A-Za-z0-9]"), "")
+        .replace(Regex("^[0-9]+"), "")
         .uppercase()
         .take(5)
 
@@ -165,14 +174,32 @@ fun CreateProjectForm(
         if (repoRequired) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Repository (required)", style = MaterialTheme.typography.labelMedium, color = secondary)
-                RepositorySelector(
-                    accountId = accountId,
-                    workspaceId = workspaceId,
-                    repos = state.repos,
-                    loading = state.loadingRepos,
-                    selection = repository,
-                    onSelect = { repository = it },
-                )
+                // A failed registry load must not read as "no repos connected" —
+                // show the error with a retry instead of the selector's empty
+                // state (EXP-46).
+                val reposError = state.reposError
+                if (reposError != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            reposError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { viewModel.loadRepos(workspaceId) }) {
+                            Text("Retry")
+                        }
+                    }
+                } else {
+                    RepositorySelector(
+                        accountId = accountId,
+                        workspaceId = workspaceId,
+                        repos = state.repos,
+                        loading = state.loadingRepos,
+                        selection = repository,
+                        onSelect = { repository = it },
+                    )
+                }
             }
         }
 

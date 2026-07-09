@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.issue.IssueRow
 import com.exponential.app.ui.myissues.MyIssuesListContent
@@ -101,7 +102,7 @@ fun SearchScreen(
                 }
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     state.groups.forEach { group ->

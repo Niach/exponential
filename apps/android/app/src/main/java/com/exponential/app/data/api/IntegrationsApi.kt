@@ -80,7 +80,7 @@ private data class ReposInput(
     val refresh: Boolean? = null,
     // Marks the caller as a mobile client so the server hands back a
     // mobile-marked installUrl/connectUrl: the post-install page then fires the
-    // exp://github-connected deep link back into the app instead of
+    // exponential://github-connected deep link back into the app instead of
     // continuing in the browser. (Servers predating the marker just
     // ignore the extra field.)
     val platform: String? = null,
@@ -102,7 +102,7 @@ class IntegrationsApi @Inject constructor(private val trpc: TrpcClient) {
      * `refresh` bypasses the server cache so returning from an install reflects new
      * repos. `workspaceId` scopes the lookup to the workspace claiming the
      * installation. Always sends `platform: "mobile"` so the returned
-     * installUrl/connectUrl finishes with the exp://github-connected deep link
+     * installUrl/connectUrl finishes with the exponential://github-connected deep link
      * instead of staying in the browser.
      */
     suspend fun githubRepos(

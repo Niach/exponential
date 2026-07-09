@@ -54,15 +54,15 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         // Shared content (ACTION_SEND/_MULTIPLE) arrives with a null data URI, so
-        // this must run before the exp:// deep-link guard below. Parse + copy
-        // images while the read grant is still live (see ShareIntentParser).
+        // this must run before the exponential:// deep-link guard below. Parse +
+        // copy images while the read grant is still live (see ShareIntentParser).
         if (intent != null && ShareIntentParser.isShareIntent(intent)) {
             val payload = ShareIntentParser.parse(this, intent) ?: return
             deepLinkBus.openShare(payload.text, payload.subject, payload.imageUris)
             return
         }
         val data = intent?.data ?: return
-        if (data.scheme != "exp") return
+        if (data.scheme != "exponential") return
         when (data.host) {
             "oauth-return" -> handleOauthReturn(data)
             "issue" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openIssue(it) }
