@@ -105,6 +105,9 @@ fun CreateIssueScreen(
     shareMode: Boolean = false,
     shareGroups: List<WorkspaceProjects> = emptyList(),
     shareRecentProjectId: String? = null,
+    // True while the share picker VM is still loading [shareGroups] — gates
+    // the "no projects" empty state so it can't flash before the list arrives.
+    shareGroupsLoading: Boolean = false,
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -433,50 +436,69 @@ fun CreateIssueScreen(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
                         Spacer(Modifier.height(8.dp))
-                        Column(modifier = Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
-                            var first = true
-                            shareGroups.forEach { group ->
-                                group.projects.forEach { project ->
-                                    if (!first) MetaDivider()
-                                    first = false
-                                    val selected = project.id == selectedProjectId
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                if (project.id != selectedProjectId) {
-                                                    selectedProjectId = project.id
-                                                    viewModel.setProject(project.id)
+                        if (shareGroups.isEmpty()) {
+                            // No shareable projects (deleted ShareTargetPicker
+                            // empty-state parity; iOS ShareComposeView shows an
+                            // equivalent message for projects.isEmpty) — without
+                            // this the share is a silent dead end: an editable
+                            // form whose Create button can never enable.
+                            if (!shareGroupsLoading) {
+                                Text(
+                                    "Open Exponential to create your first project, then try sharing again.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .glassSection()
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                )
+                            }
+                        } else {
+                            Column(modifier = Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                                var first = true
+                                shareGroups.forEach { group ->
+                                    group.projects.forEach { project ->
+                                        if (!first) MetaDivider()
+                                        first = false
+                                        val selected = project.id == selectedProjectId
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    if (project.id != selectedProjectId) {
+                                                        selectedProjectId = project.id
+                                                        viewModel.setProject(project.id)
+                                                    }
                                                 }
+                                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        ) {
+                                            Box(modifier = Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
+                                            Spacer(Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    project.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                Text(
+                                                    group.workspace.name,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
                                             }
-                                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    ) {
-                                        Box(modifier = Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                project.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            Text(
-                                                group.workspace.name,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                        if (selected) {
-                                            Icon(
-                                                Icons.Filled.Check,
-                                                contentDescription = "Selected",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = MaterialTheme.colorScheme.primary,
-                                            )
+                                            if (selected) {
+                                                Icon(
+                                                    Icons.Filled.Check,
+                                                    contentDescription = "Selected",
+                                                    modifier = Modifier.size(18.dp),
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                )
+                                            }
                                         }
                                     }
                                 }

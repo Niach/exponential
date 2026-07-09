@@ -279,9 +279,11 @@ struct PublisherEntry {
     sink: Arc<dyn RawSink>,
     /// The current remote steerer's display name, if any (§8.5 banner state).
     steerer: Option<String>,
-    /// §P7 + EXP-32: the activity emitter's run flag. The emitter ALWAYS runs
-    /// (workspace members can follow the scrubbed activity channel even for
-    /// private sessions); flipping it `false` stops the thread on teardown.
+    /// §P7 + EXP-32: the activity emitter's run flag. The emitter runs for
+    /// every session EXCEPT an explicit keep-private one (which emits nothing
+    /// at all — the fail-closed guard against relays that predate the hello's
+    /// `activityPublic` flag); flipping it `false` stops the thread on
+    /// teardown.
     activity_active: Arc<AtomicBool>,
     /// Whether the relay also fans this session's activity to ANONYMOUS
     /// public viewers (feedback board + `publicShowCoding='live'`, not opted
@@ -325,6 +327,39 @@ enum SteerUiEvent {
     /// End the session: a relay `kill` frame OR the own-row Electric kill
     /// (§8.4/§8.8). Kills the child + stops the publisher; drains stop after.
     Teardown,
+}
+
+/// The EXP-32 activity wiring decision, resolved once at publisher attach.
+struct ActivityDecision {
+    /// Spawn the scrubbed activity emitter at all.
+    emit: bool,
+    /// Declare the room publicly fanned (`activityPublic` in the hello — the
+    /// relay may forward activity to ANONYMOUS public viewers).
+    public: bool,
+}
+
+/// Decide the activity wiring for a session (EXP-32). Pure so the keep-private
+/// invariant is testable.
+///
+/// - `keep_private` — the user's explicit per-session opt-out (only offered on
+///   a live-public board): spawn NO emitter at all, not merely
+///   `activityPublic:false`. The hello flag alone is fail-OPEN under deploy
+///   skew: a pre-EXP-32 relay strips the unknown `activityPublic` key
+///   (plain zod object) and fans every activity frame — including worktree
+///   diffs — to all anonymous public viewers, and relay deploys are manual
+///   while desktops self-update from GitHub Releases. Suppressing the emitter
+///   restores the pre-EXP-32 client-side enforcement, so a stale relay has
+///   nothing to leak. Cost: members lose the scrubbed feed for keep-private
+///   sessions (they keep full PTY view/steer) until the relay can positively
+///   acknowledge the flag (a future hello-ack); privacy wins until then.
+/// - otherwise the emitter always runs (the members-only activity channel),
+///   and the room is public exactly when the board streams live
+///   (`publicShowCoding='live'`).
+fn activity_decision(keep_private: bool, live_public_board: bool) -> ActivityDecision {
+    ActivityDecision {
+        emit: !keep_private,
+        public: !keep_private && live_public_board,
+    }
 }
 
 /// Attach a steer publisher to a freshly launched coding session (§8.4). The
@@ -389,15 +424,14 @@ pub fn attach_publisher(
         trpc,
         coding_session_id: session_id.to_string(),
     });
-    // EXP-32: whether the relay may fan this session's scrubbed activity
-    // stream to ANONYMOUS public viewers — a feedback board with
-    // `publicShowCoding='live'` the user hasn't opted private. Declared in
-    // the publisher hello (`activityPublic`; true = absent = legacy shape).
-    // Authenticated workspace members receive activity regardless.
-    let activity_public = !keep_private
-        && coding_flow::issue_project(issue_id, cx)
-            .map(|project| project.is_live_public_coding())
-            .unwrap_or(false);
+    // EXP-32: the keep-private/live-board decision table (pure, tested below).
+    let live_public_board = coding_flow::issue_project(issue_id, cx)
+        .map(|project| project.is_live_public_coding())
+        .unwrap_or(false);
+    let ActivityDecision {
+        emit: emit_activity,
+        public: activity_public,
+    } = activity_decision(keep_private, live_public_board);
     let spec = PublishSpec {
         session_id: session_id.to_string(),
         issue_id: Some(issue_id.to_string()),
@@ -423,20 +457,23 @@ pub fn attach_publisher(
             resize_notifier.notify(cols, rows);
         }));
 
-    // §P7 + EXP-32: ALWAYS start the activity emitter — the desktop always
-    // emits scrubbed activity events over the publisher socket. Authenticated
-    // workspace members can follow them on the relay's activity channel for
-    // every session; whether ANONYMOUS public viewers also see them is the
-    // room's `activityPublic` flag declared in the hello above (the relay
-    // enforces the keep-private invariant). The emitter tails the Claude
-    // transcript + worktree diffs and redacts before sending. Best-effort: a
-    // relay-disabled instance just drops the sends.
-    let activity_active = Arc::new(AtomicBool::new(true));
-    spawn_activity_emitter(
-        EmitterConfig { worktree },
-        handle.activity_sender(),
-        activity_active.clone(),
-    );
+    // §P7 + EXP-32: start the activity emitter — the desktop emits scrubbed
+    // activity events over the publisher socket. Authenticated workspace
+    // members follow them on the relay's activity channel; whether ANONYMOUS
+    // public viewers also see them is the room's `activityPublic` flag
+    // declared in the hello above (the relay enforces it). The emitter tails
+    // the Claude transcript + worktree diffs and redacts before sending.
+    // Best-effort: a relay-disabled instance just drops the sends.
+    // A keep-private session spawns NO emitter at all (`emit_activity` —
+    // see [`activity_decision`] for the fail-closed rationale).
+    let activity_active = Arc::new(AtomicBool::new(emit_activity));
+    if emit_activity {
+        spawn_activity_emitter(
+            EmitterConfig { worktree },
+            handle.activity_sender(),
+            activity_active.clone(),
+        );
+    }
 
     // Register the session (banner state + take-over + teardown).
     let registry = PublisherRegistry::global(cx);
@@ -608,8 +645,9 @@ fn teardown_session(
 /// Whether this session is publishing a PUBLIC live activity stream right now
 /// (§P7) — the room is publicly fanned (`activityPublic`) and the emitter is
 /// still active. Drives the "LIVE — public" indicator on the coding-session
-/// UI. `false` for private/non-live sessions (whose emitter still runs for
-/// the members-only activity channel, EXP-32).
+/// UI. `false` for non-live sessions (whose emitter still runs for the
+/// members-only activity channel, EXP-32) and for keep-private sessions
+/// (whose emitter never starts — the fail-closed guard).
 pub fn is_publishing_live(session_id: &str, cx: &App) -> bool {
     PublisherRegistry::global_ref(cx)
         .and_then(|registry| {
@@ -675,5 +713,37 @@ pub fn notify_local_resize(session_id: &str, cols: u16, rows: u16, cx: &App) {
         if let Some(entry) = registry.read(cx).entries.get(session_id) {
             entry.handle.notify_local_resize(cols, rows);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // EXP-32 keep-private must fail CLOSED on the client: a keep-private
+    // session spawns NO activity emitter, regardless of the board state —
+    // `activityPublic:false` in the hello is NOT enough, because a
+    // pre-EXP-32 relay strips the unknown key and fans activity (incl.
+    // worktree diffs) to anonymous public viewers.
+    #[test]
+    fn keep_private_never_emits_activity() {
+        for live in [true, false] {
+            let decision = activity_decision(true, live);
+            assert!(!decision.emit, "keep-private must not emit (live={live})");
+            assert!(!decision.public, "keep-private is never public (live={live})");
+        }
+    }
+
+    // The members-only activity channel (EXP-32): every non-private session
+    // emits, and only a live-public board fans to anonymous viewers.
+    #[test]
+    fn non_private_emits_and_is_public_only_on_a_live_board() {
+        let live = activity_decision(false, true);
+        assert!(live.emit);
+        assert!(live.public);
+
+        let member_only = activity_decision(false, false);
+        assert!(member_only.emit, "members-only channel still gets activity");
+        assert!(!member_only.public);
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -513,11 +514,14 @@ internal fun IssueRow(
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             maxLines = 1,
-            overflow = TextOverflow.Clip,
-            // Constant-width identifier column (fits "EXP-9999" in the monospace
+            overflow = TextOverflow.Ellipsis,
+            // Min-width identifier column (fits "EXP-9999" in the monospace
             // labelMedium style) so the priority icon, identifier, status icon
-            // and title all line up across rows regardless of digit count.
-            modifier = Modifier.width(60.dp),
+            // and title line up across rows for typical digit counts — but a
+            // min (not fixed) width so longer identifiers (10-char prefixes,
+            // big numbers, large font scale) still render in full instead of
+            // clipping to a plausible-but-wrong identifier.
+            modifier = Modifier.widthIn(min = 60.dp),
         )
         Spacer(Modifier.width(10.dp))
         StatusIcon(status, size = 16.dp)

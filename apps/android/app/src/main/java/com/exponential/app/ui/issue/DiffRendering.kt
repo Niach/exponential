@@ -90,38 +90,61 @@ fun splitUnifiedDiff(diff: String): List<DiffFileSection> {
 }
 
 /**
+ * Rendered-line cap per patch (iOS DiffRendering `maxLines: Int = 600` parity)
+ * — every line composes a Text under IntrinsicSize.Max intrinsic measurement,
+ * so an uncapped multi-thousand-line patch (lockfile PRs, raw worktree diffs)
+ * freezes the frame.
+ */
+const val DIFF_MAX_RENDERED_LINES = 600
+
+/**
  * The monospace patch body: colored +/−/@@ lines with faint row tints.
  * Horizontal scrolling lives INSIDE this block — never on the page.
+ * Capped at [maxLines] with a truncation footer (iOS DiffPatchBlock parity).
  */
 @Composable
 fun PatchLines(
     lines: List<String>,
     contextColor: Color,
     modifier: Modifier = Modifier,
+    maxLines: Int = DIFF_MAX_RENDERED_LINES,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-    ) {
-        SelectionContainer {
-            Column(modifier = Modifier.width(IntrinsicSize.Max)) {
-                lines.forEach { line ->
-                    Text(
-                        text = line.ifEmpty { " " },
-                        color = diffLineColor(line, contextColor),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(diffLineBackground(line))
-                            .padding(horizontal = 10.dp),
-                    )
+    val truncated = lines.size > maxLines
+    val shown = if (truncated) lines.subList(0, maxLines) else lines
+    Column(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+        ) {
+            SelectionContainer {
+                Column(modifier = Modifier.width(IntrinsicSize.Max)) {
+                    shown.forEach { line ->
+                        Text(
+                            text = line.ifEmpty { " " },
+                            color = diffLineColor(line, contextColor),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(diffLineBackground(line))
+                                .padding(horizontal = 10.dp),
+                        )
+                    }
                 }
             }
+        }
+        if (truncated) {
+            Text(
+                text = "Diff truncated — showing the first $maxLines lines.",
+                color = contextColor,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            )
         }
     }
 }

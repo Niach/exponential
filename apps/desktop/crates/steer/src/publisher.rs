@@ -110,7 +110,11 @@ pub struct PublishSpec {
     /// and not opted private). `true` serializes as ABSENT on the wire (the
     /// legacy hello shape — old relays behave as before); only `false` is
     /// sent explicitly. Authenticated activity-channel members receive the
-    /// stream either way, so the emitter always runs.
+    /// stream either way. NOTE: this flag alone is NOT the keep-private
+    /// enforcement — a pre-EXP-32 relay strips the unknown key and fans
+    /// activity to anonymous viewers regardless, so the wiring layer
+    /// additionally never spawns the activity emitter for an explicitly
+    /// keep-private session (fail closed under relay/desktop deploy skew).
     pub activity_public: bool,
 }
 

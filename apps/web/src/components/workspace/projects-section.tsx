@@ -427,8 +427,8 @@ function PublicBoardDialog({
         </DialogHeader>
 
         <div className="flex items-center gap-2">
-          <div className="flex h-9 min-w-0 flex-1 items-center truncate rounded-md border px-3 text-xs text-muted-foreground">
-            {publicUrl}
+          <div className="flex h-9 min-w-0 flex-1 items-center rounded-md border px-3 text-xs text-muted-foreground">
+            <span className="truncate">{publicUrl}</span>
           </div>
           <Button
             variant="outline"

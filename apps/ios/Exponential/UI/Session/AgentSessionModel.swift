@@ -49,8 +49,10 @@ final class AgentSessionModel {
     }
 
     private(set) var phase: Phase = .idle
-    /// The feed survives reconnects and the session end — only a fresh screen
-    /// (new model) starts empty.
+    /// The feed stays visible while disconnected (closed/ended states) but is
+    /// cleared right before each rejoin — the relay replays the room's whole
+    /// activity log to every joining socket, so keeping it would duplicate
+    /// the entire history on reconnect.
     private(set) var feed: [FeedItem] = []
     /// The most recent worktree diff — each one replaces the previous.
     private(set) var latestDiff: String?
@@ -144,15 +146,18 @@ final class AgentSessionModel {
 
     // MARK: - Steering (message-shaped; the relay enforces the single claim)
 
-    /// Send one message to the agent: steal the claim if someone else holds it,
-    /// forward the text (chunked ≤4 KiB), then a SEPARATE `\r` frame — bundled
-    /// into one write TUI apps treat the trailing return as a paste, which
-    /// inserts instead of submitting.
+    /// Send one message to the agent: ALWAYS steal-claim first (the relay
+    /// gates input per CONNECTION while presence only exposes the steerer's
+    /// USER id — if this user holds the claim on another socket, e.g. the web
+    /// steer terminal or a second phone, skipping the claim would make the
+    /// relay silently drop every frame; the claim is idempotent for the
+    /// current holder and last-writer-wins by design), then forward the text
+    /// (chunked ≤4 KiB), then a SEPARATE `\r` frame — bundled into one write
+    /// TUI apps treat the trailing return as a paste, which inserts instead
+    /// of submitting.
     func sendMessage(_ text: String) {
         guard !text.isEmpty, canSteer, connected else { return }
-        if !isSteering {
-            sendText(#"{"t":"claim","steal":true}"#)
-        }
+        sendText(#"{"t":"claim","steal":true}"#)
         var rest = Substring(text)
         while !rest.isEmpty {
             let chunk = String(rest.prefix(Self.inputChunkChars))
@@ -234,6 +239,12 @@ final class AgentSessionModel {
         task = t
         connected = true
         t.resume()
+        // The relay replays the full activity log (+ latest diff) on join —
+        // clear the kept feed now so the replay rebuilds it instead of
+        // appending a duplicate copy of the whole history.
+        feed = []
+        nextEventId = 0
+        latestDiff = nil
         sendText(#"{"t":"join","channel":"activity"}"#)
         phase = .live
         receiveLoop()

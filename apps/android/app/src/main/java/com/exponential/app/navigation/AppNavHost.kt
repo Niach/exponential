@@ -352,6 +352,7 @@ private fun AuthenticatedNav(
                 shareMode = true,
                 shareGroups = shareState.groups,
                 shareRecentProjectId = shareState.recentProjectId,
+                shareGroupsLoading = shareState.isLoading,
             )
         }
         composable("project/{projectId}") { entry ->

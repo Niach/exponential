@@ -10,6 +10,9 @@ struct IssueListView: View {
     @Environment(\.accountId) private var accountId
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
+    /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
+    /// default Dynamic Type and scales with the user's text size (EXP-24).
+    @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 58
 
     var body: some View {
         ZStack {
@@ -339,14 +342,15 @@ struct IssueListView: View {
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
                     .frame(width: 20)
 
-                // Identifier — fixed leading-aligned width so the status icon
-                // and title never shift horizontally with digit count (EXP-24).
-                // Sized to fit "EXP-999" in .caption.monospaced.
+                // Identifier — leading-aligned min width so the status icon
+                // and title don't shift horizontally with digit count for
+                // typical identifiers (EXP-24), while longer prefixes / 4+
+                // digit numbers grow instead of ellipsizing into ambiguity.
                 Text(issue.identifier ?? "")
                     .font(.caption.monospaced())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
-                    .frame(width: 58, alignment: .leading)
+                    .frame(minWidth: identifierMinWidth, alignment: .leading)
 
                 // Status icon
                 Image(systemName: IssueStatus.from(issue.status).sfSymbol)

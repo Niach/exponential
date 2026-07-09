@@ -427,8 +427,9 @@ pub fn spawn_into_window(
             // relay for phone steering. Best-effort: a no-op when steer is
             // disabled/unreachable or the account is signed out. This is the
             // single hookup the §08 wiring owns (`ui::steer_wiring`). The
-            // worktree + keep_private flag ride along for the §P7 public
-            // activity emitter (started only for a live feedback board).
+            // worktree + keep_private flag ride along for the §P7 scrubbed
+            // activity emitter (started unless the user opted the session
+            // keep-private — that opt-out fails closed client-side).
             crate::steer_wiring::attach_publisher(
                 &session_id,
                 &issue_id,

@@ -183,7 +183,10 @@ class AgentSessionViewModel @Inject constructor(
     }
 
     private suspend fun dialOnce(): DialOutcome {
-        _phase.value = AgentPhase.Connecting
+        // Hold the Starting phase steady across auto-retry redials — flipping
+        // to Connecting per attempt made the header flicker every ~3s while
+        // the desktop was still dialing its publisher.
+        if (_phase.value != AgentPhase.Starting) _phase.value = AgentPhase.Connecting
         _viewers.value = emptyList()
         _steererId.value = null
 
@@ -205,8 +208,18 @@ class AgentSessionViewModel @Inject constructor(
             // The server-returned url is the full ws(s)://…/ws?ticket=… dial URL.
             socket = client.webSocketSession(urlString = minted.url!!)
             ws = socket
+            // The relay replays the room's whole activity log (+ last diff) to
+            // every joining socket — start from a clean slate or each
+            // reconnect would append the full history a second time.
+            _feed.value = emptyList()
+            _latestDiff.value = null
+            nextEventId = 0L
             socket.send(Frame.Text("""{"t":"join","channel":"activity"}"""))
-            _phase.value = AgentPhase.Live
+            // NOT Live yet — the relay may answer the join with no_such_session
+            // (desktop still starting). The phase flips to Live on the first
+            // confirming server frame instead (the relay sends presence
+            // immediately on a successful join), so the Starting retry loop
+            // never flashes the Live header/composer/empty state.
 
             for (frame in socket.incoming) {
                 when (frame) {
@@ -215,6 +228,9 @@ class AgentSessionViewModel @Inject constructor(
                     is Frame.Text -> {
                         val result = handleControlFrame(frame.readText())
                         if (result != null) {
+                            if (result.live && _phase.value != AgentPhase.Live) {
+                                _phase.value = AgentPhase.Live
+                            }
                             sawEnd = sawEnd || result.sawEnd
                             result.detail?.let { detail = it }
                             if (result.retryStarting) {
@@ -251,6 +267,8 @@ class AgentSessionViewModel @Inject constructor(
         val sawEnd: Boolean = false,
         val detail: String? = null,
         val retryStarting: Boolean = false,
+        /** The frame proves the join succeeded — the room is live on the relay. */
+        val live: Boolean = false,
     )
 
     private fun handleControlFrame(raw: String): FrameResult? {
@@ -264,11 +282,11 @@ class AgentSessionViewModel @Inject constructor(
                     )
                 }.getOrDefault(emptyList())
                 _steererId.value = (obj["steererId"] as? JsonPrimitive)?.contentOrNull
-                FrameResult()
+                FrameResult(live = true)
             }
             "activity" -> {
                 handleActivityEvent(obj["event"]?.jsonObject)
-                FrameResult()
+                FrameResult(live = true)
             }
             "bye" -> {
                 val outcome = (obj["outcome"] as? JsonPrimitive)?.contentOrNull
@@ -333,19 +351,20 @@ class AgentSessionViewModel @Inject constructor(
         get() = _steererId.value != null && _steererId.value == currentUserId.value
 
     /**
-     * Send one message to the agent: steal the claim if someone else holds it,
-     * forward the text (chunked ≤4 KiB), then a SEPARATE `\r` frame — bundled
-     * into one write TUI apps treat the trailing return as a paste, which
-     * inserts instead of submitting.
+     * Send one message to the agent: steal the claim, forward the text
+     * (chunked ≤4 KiB), then a SEPARATE `\r` frame — bundled into one write
+     * TUI apps treat the trailing return as a paste, which inserts instead of
+     * submitting. The claim is ALWAYS sent: the relay tracks the steerer per
+     * CONNECTION while presence only carries a user id, so `isSteering` can't
+     * tell this socket from the same user's web/second-device claim — skipping
+     * the claim there made the relay silently drop every input frame.
      */
     fun sendMessage(text: String) {
         if (text.isEmpty() || _perm.value != "steer") return
         val socket = ws ?: return
         viewModelScope.launch {
             runCatching {
-                if (!isSteering) {
-                    socket.send(Frame.Text("""{"t":"claim","steal":true}"""))
-                }
+                socket.send(Frame.Text("""{"t":"claim","steal":true}"""))
                 var i = 0
                 while (i < text.length) {
                     val chunk = text.substring(i, minOf(i + INPUT_CHUNK_CHARS, text.length))
