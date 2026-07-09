@@ -55,6 +55,20 @@ Beta App Review. The external group + TestFlight Test Information must already
 
 exist in App Store Connect (see docs/release-ios.md → External TestFlight).
 
+### ios beta_external
+
+```sh
+[bundle exec] fastlane ios beta_external
+```
+
+Distribute the LATEST already-uploaded build to External Testers + Beta App
+
+Review WITHOUT rebuilding — use when `beta` already uploaded the build (a build
+
+number can only be uploaded once, so re-running `beta external:true` would be
+
+rejected as a duplicate).
+
 ### ios sync_store
 
 ```sh
