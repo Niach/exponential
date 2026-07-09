@@ -45,6 +45,9 @@ data class ProjectEntity(
     @ColumnInfo(name = "public_show_comments") @SerialName("public_show_comments") @JsonNames("publicShowComments") val publicShowComments: Boolean = true,
     @ColumnInfo(name = "public_show_activity") @SerialName("public_show_activity") @JsonNames("publicShowActivity") val publicShowActivity: Boolean = false,
     @ColumnInfo(name = "public_show_coding") @SerialName("public_show_coding") @JsonNames("publicShowCoding") val publicShowCoding: String = "off",
+    // Server-owned protection flag (the dogfood feedback board). A protected
+    // project can't be deleted/archived, so clients hide the delete affordance.
+    @ColumnInfo(name = "is_protected") @SerialName("is_protected") @JsonNames("isProtected") val isProtected: Boolean = false,
     // A project is repo-backed only when `type='dev'`; nullable for tasks/feedback
     // boards (repo-optional since project types landed). repository_id rides on
     // the existing projects shape; the repo name is resolved via the

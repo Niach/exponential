@@ -248,8 +248,10 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
     var showCreateProject by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<SettingsConfirm?>(null) }
     // Owner-only controls are HIDDEN for non-owners (full web parity) — the
-    // server enforces workspace-owner on these mutations anyway. New-project
-    // stays visible (creation is member-level).
+    // server enforces workspace-owner on these mutations anyway. In workspace
+    // settings this now includes "New project" (web parity); the empty-state and
+    // switcher create entries elsewhere stay open (they target the user's own
+    // personal workspace via ensureDefault).
     val isOwner = state.isOwner
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -275,7 +277,9 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                         Box(Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
                         Spacer(Modifier.width(10.dp))
                         Text(project.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (isOwner) {
+                        // Protected projects (the dogfood board) show no delete
+                        // affordance to anyone; the server rejects it regardless.
+                        if (isOwner && !project.isProtected) {
                             IconButton(onClick = { confirm = SettingsConfirm.DeleteProject(project) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete project")
                             }
@@ -283,10 +287,12 @@ private fun GeneralTab(state: WorkspaceSettingsState, viewModel: WorkspaceSettin
                     }
                 }
             }
-            OutlinedButton(onClick = { showCreateProject = true }) {
-                Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("New project")
+            if (isOwner) {
+                OutlinedButton(onClick = { showCreateProject = true }) {
+                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("New project")
+                }
             }
         }
 
@@ -400,6 +406,10 @@ private fun RepositoryRow(
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    // A repo backing a protected project can't be removed (removal is blocked
+    // server-side while any project uses it, and a protected project can't be
+    // deleted to free it) — hide the affordance entirely.
+    val usedByProtected = projects.any { it.isProtected && it.repositoryId == repo.id }
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -421,7 +431,7 @@ private fun RepositoryRow(
                 Spacer(Modifier.width(6.dp))
                 Icon(Icons.Filled.Lock, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
             }
-            if (isOwner) {
+            if (isOwner && !usedByProtected) {
                 IconButton(onClick = { viewModel.removeRepo(repo.id) }) {
                     Icon(Icons.Filled.Delete, contentDescription = "Remove repository")
                 }

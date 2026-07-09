@@ -41,9 +41,13 @@ import androidx.room.RoomDatabase
     //      project_id column server-side; ignoreUnknownKeys absorbs it (we don't
     //      store it locally). Shapes rotate once on the deploy → destructive
     //      resync repopulates.
+    // v11: added projects.is_protected (server-owned dogfood-board flag that
+    //      hides delete/archive affordances). Additive column; destructive
+    //      fallback wipes + resyncs — acceptable here because this release
+    //      already forces one full resync per account via the per-user re-key.
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
