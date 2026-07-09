@@ -87,7 +87,7 @@ export function ContactForm() {
     <form
       className="contact-form"
       method="post"
-      action="#enterprise-contact"
+      action="/contact/"
       onSubmit={handleSubmit}
     >
       <div className="contact-grid">

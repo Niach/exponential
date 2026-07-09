@@ -176,4 +176,12 @@ export const PAGES: PageSeo[] = [
     description: `Legal disclosure (Impressum) for Exponential.`,
     ogImage: `/og/og-default.png`,
   },
+  {
+    path: `/contact/`,
+    htmlFile: `contact/index.html`,
+    sources: [`src/ContactPage.tsx`, `src/components/ContactForm.tsx`],
+    title: `Contact sales — Exponential`,
+    description: `Talk to us about Enterprise and running Exponential in-house.`,
+    ogImage: `/og/og-default.png`,
+  },
 ]

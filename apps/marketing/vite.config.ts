@@ -20,6 +20,7 @@ export default defineConfig({
         privacy: resolve(__dirname, `privacy/index.html`),
         terms: resolve(__dirname, `terms/index.html`),
         imprint: resolve(__dirname, `imprint/index.html`),
+        contact: resolve(__dirname, `contact/index.html`),
       },
     },
   },

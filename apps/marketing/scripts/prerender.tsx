@@ -26,6 +26,7 @@ import { SelfHostDocsPage } from "../src/SelfHostDocsPage"
 import { PrivacyPage } from "../src/PrivacyPage"
 import { TermsPage } from "../src/TermsPage"
 import { ImprintPage } from "../src/ImprintPage"
+import { ContactPage } from "../src/ContactPage"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), `..`)
 const DIST = resolve(ROOT, `dist`)
@@ -41,6 +42,7 @@ const COMPONENTS: Record<string, ComponentType> = {
   "/privacy/": PrivacyPage,
   "/terms/": TermsPage,
   "/imprint/": ImprintPage,
+  "/contact/": ContactPage,
 }
 
 function escapeAttr(value: string): string {

@@ -92,8 +92,8 @@ const selfHostPlans: (Plan & { selfHost?: boolean; enterprise?: boolean })[] = [
       `Prioritized support`,
       `Deployment & upgrade help`,
     ],
-    /* Scrolls to the contact form below the cards (EXP-39). */
-    cta: { label: `Contact sales`, href: `#enterprise-contact` },
+    /* Dedicated contact page with the sales form (EXP-39). */
+    cta: { label: `Contact sales`, href: `/contact/` },
   },
 ]
 

@@ -83,6 +83,7 @@ export function SiteFooter() {
       title: `Meta`,
       links: [
         { label: `GitHub`, href: LINKS.github.repo },
+        { label: `Contact`, href: `/contact/` },
         { label: `Privacy`, href: `/privacy/` },
         { label: `Terms`, href: `/terms/` },
         { label: `Imprint`, href: `/imprint/` },
