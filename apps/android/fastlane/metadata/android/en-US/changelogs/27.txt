@@ -1,0 +1,2 @@
+• Fixed a bug where a fresh account could get stuck on a loading spinner after switching accounts — you now land on your projects or the create-project screen
+• Account switching is more reliable across the board
