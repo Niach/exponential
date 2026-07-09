@@ -55,6 +55,11 @@ data class ProjectEntity(
     @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "archived_at") @SerialName("archived_at") @JsonNames("archivedAt") val archivedAt: String? = null,
+    // Soft-delete (trash) marker — part of the projects shape contract. Always
+    // NULL inside the shape (the server where-clause excludes trashed rows; a
+    // trash arrives as a delete/move-out message), but queries still filter on
+    // it defensively so a stale pre-delete row can never resurface.
+    @ColumnInfo(name = "deleted_at") @SerialName("deleted_at") @JsonNames("deletedAt") val deletedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -119,6 +124,9 @@ data class IssueLabelEntity(
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
     @ColumnInfo(name = "label_id") @SerialName("label_id") @JsonNames("labelId") val labelId: String,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    // Denormalized issue→project id (v7 server trigger); stored so tolerant-apply
+    // stops reporting it dropped. Nullable default for legacy-row decode.
+    @ColumnInfo(name = "project_id") @SerialName("project_id") @JsonNames("projectId") val projectId: String? = null,
 )
 
 @Entity(tableName = "users")
@@ -155,6 +163,8 @@ data class WorkspaceMemberEntity(
 data class WorkspaceInviteEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    // Who created the invite (synced with the shape; not rendered yet).
+    @ColumnInfo(name = "invited_by_id") @SerialName("invited_by_id") @JsonNames("invitedById") val invitedById: String? = null,
     val role: String,
     val token: String,
     @ColumnInfo(name = "expires_at") @SerialName("expires_at") @JsonNames("expiresAt") val expiresAt: String,
@@ -172,6 +182,8 @@ data class CommentEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    // Denormalized issue→project id (v7 server trigger).
+    @ColumnInfo(name = "project_id") @SerialName("project_id") @JsonNames("projectId") val projectId: String? = null,
     @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String,
     @Serializable(with = JsonAsStringSerializer::class) val body: String? = null,
     val kind: String = "regular",
@@ -197,6 +209,8 @@ data class CodingSessionEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    // Denormalized issue→project id (v7 server trigger).
+    @ColumnInfo(name = "project_id") @SerialName("project_id") @JsonNames("projectId") val projectId: String? = null,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
     @ColumnInfo(name = "device_label") @SerialName("device_label") @JsonNames("deviceLabel") val deviceLabel: String? = null,
     val status: String = "running",
@@ -215,6 +229,8 @@ data class AttachmentEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    // Denormalized issue→project id (v7 server trigger).
+    @ColumnInfo(name = "project_id") @SerialName("project_id") @JsonNames("projectId") val projectId: String? = null,
     @ColumnInfo(name = "comment_id") @SerialName("comment_id") @JsonNames("commentId") val commentId: String? = null,
     @ColumnInfo(name = "uploader_id") @SerialName("uploader_id") @JsonNames("uploaderId") val uploaderId: String,
     val filename: String,
@@ -275,6 +291,8 @@ data class IssueEventEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
     @ColumnInfo(name = "workspace_id") @SerialName("workspace_id") @JsonNames("workspaceId") val workspaceId: String,
+    // Denormalized issue→project id (v7 server trigger).
+    @ColumnInfo(name = "project_id") @SerialName("project_id") @JsonNames("projectId") val projectId: String? = null,
     @ColumnInfo(name = "actor_user_id") @SerialName("actor_user_id") @JsonNames("actorUserId") val actorUserId: String? = null,
     val type: String,
     @Serializable(with = JsonAsStringSerializer::class) val payload: String? = null,

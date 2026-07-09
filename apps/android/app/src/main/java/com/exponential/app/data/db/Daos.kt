@@ -29,16 +29,18 @@ interface WorkspaceDao {
 
 @Dao
 interface ProjectDao {
-    @Query("SELECT * FROM projects WHERE archived_at IS NULL ORDER BY sort_order, name")
+    // deleted_at IS NULL everywhere: trashed projects leave the shape as delete
+    // messages, but filter defensively so a stale pre-trash row never resurfaces.
+    @Query("SELECT * FROM projects WHERE archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
     fun observeAll(): Flow<List<ProjectEntity>>
 
-    @Query("SELECT * FROM projects WHERE workspace_id = :workspaceId AND archived_at IS NULL ORDER BY sort_order, name")
+    @Query("SELECT * FROM projects WHERE workspace_id = :workspaceId AND archived_at IS NULL AND deleted_at IS NULL ORDER BY sort_order, name")
     fun observeByWorkspace(workspaceId: String): Flow<List<ProjectEntity>>
 
-    @Query("SELECT * FROM projects WHERE workspace_id = :workspaceId AND slug = :slug LIMIT 1")
+    @Query("SELECT * FROM projects WHERE workspace_id = :workspaceId AND slug = :slug AND deleted_at IS NULL LIMIT 1")
     fun observeBySlug(workspaceId: String, slug: String): Flow<ProjectEntity?>
 
-    @Query("SELECT * FROM projects WHERE id = :id AND archived_at IS NULL LIMIT 1")
+    @Query("SELECT * FROM projects WHERE id = :id AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1")
     suspend fun getActiveById(id: String): ProjectEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

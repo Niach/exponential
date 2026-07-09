@@ -357,7 +357,13 @@ class SyncManager @Inject constructor(
                             is ShapeMessage.Update -> onUpdate(message.value)
                             is ShapeMessage.PartialUpdate ->
                                 applyPartialUpdate(db, tableName, message.key, message.columns, reporter.onDropped)
+                            // Electric delete/move-out messages carry PK-only (or
+                            // partial) payloads, so the full-entity decode usually
+                            // fails and `value` is null. Fall back to deleting by
+                            // the PK parsed from the Electric key (iOS parity) —
+                            // without this every delete was silently dropped.
                             is ShapeMessage.Delete -> message.value?.let { onDelete(it) }
+                                ?: deleteByKey(db, tableName, message.key)
                             ShapeMessage.MustRefetch -> onRefetch()
                             ShapeMessage.UpToDate -> Unit
                         }
@@ -392,6 +398,22 @@ private val schemaCache = SchemaCache()
 private fun parseIdFromKey(key: String): String? {
     val last = key.split("/").lastOrNull() ?: return null
     return last.trim('"')
+}
+
+/**
+ * Delete a row by its Electric key when the `delete` message carries no
+ * decodable value (mirrors iOS `deleteByKey`). Resolves the table's PK columns
+ * via [SchemaCache] so composite-PK tables (issue_labels) work too; pure
+ * planning lives in [planDeleteByKey]. Runs on the same connection as the
+ * batch transaction (like [applyPartialUpdate]).
+ */
+private fun deleteByKey(db: ExponentialDatabase, table: String, key: String) {
+    val schema = schemaCache.of(db.openHelper.writableDatabase, table)
+    val plan = planDeleteByKey(schema.pkColumns, key) ?: return
+    db.openHelper.writableDatabase.execSQL(
+        "DELETE FROM \"$table\" WHERE ${plan.whereClause}",
+        plan.args.toTypedArray(),
+    )
 }
 
 /**

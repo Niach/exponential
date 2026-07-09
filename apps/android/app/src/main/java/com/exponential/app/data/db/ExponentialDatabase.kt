@@ -45,9 +45,14 @@ import androidx.room.RoomDatabase
     //      hides delete/archive affordances). Additive column; destructive
     //      fallback wipes + resyncs — acceptable here because this release
     //      already forces one full resync per account via the per-user re-key.
+    // v12: caught the local schema up to the current server shape contracts —
+    //      projects.deleted_at (trash marker, EXP-26) plus the denormalized
+    //      project_id on issue_labels / comments / attachments / issue_events /
+    //      coding_sessions and workspace_invites.invited_by_id (stops the
+    //      tolerant-apply "dropped columns" diagnostics noise).
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

@@ -45,6 +45,41 @@ internal fun planPartialUpdate(
     )
 }
 
+/**
+ * Result of planning a delete for a `delete` message whose value payload failed
+ * to decode (Electric sends PK-only — or partial — payloads for deletes and
+ * move-outs, so full-entity decode routinely fails). [whereClause] targets the
+ * row by primary key; [args] are the PK values parsed from the Electric key.
+ */
+internal data class DeleteByKeyPlan(
+    val whereClause: String,
+    val args: List<String>,
+)
+
+/**
+ * Plan a delete from the Electric key alone (iOS `deleteByKey` parity). The key
+ * encodes each PK value as a `/`-separated, quoted segment after the table
+ * segment, in PK-column order — `"public"."issue_labels"/"<issue_id>"/"<label_id>"`
+ * — which also covers composite-PK tables that have no surrogate `id`. Returns
+ * null when the key's value count doesn't match the table's PK arity (nothing
+ * safe to target).
+ */
+internal fun planDeleteByKey(pkColumns: List<String>, key: String): DeleteByKeyPlan? {
+    val values = parseKeyComponents(key)
+    if (pkColumns.isEmpty() || values.size != pkColumns.size) return null
+    return DeleteByKeyPlan(
+        whereClause = pkColumns.joinToString(" AND ") { "\"$it\" = ?" },
+        args = values,
+    )
+}
+
+/** Value segments of an Electric key (everything after the table segment), unquoted. */
+internal fun parseKeyComponents(key: String): List<String> {
+    val parts = key.split("/")
+    if (parts.size <= 1) return emptyList()
+    return parts.drop(1).map { it.trim('"') }
+}
+
 /** Bind a wire JSON value to a SQLite arg: null for JSON null, the serialized
  *  form for objects/arrays, and for scalars the raw content — except an
  *  unquoted JSON boolean, which binds as 1L/0L. Room's Boolean columns are
