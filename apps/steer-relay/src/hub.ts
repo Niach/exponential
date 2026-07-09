@@ -53,11 +53,22 @@ interface Room {
   ring: RingBuffer
   /** Publisher dropped without `bye`; room closes when the grace expires. */
   staleTimer: ReturnType<typeof setTimeout> | null
-  // ── Public activity channel (feedback boards, publicShowCoding='live') ──
-  // Anonymous public_viewer sockets. STRICT ISOLATION INVARIANT: these never
-  // receive output/presence/resize frames, and PTY viewers never receive
-  // activity frames — the two audiences share only the room's lifecycle.
+  // ── Scrubbed activity channel (tool headlines / narration / diffs) ──────
+  // Two audiences, strictly separated from the PTY mirror:
+  //   - publicViewers: anonymous public_viewer sockets (feedback boards with
+  //     publicShowCoding='live'). STRICT ISOLATION INVARIANT: these never
+  //     receive output/presence/resize frames, and PTY viewers never receive
+  //     activity frames — the audiences share only the room's lifecycle.
+  //     They receive activity ONLY while the room's activityPublic is true.
+  //   - activityMembers: authenticated viewer tickets that joined with
+  //     channel:'activity'. They receive activity + presence + bye ALWAYS
+  //     (regardless of activityPublic) and NEVER binary output/resize/ring.
   publicViewers: Set<Conn>
+  activityMembers: Map<Conn, PresenceViewer>
+  /** Publisher hello's activityPublic (absent ⇒ true): gates the ANONYMOUS
+   *  public fan-out + replay; members are unaffected (keep_private stays a
+   *  publisher-declared invariant, not a viewer-side filter). */
+  activityPublic: boolean
   /** Replayable scrubbed event log (narration/tool), capped. */
   activityLog: ActivityEvent[]
   /** Latest worktree diff — replaces rather than appends (replay stays small). */
@@ -173,6 +184,10 @@ export class Hub {
       room.viewers.delete(conn)
       if (room.steerer === conn) room.steerer = null
       this.broadcastPresence(room)
+    } else if (room.activityMembers.has(conn)) {
+      room.activityMembers.delete(conn)
+      if (room.steerer === conn) room.steerer = null
+      this.broadcastPresence(room)
     }
   }
 
@@ -220,6 +235,8 @@ export class Hub {
             ring: new RingBuffer(),
             staleTimer: null,
             publicViewers: new Set(),
+            activityMembers: new Map(),
+            activityPublic: msg.activityPublic ?? true,
             activityLog: [],
             lastDiff: null,
           }
@@ -236,6 +253,7 @@ export class Hub {
           room.publisher = conn
           if (msg.cols) room.cols = msg.cols
           if (msg.rows) room.rows = msg.rows
+          room.activityPublic = msg.activityPublic ?? true
         }
         this.broadcastPresence(room)
         return
@@ -255,21 +273,34 @@ export class Hub {
 
         // Public activity audience: replay the scrubbed event log + latest
         // diff, then live-tail activity frames. No PTY output, no presence,
-        // no geometry — ever.
+        // no geometry — ever. A room whose publisher declared
+        // activityPublic:false replays nothing (and fans nothing live) to
+        // anonymous sockets — keep_private is a publisher invariant.
         if (conn.claims.role === `public_viewer`) {
           conn.sessionId = sessionId
           room.publicViewers.add(conn)
-          for (const event of room.activityLog) {
-            conn.sock.send(frame({ t: `activity`, event }))
-          }
-          if (room.lastDiff) {
-            conn.sock.send(frame({ t: `activity`, event: room.lastDiff }))
-          }
+          if (!room.activityPublic) return
+          this.replayActivity(room, conn)
           return
         }
 
         if (conn.claims.role !== `viewer`) return
         conn.sessionId = sessionId
+
+        // Authenticated activity audience (channel:'activity' on an ordinary
+        // viewer ticket): replay activityLog then lastDiff, then presence.
+        // NEVER geometry, NEVER the binary ring — the PTY stays out of reach.
+        if (msg.channel === `activity`) {
+          room.activityMembers.set(conn, {
+            userId: conn.claims.sub,
+            name: conn.claims.name ?? conn.claims.sub,
+            perm: conn.claims.perm,
+          })
+          this.replayActivity(room, conn)
+          this.broadcastPresence(room)
+          return
+        }
+
         room.viewers.set(conn, {
           userId: conn.claims.sub,
           name: conn.claims.name ?? conn.claims.sub,
@@ -311,9 +342,13 @@ export class Hub {
           this.publisherTakeover(room)
           return
         }
-        if (!room.viewers.has(conn)) return
+        // Either audience may hold the claim (PTY viewers and activity
+        // members) — the single-steerer rule is audience-agnostic.
+        if (!room.viewers.has(conn) && !room.activityMembers.has(conn)) return
         if (conn.claims.perm !== `steer`) return
-        if (room.steerer && room.steerer !== conn) return // first claim wins
+        // Plain claim: first claim wins. steal:true (steer perm only — the
+        // check above) overrides an existing steerer, last-writer-wins.
+        if (room.steerer && room.steerer !== conn && !msg.steal) return
         room.steerer = conn
         this.broadcastPresence(room)
         return
@@ -357,8 +392,13 @@ export class Hub {
           }
         }
         const framed = frame({ t: `activity`, event: msg.event })
-        for (const viewer of room.publicViewers) {
-          // Activity is low-volume JSON; a saturated public viewer just gets
+        // Authenticated activity members receive activity ALWAYS; anonymous
+        // public viewers only while the room's activityPublic is true.
+        const audience = room.activityPublic
+          ? [...room.activityMembers.keys(), ...room.publicViewers]
+          : [...room.activityMembers.keys()]
+        for (const viewer of audience) {
+          // Activity is low-volume JSON; a saturated activity socket just gets
           // dropped rather than lag-managed like the PTY hot path.
           if (viewer.sock.bufferedAmount() > VIEWER_HIGH_WATER) {
             viewer.sock.close(CLOSE_SLOW_CONSUMER, `slow_consumer`)
@@ -474,14 +514,27 @@ export class Hub {
     this.broadcastPresence(room)
   }
 
+  /** Replay the scrubbed event log then the latest diff to one socket. */
+  private replayActivity(room: Room, conn: Conn) {
+    for (const event of room.activityLog) {
+      conn.sock.send(frame({ t: `activity`, event }))
+    }
+    if (room.lastDiff) {
+      conn.sock.send(frame({ t: `activity`, event: room.lastDiff }))
+    }
+  }
+
   private broadcastPresence(room: Room) {
+    // Activity members count as viewers for presence purposes (they can hold
+    // the steer claim); anonymous public viewers stay invisible.
     const msg = frame({
       t: `presence`,
-      viewers: [...room.viewers.values()],
+      viewers: [...room.viewers.values(), ...room.activityMembers.values()],
       steererId: room.steerer?.claims.sub ?? null,
     })
     room.publisher?.sock.send(msg)
     for (const viewer of room.viewers.keys()) viewer.sock.send(msg)
+    for (const member of room.activityMembers.keys()) member.sock.send(msg)
   }
 
   private closeRoom(room: Room, outcome: string) {
@@ -493,6 +546,11 @@ export class Hub {
       viewer.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
     }
     room.viewers.clear()
+    for (const member of room.activityMembers.keys()) {
+      member.sock.send(msg)
+      member.sock.close(CLOSE_SESSION_ENDED, `session_ended`)
+    }
+    room.activityMembers.clear()
     for (const viewer of room.publicViewers) {
       viewer.sock.send(msg)
       viewer.sock.close(CLOSE_SESSION_ENDED, `session_ended`)

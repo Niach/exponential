@@ -162,6 +162,114 @@ describe(`steer relay end-to-end`, () => {
     pub.close()
   })
 
+  test(`activity channel: private room replays + steers for members, nothing for public viewers`, async () => {
+    const sessionId = `sess-activity-e2e`
+
+    // Publisher declares the room's activity stream NOT publicly fanned.
+    const pub = await connect(
+      ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
+    )
+    const pubIn = collector(pub)
+    pub.send(
+      JSON.stringify({
+        t: `hello`,
+        sessionId,
+        issueId: `i2`,
+        cols: 80,
+        rows: 24,
+        activityPublic: false,
+      })
+    )
+    expect(await pubIn.nextJson()).toMatchObject({ t: `presence`, viewers: [] })
+
+    // Activity emitted before anyone joins → the replayable log + lastDiff.
+    pub.send(
+      JSON.stringify({
+        t: `activity`,
+        event: { kind: `narration`, text: `thinking` },
+      })
+    )
+    pub.send(
+      JSON.stringify({ t: `activity`, event: { kind: `diff`, diff: `+ line` } })
+    )
+
+    // An anonymous public viewer joins the PRIVATE room.
+    const pv = await connect(
+      ticket({ role: `public_viewer`, sub: `anon`, perm: `view`, sessionId })
+    )
+    const pvIn = collector(pv)
+    pv.send(JSON.stringify({ t: `join` }))
+
+    // A workspace member joins the activity channel on an ordinary viewer
+    // ticket: replay (log, then latest diff), then presence — no resize, no
+    // binary ring.
+    const member = await connect(
+      ticket({
+        role: `viewer`,
+        sub: `member-user`,
+        name: `Member`,
+        perm: `steer`,
+        sessionId,
+      })
+    )
+    const memberIn = collector(member)
+    member.send(JSON.stringify({ t: `join`, channel: `activity` }))
+
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `narration`, text: `thinking` },
+    })
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `diff`, diff: `+ line` },
+    })
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `presence`,
+      viewers: [{ userId: `member-user`, name: `Member`, perm: `steer` }],
+      steererId: null,
+    })
+
+    // Live activity reaches the member despite activityPublic:false.
+    pub.send(
+      JSON.stringify({
+        t: `activity`,
+        event: { kind: `tool`, name: `Edit`, detail: `a.ts` },
+      })
+    )
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `activity`,
+      event: { kind: `tool`, name: `Edit` },
+    })
+
+    // claim{steal:true} → the member holds the claim; input reaches the
+    // publisher.
+    member.send(JSON.stringify({ t: `claim`, steal: true }))
+    expect(await memberIn.nextJson()).toMatchObject({
+      t: `presence`,
+      steererId: `member-user`,
+    })
+    // The publisher heard the member join, then the claim, then the input.
+    expect(await pubIn.nextJson()).toMatchObject({
+      t: `presence`,
+      viewers: [{ userId: `member-user` }],
+      steererId: null,
+    })
+    expect(await pubIn.nextJson()).toMatchObject({
+      t: `presence`,
+      steererId: `member-user`,
+    })
+    member.send(JSON.stringify({ t: `input`, data: `y\n` }))
+    expect(await pubIn.nextJson()).toMatchObject({ t: `input`, data: `y\n` })
+
+    // The anonymous socket received NOTHING for this room: no replay, no
+    // live fan-out, no presence.
+    await expect(pvIn.next(300)).rejects.toThrow(`timeout`)
+
+    pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
+    expect(await memberIn.nextJson()).toMatchObject({ t: `bye`, outcome: `done` })
+    pub.close()
+  })
+
   test(`remote start routes through the control socket`, async () => {
     const desktop = await connect(
       ticket({ role: `control`, sub: `owner-1`, deviceLabel: `Test Box` })

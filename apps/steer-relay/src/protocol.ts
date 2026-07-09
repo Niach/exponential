@@ -27,9 +27,20 @@ export const helloFrame = z.object({
   issueId: z.string().max(128).optional(),
   cols: z.number().int().positive().max(1000).optional(),
   rows: z.number().int().positive().max(1000).optional(),
+  // Whether the room's scrubbed activity stream may fan out to ANONYMOUS
+  // public_viewer sockets (absent ⇒ true — legacy publishers stay public).
+  // Authenticated activity-channel members receive activity regardless, so
+  // a private session's own team can still follow along.
+  activityPublic: z.boolean().optional(),
 })
 
-export const joinFrame = z.object({ t: z.literal(`join`) })
+export const joinFrame = z.object({
+  t: z.literal(`join`),
+  // Which audience a VIEWER ticket joins: the PTY mirror (absent/`pty` —
+  // legacy) or the scrubbed activity stream (`activity`). public_viewer
+  // tickets ignore this — they are activity-only by construction.
+  channel: z.enum([`pty`, `activity`]).optional(),
+})
 
 export const resizeFrame = z.object({
   t: z.literal(`resize`),
@@ -43,7 +54,13 @@ export const inputFrame = z.object({
   data: z.string().max(8 * 1024),
 })
 
-export const claimFrame = z.object({ t: z.literal(`claim`) })
+export const claimFrame = z.object({
+  t: z.literal(`claim`),
+  // steal:true (honored for perm `steer` only) overrides an existing steerer
+  // — last-writer-wins. A plain claim stays first-claim-wins. Publisher
+  // takeover still trumps everything.
+  steal: z.boolean().optional(),
+})
 export const releaseFrame = z.object({ t: z.literal(`release`) })
 export const killFrame = z.object({ t: z.literal(`kill`) })
 export const byeFrame = z.object({
@@ -117,7 +134,7 @@ export type ServerFrame =
   | { t: `kill` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
-  | { t: `activity`; event: ActivityEvent } // relay → public_viewer only
+  | { t: `activity`; event: ActivityEvent } // relay → activity audience (members always; public viewers only when the room is public)
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 

@@ -51,12 +51,25 @@ function claims(overrides: Partial<SteerTicketClaims>): SteerTicketClaims {
   }
 }
 
-function connectPublisher(hub: Hub, sessionId = `sess-1`) {
+function connectPublisher(
+  hub: Hub,
+  sessionId = `sess-1`,
+  opts: { activityPublic?: boolean } = {}
+) {
   const sock = new FakeSocket()
   hub.onOpen(sock, claims({ role: `publisher`, sessionId, perm: `view` }))
   hub.onMessage(
     sock,
-    JSON.stringify({ t: `hello`, sessionId, issueId: `issue-1`, cols: 120, rows: 40 })
+    JSON.stringify({
+      t: `hello`,
+      sessionId,
+      issueId: `issue-1`,
+      cols: 120,
+      rows: 40,
+      ...(opts.activityPublic === undefined
+        ? {}
+        : { activityPublic: opts.activityPublic }),
+    })
   )
   return sock
 }
@@ -87,6 +100,27 @@ function connectPublicViewer(hub: Hub, sessionId = `sess-1`) {
     claims({ role: `public_viewer`, sub: `anon`, perm: `view`, sessionId })
   )
   hub.onMessage(sock, JSON.stringify({ t: `join` }))
+  return sock
+}
+
+/** An authenticated member on an ordinary viewer ticket joining the scrubbed
+ *  activity channel ({ t: `join`, channel: `activity` }). */
+function connectActivityMember(
+  hub: Hub,
+  opts: { sub?: string; name?: string; perm?: `view` | `steer`; sessionId?: string } = {}
+) {
+  const sock = new FakeSocket()
+  hub.onOpen(
+    sock,
+    claims({
+      role: `viewer`,
+      sub: opts.sub ?? `member-1`,
+      name: opts.name ?? `Member`,
+      perm: opts.perm ?? `steer`,
+      sessionId: opts.sessionId ?? `sess-1`,
+    })
+  )
+  hub.onMessage(sock, JSON.stringify({ t: `join`, channel: `activity` }))
   return sock
 }
 
@@ -361,10 +395,12 @@ describe(`public activity channel`, () => {
     const other = connectPublicViewer(hub)
 
     hub.onMessage(pv, JSON.stringify({ t: `claim` }))
+    hub.onMessage(pv, JSON.stringify({ t: `claim`, steal: true }))
     hub.onMessage(pv, JSON.stringify({ t: `input`, data: `rm -rf /` }))
     hub.onMessage(pv, JSON.stringify({ t: `kill` }))
     expect(pub.lastFrame(`input`)).toBeUndefined()
     expect(pub.lastFrame(`kill`)).toBeUndefined()
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: null })
 
     // Forged frames from a public viewer reach nobody.
     output(hub, pv as unknown as FakeSocket, `forged`)
@@ -379,5 +415,208 @@ describe(`public activity channel`, () => {
     hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `done` }))
     expect(pv.lastFrame(`bye`)).toMatchObject({ outcome: `done` })
     expect(pv.closed?.code).toBe(4001)
+  })
+})
+
+describe(`member activity channel (EXP-32)`, () => {
+  const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
+    hub.onMessage(pub, JSON.stringify({ t: `activity`, event }))
+
+  test(`member join replays log + latest diff + presence, never binary/resize/ring`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    output(hub, pub, `secret pty scrollback`) // fills the ring
+    activity(hub, pub, { kind: `narration`, text: `one` })
+    activity(hub, pub, { kind: `diff`, diff: `old diff` })
+    activity(hub, pub, { kind: `tool`, name: `Bash` })
+    activity(hub, pub, { kind: `diff`, diff: `new diff` })
+
+    const member = connectActivityMember(hub)
+    const frames = member.frames()
+    const events = frames
+      .filter((f) => f.t === `activity`)
+      .map((f) => f.event as { kind: string; diff?: string })
+    // Replay order: log, then ONLY the latest diff, then presence.
+    expect(events.map((e) => e.kind)).toEqual([`narration`, `tool`, `diff`])
+    expect(events.at(-1)?.diff).toBe(`new diff`)
+    expect(frames.at(-1)).toMatchObject({
+      t: `presence`,
+      viewers: [{ userId: `member-1`, name: `Member`, perm: `steer` }],
+      steererId: null,
+    })
+    // NEVER the PTY audience's frames: no ring replay, no geometry.
+    expect(member.outputs().length).toBe(0)
+    expect(member.lastFrame(`resize`)).toBeUndefined()
+
+    // The publisher's presence broadcast lists the activity member too.
+    expect(pub.lastFrame(`presence`)).toMatchObject({
+      viewers: [{ userId: `member-1`, perm: `steer` }],
+    })
+
+    // Live: activity flows, binary output does not.
+    output(hub, pub, `live pty`)
+    activity(hub, pub, { kind: `tool`, name: `Edit`, detail: `src/a.ts` })
+    expect(member.outputs().length).toBe(0)
+    expect(member.lastFrame(`activity`)).toMatchObject({
+      event: { kind: `tool`, name: `Edit` },
+    })
+  })
+
+  test(`pty viewers get no activity; public viewers get no presence`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const viewer = connectViewer(hub, { sub: `pty-v` })
+    const pv = connectPublicViewer(hub)
+    const member = connectActivityMember(hub)
+
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    expect(viewer.lastFrame(`activity`)).toBeUndefined()
+    expect(member.lastFrame(`activity`)).toMatchObject({
+      event: { kind: `narration` },
+    })
+    // The member-join presence broadcast never reached the anonymous socket.
+    expect(pv.lastFrame(`presence`)).toBeUndefined()
+  })
+
+  test(`hello activityPublic:false blocks public replay AND live fan-out, but not members`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub, `sess-1`, { activityPublic: false })
+    activity(hub, pub, { kind: `narration`, text: `team-only` })
+    activity(hub, pub, { kind: `diff`, diff: `private diff` })
+
+    const pv = connectPublicViewer(hub)
+    expect(pv.frames().filter((f) => f.t === `activity`).length).toBe(0)
+
+    const member = connectActivityMember(hub)
+    const replayed = member.frames().filter((f) => f.t === `activity`)
+    expect(replayed.map((f) => (f.event as { kind: string }).kind)).toEqual([
+      `narration`,
+      `diff`,
+    ])
+
+    activity(hub, pub, { kind: `tool`, name: `Bash` })
+    expect(pv.frames().filter((f) => f.t === `activity`).length).toBe(0)
+    expect(member.lastFrame(`activity`)).toMatchObject({
+      event: { kind: `tool`, name: `Bash` },
+    })
+  })
+
+  test(`re-hello with activityPublic:true reopens the public fan-out`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub, `sess-1`, { activityPublic: false })
+    const pv = connectPublicViewer(hub)
+    activity(hub, pub, { kind: `narration`, text: `hidden` })
+    expect(pv.frames().filter((f) => f.t === `activity`).length).toBe(0)
+
+    hub.onClose(pub)
+    const pub2 = connectPublisher(hub, `sess-1`, { activityPublic: true })
+    activity(hub, pub2, { kind: `narration`, text: `visible` })
+    expect(pv.lastFrame(`activity`)).toMatchObject({
+      event: { text: `visible` },
+    })
+  })
+
+  test(`an activity-member steerer's input reaches the publisher`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectActivityMember(hub, { sub: `m`, perm: `steer` })
+
+    hub.onMessage(member, JSON.stringify({ t: `claim` }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `m` })
+    expect(member.lastFrame(`presence`)).toMatchObject({ steererId: `m` })
+
+    hub.onMessage(member, JSON.stringify({ t: `input`, data: `ls\n` }))
+    expect(pub.lastFrame(`input`)).toMatchObject({ data: `ls\n` })
+  })
+
+  test(`disconnect of the activity steerer clears the claim + presence`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const watcher = connectViewer(hub, { sub: `w`, perm: `view` })
+    const member = connectActivityMember(hub, { sub: `m`, perm: `steer` })
+    hub.onMessage(member, JSON.stringify({ t: `claim` }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `m` })
+
+    hub.onClose(member)
+    const cleared = pub.lastFrame(`presence`)
+    expect(cleared).toMatchObject({ steererId: null })
+    // The departed member left the viewers list too.
+    expect(cleared?.viewers).toEqual([
+      { userId: `w`, name: `Viewer`, perm: `view` },
+    ])
+    expect(watcher.lastFrame(`presence`)).toMatchObject({ steererId: null })
+  })
+
+  test(`room close sends bye to activity members and evicts them`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectActivityMember(hub)
+    hub.onMessage(pub, JSON.stringify({ t: `bye`, outcome: `done` }))
+    expect(member.lastFrame(`bye`)).toMatchObject({ outcome: `done` })
+    expect(member.closed?.code).toBe(4001)
+  })
+})
+
+describe(`claim steal (EXP-32)`, () => {
+  test(`claim{steal:true} overrides an existing steerer and broadcasts presence`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const first = connectViewer(hub, { sub: `first`, perm: `steer` })
+    hub.onMessage(first, JSON.stringify({ t: `claim` }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `first` })
+
+    const member = connectActivityMember(hub, { sub: `boss`, perm: `steer` })
+    // Plain claim still loses while the claim is held (first-claim-wins).
+    hub.onMessage(member, JSON.stringify({ t: `claim` }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `first` })
+
+    // steal:true wins (last-writer-wins) and everyone hears about it.
+    hub.onMessage(member, JSON.stringify({ t: `claim`, steal: true }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `boss` })
+    expect(first.lastFrame(`presence`)).toMatchObject({ steererId: `boss` })
+    expect(member.lastFrame(`presence`)).toMatchObject({ steererId: `boss` })
+
+    // The deposed steerer's input no longer flows; the stealer's does.
+    hub.onMessage(first, JSON.stringify({ t: `input`, data: `nope` }))
+    expect(pub.lastFrame(`input`)).toBeUndefined()
+    hub.onMessage(member, JSON.stringify({ t: `input`, data: `go\n` }))
+    expect(pub.lastFrame(`input`)).toMatchObject({ data: `go\n` })
+
+    // A PTY viewer with steer perm can steal it right back.
+    hub.onMessage(first, JSON.stringify({ t: `claim`, steal: true }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `first` })
+  })
+
+  test(`steal is denied for perm view (either audience)`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const steerer = connectViewer(hub, { sub: `s`, perm: `steer` })
+    hub.onMessage(steerer, JSON.stringify({ t: `claim` }))
+
+    const watcher = connectViewer(hub, { sub: `w`, perm: `view` })
+    hub.onMessage(watcher, JSON.stringify({ t: `claim`, steal: true }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
+
+    const viewMember = connectActivityMember(hub, { sub: `vm`, perm: `view` })
+    hub.onMessage(viewMember, JSON.stringify({ t: `claim`, steal: true }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `s` })
+
+    // And their input never flows.
+    hub.onMessage(watcher, JSON.stringify({ t: `input`, data: `x` }))
+    hub.onMessage(viewMember, JSON.stringify({ t: `input`, data: `x` }))
+    expect(pub.lastFrame(`input`)).toBeUndefined()
+  })
+
+  test(`publisher takeover still trumps a stolen claim`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectActivityMember(hub, { sub: `m`, perm: `steer` })
+    hub.onMessage(member, JSON.stringify({ t: `claim`, steal: true }))
+    expect(pub.lastFrame(`presence`)).toMatchObject({ steererId: `m` })
+
+    hub.onMessage(pub, JSON.stringify({ t: `release` }))
+    expect(member.lastFrame(`presence`)).toMatchObject({ steererId: null })
+    hub.onMessage(member, JSON.stringify({ t: `input`, data: `x` }))
+    expect(pub.lastFrame(`input`)).toBeUndefined()
   })
 })
