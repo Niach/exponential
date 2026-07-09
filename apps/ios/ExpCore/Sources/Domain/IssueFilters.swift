@@ -27,7 +27,7 @@ public enum FilterTab: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .all: "All Issues"
+        case .all: "All issues"
         case .active: "Active"
         case .backlog: "Backlog"
         }

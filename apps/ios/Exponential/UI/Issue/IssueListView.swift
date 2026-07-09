@@ -12,7 +12,7 @@ struct IssueListView: View {
     @State private var showFilterSheet = false
     /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
-    @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 58
+    @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
 
     var body: some View {
         ZStack {
@@ -29,7 +29,7 @@ struct IssueListView: View {
                             )
                             Spacer()
                         }
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background(Color.white.opacity(0.04))
                     }
@@ -74,12 +74,12 @@ struct IssueListView: View {
 
             // Filter bar (search lives in the Search tab, not the issue list)
             filterBar(vm)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 8)
 
             if !vm.filters.isEmpty {
                 activeFilterPills(vm)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 16)
                     .padding(.bottom, 8)
             }
 
@@ -93,7 +93,7 @@ struct IssueListView: View {
                                     issueRow(issue: issue, vm: vm)
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
-                                        .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
+                                        .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                             if vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
                                                 Button {
@@ -125,7 +125,7 @@ struct IssueListView: View {
                             }
                         } header: {
                             statusHeader(status: status, count: statusIssues.count, vm: vm)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 2, trailing: 12))
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                                 .listRowBackground(Color.clear)
                         }
                     }
@@ -136,6 +136,10 @@ struct IssueListView: View {
             // 16pt listRowInsets alone govern the gutter (Android parity) — the
             // default extra margin made rows sit noticeably inboard of the bar.
             .contentMargins(.horizontal, 0, for: .scrollContent)
+            // Kill List's implicit 44pt minimum row height: Android rows are
+            // content-hugging (~40dp) with 3dp gaps, and the floor made every
+            // iOS row visibly chunkier than its Android twin (EXP-24 redux).
+            .environment(\.defaultMinListRowHeight, 0)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .refreshable {
@@ -176,8 +180,9 @@ struct IssueListView: View {
                 Image(systemName: "line.3.horizontal.decrease")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(vm.filters.isEmpty ? TextOpacity.secondary : 1.0))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    // 38pt circle, matching Android's CircleIconButton — equal
+                    // width/height turns the glassButton capsule into a circle.
+                    .frame(width: 38, height: 38)
             }
             .glassButton(isActive: !vm.filters.isEmpty)
             // Badge OUTSIDE glassButton's Capsule clip, so the count isn't cut
@@ -336,11 +341,11 @@ struct IssueListView: View {
     private func issueRow(issue: IssueEntity, vm: IssueListViewModel) -> some View {
         NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
             HStack(spacing: 10) {
-                // Priority icon
+                // Priority icon (16pt column, Android parity)
                 Image(systemName: IssuePriority.from(issue.priority).sfSymbol)
                     .font(.caption)
                     .foregroundStyle(IssuePriority.from(issue.priority).color)
-                    .frame(width: 20)
+                    .frame(width: 16)
 
                 // Identifier — leading-aligned min width so the status icon
                 // and title don't shift horizontally with digit count for
