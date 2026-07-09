@@ -17,9 +17,11 @@
 
 use std::collections::HashMap;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window,
+    div, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window,
 };
 use gpui_component::{
     h_flex,
@@ -474,13 +476,22 @@ fn status_label(wire: &str) -> String {
     wire.replace('_', " ")
 }
 
-/// The phrase of one event, mirroring the web `EventRow` switch. Returns
-/// `None` for unknown event types (web returns null).
+/// The trailing digits of a PR URL (`…/pull/42` → `42`) — `pr_merged`
+/// payloads carry only `prUrl` (see `pr-sync.ts`), so the number is derived.
+fn pr_number_from_url(url: &str) -> Option<String> {
+    let last = url.trim_end_matches('/').rsplit('/').next()?;
+    (!last.is_empty() && last.bytes().all(|b| b.is_ascii_digit())).then(|| last.to_string())
+}
+
+/// The phrase of one event, mirroring the web `EventRow` switch (plus the
+/// richer payload details — EXP-33: from→to status, PR number + link).
+/// The third element is a click-through URL (PR events). Returns `None` for
+/// unknown event types (web returns null).
 fn event_phrase(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
-) -> Option<(ExpIcon, String)> {
+) -> Option<(ExpIcon, String, Option<String>)> {
     let payload = event.payload.as_ref();
     let payload_str = |key: &str| -> Option<String> {
         payload
@@ -496,10 +507,15 @@ fn event_phrase(
     match event.kind.as_deref()? {
         "status_changed" => {
             let to = payload_str("to").unwrap_or_default();
-            Some((
-                ExpIcon::CircleDot,
-                format!("changed status to {}", status_label(&to)),
-            ))
+            let phrase = match payload_str("from") {
+                Some(from) if !from.is_empty() && !to.is_empty() => format!(
+                    "changed status from {} to {}",
+                    status_label(&from),
+                    status_label(&to)
+                ),
+                _ => format!("changed status to {}", status_label(&to)),
+            };
+            Some((ExpIcon::CircleDot, phrase, None))
         }
         "assignee_changed" => match payload_str("to") {
             // `payload.to` can reference a user the viewer can't see (the
@@ -510,75 +526,98 @@ fn event_phrase(
                     .get(&to_id)
                     .map(|user| comments::author_label(Some(user)))
                     .unwrap_or_else(|| "someone".to_string());
-                Some((ExpIcon::UserPlus, format!("assigned {name}")))
+                Some((ExpIcon::UserPlus, format!("assigned {name}"), None))
             }
-            None => Some((ExpIcon::UserPlus, "removed the assignee".to_string())),
+            None => Some((ExpIcon::UserPlus, "removed the assignee".to_string(), None)),
         },
         kind @ ("label_added" | "label_removed") => {
             let label_name = payload_str("labelId")
                 .and_then(|id| label_map.get(&id).map(|label| label.name.clone()))
                 .unwrap_or_else(|| "a label".to_string());
             let verb = if kind == "label_added" { "added" } else { "removed" };
-            Some((ExpIcon::Tag, format!("{verb} label {label_name}")))
+            Some((ExpIcon::Tag, format!("{verb} label {label_name}"), None))
         }
-        "pr_opened" => Some((
-            ExpIcon::GitPullRequest,
-            "opened a pull request".to_string(),
-        )),
-        "pr_merged" => Some((ExpIcon::GitMerge, "merged the pull request".to_string())),
+        "pr_opened" => {
+            let url = payload_str("prUrl");
+            let phrase = match payload_str("prNumber") {
+                Some(number) => format!("opened pull request #{number}"),
+                None => "opened a pull request".to_string(),
+            };
+            Some((ExpIcon::GitPullRequest, phrase, url))
+        }
+        "pr_merged" => {
+            let url = payload_str("prUrl");
+            let number = payload_str("prNumber")
+                .or_else(|| url.as_deref().and_then(pr_number_from_url));
+            let phrase = match number {
+                Some(number) => format!("merged pull request #{number}"),
+                None => "merged the pull request".to_string(),
+            };
+            Some((ExpIcon::GitMerge, phrase, url))
+        }
         _ => None,
     }
 }
 
 /// One compact single-line activity entry (web `EventRow`): icon + "Actor
-/// did-something" in muted text with the actor emphasized.
+/// did-something" in muted text with the actor emphasized. PR events carry a
+/// link — the row opens it in the browser (EXP-33).
 fn event_row(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
     cx: &App,
-) -> Option<impl IntoElement> {
-    let (icon, phrase) = event_phrase(event, user_map, label_map)?;
+) -> Option<gpui::AnyElement> {
+    let (icon, phrase, link) = event_phrase(event, user_map, label_map)?;
     let actor_name = match event.actor_user_id.as_deref() {
         Some(id) => comments::user_label(id, user_map.get(id)),
         None => "Someone".to_string(),
     };
 
-    Some(
-        h_flex()
-            .py_1()
-            .pl_1()
-            .gap_2()
-            .items_center()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(
-                Icon::from(icon)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground)
-                    .flex_shrink_0(),
-            )
-            .child(
-                h_flex()
-                    .gap_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(cx.theme().foreground)
-                            .whitespace_nowrap()
-                            .child(SharedString::from(actor_name)),
-                    )
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(SharedString::from(phrase)),
-                    ),
-            ),
-    )
+    let mut row = h_flex()
+        .id(SharedString::from(format!("issue-event-{}", event.id)))
+        .py_1()
+        .pl_1()
+        .gap_2()
+        .items_center()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(
+            Icon::from(icon)
+                .xsmall()
+                .text_color(cx.theme().muted_foreground)
+                .flex_shrink_0(),
+        )
+        .child(
+            h_flex()
+                .gap_1()
+                .min_w_0()
+                .overflow_hidden()
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(cx.theme().foreground)
+                        .whitespace_nowrap()
+                        .child(SharedString::from(actor_name)),
+                )
+                .child(
+                    div()
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .when(link.is_some(), |el| el.text_color(cx.theme().link))
+                        .child(SharedString::from(phrase)),
+                ),
+        );
+
+    if let Some(link) = link {
+        row = row.cursor_pointer().on_click(move |_, _, _| {
+            if let Err(error) = api::opener::open_in_browser(&link) {
+                log::warn!("[ui] timeline: open PR link failed: {error}");
+            }
+        });
+    }
+    Some(row.into_any_element())
 }
 
 #[cfg(test)]
@@ -612,46 +651,150 @@ mod tests {
                 .unwrap(),
         )]);
 
-        let (_, phrase) =
+        let (_, phrase, _) =
             event_phrase(&event("status_changed", json!({ "to": "in_progress" })), &users, &labels)
                 .unwrap();
         assert_eq!(phrase, "changed status to in progress");
 
-        let (_, phrase) =
+        // The server payload carries from+to (issues.ts) — show both (EXP-33).
+        let (_, phrase, _) = event_phrase(
+            &event("status_changed", json!({ "from": "todo", "to": "in_progress" })),
+            &users,
+            &labels,
+        )
+        .unwrap();
+        assert_eq!(phrase, "changed status from todo to in progress");
+
+        let (_, phrase, _) =
             event_phrase(&event("assignee_changed", json!({ "to": "u-1" })), &users, &labels)
                 .unwrap();
         assert_eq!(phrase, "assigned Ada");
 
         // Assigning an invisible user is still an assignment (web comment).
-        let (_, phrase) =
+        let (_, phrase, _) =
             event_phrase(&event("assignee_changed", json!({ "to": "u-ghost" })), &users, &labels)
                 .unwrap();
         assert_eq!(phrase, "assigned someone");
 
-        let (_, phrase) =
+        let (_, phrase, _) =
             event_phrase(&event("assignee_changed", json!({})), &users, &labels).unwrap();
         assert_eq!(phrase, "removed the assignee");
 
-        let (_, phrase) =
+        let (_, phrase, _) =
             event_phrase(&event("label_added", json!({ "labelId": "l-1" })), &users, &labels)
                 .unwrap();
         assert_eq!(phrase, "added label bug");
 
-        let (_, phrase) =
+        let (_, phrase, _) =
             event_phrase(&event("label_removed", json!({ "labelId": "gone" })), &users, &labels)
                 .unwrap();
         assert_eq!(phrase, "removed label a label");
 
-        let (_, phrase) =
+        let (_, phrase, link) =
             event_phrase(&event("pr_opened", json!({})), &users, &labels).unwrap();
         assert_eq!(phrase, "opened a pull request");
+        assert_eq!(link, None);
 
-        let (_, phrase) =
+        let (_, phrase, link) =
             event_phrase(&event("pr_merged", json!({})), &users, &labels).unwrap();
         assert_eq!(phrase, "merged the pull request");
+        assert_eq!(link, None);
 
         // Unknown event type renders nothing (web returns null).
         assert!(event_phrase(&event("something_new", json!({})), &users, &labels).is_none());
+    }
+
+    #[test]
+    fn pr_events_surface_number_and_link() {
+        let users = HashMap::new();
+        let labels = HashMap::new();
+
+        // pr_opened payload: { prUrl, prNumber, branch } (pr-sync.ts).
+        let (_, phrase, link) = event_phrase(
+            &event(
+                "pr_opened",
+                json!({
+                    "prUrl": "https://github.com/o/r/pull/42",
+                    "prNumber": 42,
+                    "branch": "exp/EXP-33"
+                }),
+            ),
+            &users,
+            &labels,
+        )
+        .unwrap();
+        assert_eq!(phrase, "opened pull request #42");
+        assert_eq!(link.as_deref(), Some("https://github.com/o/r/pull/42"));
+
+        // pr_merged payload carries only prUrl — the number is derived.
+        let (_, phrase, link) = event_phrase(
+            &event("pr_merged", json!({ "prUrl": "https://github.com/o/r/pull/42" })),
+            &users,
+            &labels,
+        )
+        .unwrap();
+        assert_eq!(phrase, "merged pull request #42");
+        assert_eq!(link.as_deref(), Some("https://github.com/o/r/pull/42"));
+
+        assert_eq!(pr_number_from_url("https://x/pull/7/"), Some("7".into()));
+        assert_eq!(pr_number_from_url("https://x/pull/abc"), None);
+        assert_eq!(pr_number_from_url(""), None);
+    }
+
+    /// EXP-33 regression: the store binds jsonb payloads as JSON TEXT
+    /// (`bind_value`) and hydration rewraps TEXT as `Value::String`
+    /// (`row_to_map`) — without the `tolerant_opt_json` re-parse the payload
+    /// reaches the timeline as a STRING and "changed status to ‹blank›"
+    /// renders. This pushes an event through the REAL SQLite store round-trip;
+    /// constructing payloads directly (like the tests above) misses it.
+    #[test]
+    fn payload_survives_the_sqlite_store_round_trip() {
+        use sync::protocol::{RowKey, ShapeMessage};
+
+        let dir = std::env::temp_dir().join(format!(
+            "exp-ui-timeline-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = sync::store::ShapeStore::open(&dir.join("sync.sqlite")).unwrap();
+        let spec = sync::shapes::shape_by_name("issue_events").unwrap();
+
+        let value = json!({
+            "id": "e-rt",
+            "issue_id": "i-1",
+            "type": "status_changed",
+            "payload": { "from": "todo", "to": "in_progress" },
+            "created_at": "2026-07-03T10:00:00Z"
+        });
+        store
+            .apply_batch(
+                spec,
+                &[ShapeMessage::Insert {
+                    key: RowKey::Single("e-rt".into()),
+                    value: value.as_object().cloned().unwrap(),
+                }],
+                None,
+            )
+            .unwrap();
+
+        let map = store
+            .read_by_key(spec, &RowKey::Single("e-rt".into()))
+            .unwrap()
+            .expect("row round-trips");
+        let hydrated: IssueEvent =
+            serde_json::from_value(serde_json::Value::Object(map)).unwrap();
+
+        let payload = hydrated.payload.as_ref().expect("payload present");
+        assert!(
+            payload.is_object(),
+            "payload must hydrate as a JSON object, got {payload:?}"
+        );
+        let (_, phrase, _) =
+            event_phrase(&hydrated, &HashMap::new(), &HashMap::new()).unwrap();
+        assert_eq!(phrase, "changed status from todo to in progress");
+
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

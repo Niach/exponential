@@ -21,7 +21,9 @@
 use serde::Deserialize;
 
 use crate::enums::{IssuePriority, IssueStatus};
-use crate::hydrate::{tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64};
+use crate::hydrate::{
+    tolerant_i64, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64, tolerant_opt_json,
+};
 
 /// `workspaces` shape row.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -351,8 +353,11 @@ pub struct IssueEvent {
     pub actor_user_id: Option<String>,
     #[serde(default, rename = "type")]
     pub kind: Option<String>,
-    /// jsonb payload; carried as raw JSON.
-    #[serde(default)]
+    /// jsonb payload. The store pins TEXT storage (§5.5), so hydrate must
+    /// re-parse the stringified object back into structured JSON — without
+    /// this the timeline reads `payload.to` off a string and renders
+    /// "changed status to ‹blank›" (EXP-33).
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub payload: Option<serde_json::Value>,
     #[serde(default)]
     pub created_at: Option<String>,

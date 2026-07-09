@@ -147,6 +147,9 @@ pub(crate) fn image_count_label(count: usize) -> String {
 /// The detail strip, derived from the issue's description markdown exactly
 /// like web (always rendered — "0 images" included). `None` only when the
 /// issue row itself is gone from the synced collection.
+///
+/// EXP-33: a quiet, GitHub-like strip — one separator above (the timeline
+/// draws its own below), borderless soft chips inside; no boxes-in-boxes.
 pub(crate) fn attachments_row(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
     let description = Store::global(cx)
         .collections()
@@ -162,11 +165,11 @@ pub(crate) fn attachments_row(issue_id: &str, cx: &App) -> Option<impl IntoEleme
         h_flex()
             .w_full()
             .px_4()
-            .py_3()
+            .py_2p5()
             .gap_2()
             .items_center()
             .border_t_1()
-            .border_color(cx.theme().border)
+            .border_color(cx.theme().border.opacity(0.6))
             .child(
                 h_flex()
                     .flex_1()
@@ -176,8 +179,8 @@ pub(crate) fn attachments_row(issue_id: &str, cx: &App) -> Option<impl IntoEleme
                     .children(occurrences.iter().enumerate().map(|(ix, occurrence)| {
                         // Detail chips carry no remove ✕ in v1: removal edits
                         // the description markdown, which is the §4.5
-                        // editor's job. Clicking opens the attachment
-                        // (EXP-4.2).
+                        // editor's job. Clicking opens the in-app image
+                        // preview (EXP-33).
                         image_chip(
                             ElementId::from(("attachment-chip", ix)),
                             occurrence_label(occurrence, ix),
@@ -207,11 +210,12 @@ pub(crate) type ChipRemove = (
 /// optional remove ✕). Desktop v1 shows the image glyph in the thumbnail
 /// slot; `on_remove` renders the web's ✕ button when given.
 ///
-/// Clicking the chip body opens the attachment in the system browser
-/// (EXP-4.2): `url` resolves against the instance base via
-/// [`crate::queries::absolute_api_url`] — unresolvable URLs (signed out,
-/// `draft://` staging) leave the chip inert. The ✕ stops propagation so a
-/// remove never also opens.
+/// Borderless by design (EXP-33): a soft secondary pill with a hover state —
+/// the old bordered chips read as nested boxes inside the bordered rail.
+/// Clicking the chip body opens the IN-APP image preview
+/// ([`crate::image_preview`]); unresolvable URLs (signed out, `draft://`
+/// staging) leave the chip inert. The ✕ stops propagation so a remove never
+/// also opens.
 pub(crate) fn image_chip(
     id: impl Into<ElementId>,
     label: String,
@@ -219,17 +223,15 @@ pub(crate) fn image_chip(
     on_remove: Option<ChipRemove>,
     cx: &App,
 ) -> gpui::AnyElement {
-    let open_url = crate::queries::absolute_api_url(cx, url);
+    let openable = crate::queries::absolute_api_url(cx, url).is_some();
     let mut row = h_flex()
         .id(id.into())
         .flex_shrink_0()
-        .gap_1()
-        .px_1p5()
+        .gap_1p5()
+        .px_2()
         .py_1()
         .rounded_md()
-        .border_1()
-        .border_color(cx.theme().border.opacity(0.5))
-        .bg(cx.theme().secondary.opacity(0.4))
+        .bg(cx.theme().secondary.opacity(0.5))
         .items_center()
         .child(
             Icon::from(ExpIcon::Image)
@@ -243,15 +245,23 @@ pub(crate) fn image_chip(
                 .whitespace_nowrap()
                 .overflow_hidden()
                 .text_ellipsis()
-                .child(SharedString::from(label)),
+                .child(SharedString::from(label.clone())),
         );
 
-    if let Some(open_url) = open_url {
-        row = row.cursor_pointer().on_click(move |_, _, _| {
-            if let Err(error) = api::opener::open_in_browser(&open_url) {
-                log::warn!("[ui] attachments: open in browser failed: {error}");
-            }
-        });
+    if openable {
+        let url = url.to_string();
+        row = row
+            .cursor_pointer()
+            .hover(|el| el.bg(cx.theme().secondary))
+            .on_click(move |_, window, cx| {
+                crate::image_preview::open_image_preview(
+                    url.clone(),
+                    label.clone(),
+                    None,
+                    window,
+                    cx,
+                );
+            });
     }
 
     if let Some((id, on_click)) = on_remove {

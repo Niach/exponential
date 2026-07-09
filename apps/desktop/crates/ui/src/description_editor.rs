@@ -153,4 +153,9 @@ impl DescriptionEditor for SeamEditor {
     fn element(&self, _window: &mut Window, _cx: &mut App) -> gpui::AnyElement {
         self.editor.clone().into_any_element()
     }
+
+    fn focus(&self, window: &mut Window, cx: &mut App) {
+        self.editor
+            .update(cx, |editor, cx| editor.focus(window, cx));
+    }
 }

@@ -39,6 +39,7 @@ mod filter_popover;
 mod git_bar;
 mod github_connect;
 mod icons;
+mod image_preview;
 mod inbox;
 mod issue_changes;
 pub mod issue_detail;

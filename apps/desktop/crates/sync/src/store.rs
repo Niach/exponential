@@ -43,7 +43,7 @@ use crate::shapes::{PkKind, ShapeSpec, SHAPES};
 // re-exported here so store-level callers/tests keep one import path.
 pub use domain::hydrate::{
     tolerant_bool, tolerant_f64, tolerant_i64, tolerant_opt_bool, tolerant_opt_f64,
-    tolerant_opt_i64,
+    tolerant_opt_i64, tolerant_opt_json,
 };
 
 // ---------------------------------------------------------------------------

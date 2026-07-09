@@ -37,7 +37,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{self, Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     skeleton::Skeleton,
     text::TextView,
@@ -71,6 +71,9 @@ pub trait DescriptionEditor {
     fn markdown(&self, cx: &App) -> String;
     /// The element to mount in the description slot.
     fn element(&self, window: &mut Window, cx: &mut App) -> gpui::AnyElement;
+    /// Move keyboard focus into the editor (Tab from the title lands here —
+    /// web EXP-10 parity).
+    fn focus(&self, window: &mut Window, cx: &mut App);
 }
 
 /// Save hook of one description editor (markdown source at save time).
@@ -626,6 +629,18 @@ impl IssueDetailView {
             .pb_1()
             .text_xl()
             .font_weight(FontWeight::SEMIBOLD)
+            // Tab jumps from the title into the description editor (web
+            // EXP-10 parity, dialog-shell.tsx). Capture runs before the
+            // InputState's own Tab handling; Shift+Tab (`OutdentInline`) is a
+            // different action, so it keeps its default behavior.
+            .capture_action(cx.listener(
+                |this, _: &input::IndentInline, window, cx: &mut gpui::Context<Self>| {
+                    if let Some(editor) = this.editor.clone() {
+                        cx.stop_propagation();
+                        editor.focus(window, cx);
+                    }
+                },
+            ))
             .child(Input::new(&self.title_input).appearance(false));
 
         let mut column = v_flex()

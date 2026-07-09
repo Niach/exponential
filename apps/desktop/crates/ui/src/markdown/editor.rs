@@ -115,7 +115,7 @@ impl RefResolver {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-enum ImageSlot {
+pub(crate) enum ImageSlot {
     Loading,
     Ready(Arc<gpui::Image>),
     /// A fetch failure is NEVER permanent: the timestamp gates a re-fetch on
@@ -162,7 +162,7 @@ impl ImageCache {
         }
     }
 
-    fn slot(&mut self, url: &str, cx: &mut Context<Self>) -> ImageSlot {
+    pub(crate) fn slot(&mut self, url: &str, cx: &mut Context<Self>) -> ImageSlot {
         if let Some(slot) = self.slots.get(url) {
             // Ready/Loading are terminal-ish; a failure older than the
             // backoff falls through and re-fetches.
@@ -242,22 +242,29 @@ fn render_image_slot(
                 .h(px(260.))
                 .object_fit(gpui::ObjectFit::ScaleDown)
                 .rounded(px(4.));
-            // Click-to-open (EXP-4.2): the canonical relative
-            // `/api/attachments/{id}` resolves against the instance base and
-            // opens in the system browser — the same action as markdown
-            // links. Unresolvable (signed out / `draft://` staging) stays
-            // inert.
-            match crate::queries::absolute_api_url(cx, url) {
-                Some(open_url) => div()
-                    .id(id.into())
-                    .cursor_pointer()
-                    .on_click(move |_, _, _| {
-                        if let Err(error) = api::opener::open_in_browser(&open_url) {
-                            log::warn!("open attachment failed: {error}");
-                        }
-                    })
-                    .child(rendered)
-                    .into_any_element(),
+            // Click-to-open (EXP-33): an in-app lightbox over the shared
+            // [`ImageCache`] — never the web browser. The preview itself
+            // carries the "Open in browser" affordance.
+            match images {
+                Some(images) => {
+                    let images = images.clone();
+                    let url = url.to_string();
+                    let alt = alt.to_string();
+                    div()
+                        .id(id.into())
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            crate::image_preview::open_image_preview(
+                                url.clone(),
+                                alt.clone(),
+                                Some(images.clone()),
+                                window,
+                                cx,
+                            );
+                        })
+                        .child(rendered)
+                        .into_any_element()
+                }
                 None => rendered.into_any_element(),
             }
         }
@@ -273,7 +280,7 @@ fn render_image_slot(
     }
 }
 
-fn placeholder_box(label: &str, cx: &App) -> gpui::AnyElement {
+pub(crate) fn placeholder_box(label: &str, cx: &App) -> gpui::AnyElement {
     div()
         .w_full()
         .h(px(80.))
@@ -1230,7 +1237,7 @@ impl MarkdownEditor {
                                         .tooltip("Remove image")
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             // Never also fire the image's
-                                            // open-in-browser click beneath.
+                                            // open-preview click beneath.
                                             cx.stop_propagation();
                                             let Some(index) = this
                                                 .blocks

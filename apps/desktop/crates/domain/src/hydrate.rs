@@ -121,6 +121,30 @@ fn value_to_f64(value: &Value) -> Option<f64> {
     }
 }
 
+/// Tolerant jsonb: the store pins ONE canonical storage form — TEXT — so a
+/// `jsonb` column (e.g. `issue_events.payload`) hydrates from SQLite as a
+/// STRING holding serialized JSON. Re-parse it back into the structured value;
+/// wire-delivered objects/arrays pass through untouched; JSON `null` hydrates
+/// to `None`; a string that is not a JSON container stays a string (never
+/// invent structure).
+pub fn tolerant_opt_json<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(match value {
+        Value::Null => None,
+        Value::String(s) => {
+            let parsed = match s.trim_start().as_bytes().first() {
+                Some(b'{') | Some(b'[') => serde_json::from_str::<Value>(&s).ok(),
+                _ => None,
+            };
+            Some(parsed.unwrap_or(Value::String(s)))
+        }
+        other => Some(other),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +196,30 @@ mod tests {
         assert_eq!((t.n, t.s, t.b), (1, Some(1.5), None));
         let t: T = serde_json::from_value(json!({"n": 1.0, "s": null, "b": true})).unwrap();
         assert_eq!((t.n, t.s, t.b), (1, None, Some(true)));
+    }
+
+    #[test]
+    fn tolerant_json_reparses_text_stored_containers() {
+        #[derive(Deserialize)]
+        struct T {
+            #[serde(default, deserialize_with = "tolerant_opt_json")]
+            p: Option<Value>,
+        }
+        // The store's TEXT form of a jsonb object re-parses to the object.
+        let t: T = serde_json::from_value(json!({"p": "{\"to\":\"done\"}"})).unwrap();
+        assert_eq!(t.p, Some(json!({"to": "done"})));
+        // Wire-delivered objects pass through.
+        let t: T = serde_json::from_value(json!({"p": {"to": "done"}})).unwrap();
+        assert_eq!(t.p, Some(json!({"to": "done"})));
+        // Arrays re-parse too; plain strings stay strings; null → None.
+        let t: T = serde_json::from_value(json!({"p": "[1,2]"})).unwrap();
+        assert_eq!(t.p, Some(json!([1, 2])));
+        let t: T = serde_json::from_value(json!({"p": "not json"})).unwrap();
+        assert_eq!(t.p, Some(Value::String("not json".into())));
+        let t: T = serde_json::from_value(json!({"p": null})).unwrap();
+        assert_eq!(t.p, None);
+        // A malformed container-looking string survives as its text.
+        let t: T = serde_json::from_value(json!({"p": "{broken"})).unwrap();
+        assert_eq!(t.p, Some(Value::String("{broken".into())));
     }
 }
