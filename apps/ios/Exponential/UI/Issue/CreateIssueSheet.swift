@@ -22,6 +22,8 @@ struct CreateIssueSheet: View {
     @State private var recurrenceInterval: Int?
     @State private var recurrenceUnit: RecurrenceUnit?
     @State private var selectedLabelIds: Set<String> = []
+    @State private var labels: [LabelEntity] = []
+    @State private var workspaceId: String?
     @State private var users: [UserEntity] = []
     @State private var createMore = false
     @State private var loading = false
@@ -31,6 +33,7 @@ struct CreateIssueSheet: View {
     @State private var showPriorityPicker = false
     @State private var showAssigneePicker = false
     @State private var showRecurrencePicker = false
+    @State private var showCreateLabel = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -155,6 +158,61 @@ struct CreateIssueSheet: View {
                             .opacity(permissions.isModerator ? 1 : 0.55)
                         }
 
+                        // Labels — all workspace labels as colored-dot toggle
+                        // chips + a "+ Label" chip (parity with Android's
+                        // CreateIssueScreen and the web create dialog). Toggling
+                        // only flips a local selection; the issue doesn't exist
+                        // yet, so labelIds rides along on the create call. Not
+                        // moderator-gated: issues.create lets any creator set
+                        // title/description/labels.
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Labels")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+                            FlowLayout(spacing: 6) {
+                                ForEach(labels, id: \.id) { label in
+                                    Button {
+                                        if selectedLabelIds.contains(label.id) {
+                                            selectedLabelIds.remove(label.id)
+                                        } else {
+                                            selectedLabelIds.insert(label.id)
+                                        }
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Circle()
+                                                .fill(Color(hex: label.color) ?? .gray)
+                                                .frame(width: 8, height: 8)
+                                            Text(label.name)
+                                                .font(.caption)
+                                                .foregroundStyle(.white)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .glassButton(isActive: selectedLabelIds.contains(label.id))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                // "+ Label" — create a new workspace label and
+                                // pre-select it on this draft in one step.
+                                Button {
+                                    showCreateLabel = true
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "plus")
+                                            .font(.caption2)
+                                        Text("Label")
+                                            .font(.caption)
+                                    }
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .glassButton()
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
                         // Create more toggle
                         Toggle(isOn: $createMore) {
                             Text("Create more")
@@ -211,6 +269,18 @@ struct CreateIssueSheet: View {
                         }
                         return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
                     })) ?? nil
+                    workspaceId = workspace?.id
+                    // Labels are workspace-scoped; a shared DB pool can hold more
+                    // than one workspace, so filter to this project's workspace.
+                    if let wsId = workspace?.id,
+                       let loadedLabels = try? await pool.read({ db in
+                           try LabelEntity
+                               .filter(Column("workspace_id") == wsId)
+                               .order(Column("name"))
+                               .fetchAll(db)
+                       }) {
+                        labels = loadedLabels
+                    }
                     permissions = WorkspacePermissions.resolve(
                         workspace: workspace,
                         currentUserId: deps.auth.userId,
@@ -282,6 +352,43 @@ struct CreateIssueSheet: View {
                     }
                 )
             }
+            .sheet(isPresented: $showCreateLabel) {
+                CreateLabelSheet { name, color in
+                    Task { await createAndSelectLabel(name: name, color: color) }
+                }
+            }
+        }
+    }
+
+    /// Create a workspace label and pre-select it on this draft. The label is
+    /// real immediately (labels.create); only the assignment is deferred — the
+    /// create call carries it via labelIds (parity with Android).
+    private func createAndSelectLabel(name: String, color: String) async {
+        guard let workspaceId else { return }
+        do {
+            let labelId = try await deps.labelsApi.create(
+                accountId: accountId,
+                CreateLabelInput(name: name, color: color, workspaceId: workspaceId)
+            )
+            selectedLabelIds.insert(labelId)
+            // Reflect the new label in the chip row without waiting for a sync
+            // round-trip; keep it name-ordered to match the initial load.
+            if !labels.contains(where: { $0.id == labelId }) {
+                labels.append(
+                    LabelEntity(
+                        id: labelId,
+                        workspaceId: workspaceId,
+                        name: name,
+                        color: color,
+                        sortOrder: nil,
+                        createdAt: "",
+                        updatedAt: ""
+                    )
+                )
+                labels.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            }
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 
@@ -317,6 +424,10 @@ struct CreateIssueSheet: View {
             .stripUnknownDraftImages(fullMarkdown, keep: [])
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // Drop selections for labels deleted while drafting — the server
+        // rejects the whole create on an unknown label id (parity with Android).
+        let validLabelIds = selectedLabelIds.filter { id in labels.contains { $0.id == id } }
+
         let input = CreateIssueInput(
             projectId: projectId,
             title: title,
@@ -327,7 +438,7 @@ struct CreateIssueSheet: View {
             dueDate: dateStr,
             dueTime: dateStr == nil ? nil : dueTime,
             endTime: dateStr == nil ? nil : endTime,
-            labelIds: selectedLabelIds.isEmpty ? nil : Array(selectedLabelIds),
+            labelIds: validLabelIds.isEmpty ? nil : Array(validLabelIds),
             recurrenceInterval: recurrenceInterval,
             recurrenceUnit: recurrenceUnit?.rawValue
         )
@@ -369,6 +480,7 @@ struct CreateIssueSheet: View {
             if createMore {
                 title = ""
                 editor = IssueEditorModel()
+                selectedLabelIds = []
                 configureEditor()
                 titleFocused = true
             } else {
