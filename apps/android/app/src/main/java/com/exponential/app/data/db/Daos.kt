@@ -281,6 +281,13 @@ interface ElectricOffsetDao {
     @Query("SELECT * FROM electric_offsets WHERE shape = :shape LIMIT 1")
     suspend fun get(shape: String): ElectricOffsetEntity?
 
+    // Reactive "has this shape reached up-to-date at least once" — is_live flips
+    // true when the initial snapshot completes (even for a zero-row shape). Null
+    // until the first offset row is written. Lets the UI tell "still doing the
+    // initial sync" apart from "genuinely empty account".
+    @Query("SELECT is_live FROM electric_offsets WHERE shape = :shape LIMIT 1")
+    fun observeIsLive(shape: String): Flow<Boolean?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: ElectricOffsetEntity)
 

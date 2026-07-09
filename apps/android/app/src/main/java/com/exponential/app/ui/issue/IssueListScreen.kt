@@ -122,6 +122,14 @@ fun IssueListScreen(
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
     }
 
+    // "Any signed-in account has a project" — gates the cross-account switcher
+    // (so a projectless active account with a project-bearing sibling can still
+    // switch to it). The spinner instead gates on the ACTIVE account
+    // (activeAccountHasProject), because only the active account's project can
+    // resolve into the root list.
+    val hasAnyProject = homeState?.projectTree
+        ?.any { group -> group.workspaceBlocks.any { it.projects.isNotEmpty() } } == true
+
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // Pinned nav row. Pushed: circular back button. Root: the inline
@@ -141,7 +149,7 @@ fun IssueListScreen(
                     IssueListMode.Root -> {
                         ProjectSwitcherControl(
                             name = state.project?.name,
-                            enabled = homeState?.projectTree?.isNotEmpty() == true,
+                            enabled = hasAnyProject,
                             onClick = { showSwitcher = true },
                         )
                         Spacer(Modifier.weight(1f))
@@ -154,17 +162,28 @@ fun IssueListScreen(
 
             if (mode == IssueListMode.Root && projectId.isNullOrBlank()) {
                 // No project on this account yet (companion app: projects are
-                // created on web/desktop). The switcher stays disabled above.
-                // When the synced tree already has projects, the current one is
-                // still resolving — show a spinner, not the empty copy.
-                if (homeState?.projectTree?.isNotEmpty() == true) {
+                // created on web/desktop). When the ACTIVE account already has a
+                // project, the current one is still resolving — show a spinner,
+                // not the empty copy. An active account with only projectless
+                // workspaces (a fresh account) falls through to the empty state,
+                // never a perpetual spinner.
+                if (homeState?.activeAccountHasProject == true) {
                     LoadingState()
                 } else {
-                    val syncingOrError = homeState?.isSyncing == true || homeError != null
+                    // Still syncing until the workspace bootstrap finishes AND
+                    // the projects shape has reached up-to-date at least once —
+                    // otherwise a companion account that DOES have projects would
+                    // briefly flash "Create your first project" before its
+                    // projects snapshot lands. Only a settled, genuinely empty
+                    // account shows the create-project copy.
+                    val stillSyncing = homeState == null ||
+                        homeState.isSyncing ||
+                        !homeState.activeAccountProjectsSynced
+                    val syncingOrError = stillSyncing || homeError != null
                     EmptyState(
                         message = when {
-                            homeState?.isSyncing == true -> "Syncing…"
                             homeError != null -> homeError
+                            stillSyncing -> "Syncing…"
                             else -> "No projects yet. Create your first project to get started."
                         },
                         icon = Icons.Filled.UnfoldMore,

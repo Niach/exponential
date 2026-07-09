@@ -45,6 +45,20 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         // the poisoned-cache 409 loop. Shape reads must always hit the server.
         config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         config.urlCache = nil
+        // Bearer auth is the ONLY credential a shape request carries; a cookie
+        // jar is not just unnecessary but actively harmful across accounts on
+        // the same host. Better Auth sets a signed `__Secure-better-auth
+        // .session_data` cookie on every authenticated response (a 5-minute
+        // session-cache snapshot) and getSession trusts that cookie OVER the
+        // bearer. With the default shared jar, a cookie left over from a
+        // previously signed-in user rides along on this account's requests and
+        // the server resolves — and syncs — them as the PREVIOUS user (the
+        // "Apple login shows the Google account's data" cross-account leak).
+        // Kill the jar so shapes are always scoped by the bearer (mirrors
+        // HTTPClient's cookie-off stance; the server also ignores the cache on
+        // bearer requests, this is defense-in-depth + stops us hoarding it).
+        config.httpShouldSetCookies = false
+        config.httpCookieStorage = nil
         self.session = URLSession(configuration: config)
     }
 

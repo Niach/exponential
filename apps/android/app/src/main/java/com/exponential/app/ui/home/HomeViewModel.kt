@@ -10,12 +10,15 @@ import io.ktor.http.HttpStatusCode
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.MultiAccountProjectRepository
 import com.exponential.app.data.db.ServerProjectGroup
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -31,6 +34,18 @@ data class HomeState(
     // True while the first workspace bootstrap is in flight and nothing has
     // synced yet — drives the root "Syncing…" state (parity with iOS).
     val isSyncing: Boolean = false,
+    // True when the ACTIVE account has at least one project. Distinct from
+    // "the tree is non-empty": the tree includes projectless workspaces (a
+    // fresh account has exactly one), and a sibling account may hold projects
+    // the active one doesn't — so the root screen must gate its spinner on
+    // THIS, not on tree-non-emptiness, or a projectless active account spins
+    // forever (its current project can never resolve).
+    val activeAccountHasProject: Boolean = false,
+    // True once the ACTIVE account's projects shape has reached up-to-date at
+    // least once (initial snapshot done, even at zero rows). Until then a
+    // projectless-looking account is still syncing — the root shows "Syncing…"
+    // rather than prematurely flashing "Create your first project".
+    val activeAccountProjectsSynced: Boolean = false,
 )
 
 @HiltViewModel
@@ -44,11 +59,29 @@ class HomeViewModel @Inject constructor(
 
     private val _syncing = MutableStateFlow(false)
 
+    // The active account's projects-shape "up-to-date seen" flag, re-scoped on
+    // account switch. Null (no offset row yet) reads as not-yet-synced.
+    private val activeProjectsSynced =
+        accountDatabaseFlow(auth, holder)
+            .scopedQuery<Boolean?>(null) { db -> db.electricOffsetDao().observeIsLive("projects") }
+            .map { it == true }
+
     val state: StateFlow<HomeState> = combine(
         multiAccountProjects.serverGroups,
         _syncing,
-    ) { projectTree, syncing ->
-        HomeState(projectTree = projectTree, isSyncing = syncing)
+        auth.activeAccountId,
+        activeProjectsSynced,
+    ) { projectTree, syncing, activeId, projectsSynced ->
+        val activeHasProject = projectTree
+            .firstOrNull { it.accountId == activeId }
+            ?.workspaceBlocks
+            ?.any { it.projects.isNotEmpty() } == true
+        HomeState(
+            projectTree = projectTree,
+            isSyncing = syncing,
+            activeAccountHasProject = activeHasProject,
+            activeAccountProjectsSynced = projectsSynced,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
     private val _error = MutableStateFlow<String?>(null)
