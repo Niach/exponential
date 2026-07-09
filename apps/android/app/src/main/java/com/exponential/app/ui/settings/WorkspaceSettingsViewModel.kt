@@ -156,7 +156,13 @@ class WorkspaceSettingsViewModel @Inject constructor(
         val deleted = values[11] as Boolean
         WorkspaceSettingsState(
             workspace = workspace,
-            members = members.map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) },
+            // Synthetic agent users (widget reporters etc.) are workspace
+            // members server-side but never shown in the roster — iOS hides them
+            // too. Rows whose user hasn't synced yet (user == null) still render
+            // (userDisplayName degrades to a "Member <id>" placeholder).
+            members = members
+                .map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) }
+                .filter { it.user?.isAgent != true },
             invites = invites,
             labels = labels,
             projects = projects,
