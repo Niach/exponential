@@ -193,6 +193,7 @@ extension ProjectEntity: Codable {
             .flatMap { $0 } ?? DomainContract.projectTypeDev
         publicShowComments = Self.decodeBool(c, .publicShowComments, default: true)
         publicShowActivity = Self.decodeBool(c, .publicShowActivity, default: false)
+        isProtected = Self.decodeBool(c, .isProtected, default: false)
         publicShowCoding = (try? c.decodeIfPresent(String.self, forKey: .publicShowCoding))
             .flatMap { $0 } ?? DomainContract.publicCodingVisibilityOff
         previewConfig = try c.decodeIfPresent(String.self, forKey: .previewConfig)
