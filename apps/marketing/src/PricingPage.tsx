@@ -1,6 +1,7 @@
 import { motion } from "motion/react"
 import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
 import { PlanCards, SelfHostCards } from "./components/PlanCards"
+import { ContactForm } from "./components/ContactForm"
 import { ComparisonTable } from "./components/ComparisonTable"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 
@@ -54,6 +55,14 @@ export function PricingPage() {
             License 2.0.
           </p>
           <SelfHostCards />
+          <div id="enterprise-contact" className="contact-block">
+            <h3>Talk to us about Enterprise</h3>
+            <p className="contact-block-sub">
+              Tell us about your team and how you plan to run Exponential —
+              we&apos;ll get back to you within a business day.
+            </p>
+            <ContactForm />
+          </div>
         </motion.div>
       </section>
 

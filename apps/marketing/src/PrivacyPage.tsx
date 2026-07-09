@@ -23,7 +23,7 @@ export function PrivacyPage() {
               margin: `0 0 40px`,
             }}
           >
-            Exponential · exponential.at · last updated 2026-07-07
+            Exponential · exponential.at · last updated 2026-07-09
           </p>
 
           <p style={prose}>
@@ -59,16 +59,19 @@ export function PrivacyPage() {
               whatever you choose to write.
             </li>
             <li style={listItem}>
-              <strong>Feedback widget submissions.</strong> If a site operator
-              embeds our feedback widget and you submit feedback through it, we
-              store what you send — your message and optional screenshot — plus
-              the page URL you were on, your browser’s user-agent and
-              viewport/screen size, and any email, name, or custom data the
-              host site chooses to pass along with your submission. This lets
-              the site operator triage and follow up on your report — the
-              members of the operator’s workspace who handle feedback can see
-              your email and message. Your email is never exposed to anonymous
-              or public-board viewers.
+              <strong>Feedback widget and public-board submissions.</strong> If
+              a site operator embeds our feedback widget and you submit
+              feedback through it, we store what you send — your message and
+              optional screenshot — plus the page URL you were on, your
+              browser’s user-agent and viewport/screen size, and any email,
+              name, or custom data the host site chooses to pass along with
+              your submission. The same applies when you report an issue
+              through the form on a public feedback board, where you can
+              optionally leave your email address. This lets the site operator
+              triage and follow up on your report — the members of the
+              operator’s workspace who handle feedback can see your email and
+              message. Your email is never exposed to anonymous or public-board
+              viewers.
             </li>
             <li style={listItem}>
               <strong>Push notification tokens.</strong> If you enable push
@@ -217,8 +220,11 @@ export function PrivacyPage() {
 
           <h2 style={h2Style}>Contact</h2>
           <p style={prose}>
-            Data controller: Dennis Strähhuber, Germany. Questions about this
-            policy and all data-deletion requests:{` `}
+            Data controller: Dennis Strähhuber, Germany (
+            <a href="/imprint/" style={linkStyle}>
+              see the Imprint for the full postal address
+            </a>
+            ). Questions about this policy and all data-deletion requests:{` `}
             <a href="mailto:dennis@straehhuber.com" style={linkStyle}>
               dennis@straehhuber.com
             </a>

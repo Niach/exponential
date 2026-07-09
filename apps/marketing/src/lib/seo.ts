@@ -168,4 +168,12 @@ export const PAGES: PageSeo[] = [
     description: `The terms that govern your use of Exponential.`,
     ogImage: `/og/og-default.png`,
   },
+  {
+    path: `/imprint/`,
+    htmlFile: `imprint/index.html`,
+    sources: [`src/ImprintPage.tsx`],
+    title: `Imprint — Exponential`,
+    description: `Legal disclosure (Impressum) for Exponential.`,
+    ogImage: `/og/og-default.png`,
+  },
 ]

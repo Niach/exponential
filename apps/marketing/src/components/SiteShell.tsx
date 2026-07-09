@@ -82,10 +82,10 @@ export function SiteFooter() {
     {
       title: `Meta`,
       links: [
-        { label: `Send feedback`, href: LINKS.app.feedback },
         { label: `GitHub`, href: LINKS.github.repo },
         { label: `Privacy`, href: `/privacy/` },
         { label: `Terms`, href: `/terms/` },
+        { label: `Imprint`, href: `/imprint/` },
       ],
     },
   ]

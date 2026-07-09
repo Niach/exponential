@@ -19,6 +19,7 @@ export default defineConfig({
         "docs-selfhost": resolve(__dirname, `docs/self-host/index.html`),
         privacy: resolve(__dirname, `privacy/index.html`),
         terms: resolve(__dirname, `terms/index.html`),
+        imprint: resolve(__dirname, `imprint/index.html`),
       },
     },
   },

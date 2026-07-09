@@ -9,8 +9,10 @@ export const LINKS = {
   app: {
     register: `${APP}/auth/register`,
     login: `${APP}/auth/login`,
-    feedback: `${APP}/feedback`,
     mcp: `${APP}/api/mcp`,
+    // Enterprise contact-form endpoint (pricing page). JSON POST; the web
+    // app answers the CORS preflight — see apps/web /api/contact.
+    contact: `${APP}/api/contact`,
   },
   github: {
     repo: REPO,

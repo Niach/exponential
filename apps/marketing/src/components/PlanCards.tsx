@@ -92,10 +92,8 @@ const selfHostPlans: (Plan & { selfHost?: boolean; enterprise?: boolean })[] = [
       `Prioritized support`,
       `Deployment & upgrade help`,
     ],
-    cta: {
-      label: `Contact sales`,
-      href: `mailto:dennis@straehhuber.com?subject=Exponential%20Enterprise`,
-    },
+    /* Scrolls to the contact form below the cards (EXP-39). */
+    cta: { label: `Contact sales`, href: `#enterprise-contact` },
   },
 ]
 

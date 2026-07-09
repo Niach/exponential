@@ -1,0 +1,138 @@
+/* ─── Enterprise contact form (pricing page) ─── */
+.contact-block {
+  max-width: 760px;
+  margin: 40px auto 0;
+  padding-top: 36px;
+  border-top: 1px solid var(--border);
+}
+
+.contact-block h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.contact-block-sub {
+  margin: 0 0 22px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.contact-field-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 600px) {
+  .contact-grid {
+    grid-template-columns: 1fr;
+  }
+  .contact-field-wide {
+    grid-column: auto;
+  }
+}
+
+.contact-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.contact-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-dim);
+}
+
+.contact-input {
+  font-family: inherit;
+  font-size: 13.5px;
+  letter-spacing: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  padding: 9px 11px;
+  outline: none;
+  transition: border-color 140ms;
+}
+
+.contact-input::placeholder {
+  color: var(--fg-dim);
+}
+
+.contact-input:focus {
+  border-color: var(--fg-dim);
+}
+
+.contact-textarea {
+  resize: vertical;
+  min-height: 110px;
+  line-height: 1.5;
+}
+
+/* Honeypot — visually off-screen but not display:none (bots skip those). */
+.contact-hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.contact-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.contact-actions .btn[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.contact-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.contact-mailto {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.contact-success {
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.contact-success-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.contact-success-sub {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
