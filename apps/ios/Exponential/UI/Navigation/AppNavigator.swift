@@ -9,6 +9,9 @@ enum AppRoute: Hashable {
     case inbox
     case project(accountId: String, id: String)
     case issue(accountId: String, id: String)
+    /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
+    /// detail's Changes card.
+    case changes(accountId: String, issueId: String)
     case settings
     case serverDetail(accountId: String)
     case workspaceSettings(accountId: String, workspaceId: String)
@@ -301,6 +304,9 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .issue(accountId, id):
             IssueDetailView(issueId: id)
+                .environment(\.accountId, accountId)
+        case let .changes(accountId, issueId):
+            ChangesView(issueId: issueId)
                 .environment(\.accountId, accountId)
         case .settings:
             SettingsView()

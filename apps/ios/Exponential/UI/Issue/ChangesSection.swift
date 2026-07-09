@@ -5,11 +5,13 @@ import SwiftUI
 /// The issue's "Changes" surface (masterplan §4.8, mobile tiers 2–4). One diff
 /// surface per issue, capability-tiered but with the same tab meaning on every
 /// client. Mobile never sees a local worktree (tier 1 is desktop-only):
-///   2. PR exists            → PR diff (`issues.prFiles`), as today.
-///   3. branch pushed, no PR → `repositories.branchDiff` (same file renderer).
+///   2. PR exists            → PR-state summary + "View changes" pushing the
+///                             dedicated diff page (EXP-34).
+///   3. branch pushed, no PR → `repositories.branchDiff` summary counts + the
+///                             same "View changes" page.
 ///   4. nothing pushed yet   → "Being coded on <deviceLabel> — Watch / Steer"
-///                             opening the native steer viewer (when a session
-///                             is running); otherwise a quiet empty state.
+///                             opening the native agent session view (when a
+///                             session is running); otherwise a quiet empty state.
 /// Mobile does no git operations (L18) — this is observe-only.
 struct ChangesSection: View {
     let issue: IssueEntity
@@ -20,7 +22,6 @@ struct ChangesSection: View {
 
     @State private var branchFiles: [PrFile]?
     @State private var branchLoaded = false
-    @State private var showPRDiff = false
     @State private var watchingSession: CodingSessionEntity?
     @State private var steerEnabled = false
 
@@ -58,7 +59,7 @@ struct ChangesSection: View {
             steerEnabled = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi).enabled
         }
         .fullScreenCover(item: $watchingSession) { session in
-            SteerTerminalView(accountId: accountId, session: session)
+            AgentSessionView(accountId: accountId, session: session)
         }
     }
 
@@ -113,10 +114,7 @@ struct ChangesSection: View {
                     Link("Open PR on GitHub", destination: url).font(.caption)
                 }
             }
-            DisclosureGroup("Changed files", isExpanded: $showPRDiff) {
-                DiffView(issueId: issue.id).padding(.top, 6)
-            }
-            .font(.subheadline)
+            viewChangesRow
         }
     }
 
@@ -128,8 +126,37 @@ struct ChangesSection: View {
             Text("Pushed to \(issue.branch ?? "the branch") — no PR yet")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            DiffFilesView(files: files)
+            HStack(spacing: 8) {
+                Text("\(files.count) \(files.count == 1 ? "file" : "files") changed")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text("+\(files.reduce(0) { $0 + $1.additions })")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.green)
+                Text("−\(files.reduce(0) { $0 + $1.deletions })")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.red)
+            }
+            viewChangesRow
         }
+    }
+
+    /// "View changes" — pushes the dedicated diff page (EXP-34; the old inline
+    /// DisclosureGroup expansion is gone).
+    private var viewChangesRow: some View {
+        NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: issue.id)) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus.forwardslash.minus")
+                    .font(.caption)
+                Text("View changes")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .glassButton()
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Tier 4: being coded on, nothing pushed
