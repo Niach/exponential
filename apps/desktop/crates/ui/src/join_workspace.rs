@@ -4,8 +4,8 @@
 //! A native desktop app cannot receive the browser's
 //! `https://…/invite/<token>` click, so §4.2 mandates two paths:
 //!
-//! 1. the **`exp://invite/<token>` deep link** — routed here from
-//!    [`crate::oauth::handle_open_urls`] (paired with the OAuth `exp://`
+//! 1. the **`exponential://invite/<token>` deep link** — routed here from
+//!    [`crate::oauth::handle_open_urls`] (paired with the OAuth `exponential://`
 //!    scheme registration);
 //! 2. a fallback **"Join a workspace" dialog** (the sidebar footer account
 //!    menu's "Join workspace…" item) where the user pastes an invite link or
@@ -42,7 +42,7 @@ pub fn init(cx: &mut App) {
     });
 }
 
-/// Open the dialog, optionally pre-filled (the `exp://invite/<token>` deep
+/// Open the dialog, optionally pre-filled (the `exponential://invite/<token>` deep
 /// link passes the token and previews immediately).
 pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     if window.has_active_dialog(cx) {
@@ -67,9 +67,11 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     });
 }
 
-/// `exp://invite/<token>` → `Some(token)` (the §4.2 deep-link form).
+/// `exponential://invite/<token>` → `Some(token)` (the §4.2 deep-link form;
+/// scheme from `api::login::OAUTH_CALLBACK_SCHEME`).
 pub(crate) fn parse_invite_deep_link(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("exp://invite/")?;
+    let prefix = format!("{}://invite/", api::login::OAUTH_CALLBACK_SCHEME);
+    let rest = url.strip_prefix(prefix.as_str())?;
     let token = rest
         .split(['?', '#'])
         .next()
@@ -406,15 +408,15 @@ mod tests {
     #[test]
     fn deep_link_parses_token() {
         assert_eq!(
-            parse_invite_deep_link("exp://invite/abc123"),
+            parse_invite_deep_link("exponential://invite/abc123"),
             Some("abc123".to_string())
         );
         assert_eq!(
-            parse_invite_deep_link("exp://invite/abc123?utm=x"),
+            parse_invite_deep_link("exponential://invite/abc123?utm=x"),
             Some("abc123".to_string())
         );
-        assert_eq!(parse_invite_deep_link("exp://invite/"), None);
-        assert_eq!(parse_invite_deep_link("exp://oauth-return#token=t"), None);
+        assert_eq!(parse_invite_deep_link("exponential://invite/"), None);
+        assert_eq!(parse_invite_deep_link("exponential://oauth-return#token=t"), None);
         assert_eq!(parse_invite_deep_link("https://x/invite/abc"), None);
     }
 

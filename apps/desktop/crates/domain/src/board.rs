@@ -36,28 +36,77 @@ pub fn is_issue_overdue(issue: &Issue, today: &str) -> bool {
     }
 }
 
-/// Web `compareIssuesForGroup(today)`: overdue first, then priority rank, then
-/// earliest due date (dated before undated), else stable.
-fn compare_issues_for_group(a: &Issue, b: &Issue, today: &str) -> std::cmp::Ordering {
+/// Web `compareIssuesForGroup(status, today)` — the EXP-38 canonical
+/// per-status comparator, identical on web / iOS / Android / desktop:
+///
+/// - **backlog / todo / in_progress**: overdue first, then priority rank
+///   ascending, then earliest due date (dated before undated), then issue
+///   `number` ascending — numerically, never identifier-string order (and
+///   never `sort_order`/`created_at`).
+/// - **done**: latest completed first — key `completed_at ?? updated_at`,
+///   descending.
+/// - **cancelled / duplicate**: `updated_at` descending.
+fn compare_issues_for_group(
+    a: &Issue,
+    b: &Issue,
+    status: IssueStatus,
+    today: &str,
+) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
-    let a_overdue = is_issue_overdue(a, today);
-    let b_overdue = is_issue_overdue(b, today);
-    if a_overdue != b_overdue {
-        return if a_overdue { Ordering::Less } else { Ordering::Greater };
-    }
+    match status {
+        IssueStatus::Done => cmp_recency_desc(
+            a.completed_at.as_deref().or(a.updated_at.as_deref()),
+            b.completed_at.as_deref().or(b.updated_at.as_deref()),
+        ),
+        IssueStatus::Cancelled | IssueStatus::Duplicate => {
+            cmp_recency_desc(a.updated_at.as_deref(), b.updated_at.as_deref())
+        }
+        _ => {
+            let a_overdue = is_issue_overdue(a, today);
+            let b_overdue = is_issue_overdue(b, today);
+            if a_overdue != b_overdue {
+                return if a_overdue { Ordering::Less } else { Ordering::Greater };
+            }
 
-    let priority = priority_rank(a.priority).cmp(&priority_rank(b.priority));
-    if priority != Ordering::Equal {
-        return priority;
-    }
+            let priority = priority_rank(a.priority).cmp(&priority_rank(b.priority));
+            if priority != Ordering::Equal {
+                return priority;
+            }
 
-    match (a.due_date.as_deref(), b.due_date.as_deref()) {
-        (Some(a_due), Some(b_due)) => a_due.cmp(b_due),
+            let due = match (a.due_date.as_deref(), b.due_date.as_deref()) {
+                (Some(a_due), Some(b_due)) => a_due.cmp(b_due),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            };
+            if due != Ordering::Equal {
+                return due;
+            }
+
+            a.number.cmp(&b.number)
+        }
+    }
+}
+
+/// Recency-key compare, latest FIRST; rows missing the key sort last. Electric
+/// delivers timestamptz text uniformly (`YYYY-MM-DD hh:mm:ss…+00`), so string
+/// order is chronological — the space→`T` normalization (the shared-contract
+/// mixed-format gotcha) additionally keeps the compare correct against ISO
+/// `…T…Z` strings should one ever appear.
+fn cmp_recency_desc(a: Option<&str>, b: Option<&str>) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (Some(a), Some(b)) => normalize_timestamp(b).cmp(&normalize_timestamp(a)),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
         (None, None) => Ordering::Equal,
     }
+}
+
+/// `YYYY-MM-DD hh:mm:ss…` → `YYYY-MM-DDThh:mm:ss…` (first space only).
+fn normalize_timestamp(ts: &str) -> String {
+    ts.replacen(' ', "T", 1)
 }
 
 /// Web `interface IssueGroup`.
@@ -99,10 +148,10 @@ pub fn build_filtered_issues(
 
 /// Web `buildVisibleIssueGroups(issues, statuses)`: group by status in the
 /// domain display order (web `issueStatusOrder` == `DISPLAY_ORDER`), sort
-/// each group overdue→priority→due-date, then EITHER keep exactly the
-/// status-filtered groups (even when empty) OR hide empty groups when no
-/// status filter is active. `today` is `YYYY-MM-DD` (web computes it via
-/// `formatDateForMutation(new Date())`).
+/// each group with the EXP-38 per-status comparator above, then EITHER keep
+/// exactly the status-filtered groups (even when empty) OR hide empty groups
+/// when no status filter is active. `today` is `YYYY-MM-DD` (web computes it
+/// via `formatDateForMutation(new Date())`).
 pub fn build_visible_issue_groups(
     issues: &[Issue],
     statuses: &[IssueStatus],
@@ -117,7 +166,7 @@ pub fn build_visible_issue_groups(
                 .cloned()
                 .collect();
             // `.sort()` in JS is stable; mirror with sort_by (stable in Rust).
-            group_issues.sort_by(|a, b| compare_issues_for_group(a, b, today));
+            group_issues.sort_by(|a, b| compare_issues_for_group(a, b, status, today));
             IssueGroup {
                 status,
                 issues: group_issues,
@@ -132,29 +181,6 @@ pub fn build_visible_issue_groups(
 
     groups.retain(|group| !group.issues.is_empty());
     groups
-}
-
-/// `YYYY-MM-DD` for a Unix timestamp (UTC civil date, Howard Hinnant's
-/// `civil_from_days`). The desktop has no timezone database dependency, so
-/// "today" for the overdue boundary is the UTC date — a ≤1-day skew vs. web's
-/// local-time date for users west of UTC, acceptable for row ordering.
-pub fn utc_date_string(unix_seconds: i64) -> String {
-    let days = unix_seconds.div_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
-    format!("{year:04}-{month:02}-{day:02}")
-}
-
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097); // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
-    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 /// Web `formatDate` (`lib/utils.ts`): `YYYY-MM-DD` → `"Jul 3"` (en-US short
@@ -187,6 +213,30 @@ mod tests {
     use serde_json::json;
 
     fn issue(id: &str, status: &str, priority: &str, due: Option<&str>) -> Issue {
+        issue_n(id, 1, status, priority, due)
+    }
+
+    fn issue_n(id: &str, number: i64, status: &str, priority: &str, due: Option<&str>) -> Issue {
+        serde_json::from_value(json!({
+            "id": id,
+            "project_id": "p-1",
+            "number": number,
+            "identifier": format!("EXP-{id}"),
+            "title": id,
+            "status": status,
+            "priority": priority,
+            "due_date": due
+        }))
+        .unwrap()
+    }
+
+    /// A terminal-group row (done/cancelled/duplicate) with recency keys.
+    fn closed_issue(
+        id: &str,
+        status: &str,
+        completed_at: Option<&str>,
+        updated_at: Option<&str>,
+    ) -> Issue {
         serde_json::from_value(json!({
             "id": id,
             "project_id": "p-1",
@@ -194,8 +244,9 @@ mod tests {
             "identifier": format!("EXP-{id}"),
             "title": id,
             "status": status,
-            "priority": priority,
-            "due_date": due
+            "priority": "none",
+            "completed_at": completed_at,
+            "updated_at": updated_at
         }))
         .unwrap()
     }
@@ -228,13 +279,16 @@ mod tests {
     }
 
     #[test]
-    fn group_sort_is_overdue_then_priority_then_due() {
+    fn open_group_sort_is_overdue_then_priority_then_due_then_number() {
         let issues = vec![
-            issue("none-undated", "todo", "none", None),
-            issue("low-late-due", "todo", "low", Some("2026-08-01")),
-            issue("low-early-due", "todo", "low", Some("2026-07-10")),
-            issue("urgent", "todo", "urgent", None),
-            issue("overdue-none", "todo", "none", Some("2026-01-01")),
+            issue_n("none-undated", 3, "todo", "none", None),
+            issue_n("low-late-due", 4, "todo", "low", Some("2026-08-01")),
+            issue_n("low-early-due", 5, "todo", "low", Some("2026-07-10")),
+            issue_n("urgent", 6, "todo", "urgent", None),
+            issue_n("overdue-none", 7, "todo", "none", Some("2026-01-01")),
+            // Same priority + due date → number breaks the tie.
+            issue_n("high-n9", 9, "todo", "high", Some("2026-07-20")),
+            issue_n("high-n8", 8, "todo", "high", Some("2026-07-20")),
         ];
         let groups = build_visible_issue_groups(&issues, &[], TODAY);
         assert_eq!(groups.len(), 1);
@@ -242,13 +296,70 @@ mod tests {
         assert_eq!(
             order,
             vec![
-                "overdue-none",  // overdue floats above even urgent
+                "overdue-none", // overdue floats above even urgent
                 "urgent",
+                "high-n8", // priority + due tie → lower number first
+                "high-n9",
                 "low-early-due", // same priority → earlier due first
                 "low-late-due",
                 "none-undated", // weakest priority rank (none = 4) sorts last
             ]
         );
+    }
+
+    #[test]
+    fn number_tiebreak_is_numeric_not_lexicographic() {
+        let issues = vec![
+            issue_n("n10", 10, "todo", "none", None),
+            issue_n("n2", 2, "todo", "none", None),
+        ];
+        let groups = build_visible_issue_groups(&issues, &[], TODAY);
+        let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
+        // "10" < "2" as strings — numeric compare must win.
+        assert_eq!(order, vec!["n2", "n10"]);
+    }
+
+    #[test]
+    fn done_group_sorts_latest_completed_first_with_updated_fallback() {
+        let issues = vec![
+            closed_issue(
+                "old-done",
+                "done",
+                Some("2026-07-01 08:00:00+00"),
+                Some("2026-07-01 08:00:00+00"),
+            ),
+            closed_issue(
+                "new-done",
+                "done",
+                Some("2026-07-02 09:00:00+00"),
+                Some("2026-07-02 09:00:00+00"),
+            ),
+            // No completed_at → updated_at stands in.
+            closed_issue("fallback", "done", None, Some("2026-07-03 10:00:00+00")),
+            // Neither key → sorts last.
+            closed_issue("keyless", "done", None, None),
+        ];
+        let groups = build_visible_issue_groups(&issues, &[], TODAY);
+        assert_eq!(groups.len(), 1);
+        let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(order, vec!["fallback", "new-done", "old-done", "keyless"]);
+    }
+
+    #[test]
+    fn cancelled_and_duplicate_groups_sort_by_updated_desc() {
+        for status in ["cancelled", "duplicate"] {
+            let issues = vec![
+                closed_issue("older", status, None, Some("2026-06-30 08:00:00+00")),
+                closed_issue("newer", status, None, Some("2026-07-02 08:00:00+00")),
+                // Mixed-format robustness: an ISO `T…Z` string still lands in
+                // chronological position (the space→T normalization).
+                closed_issue("newest", status, None, Some("2026-07-02T09:00:00Z")),
+            ];
+            let groups = build_visible_issue_groups(&issues, &[], TODAY);
+            assert_eq!(groups.len(), 1);
+            let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
+            assert_eq!(order, vec!["newest", "newer", "older"], "status {status}");
+        }
     }
 
     #[test]
@@ -302,17 +413,6 @@ mod tests {
         let filtered = build_filtered_issues(issues, &map, &filters);
         let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["i-1"]);
-    }
-
-    #[test]
-    fn utc_date_string_is_civil_correct() {
-        assert_eq!(utc_date_string(0), "1970-01-01");
-        assert_eq!(utc_date_string(86_400), "1970-01-02");
-        // 2026-07-03T00:00:00Z (20637 days) and mid-day same date.
-        assert_eq!(utc_date_string(20_637 * 86_400), "2026-07-03");
-        assert_eq!(utc_date_string(20_637 * 86_400 + 43_200), "2026-07-03");
-        // Leap day.
-        assert_eq!(utc_date_string(1_709_164_800), "2024-02-29");
     }
 
     #[test]

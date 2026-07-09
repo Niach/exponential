@@ -60,7 +60,7 @@ fi
 
 # --- .desktop -------------------------------------------------------------
 # Exec is a bare `exp-desktop` here (AppImage metadata); at runtime the app
-# self-registers a host .desktop pointing at $APPIMAGE for exp:// callbacks.
+# self-registers a host .desktop pointing at $APPIMAGE for exponential:// callbacks.
 DESKTOP="$APPDIR/usr/share/applications/${APP_ID}.desktop"
 cat > "$DESKTOP" <<EOF
 [Desktop Entry]
@@ -71,7 +71,7 @@ Exec=exp-desktop %U
 Icon=${APP_ID}
 Terminal=false
 Categories=Development;ProjectManagement;
-MimeType=x-scheme-handler/exp;
+MimeType=x-scheme-handler/exponential;
 StartupWMClass=exp-desktop
 EOF
 

@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    div, App, ClickEvent, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    div, px, App, ClickEvent, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
 use gpui_component::{
@@ -493,7 +493,9 @@ impl GitBar {
             .label(SharedString::from(format!("\u{2387} {branch}")))
             .tooltip("Switch branch")
             .dropdown_menu(move |menu, _window, _cx| {
-                let mut menu = menu.label("Branches");
+                // Branch lists grow with the repo — cap + scroll (EXP-46a).
+                // Flat items only (no submenus).
+                let mut menu = menu.scrollable(true).max_h(px(320.)).label("Branches");
                 for (name, current) in &picker {
                     menu = menu.menu_with_check(
                         SharedString::from(name.clone()),

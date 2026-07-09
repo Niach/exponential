@@ -28,16 +28,16 @@ mod windows;
 mod windows_integration;
 
 fn main() {
-    // OAuth-callback channel (exp:// → §5.7): filled by the macOS
+    // OAuth-callback channel (exponential:// → §5.7): filled by the macOS
     // `on_open_urls` surface AND — on Linux, where gpui never invokes that —
     // by the single-instance datagram bridge. Drained by a foreground task
     // (§3.6) into `ui::handle_open_urls`.
     let (url_tx, url_rx) = flume::unbounded::<Vec<String>>();
 
-    // Linux/BSD: enforce a single instance and route the browser's exp://
+    // Linux/BSD: enforce a single instance and route the browser's exponential://
     // deep link into the RUNNING window (gpui's on_open_urls is macOS-only).
     // A forwarding launch exits here BEFORE we spin up any display/GPU state;
-    // the primary registers itself as the exp:// handler so the callback can
+    // the primary registers itself as the exponential:// handler so the callback can
     // reach it at all (AppImage/dev builds register nothing otherwise).
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     match single_instance::acquire(url_tx.clone()) {
@@ -47,7 +47,7 @@ fn main() {
 
     // Windows: same single-instance + deep-link bridge as Linux (gpui's
     // on_open_urls is macOS-only), over loopback TCP instead of a Unix
-    // socket, plus per-user HKCU registration of the exp:// scheme.
+    // socket, plus per-user HKCU registration of the exponential:// scheme.
     #[cfg(target_os = "windows")]
     match windows_integration::acquire(url_tx.clone()) {
         windows_integration::Instance::Forwarded => return,
@@ -56,16 +56,16 @@ fn main() {
         }
     }
 
-    // macOS: re-assert ourselves as the default exp:// handler each launch
+    // macOS: re-assert ourselves as the default exponential:// handler each launch
     // (self-registration parity with Linux). No-op when run unbundled. macOS
-    // needs no single-instance socket — Launch Services delivers exp:// to the
+    // needs no single-instance socket — Launch Services delivers exponential:// to the
     // already-running bundle via on_open_urls below.
     #[cfg(target_os = "macos")]
     macos_integration::ensure_scheme_registered();
 
     let app = gpui_platform::application().with_assets(assets::Assets);
 
-    // on_open_urls is the macOS OAuth-callback surface (exp:// → §5.7).
+    // on_open_urls is the macOS OAuth-callback surface (exponential:// → §5.7).
     // Real signature: FnMut(Vec<String>) — NO cx.
     app.on_open_urls(move |urls| {
         let _ = url_tx.send(urls);
@@ -133,7 +133,7 @@ fn main() {
         ui::check_for_updates(cx);
 
         // Foreground drain for the OAuth-callback URLs (on_open_urls has no
-        // cx): `exp://oauth-return#token=…` → the §5.7 token adoption in
+        // cx): `exponential://oauth-return#token=…` → the §5.7 token adoption in
         // `ui::handle_open_urls` (parse locally, validate, sign in, sync).
         cx.spawn(async move |cx| {
             while let Ok(urls) = url_rx.recv_async().await {

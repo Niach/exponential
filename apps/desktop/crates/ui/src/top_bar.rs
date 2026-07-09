@@ -167,7 +167,9 @@ impl TopBar {
                             .text_color(cx.theme().muted_foreground),
                     )
                     .dropdown_menu(move |menu, _window, _cx| {
-                        let mut menu = menu.label("Projects");
+                        // Project lists grow with the workspace — cap + scroll
+                        // (EXP-46a). Flat items only (no submenus).
+                        let mut menu = menu.scrollable(true).max_h(px(320.)).label("Projects");
                         for (id, name, active) in &picker {
                             menu = menu.menu_with_check(
                                 SharedString::from(name.clone()),

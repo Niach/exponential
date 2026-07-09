@@ -214,11 +214,13 @@ impl ScreensPanel {
     /// Nothing open: point at the sidebar (or at project creation when the
     /// workspace has none — projects may be dev/task/feedback boards, v7).
     fn render_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let has_projects = active_workspace_id(&self.nav, cx)
+        let active_workspace = active_workspace_id(&self.nav, cx);
+        let has_projects = active_workspace
+            .as_deref()
             .map(|id| {
                 !Store::global(cx)
                     .collections()
-                    .projects_in_workspace(&id, cx)
+                    .projects_in_workspace(id, cx)
                     .is_empty()
             })
             .unwrap_or(false);
@@ -247,7 +249,7 @@ impl ScreensPanel {
                 )
                 .into_any_element();
         }
-        v_flex()
+        let mut column = v_flex()
             .size_full()
             .items_center()
             .justify_center()
@@ -268,8 +270,12 @@ impl ScreensPanel {
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .child("Create a project to start tracking issues — a dev board with a repository, or a repo-less task or feedback board."),
-            )
-            .child(
+            );
+        // No workspace resolves (e.g. the last one was just deleted — the
+        // EXP-43 self-heal is creating a fresh personal one): the create
+        // action would silently no-op, so don't offer a dead button.
+        if active_workspace.is_some() {
+            column = column.child(
                 Button::new("screens-new-project")
                     .primary()
                     .small()
@@ -277,8 +283,9 @@ impl ScreensPanel {
                     .on_click(|_, window, cx| {
                         window.dispatch_action(Box::new(NewProject), cx);
                     }),
-            )
-            .into_any_element()
+            );
+        }
+        column.into_any_element()
     }
 }
 

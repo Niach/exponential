@@ -39,7 +39,7 @@ anyhow.workspace = true
 flume.workspace = true
 dirs.workspace = true
 
-# macOS: assert this bundle as the default `exp://` handler at startup
+# macOS: assert this bundle as the default `exponential://` handler at startup
 # (self-registration, the Linux `desktop_integration` analog). core-foundation
 # 0.9 is already in the tree via gpui, so this adds no new weight; it wraps the
 # CFString / CFBundle handles the LaunchServices FFI needs.

@@ -315,9 +315,8 @@ impl Render for RepositoriesPane {
                             .child(Icon::new(IconName::Github).xsmall())
                             .child(
                                 div().flex_1().min_w_0().child(
-                                    "The Exponential GitHub App isn't installed for your \
-                                     account yet. Install it on the web to connect \
-                                     repositories here.",
+                                    "The Exponential GitHub App isn't connected for your \
+                                     account yet — connect it here to add repositories.",
                                 ),
                             );
                         // Connect claims the account for the workspace: prefer

@@ -66,6 +66,7 @@ mod timeline;
 mod top_bar;
 mod update;
 mod workspace;
+mod workspace_heal;
 
 pub use actions::*;
 pub use icons::ExpIcon;
@@ -98,7 +99,7 @@ pub fn init(cx: &mut App) {
     create_project_dialog::init(cx);
     create_workspace_dialog::init(cx);
     // §4.2 accept-invite fallback: "Join workspace…" in the footer account
-    // menu (the exp://invite/<token> deep link routes through oauth.rs).
+    // menu (the exponential://invite/<token> deep link routes through oauth.rs).
     join_workspace::init(cx);
     // The sidebar Feedback item joins + opens the public feedback board
     // IN-APP (v6 self-service `workspaceMembers.join`, mirroring the web join

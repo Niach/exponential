@@ -562,7 +562,11 @@ impl CreateIssueDialogView {
             )
             .label(label)
             .dropdown_menu(move |menu, _window, cx| {
-                let mut menu = menu.check_side(Side::Right);
+                // Member lists grow with the workspace — cap + scroll (EXP-46a).
+                let mut menu = menu
+                    .check_side(Side::Right)
+                    .scrollable(true)
+                    .max_h(px(320.));
                 if current.is_some() {
                     let view = view.clone();
                     menu = menu.item(
@@ -625,7 +629,11 @@ impl CreateIssueDialogView {
             )
             .label(label)
             .dropdown_menu(move |menu, _window, cx| {
-                let mut menu = menu.check_side(Side::Right);
+                // Label lists grow with the workspace — cap + scroll (EXP-46a).
+                let mut menu = menu
+                    .check_side(Side::Right)
+                    .scrollable(true)
+                    .max_h(px(320.));
                 if labels.is_empty() {
                     return menu.label("No labels in this workspace");
                 }

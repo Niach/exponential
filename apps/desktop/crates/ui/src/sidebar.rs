@@ -336,7 +336,12 @@ impl RailView {
             .icon(IconName::CircleUser)
             .tooltip(who)
             .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
+                // The workspace switcher grows with the account's workspaces —
+                // cap + scroll (EXP-46a). Flat items only: submenus are
+                // unsupported inside scrollable menus at the pinned rev.
                 let mut menu = menu
+                    .scrollable(true)
+                    .max_h(px(320.))
                     .label(label.clone())
                     .menu_with_icon("Settings", IconName::Settings, Box::new(OpenSettings))
                     .menu_with_icon(

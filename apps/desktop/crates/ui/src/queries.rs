@@ -14,8 +14,7 @@ use gpui::App;
 use sync::Store;
 
 use domain::board::{
-    build_filtered_issues, build_issue_label_ids_map, build_visible_issue_groups, utc_date_string,
-    IssueGroup,
+    build_filtered_issues, build_issue_label_ids_map, build_visible_issue_groups, IssueGroup,
 };
 use domain::filters::IssueFilters;
 use domain::rows::Label;
@@ -78,7 +77,7 @@ fn board_data_from(
 
     let has_any_issues = !issues.is_empty();
     let filtered = build_filtered_issues(issues, &label_ids_by_issue, filters);
-    let today = today_utc();
+    let today = today_local();
     let groups = build_visible_issue_groups(&filtered, &filters.statuses, &today);
 
     // Resolve label rows for the chips (web buildIssueLabelMap: unknown label
@@ -108,15 +107,14 @@ fn board_data_from(
     }
 }
 
-/// Today as `YYYY-MM-DD` for the overdue boundary. UTC (see
-/// `domain::board::utc_date_string` — no tz database on the desktop; ≤1 day
-/// skew vs web's local date, affects row ordering only).
-pub fn today_utc() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    utc_date_string(now)
+/// Today as `YYYY-MM-DD` for the overdue boundary. Device-LOCAL date — the
+/// EXP-38 boundary every client uses: web `formatDateForMutation(new Date())`,
+/// iOS `Calendar.current`, Android `LocalDate.now()`.
+pub fn today_local() -> String {
+    chrono::Local::now()
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string()
 }
 
 /// The signed-in account (per the §5 session machine) — `None` unless Synced.

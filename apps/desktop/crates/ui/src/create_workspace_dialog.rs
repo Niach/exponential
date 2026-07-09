@@ -4,8 +4,10 @@
 //! A single name `Input` + Cancel/Create footer. Submit →
 //! `workspaces.create`; the close is gated on the new workspace appearing in
 //! the synced collection (§4.1), then the window switches to it (the desktop
-//! analog of the web's navigate-to-new-slug). Plan-cap FORBIDDEN → the
-//! neutral "Upgrade on the web" notification (§4.9).
+//! analog of the web's navigate-to-new-slug). Errors render verbatim in the
+//! dialog — v7 makes `workspaces.create` instance-admin-only, so a FORBIDDEN
+//! here is a real permission denial, NOT a plan cap (EXP-43: the old
+//! `is_plan_limit` mapping mislabeled it "upgrade on the web").
 //!
 //! Opened from the workspace picker's "Create workspace…" item
 //! via the [`CreateWorkspace`] action; [`init`] owns the handler.
@@ -18,13 +20,11 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    notification::Notification,
     v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
 use crate::actions::CreateWorkspace;
-use crate::create_project_dialog::is_plan_limit;
 use crate::navigation::switch_workspace;
 use crate::queries;
 
@@ -126,18 +126,10 @@ impl CreateWorkspaceDialogView {
                     });
                 }
                 Err(err) => {
-                    let _ = this.update_in(window, |this, window, cx| {
-                        if is_plan_limit(&err) {
-                            window.close_dialog(cx);
-                            window.push_notification(
-                                Notification::warning(
-                                    "Workspace limit reached — upgrade on the web to create more.",
-                                ),
-                                cx,
-                            );
-                            return;
-                        }
-                        // Web keeps the dialog open and shows the message.
+                    let _ = this.update_in(window, |this, _window, cx| {
+                        // Web keeps the dialog open and shows the message —
+                        // including the admin-only FORBIDDEN (the server's
+                        // real permission error, never a plan-cap nudge).
                         this.error = Some(format!("{err}").into());
                         this.submitting = false;
                         cx.notify();

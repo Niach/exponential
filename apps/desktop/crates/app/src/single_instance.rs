@@ -1,10 +1,10 @@
-//! Linux/BSD single-instance guard + `exp://` deep-link delivery.
+//! Linux/BSD single-instance guard + `exponential://` deep-link delivery.
 //!
 //! gpui's Linux backend stores the `on_open_urls` callback but NEVER invokes
 //! it (only the macOS backend does — verified against the pinned gpui rev), so
-//! the browser's `exp://oauth-return#token=…` OAuth callback (§5.7) has no way
-//! to reach a running window on Linux. We bridge it ourselves with the exact
-//! mechanism Zed uses (`crates/zed/src/zed/open_listener.rs`
+//! the browser's `exponential://oauth-return#token=…` OAuth callback (§5.7)
+//! has no way to reach a running window on Linux. We bridge it ourselves with
+//! the exact mechanism Zed uses (`crates/zed/src/zed/open_listener.rs`
 //! `listen_for_cli_connections` + `crates/cli` `launch`): a `UnixDatagram`
 //! socket at `<data_dir>/exp-desktop.sock`.
 //!
@@ -12,9 +12,9 @@
 //!   feeds every received URL into the same channel `on_open_urls` uses →
 //!   `ui::handle_open_urls` adopts the token in the EXISTING window.
 //! - Every LATER launch (the browser runs the `.desktop` `Exec=exp-desktop %U`
-//!   when it opens `exp://…`) `connect`s to that socket, `send`s the URL, and
-//!   exits — so the callback signs the running window in instead of spawning a
-//!   second app.
+//!   when it opens `exponential://…`) `connect`s to that socket, `send`s the
+//!   URL, and exits — so the callback signs the running window in instead of
+//!   spawning a second app.
 //! - A `ConnectionRefused` on `connect` means the socket file outlived a
 //!   crashed instance; we remove it and become primary (Zed's stale-socket
 //!   handling).
@@ -33,12 +33,13 @@ fn socket_path() -> PathBuf {
     api::default_data_dir().join("exp-desktop.sock")
 }
 
-/// `exp://` URLs handed to us on the command line — the browser deep-link
-/// launch (`%U` in the `.desktop` file expands to the callback URL).
+/// `exponential://` URLs handed to us on the command line — the browser
+/// deep-link launch (`%U` in the `.desktop` file expands to the callback URL).
 fn deep_link_args() -> Vec<String> {
+    let prefix = format!("{}://", api::login::OAUTH_CALLBACK_SCHEME);
     std::env::args()
         .skip(1)
-        .filter(|arg| arg.starts_with("exp://"))
+        .filter(|arg| arg.starts_with(&prefix))
         .collect()
 }
 
@@ -51,7 +52,7 @@ pub enum Instance {
     Forwarded,
 }
 
-/// Become the primary instance, or forward our `exp://` args to the one that
+/// Become the primary instance, or forward our `exponential://` args to the one that
 /// already is. Best-effort: any socket error degrades to a plain (non-single)
 /// launch rather than blocking startup.
 pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
@@ -86,7 +87,7 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
         Ok(listener) => {
             let tx = url_tx.clone();
             thread::spawn(move || {
-                // exp:// callback URLs are short (a session token in the
+                // exponential:// callback URLs are short (a session token in the
                 // fragment); 4 KiB is comfortably above any real callback.
                 let mut buf = [0u8; 4096];
                 while let Ok(len) = listener.recv(&mut buf) {

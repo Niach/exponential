@@ -9,7 +9,7 @@
 //! - `GET  /api/auth/get-session` — bearer session validation.
 //! - `POST /api/auth/sign-out` — best-effort server-side revocation.
 //! - OAuth via the system browser: start URLs for `/api/mobile-oauth-start`,
-//!   plus the callback capture surfaces — the `exp://oauth-return#token=…`
+//!   plus the callback capture surfaces — the `exponential://oauth-return#token=…`
 //!   deep-link parser (PRIMARY; token in the URL *fragment*) and the
 //!   `127.0.0.1` loopback listener (FALLBACK; token as `?token=` query).
 //!
@@ -252,7 +252,7 @@ pub fn normalize_instance_url(input: &str) -> String {
 // Flow: open the system browser at one of the start URLs below
 // (crate::opener::open_in_browser). The server runs the OAuth dance and
 // redirects to /api/mobile-oauth-return, which deep-links back as
-// `exp://oauth-return#token=<session-token>`. The app shell's on_open_urls
+// `exponential://oauth-return#token=<session-token>`. The app shell's on_open_urls
 // channel (Phase 1, §3.6) delivers that URL to a foreground drain, which
 // calls [`parse_oauth_callback`] and then signs the account in.
 //
@@ -264,8 +264,13 @@ pub fn normalize_instance_url(input: &str) -> String {
 // [`LoopbackListener`] below is the ready client half.
 
 /// The custom URL scheme the app registers (macOS `CFBundleURLTypes`, Linux
-/// `.desktop` `MimeType=x-scheme-handler/exp;`).
-pub const OAUTH_CALLBACK_SCHEME: &str = "exp";
+/// `.desktop` `MimeType=x-scheme-handler/exponential;`, Windows
+/// `HKCU\Software\Classes\exponential`) — the SINGLE source every functional
+/// site derives from (EXP-41). Must match the packaging templates
+/// (`assets/packaging/Info.plist`, `assets/packaging/exponential.desktop`,
+/// `scripts/build-appimage.sh`) and the scheme the web server mints deep
+/// links with.
+pub const OAUTH_CALLBACK_SCHEME: &str = "exponential";
 
 /// Browser start URL for Google sign-in (`provider=google` → Better Auth
 /// `signInSocial`).
@@ -298,7 +303,7 @@ pub fn oidc_oauth_start_url(instance_url: &str, provider_id: &str) -> String {
 /// Extract the session token from an OAuth callback URL. Handles both
 /// capture mechanisms of §5.7:
 ///
-/// - PRIMARY custom scheme: `exp://oauth-return#token=<t>` — the token is in
+/// - PRIMARY custom scheme: `exponential://oauth-return#token=<t>` — the token is in
 ///   the URL **fragment** (never sent to any server; parsed app-locally).
 /// - FALLBACK loopback: `http://127.0.0.1:<port>/cb?token=<t>` — the token is
 ///   a **query** param (fragments are never sent to servers, so the loopback
@@ -353,7 +358,7 @@ fn extract_session_token_cookie(set_cookie: &str) -> Option<String> {
 
 /// Ephemeral `127.0.0.1` HTTP listener that captures ONE OAuth callback of
 /// the form `GET /cb?token=…` — the fallback for environments where the
-/// `exp://` scheme registration didn't take. Server-side support (the
+/// `exponential://` scheme registration didn't take. Server-side support (the
 /// `redirect=` param on `/api/mobile-oauth-return`) is a coordinated change
 /// that hasn't landed yet; see the module TODO above.
 pub struct LoopbackListener {
@@ -499,10 +504,10 @@ mod tests {
     }
 
     #[test]
-    fn parses_exp_scheme_fragment_callback() {
+    fn parses_custom_scheme_fragment_callback() {
         // PRIMARY: token in the FRAGMENT, encodeURIComponent-encoded.
         assert_eq!(
-            parse_oauth_callback("exp://oauth-return#token=abc123%2Edef").as_deref(),
+            parse_oauth_callback("exponential://oauth-return#token=abc123%2Edef").as_deref(),
             Some("abc123.def")
         );
     }
@@ -522,15 +527,15 @@ mod tests {
 
     #[test]
     fn callback_without_token_is_none() {
-        assert_eq!(parse_oauth_callback("exp://oauth-return"), None);
-        assert_eq!(parse_oauth_callback("exp://oauth-return#token="), None);
+        assert_eq!(parse_oauth_callback("exponential://oauth-return"), None);
+        assert_eq!(parse_oauth_callback("exponential://oauth-return#token="), None);
         assert_eq!(parse_oauth_callback("/favicon.ico"), None);
     }
 
     #[test]
     fn fragment_wins_over_query() {
         assert_eq!(
-            parse_oauth_callback("exp://oauth-return?token=query#token=frag").as_deref(),
+            parse_oauth_callback("exponential://oauth-return?token=query#token=frag").as_deref(),
             Some("frag")
         );
     }

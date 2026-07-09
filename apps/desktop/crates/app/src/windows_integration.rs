@@ -1,24 +1,28 @@
-//! Windows single-instance guard + `exp://` deep-link delivery.
+//! Windows single-instance guard + `exponential://` deep-link delivery.
 //!
 //! Same job as `single_instance.rs`/`desktop_integration.rs` on Linux: gpui
 //! only invokes `on_open_urls` on macOS, so the browser's
-//! `exp://oauth-return#token=…` OAuth callback (§5.7) must be bridged by us.
-//! Windows has no Unix datagram sockets, so the bridge is a loopback TCP
-//! listener on an ephemeral port, advertised via `<data_dir>/exp-desktop.port`:
+//! `exponential://oauth-return#token=…` OAuth callback (§5.7) must be bridged
+//! by us. Windows has no Unix datagram sockets, so the bridge is a loopback
+//! TCP listener on an ephemeral port, advertised via
+//! `<data_dir>/exp-desktop.port`:
 //!
 //! - The FIRST process binds `127.0.0.1:0`, writes the port file, and spawns
-//!   an accept thread that feeds every received `exp://` line into the same
-//!   channel `on_open_urls` uses → `ui::handle_open_urls` adopts the token in
-//!   the EXISTING window.
+//!   an accept thread that feeds every received `exponential://` line into the
+//!   same channel `on_open_urls` uses → `ui::handle_open_urls` adopts the
+//!   token in the EXISTING window.
 //! - Every LATER launch (the browser runs the registered protocol command
-//!   `exp-desktop.exe "%1"` when it opens `exp://…`) connects to that port,
-//!   sends its URL args, and exits.
+//!   `exp-desktop.exe "%1"` when it opens `exponential://…`) connects to that
+//!   port, sends its URL args, and exits.
 //! - A failed connect means the port file is stale (crashed instance) — we
 //!   delete it and become primary.
 //!
-//! Scheme registration is per-user (HKCU\Software\Classes\exp — no elevation
-//! needed), re-asserted each launch via `reg.exe` so a moved binary heals
-//! itself, mirroring the Linux `.desktop`/`mimeapps.list` self-registration.
+//! Scheme registration is per-user (HKCU\Software\Classes\exponential — no
+//! elevation needed; scheme literal centralized in
+//! `api::login::OAUTH_CALLBACK_SCHEME`, EXP-41), re-asserted each launch via
+//! `reg.exe` so a moved binary heals itself, mirroring the Linux
+//! `.desktop`/`mimeapps.list` self-registration. The pre-rename
+//! `HKCU\Software\Classes\exp` key is deleted in the same pass.
 
 use std::io::{BufRead, BufReader, Write as _};
 use std::net::{TcpListener, TcpStream};
@@ -35,12 +39,14 @@ fn port_file() -> PathBuf {
     api::default_data_dir().join("exp-desktop.port")
 }
 
-/// `exp://` URLs handed to us on the command line — the protocol handler
-/// launch (`"%1"` in the registry command expands to the callback URL).
+/// `exponential://` URLs handed to us on the command line — the protocol
+/// handler launch (`"%1"` in the registry command expands to the callback
+/// URL).
 fn deep_link_args() -> Vec<String> {
+    let prefix = format!("{}://", api::login::OAUTH_CALLBACK_SCHEME);
     std::env::args()
         .skip(1)
-        .filter(|arg| arg.starts_with("exp://"))
+        .filter(|arg| arg.starts_with(&prefix))
         .collect()
 }
 
@@ -53,9 +59,9 @@ pub enum Instance {
     Forwarded,
 }
 
-/// Become the primary instance, or forward our `exp://` args to the one that
-/// already is. Best-effort: any socket error degrades to a plain (non-single)
-/// launch rather than blocking startup.
+/// Become the primary instance, or forward our `exponential://` args to the
+/// one that already is. Best-effort: any socket error degrades to a plain
+/// (non-single) launch rather than blocking startup.
 pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
     let port_path = port_file();
     let args = deep_link_args();
@@ -95,15 +101,17 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
             if advertised {
                 let tx = url_tx.clone();
                 thread::spawn(move || {
+                    let prefix = format!("{}://", api::login::OAUTH_CALLBACK_SCHEME);
                     for stream in listener.incoming().flatten() {
                         let tx = tx.clone();
+                        let prefix = prefix.clone();
                         thread::spawn(move || {
                             let reader = BufReader::new(stream);
                             for line in reader.lines().map_while(Result::ok) {
                                 let url = line.trim().to_string();
                                 // Only ever forward our own scheme — the port is
                                 // world-connectable on loopback.
-                                if url.starts_with("exp://") {
+                                if url.starts_with(&prefix) {
                                     let _ = tx.send(vec![url]);
                                 }
                             }
@@ -126,24 +134,25 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
     Instance::Primary
 }
 
-/// Register (or re-assert) this binary as the per-user `exp://` protocol
-/// handler. HKCU\Software\Classes needs no elevation; last launch wins, which
-/// heals moved/updated installs — the same posture as the Linux `.desktop`
-/// self-registration and the macOS `LSSetDefaultHandlerForURLScheme` call.
+/// Register (or re-assert) this binary as the per-user `exponential://`
+/// protocol handler. HKCU\Software\Classes needs no elevation; last launch
+/// wins, which heals moved/updated installs — the same posture as the Linux
+/// `.desktop` self-registration and the macOS `LSSetDefaultHandlerForURLScheme`
+/// call. Also deletes the stale pre-rename `HKCU\Software\Classes\exp` key
+/// left behind by ≤0.5.x installs (EXP-41 cleanup, best-effort).
 pub fn ensure_scheme_registered() {
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
     let exe = exe.display().to_string();
     let command = format!("\"{exe}\" \"%1\"");
+    let scheme = api::login::OAUTH_CALLBACK_SCHEME;
+    let class_key = format!(r"HKCU\Software\Classes\{scheme}");
+    let command_key = format!(r"HKCU\Software\Classes\{scheme}\shell\open\command");
     let entries: [(&str, Option<&str>, &str); 3] = [
-        (r"HKCU\Software\Classes\exp", None, "URL:Exponential"),
-        (r"HKCU\Software\Classes\exp", Some("URL Protocol"), ""),
-        (
-            r"HKCU\Software\Classes\exp\shell\open\command",
-            None,
-            &command,
-        ),
+        (&class_key, None, "URL:Exponential"),
+        (&class_key, Some("URL Protocol"), ""),
+        (&command_key, None, &command),
     ];
     for (key, value_name, data) in entries {
         let mut cmd = std::process::Command::new("reg.exe");
@@ -162,8 +171,19 @@ pub fn ensure_scheme_registered() {
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
         if let Err(err) = cmd.output() {
-            eprintln!("[exp-desktop] exp:// scheme registration failed ({key}): {err:#}");
+            eprintln!("[exp-desktop] {scheme}:// scheme registration failed ({key}): {err:#}");
             return;
         }
     }
+
+    // Drop the old `exp://` class so stale links stop launching us with URLs
+    // the scheme filter above would silently discard. `reg.exe delete` errors
+    // (key absent — the common case) are ignored.
+    let mut cleanup = std::process::Command::new("reg.exe");
+    cleanup.args(["delete", r"HKCU\Software\Classes\exp", "/f"]);
+    {
+        use std::os::windows::process::CommandExt as _;
+        cleanup.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _ = cleanup.output();
 }

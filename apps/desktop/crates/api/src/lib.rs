@@ -8,7 +8,7 @@
 //!   (`/api/auth/sign-in/email`), session validation (`/api/auth/get-session`),
 //!   sign-out, `/api/auth-config` gating, and the OAuth-via-system-browser
 //!   plumbing hooks: start-URL builders for `/api/mobile-oauth-start`, the
-//!   `exp://oauth-return#token=…` deep-link parser, and the `127.0.0.1`
+//!   `exponential://oauth-return#token=…` deep-link parser, and the `127.0.0.1`
 //!   loopback fallback listener (§5.7).
 //! - [`token_store`] — the file-based secret store (0600/0700; never the OS
 //!   Service / Windows Credential Manager) with the §5.7-specified

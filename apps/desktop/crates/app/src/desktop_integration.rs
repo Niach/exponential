@@ -1,18 +1,21 @@
 //! Linux/BSD desktop integration: register THIS build as the handler for the
-//! `exp://` OAuth-callback / invite deep-link scheme (§5.7).
+//! `exponential://` OAuth-callback / invite deep-link scheme (§5.7, scheme
+//! literal centralized in `api::login::OAUTH_CALLBACK_SCHEME` — EXP-41).
 //!
 //! A packaged `.deb`/tarball ships a `.desktop` with `MimeType=x-scheme-
-//! handler/exp;`, but an AppImage (or a bare `cargo`/dev binary) registers
-//! nothing — so the browser's `exp://oauth-return#token=…` callback has no
-//! handler and never reaches the app. We install the `.desktop` ourselves,
-//! idempotently, on every primary launch:
+//! handler/exponential;`, but an AppImage (or a bare `cargo`/dev binary)
+//! registers nothing — so the browser's `exponential://oauth-return#token=…`
+//! callback has no handler and never reaches the app. We install the
+//! `.desktop` ourselves, idempotently, on every primary launch:
 //!
 //! - `Exec=` points at the AppImage (`$APPIMAGE`, set inside AppImages) when
 //!   packaged, else at `current_exe()` (installed binary / dev build).
 //! - We only rewrite the file when its contents change, then refresh the
-//!   desktop DB, and we assert ourselves as the `x-scheme-handler/exp` default
-//!   in `mimeapps.list` (so the channel you're running wins if both a prod and
-//!   a staging build are installed).
+//!   desktop DB, and we assert ourselves as the `x-scheme-handler/exponential`
+//!   default in `mimeapps.list` (so the channel you're running wins if both a
+//!   prod and a staging build are installed). Installs that registered the
+//!   pre-rename `exp://` scheme get their stale `x-scheme-handler/exp` default
+//!   dropped in the same write.
 //!
 //! Everything here is best-effort: a failure just means deep links won't route
 //! until a package installs the handler — it must never block startup.
@@ -23,10 +26,17 @@ use std::process::Command;
 
 use crate::channel::{APP_ID, APP_NAME};
 
-const SCHEME_ENTRY: &str = "x-scheme-handler/exp";
+fn scheme_entry() -> String {
+    format!("x-scheme-handler/{}", api::login::OAUTH_CALLBACK_SCHEME)
+}
 
-/// The executable the browser should launch for an `exp://` callback: the
-/// AppImage path when packaged, otherwise this binary.
+/// The pre-rename scheme's mimeapps key (EXP-41): dropped from the default
+/// list whenever we assert the current one, so old installs don't keep a dead
+/// `exp://` claim around.
+const LEGACY_SCHEME_ENTRY: &str = "x-scheme-handler/exp";
+
+/// The executable the browser should launch for an `exponential://` callback:
+/// the AppImage path when packaged, otherwise this binary.
 fn launch_target() -> Option<PathBuf> {
     if let Some(appimage) = std::env::var_os("APPIMAGE") {
         return Some(PathBuf::from(appimage));
@@ -42,7 +52,8 @@ fn desktop_file_name() -> String {
     format!("{APP_ID}.desktop")
 }
 
-/// Install the `.desktop` handler and make it the default `exp://` handler.
+/// Install the `.desktop` handler and make it the default `exponential://`
+/// handler.
 pub fn ensure_scheme_registered() {
     let Some(exec) = launch_target() else { return };
     let Some(apps_dir) = applications_dir() else {
@@ -59,9 +70,10 @@ pub fn ensure_scheme_registered() {
          Terminal=false\n\
          NoDisplay=true\n\
          Categories=Development;\n\
-         MimeType={SCHEME_ENTRY};\n\
+         MimeType={scheme_entry};\n\
          StartupWMClass=exp-desktop\n",
         exec = exec.display(),
+        scheme_entry = scheme_entry(),
     );
 
     // Only rewrite (and re-index) when something actually changed.
@@ -89,18 +101,22 @@ fn refresh_desktop_database(apps_dir: &Path) {
     let _ = Command::new("update-desktop-database").arg(apps_dir).status();
 }
 
-/// Ensure `mimeapps.list` maps `x-scheme-handler/exp` to our `.desktop` under
-/// `[Default Applications]` (what `xdg-mime default` writes) — done in-process
-/// so it works without the `xdg-utils` binaries. Rewrites only on change.
+/// Ensure `mimeapps.list` maps `x-scheme-handler/exponential` to our
+/// `.desktop` under `[Default Applications]` (what `xdg-mime default` writes)
+/// — done in-process so it works without the `xdg-utils` binaries. Also drops
+/// the stale pre-rename `x-scheme-handler/exp` default (EXP-41 cleanup).
+/// Rewrites only on change.
 fn ensure_default_handler(desktop_name: &str) -> std::io::Result<()> {
     let Some(config_dir) = dirs::config_dir() else {
         return Ok(());
     };
     let path = config_dir.join("mimeapps.list");
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let desired_line = format!("{SCHEME_ENTRY}={desktop_name}");
+    let entry = scheme_entry();
+    let desired_line = format!("{entry}={desktop_name}");
 
-    let updated = upsert_default_application(&existing, SCHEME_ENTRY, &desired_line);
+    let updated = upsert_default_application(&existing, &entry, &desired_line);
+    let updated = remove_default_application(&updated, LEGACY_SCHEME_ENTRY);
     if updated == existing {
         return Ok(());
     }
@@ -150,12 +166,47 @@ fn upsert_default_application(contents: &str, key: &str, desired_line: &str) -> 
     out
 }
 
+/// Pure helper: return `contents` with any `key=` line removed from the
+/// `[Default Applications]` section (other sections untouched).
+fn remove_default_application(contents: &str, key: &str) -> String {
+    let key_prefix = format!("{key}=");
+    let lines: Vec<&str> = contents.lines().collect();
+
+    let Some(start) = lines
+        .iter()
+        .position(|line| line.trim() == "[Default Applications]")
+    else {
+        return contents.to_string();
+    };
+    let end = lines[start + 1..]
+        .iter()
+        .position(|line| line.trim_start().starts_with('['))
+        .map(|offset| start + 1 + offset)
+        .unwrap_or(lines.len());
+
+    let mut kept: Vec<&str> = Vec::with_capacity(lines.len());
+    kept.extend_from_slice(&lines[..start + 1]);
+    kept.extend(
+        lines[start + 1..end]
+            .iter()
+            .filter(|line| !line.trim_start().starts_with(&key_prefix)),
+    );
+    kept.extend_from_slice(&lines[end..]);
+    if kept.len() == lines.len() {
+        return contents.to_string();
+    }
+
+    let mut out = kept.join("\n");
+    out.push('\n');
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::upsert_default_application;
+    use super::{remove_default_application, upsert_default_application};
 
-    const KEY: &str = "x-scheme-handler/exp";
-    const LINE: &str = "x-scheme-handler/exp=at.exponential.desktop";
+    const KEY: &str = "x-scheme-handler/exponential";
+    const LINE: &str = "x-scheme-handler/exponential=at.exponential.desktop";
 
     #[test]
     fn adds_section_to_empty_file() {
@@ -176,7 +227,7 @@ mod tests {
     #[test]
     fn replaces_existing_handler() {
         let input =
-            "[Default Applications]\nx-scheme-handler/exp=old.desktop\nx-scheme-handler/claude=c.desktop\n";
+            "[Default Applications]\nx-scheme-handler/exponential=old.desktop\nx-scheme-handler/claude=c.desktop\n";
         let out = upsert_default_application(input, KEY, LINE);
         assert!(out.contains(LINE));
         assert!(!out.contains("old.desktop"));
@@ -197,5 +248,27 @@ mod tests {
         let exp_pos = out.find(LINE).unwrap();
         let added_pos = out.find("[Added Associations]").unwrap();
         assert!(exp_pos < added_pos, "handler must land in Default Applications");
+    }
+
+    #[test]
+    fn removes_stale_legacy_scheme_default() {
+        // The pre-rename `exp` entry goes; the new `exponential` entry (which
+        // shares the prefix) and unrelated keys stay.
+        let input = format!(
+            "[Default Applications]\nx-scheme-handler/exp=at.exponential.desktop\n{LINE}\n\
+             [Added Associations]\nx-scheme-handler/exp=y.desktop;\n"
+        );
+        let out = remove_default_application(&input, "x-scheme-handler/exp");
+        assert!(!out.contains("x-scheme-handler/exp=at.exponential.desktop"));
+        assert!(out.contains(LINE));
+        // Other sections are untouched.
+        assert!(out.contains("x-scheme-handler/exp=y.desktop;"));
+    }
+
+    #[test]
+    fn remove_is_noop_without_the_key() {
+        let input = format!("[Default Applications]\n{LINE}\n");
+        let out = remove_default_application(&input, "x-scheme-handler/exp");
+        assert_eq!(out, input);
     }
 }

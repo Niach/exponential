@@ -395,7 +395,11 @@ impl PropertiesPanel {
         };
 
         trigger.dropdown_menu(move |menu, _, _| {
-            let mut menu = menu.check_side(Side::Right);
+            // Member lists grow with the workspace — cap + scroll (EXP-46a).
+            let mut menu = menu
+                .check_side(Side::Right)
+                .scrollable(true)
+                .max_h(px(320.));
             if current_id.is_some() {
                 let issue_id = issue_id.clone();
                 menu = menu.item(PopupMenuItem::new("Unassign").on_click(move |_, _, cx| {
@@ -449,7 +453,11 @@ impl PropertiesPanel {
             .icon(Icon::from(ExpIcon::Tag).text_color(cx.theme().muted_foreground))
             .label(SharedString::from(trigger_label))
             .dropdown_menu(move |menu, _, _| {
-                let mut menu = menu.check_side(Side::Right);
+                // Label lists grow with the workspace — cap + scroll (EXP-46a).
+                let mut menu = menu
+                    .check_side(Side::Right)
+                    .scrollable(true)
+                    .max_h(px(320.));
                 if labels.is_empty() {
                     return menu.item(PopupMenuItem::label("No labels in this workspace"));
                 }
@@ -846,7 +854,7 @@ fn format_recurrence(interval: i64, unit: &str) -> String {
 }
 
 fn today() -> NaiveDate {
-    chrono::Utc::now().date_naive()
+    chrono::Local::now().date_naive()
 }
 
 /// `#rrggbb` (leading `#` optional) → Hsla (labels/projects store hex

@@ -551,7 +551,12 @@ impl CreateProjectDialogView {
                     .w_full()
                     .icon(IconName::Github)
                     .label(label)
-                    .dropdown_menu(move |mut menu, _window, _cx| {
+                    .dropdown_menu(move |menu, _window, _cx| {
+                        // A workspace can hold many repos — cap + scroll
+                        // (EXP-46a; mirror of create_issue_dialog's pickers).
+                        // No submenus here (unsupported inside scrollable
+                        // menus at the pinned gpui-component rev).
+                        let mut menu = menu.scrollable(true).max_h(px(320.));
                         if !registry.is_empty() {
                             menu = menu.label("Connected");
                             for repo in &registry {

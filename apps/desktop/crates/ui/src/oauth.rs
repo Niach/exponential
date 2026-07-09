@@ -5,7 +5,7 @@
 //! browser (through the `api::opener` chain — never a raw `xdg-open`) at
 //! `/api/mobile-oauth-start?...`. The server runs the OAuth dance and
 //! redirects to `/api/mobile-oauth-return`, which deep-links back as
-//! `exp://oauth-return#token=<session-token>`. The app shell's
+//! `exponential://oauth-return#token=<session-token>`. The app shell's
 //! `on_open_urls` channel delivers that URL to [`handle_open_urls`], which
 //! parses the token app-locally (it lives in the URL *fragment*) and adopts
 //! it exactly like a password sign-in.
@@ -13,7 +13,7 @@
 //! RESIDUAL (§5.7 fallback): the `127.0.0.1` loopback capture needs a NEW
 //! server-side `redirect=` param on `/api/mobile-oauth-return`
 //! (127.0.0.1-bound allowlist, `?token=` query) that has not landed in
-//! `apps/web` — until it does, unpackaged dev builds without the `exp://`
+//! `apps/web` — until it does, unpackaged dev builds without the `exponential://`
 //! scheme registration rely on the copyable-URL degradation, and
 //! `api::login::LoopbackListener` stays the ready client half.
 
@@ -49,8 +49,8 @@ pub(crate) fn start(instance_url: String, start_url: String, cx: &mut App) -> Re
 }
 
 /// The `on_open_urls` sink (call from the app shell's foreground drain).
-/// Routes OAuth callbacks, the §4.2 `exp://invite/<token>` deep link and the
-/// EXP-4 `exp://issue/<IDENTIFIER>` deep link; anything else is ignored.
+/// Routes OAuth callbacks, the §4.2 `exponential://invite/<token>` deep link and the
+/// EXP-4 `exponential://issue/<IDENTIFIER>` deep link; anything else is ignored.
 pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     for url in urls {
         if let Some(token) = api::login::parse_oauth_callback(&url) {
@@ -75,10 +75,12 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     }
 }
 
-/// `exp://issue/<IDENTIFIER>` → `Some(identifier)` (e.g. `EXP-42` — the EXP-4
-/// deep-link form; mirror of [`crate::join_workspace::parse_invite_deep_link`]).
+/// `exponential://issue/<IDENTIFIER>` → `Some(identifier)` (e.g. `EXP-42` —
+/// the EXP-4 deep-link form; mirror of
+/// [`crate::join_workspace::parse_invite_deep_link`]).
 pub(crate) fn parse_issue_deep_link(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("exp://issue/")?;
+    let prefix = format!("{}://issue/", api::login::OAUTH_CALLBACK_SCHEME);
+    let rest = url.strip_prefix(prefix.as_str())?;
     let identifier = rest
         .split(['?', '#'])
         .next()
@@ -180,20 +182,20 @@ mod tests {
     #[test]
     fn issue_deep_link_parses_identifier() {
         assert_eq!(
-            parse_issue_deep_link("exp://issue/EXP-42"),
+            parse_issue_deep_link("exponential://issue/EXP-42"),
             Some("EXP-42".to_string())
         );
         assert_eq!(
-            parse_issue_deep_link("exp://issue/EXP-42/"),
+            parse_issue_deep_link("exponential://issue/EXP-42/"),
             Some("EXP-42".to_string())
         );
         assert_eq!(
-            parse_issue_deep_link("exp://issue/EXP-42?utm=x#frag"),
+            parse_issue_deep_link("exponential://issue/EXP-42?utm=x#frag"),
             Some("EXP-42".to_string())
         );
-        assert_eq!(parse_issue_deep_link("exp://issue/"), None);
-        assert_eq!(parse_issue_deep_link("exp://invite/abc123"), None);
-        assert_eq!(parse_issue_deep_link("exp://oauth-return#token=t"), None);
+        assert_eq!(parse_issue_deep_link("exponential://issue/"), None);
+        assert_eq!(parse_issue_deep_link("exponential://invite/abc123"), None);
+        assert_eq!(parse_issue_deep_link("exponential://oauth-return#token=t"), None);
         assert_eq!(parse_issue_deep_link("https://x/issue/EXP-42"), None);
     }
 }

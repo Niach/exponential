@@ -4,8 +4,8 @@
 //! `ui`'s matching feature) and installs a DISTINCT `.desktop` app id, letting
 //! a staging and a production build coexist on one machine.
 //!
-//! The `exp://` URL scheme is shared by both channels (the server always
-//! deep-links to `exp://oauth-return`), so whichever channel was launched most
+//! The `exponential://` URL scheme is shared by both channels (the server always
+//! deep-links to `exponential://oauth-return`), so whichever channel was launched most
 //! recently claims the handler (`desktop_integration` re-asserts the default
 //! each launch).
 

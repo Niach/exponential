@@ -576,6 +576,11 @@ fn assignee_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     let project_id = issue.project_id.clone();
     let current = issue.assignee_id.clone();
     trigger.dropdown_menu(move |menu, _window, cx| {
+        // Member lists grow with the workspace — cap + scroll (EXP-46a).
+        // Scrollable ONLY on this top-level dropdown: the same body renders
+        // as a context-menu SUBMENU below, where scrollable is unsupported
+        // at the pinned gpui-component rev.
+        let menu = menu.scrollable(true).max_h(px(320.));
         assignee_menu(menu, &issue_id, &project_id, current.as_deref(), cx)
     })
 }

@@ -4,11 +4,11 @@
 #
 #   scripts/build-macos-app.sh <channel>          # channel: production | staging
 #
-# Why a bundle at all: macOS only routes a custom URL scheme (our `exp://`
+# Why a bundle at all: macOS only routes a custom URL scheme (our `exponential://`
 # OAuth-callback / invite deep link, §5.7) to a Launch-Services-registered
 # .app that declares `CFBundleURLTypes`. A bare Mach-O binary (what `cargo
 # build` emits, and what CI used to ship) can never be that handler, so the
-# callback fell through to whatever else claimed `exp:`. This wraps the release
+# callback fell through to whatever else claimed `exponential:`. This wraps the release
 # binary in the bundle whose Info.plist (assets/packaging/Info.plist) declares
 # the scheme, so `on_open_urls` (wired in app/src/main.rs) actually fires.
 #
@@ -67,7 +67,7 @@ sed -e "s/\${VERSION}/${VERSION}/g" -e "s/\${BUILD}/${BUILD}/g" "$PLIST_SRC" > "
 
 # --- Icon (optional) ------------------------------------------------------
 # Rasterize the vector logo → .icns when a rasterizer is on PATH; otherwise
-# ship without an icon (a generic one shows — irrelevant to exp:// routing).
+# ship without an icon (a generic one shows — irrelevant to exponential:// routing).
 LOGO_SVG="${DESKTOP_DIR}/assets/icons/logo.svg"
 RASTERIZE=""
 command -v rsvg-convert >/dev/null 2>&1 && RASTERIZE="rsvg-convert"
@@ -117,4 +117,4 @@ else
     || echo "warn: ad-hoc codesign failed (bundle still usable locally)"
 fi
 
-echo "built: $APP_DIR  (id=${BUNDLE_ID}, exp:// handler)"
+echo "built: $APP_DIR  (id=${BUNDLE_ID}, exponential:// handler)"

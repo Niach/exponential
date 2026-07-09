@@ -1,15 +1,16 @@
-//! macOS: assert THIS bundle as the default `exp://` handler at startup — the
-//! macOS analog of the Linux [`crate::desktop_integration`] (§5.7).
+//! macOS: assert THIS bundle as the default `exponential://` handler at
+//! startup — the macOS analog of the Linux [`crate::desktop_integration`]
+//! (§5.7).
 //!
 //! Unlike Linux, macOS needs no in-app file writing to REGISTER the handler:
 //! Launch Services auto-registers a launched `.app` from its Info.plist
-//! `CFBundleURLTypes` (`assets/packaging/Info.plist` declares `exp`). What
-//! macOS has no automatic equivalent for is Linux's "re-assert myself as the
-//! *default* each launch" (the `mimeapps.list` default write). This does that
-//! one thing: `LSSetDefaultHandlerForURLScheme(exp, <our bundle id>)`, so
-//! whichever channel (prod vs staging) was launched most recently wins the
-//! callback — mirroring the Linux behaviour and surviving a stray reappearance
-//! of another `exp:` claimant.
+//! `CFBundleURLTypes` (`assets/packaging/Info.plist` declares `exponential`).
+//! What macOS has no automatic equivalent for is Linux's "re-assert myself as
+//! the *default* each launch" (the `mimeapps.list` default write). This does
+//! that one thing: `LSSetDefaultHandlerForURLScheme(exponential, <our bundle
+//! id>)`, so whichever channel (prod vs staging) was launched most recently
+//! wins the callback — mirroring the Linux behaviour and surviving a stray
+//! reappearance of another `exponential:` claimant.
 //!
 //! No-op unless we are actually running from a bundle whose id we can read: a
 //! bare `cargo run` binary has no Info.plist identifier, and registering an
@@ -24,14 +25,14 @@ use std::ffi::c_void;
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
 
-/// The `exp://` scheme — matches `api::login::OAUTH_CALLBACK_SCHEME` and the
+/// The deep-link scheme (EXP-41 single source) — must match the
 /// `CFBundleURLSchemes` entry in the packaged Info.plist.
-const SCHEME: &str = "exp";
+const SCHEME: &str = api::login::OAUTH_CALLBACK_SCHEME;
 
 #[link(name = "CoreServices", kind = "framework")]
 extern "C" {
     /// Deprecated-but-functional LaunchServices call (still used by Zed et al.).
-    /// Silent for private app schemes like `exp://` (only the protected
+    /// Silent for private app schemes like `exponential://` (only the protected
     /// http/https/mailto handlers prompt). Returns an `OSStatus` (0 == ok).
     fn LSSetDefaultHandlerForURLScheme(scheme: CFStringRef, bundle_id: CFStringRef) -> i32;
 }
@@ -42,12 +43,13 @@ extern "C" {
     fn CFBundleGetIdentifier(bundle: *mut c_void) -> CFStringRef;
 }
 
-/// Assert this running bundle as the default `exp://` handler. Safe to call
-/// unconditionally: it returns early when unbundled (dev `cargo run`).
+/// Assert this running bundle as the default `exponential://` handler. Safe
+/// to call unconditionally: it returns early when unbundled (dev `cargo run`).
 pub fn ensure_scheme_registered() {
     let Some(bundle_id) = main_bundle_identifier() else {
         // Unbundled (dev `cargo run`): there is nothing to register. Build and
-        // launch the `.app` (`bun run run:desktop:mac`) for exp:// routing.
+        // launch the `.app` (`bun run run:desktop:mac`) for exponential://
+        // routing.
         return;
     };
 
@@ -57,7 +59,9 @@ pub fn ensure_scheme_registered() {
         LSSetDefaultHandlerForURLScheme(scheme.as_concrete_TypeRef(), id.as_concrete_TypeRef())
     };
     if status != 0 {
-        eprintln!("[exp-desktop] exp:// default-handler assertion returned OSStatus {status}");
+        eprintln!(
+            "[exp-desktop] {SCHEME}:// default-handler assertion returned OSStatus {status}"
+        );
     }
 }
 
