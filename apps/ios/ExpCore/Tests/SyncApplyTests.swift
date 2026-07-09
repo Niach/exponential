@@ -90,6 +90,25 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(workspaceId, "ws1")
     }
 
+    func testProjectInsertPopulatesIsProtected() async throws {
+        // The projects shape now carries is_protected; an inserted row must
+        // persist it into the v5 column (not silently drop it).
+        let project = ProjectEntity(
+            id: "p1", workspaceId: "ws1", name: "Dogfood", slug: "exponential",
+            prefix: "EXP", color: "#6366f1", sortOrder: 0, archivedAt: nil,
+            githubRepo: nil, repositoryId: "repo1", type: "feedback",
+            publicShowComments: true, publicShowActivity: false,
+            publicShowCoding: "off", isProtected: true, previewConfig: nil,
+            createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
+        )
+        let message = ShapeMessage<ProjectEntity>.insert(
+            key: #""public"."projects"/"p1""#, value: project
+        )
+        try await applyBatch(messages: [message], name: "projects", table: "projects", pool: pool)
+        let stored = try pool.read { try ProjectEntity.fetchOne($0, key: "p1") }
+        XCTAssertEqual(stored?.isProtected, true)
+    }
+
     func testPoisonedPartialDoesNotAbortBatch() async throws {
         try seedUser(id: "target", name: "Old")
         // A batch that used to abort at the poisoned partial (unknown column)

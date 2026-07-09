@@ -16,6 +16,11 @@ struct WorkspaceRepositoriesSection: View {
     let isOwner: Bool
     let repositoriesApi: RepositoriesApi
     let instanceBaseURL: URL?
+    // Repository ids backing a protected project (the dogfood board). Removal is
+    // refused server-side while any project points at a repo, and doubly so for
+    // a protected one — hide the affordance. Computed by the parent from the
+    // already-observed workspace projects.
+    var protectedRepositoryIds: Set<String> = []
 
     @State private var repos: [WorkspaceRepo] = []
     @State private var loading = true
@@ -106,7 +111,7 @@ struct WorkspaceRepositoriesSection: View {
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
-                if isOwner {
+                if isOwner && !protectedRepositoryIds.contains(repo.id) {
                     Button {
                         removeTarget = repo
                     } label: {

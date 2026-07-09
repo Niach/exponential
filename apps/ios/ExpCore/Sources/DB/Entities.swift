@@ -102,6 +102,10 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let publicShowActivity: Bool
     // off | badge | live (DomainContract.publicCodingVisibility*).
     public let publicShowCoding: String
+    // Server-managed protection flag: a protected project (the bootstrap
+    // dogfood board) can't be deleted/archived/retyped/repointed. Rides along on
+    // the projects shape; clients hide the destructive affordances for it.
+    public let isProtected: Bool
     // Display-only mirror of the preview run targets + feedback routing target
     // (jsonb in Postgres). Stored as the raw JSON text; never executed.
     public let previewConfig: String?
@@ -123,6 +127,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         publicShowComments: Bool = true,
         publicShowActivity: Bool = false,
         publicShowCoding: String = DomainContract.publicCodingVisibilityOff,
+        isProtected: Bool = false,
         previewConfig: String?,
         createdAt: String,
         updatedAt: String
@@ -141,6 +146,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.publicShowComments = publicShowComments
         self.publicShowActivity = publicShowActivity
         self.publicShowCoding = publicShowCoding
+        self.isProtected = isProtected
         self.previewConfig = previewConfig
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -159,6 +165,7 @@ public struct ProjectEntity: FetchableRecord, PersistableRecord, Identifiable, S
         case publicShowComments = "public_show_comments"
         case publicShowActivity = "public_show_activity"
         case publicShowCoding = "public_show_coding"
+        case isProtected = "is_protected"
         case previewConfig = "preview_config"
         case createdAt = "created_at"
         case updatedAt = "updated_at"

@@ -77,8 +77,10 @@ struct WorkspaceProjectsSection: View {
                             repositoryId: project.repositoryId
                         )
 
-                        // Owner-only retarget → projects.setRepository.
-                        if isOwner {
+                        // Owner-only retarget → projects.setRepository. Hidden
+                        // for protected projects (the server refuses to repoint
+                        // them).
+                        if isOwner && !project.isProtected {
                             Button {
                                 repoTarget = project
                             } label: {
@@ -89,10 +91,11 @@ struct WorkspaceProjectsSection: View {
                             .buttonStyle(.plain)
                         }
 
-                        // Delete (→ trash) — owner-only, hidden for non-owners
-                        // (full web parity, and the one-tap path that once wiped
-                        // the dogfood board).
-                        if isOwner {
+                        // Delete (→ trash) — owner-only, and never for a
+                        // protected project (the dogfood board: the server
+                        // refuses, and this is the one-tap path that once wiped
+                        // it). Hidden for non-owners too (full web parity).
+                        if isOwner && !project.isProtected {
                             Button {
                                 onDelete(project)
                             } label: {

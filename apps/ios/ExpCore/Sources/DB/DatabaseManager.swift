@@ -443,6 +443,37 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v5 (dogfood protection): `projects.is_protected` rides along on the
+        // projects shape. Additive ALTER for DBs already past v1; guarded on
+        // column presence exactly like v3/v4. Strictly additive — never bump the
+        // `-v4` file suffix (that would wipe local snapshots + cursors).
+        migrator.registerMigration("v5_project_is_protected") { db in
+            // Same table-existence guard as v3/v4: migration-fixture DBs that
+            // carry only the minimal v1 (electric_offsets) don't have `projects`.
+            guard try db.tableExists("projects") else { return }
+            let existing = Set(try db.columns(in: "projects").map(\.name))
+            if !existing.contains("is_protected") {
+                try db.alter(table: "projects") { t in
+                    t.add(column: "is_protected", .boolean).notNull().defaults(to: false)
+                }
+            }
+            // The projects shape did NOT rotate server-side (this is a local
+            // schema-only change), so existing local project rows carry no
+            // is_protected value until re-snapshotted. Mark the projects offset
+            // needs_refetch — mirroring ShapeClient's must-refetch write
+            // (handle="", offset="-1", needs_refetch set, is_live cleared) — so
+            // the next poll re-snapshots projects atomically and the flag
+            // arrives without a UI blackout. WHERE-guarded: a fresh install has
+            // no offset row yet and snapshots from scratch regardless.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'projects'
+                    """)
+            }
+        }
+
         return migrator
     }
 

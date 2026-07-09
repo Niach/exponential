@@ -47,7 +47,8 @@ struct WorkspaceSettingsView: View {
                         workspace: workspace,
                         isOwner: isOwner,
                         repositoriesApi: deps.repositoriesApi,
-                        instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                        instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                        protectedRepositoryIds: protectedRepositoryIds
                     )
 
                     // Members section (includes invite controls)
@@ -142,6 +143,12 @@ struct WorkspaceSettingsView: View {
     private var isOwner: Bool {
         guard let me = deps.auth.userId else { return false }
         return members.contains { $0.userId == me && $0.role == DomainContract.workspaceRoleOwner }
+    }
+
+    /// Repos backing a protected project — their remove affordance is hidden.
+    /// Derived from the already-observed workspace projects (no extra query).
+    private var protectedRepositoryIds: Set<String> {
+        Set(projects.filter { $0.isProtected }.compactMap { $0.repositoryId })
     }
 
     private func deleteWorkspace() async {
