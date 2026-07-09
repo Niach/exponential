@@ -73,6 +73,14 @@ pub enum ClientFrame<'a> {
         cols: Option<u16>,
         #[serde(skip_serializing_if = "Option::is_none")]
         rows: Option<u16>,
+        /// EXP-32: whether the room's scrubbed activity stream may fan out to
+        /// ANONYMOUS `public_viewer` sockets. `None` = absent on the wire ⇒
+        /// the relay treats the room as public (legacy shape — existing
+        /// vectors stay byte-identical). Only `Some(false)` is ever sent
+        /// explicitly (keep-private); authenticated activity-channel members
+        /// receive activity regardless.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        activity_public: Option<bool>,
     },
     Join,
     Resize {
@@ -214,12 +222,14 @@ mod tests {
     #[test]
     fn hello_serializes_session_and_geometry() {
         // hub.test.ts connectPublisher sends exactly this frame (120×40).
+        // activity_public: None MUST leave the legacy wire shape untouched.
         assert_eq!(
             ClientFrame::Hello {
                 session_id: "sess-1",
                 issue_id: Some("issue-1"),
                 cols: Some(120),
                 rows: Some(40),
+                activity_public: None,
             }
             .to_json(),
             r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1","cols":120,"rows":40}"#
@@ -230,9 +240,39 @@ mod tests {
                 issue_id: None,
                 cols: None,
                 rows: None,
+                activity_public: None,
             }
             .to_json(),
             r#"{"t":"hello","sessionId":"sess-1"}"#
+        );
+    }
+
+    #[test]
+    fn hello_activity_public_false_serializes_byte_exact() {
+        // EXP-32: the keep-private opt-out is an explicit camelCase
+        // `activityPublic:false`; `Some(true)` never ships (spec: absent =
+        // public), but if constructed it must still be the relay's field name.
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: Some("issue-1"),
+                cols: Some(120),
+                rows: Some(40),
+                activity_public: Some(false),
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1","issueId":"issue-1","cols":120,"rows":40,"activityPublic":false}"#
+        );
+        assert_eq!(
+            ClientFrame::Hello {
+                session_id: "sess-1",
+                issue_id: None,
+                cols: None,
+                rows: None,
+                activity_public: Some(false),
+            }
+            .to_json(),
+            r#"{"t":"hello","sessionId":"sess-1","activityPublic":false}"#
         );
     }
 
@@ -326,6 +366,7 @@ mod tests {
                     issue_id: None,
                     cols: None,
                     rows: None,
+                    activity_public: None,
                 },
                 "hello",
             ),

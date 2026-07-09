@@ -279,12 +279,14 @@ struct PublisherEntry {
     sink: Arc<dyn RawSink>,
     /// The current remote steerer's display name, if any (§8.5 banner state).
     steerer: Option<String>,
-    /// §P7: the activity emitter's run flag when this session publishes a
-    /// PUBLIC live stream (feedback board + `publicShowCoding='live'`, not
-    /// opted private). `None` when nothing is being published publicly.
-    /// Flipping it `false` stops the emitter thread on teardown; its presence
-    /// also drives the "LIVE — public" indicator.
-    activity_active: Option<Arc<AtomicBool>>,
+    /// §P7 + EXP-32: the activity emitter's run flag. The emitter ALWAYS runs
+    /// (workspace members can follow the scrubbed activity channel even for
+    /// private sessions); flipping it `false` stops the thread on teardown.
+    activity_active: Arc<AtomicBool>,
+    /// Whether the relay also fans this session's activity to ANONYMOUS
+    /// public viewers (feedback board + `publicShowCoding='live'`, not opted
+    /// private) — drives the "LIVE — public" indicator.
+    activity_public: bool,
 }
 
 /// Session-keyed publisher handles — parallels `coding_flow::LocalSessions`
@@ -387,9 +389,19 @@ pub fn attach_publisher(
         trpc,
         coding_session_id: session_id.to_string(),
     });
+    // EXP-32: whether the relay may fan this session's scrubbed activity
+    // stream to ANONYMOUS public viewers — a feedback board with
+    // `publicShowCoding='live'` the user hasn't opted private. Declared in
+    // the publisher hello (`activityPublic`; true = absent = legacy shape).
+    // Authenticated workspace members receive activity regardless.
+    let activity_public = !keep_private
+        && coding_flow::issue_project(issue_id, cx)
+            .map(|project| project.is_live_public_coding())
+            .unwrap_or(false);
     let spec = PublishSpec {
         session_id: session_id.to_string(),
         issue_id: Some(issue_id.to_string()),
+        activity_public,
     };
     let handle = steer::publish(&runtime, spec, tickets, hooks);
 
@@ -411,27 +423,20 @@ pub fn attach_publisher(
             resize_notifier.notify(cols, rows);
         }));
 
-    // §P7: start the PUBLIC live-coding activity emitter when the issue's
-    // project is a feedback board with `publicShowCoding='live'` AND the user
-    // hasn't opted this session private. The emitter tails the Claude
-    // transcript + worktree diffs, redacts, and publishes over the SAME
-    // publisher socket (activity frames the relay fans to public viewers only).
-    // Best-effort: a relay-disabled instance just drops the sends.
-    let publish_live = !keep_private
-        && coding_flow::issue_project(issue_id, cx)
-            .map(|project| project.is_live_public_coding())
-            .unwrap_or(false);
-    let activity_active = if publish_live {
-        let active = Arc::new(AtomicBool::new(true));
-        spawn_activity_emitter(
-            EmitterConfig { worktree },
-            handle.activity_sender(),
-            active.clone(),
-        );
-        Some(active)
-    } else {
-        None
-    };
+    // §P7 + EXP-32: ALWAYS start the activity emitter — the desktop always
+    // emits scrubbed activity events over the publisher socket. Authenticated
+    // workspace members can follow them on the relay's activity channel for
+    // every session; whether ANONYMOUS public viewers also see them is the
+    // room's `activityPublic` flag declared in the hello above (the relay
+    // enforces the keep-private invariant). The emitter tails the Claude
+    // transcript + worktree diffs and redacts before sending. Best-effort: a
+    // relay-disabled instance just drops the sends.
+    let activity_active = Arc::new(AtomicBool::new(true));
+    spawn_activity_emitter(
+        EmitterConfig { worktree },
+        handle.activity_sender(),
+        activity_active.clone(),
+    );
 
     // Register the session (banner state + take-over + teardown).
     let registry = PublisherRegistry::global(cx);
@@ -443,6 +448,7 @@ pub fn attach_publisher(
                 sink,
                 steerer: None,
                 activity_active,
+                activity_public,
             },
         );
     });
@@ -583,9 +589,7 @@ fn teardown_session(
         if let Some(entry) = registry.entries.get(session_id) {
             entry.handle.session_ended();
             // §P7: stop the activity emitter thread promptly.
-            if let Some(active) = &entry.activity_active {
-                active.store(false, Ordering::SeqCst);
-            }
+            entry.activity_active.store(false, Ordering::SeqCst);
         }
         registry.entries.remove(session_id);
         cx.notify();
@@ -602,21 +606,16 @@ fn teardown_session(
 // ---------------------------------------------------------------------------
 
 /// Whether this session is publishing a PUBLIC live activity stream right now
-/// (§P7) — the emitter is running and still active. Drives the "LIVE — public"
-/// indicator on the coding-session UI. `false` for private/non-live sessions.
+/// (§P7) — the room is publicly fanned (`activityPublic`) and the emitter is
+/// still active. Drives the "LIVE — public" indicator on the coding-session
+/// UI. `false` for private/non-live sessions (whose emitter still runs for
+/// the members-only activity channel, EXP-32).
 pub fn is_publishing_live(session_id: &str, cx: &App) -> bool {
     PublisherRegistry::global_ref(cx)
         .and_then(|registry| {
-            registry
-                .read(cx)
-                .entries
-                .get(session_id)
-                .map(|entry| {
-                    entry
-                        .activity_active
-                        .as_ref()
-                        .is_some_and(|active| active.load(Ordering::SeqCst))
-                })
+            registry.read(cx).entries.get(session_id).map(|entry| {
+                entry.activity_public && entry.activity_active.load(Ordering::SeqCst)
+            })
         })
         .unwrap_or(false)
 }

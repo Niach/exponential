@@ -105,6 +105,13 @@ impl RawSink for PublisherSink {
 pub struct PublishSpec {
     pub session_id: String,
     pub issue_id: Option<String>,
+    /// EXP-32: whether the room's scrubbed activity stream may fan out to
+    /// ANONYMOUS public viewers (feedback board with `publicShowCoding='live'`
+    /// and not opted private). `true` serializes as ABSENT on the wire (the
+    /// legacy hello shape — old relays behave as before); only `false` is
+    /// sent explicitly. Authenticated activity-channel members receive the
+    /// stream either way, so the emitter always runs.
+    pub activity_public: bool,
 }
 
 /// Publisher-ticket source, injectable for tests. Blocking (ureq) — the loop
@@ -452,6 +459,9 @@ async fn run_publisher_loop(
             issue_id: spec.issue_id.as_deref(),
             cols: Some(cols),
             rows: Some(rows),
+            // Absent = public (the legacy wire shape); only the keep-private
+            // opt-out is explicit (EXP-32).
+            activity_public: if spec.activity_public { None } else { Some(false) },
         }
         .to_json();
         if let Err(err) = ws.send(Message::Text(hello)).await {
@@ -859,6 +869,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-t".to_string(),
                 issue_id: Some("issue-t".to_string()),
+                activity_public: true,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -867,6 +878,7 @@ mod tests {
         );
 
         // 1) hello with TRUE geometry (the hook says 100×30, not 80×24).
+        // activity_public: true stays ABSENT on the wire (legacy shape).
         let hello = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             hello,
@@ -963,6 +975,9 @@ mod tests {
             PublishSpec {
                 session_id: "sess-x".to_string(),
                 issue_id: None,
+                // EXP-32: the keep-private path — hello carries the explicit
+                // opt-out.
+                activity_public: false,
             },
             Arc::new(FakeTickets {
                 url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
@@ -970,7 +985,10 @@ mod tests {
             recording_hooks(recorded),
         );
         let hello = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(hello.starts_with(r#"{"t":"hello","sessionId":"sess-x""#));
+        assert_eq!(
+            hello,
+            r#"{"t":"hello","sessionId":"sess-x","cols":100,"rows":30,"activityPublic":false}"#
+        );
 
         handle.shutdown(Some("exit:0".to_string()));
         let bye = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -993,6 +1011,7 @@ mod tests {
             PublishSpec {
                 session_id: "sess-d".to_string(),
                 issue_id: None,
+                activity_public: true,
             },
             Arc::new(DisabledTickets),
             recording_hooks(recorded.clone()),
