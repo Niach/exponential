@@ -48,8 +48,12 @@ type GithubInstallation = GithubStatus[`installations`][number]
 
 export function WorkspaceRepositoriesSection({
   workspaceId,
+  isFeedbackWorkspace = false,
 }: {
   workspaceId: string
+  // The bootstrap feedback workspace's GitHub connection is protected (server
+  // refuses integrations.unlink for it) — hide the unlink affordance entirely.
+  isFeedbackWorkspace?: boolean
 }) {
   const [repos, setRepos] = useState<RepoList | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
@@ -225,6 +229,7 @@ export function WorkspaceRepositoriesSection({
                     key={inst.installationId}
                     installation={inst}
                     busy={busy}
+                    canUnlink={!isFeedbackWorkspace}
                     onUnlink={() => handleUnlink(inst.installationId)}
                   />
                 ))}
@@ -306,10 +311,12 @@ export function WorkspaceRepositoriesSection({
 function InstallationChip({
   installation,
   busy,
+  canUnlink,
   onUnlink,
 }: {
   installation: GithubInstallation
   busy: boolean
+  canUnlink: boolean
   onUnlink: () => void
 }) {
   return (
@@ -333,16 +340,18 @@ function InstallationChip({
           <ExternalLink className="h-3 w-3" />
         </a>
       </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-5 w-5 text-muted-foreground hover:text-destructive"
-        disabled={busy}
-        onClick={onUnlink}
-        title="Disconnect this GitHub account from the workspace"
-      >
-        <Unlink className="h-3 w-3" />
-      </Button>
+      {canUnlink && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 text-muted-foreground hover:text-destructive"
+          disabled={busy}
+          onClick={onUnlink}
+          title="Disconnect this GitHub account from the workspace"
+        >
+          <Unlink className="h-3 w-3" />
+        </Button>
+      )}
     </div>
   )
 }

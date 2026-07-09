@@ -124,7 +124,12 @@ function WorkspaceSettings() {
       )}
 
       {workspace && canManageRepos && (
-        <WorkspaceRepositoriesSection workspaceId={workspace.id} />
+        <WorkspaceRepositoriesSection
+          workspaceId={workspace.id}
+          // The bootstrap feedback workspace (slug `feedback`) holds the
+          // protected dogfood GitHub connection — its unlink is server-refused.
+          isFeedbackWorkspace={workspace.slug === `feedback`}
+        />
       )}
 
       {workspace && canManageWidgets && (

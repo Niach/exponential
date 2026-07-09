@@ -169,22 +169,22 @@ export function WorkspaceProjectsSection({
                     >
                       {project.prefix}
                     </Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                      disabled={project.isProtected}
-                      title={
-                        project.isProtected
-                          ? `This project is protected and can't be deleted`
-                          : `Move to trash`
-                      }
-                      onClick={() =>
-                        setDeleteTarget({ id: project.id, name: project.name })
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {!project.isProtected && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        title="Move to trash"
+                        onClick={() =>
+                          setDeleteTarget({
+                            id: project.id,
+                            name: project.name,
+                          })
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 )
               })}

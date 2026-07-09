@@ -227,6 +227,20 @@ export const projectsRouter = router({
         projectRecord.workspaceId
       )
 
+      // Protected projects (the dogfood board) keep their repo — mirrors the
+      // delete/archive/retype guards.
+      const [current] = await ctx.db
+        .select({ isProtected: projects.isProtected })
+        .from(projects)
+        .where(eq(projects.id, input.projectId))
+        .limit(1)
+      if (current?.isProtected) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `This project is protected — its repository cannot be changed`,
+        })
+      }
+
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         if (input.repositoryId === null) {

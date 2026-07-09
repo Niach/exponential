@@ -70,6 +70,14 @@ vi.mock(`@/lib/workspace-membership`, () => ({
   getUserWorkspaceIds: vi.fn(async () => [`ws-union`]),
 }))
 
+// Stable feedback-workspace id for the unlink protection guard. A fixed value
+// (never produced by freshWorkspaceId) keeps the non-feedback unlink tests on
+// their normal path and lets one test assert the protected refusal.
+const FEEDBACK_WS_ID = `11111111-1111-4111-8111-111111111111`
+vi.mock(`@/lib/bootstrap-cloud`, () => ({
+  getFeedbackWorkspaceId: vi.fn(async () => FEEDBACK_WS_ID),
+}))
+
 const listAllInstallationRepos = vi.fn(async (_installationId: number) => ({
   repos: [
     {
@@ -286,5 +294,15 @@ describe(`integrations.github.unlink`, () => {
     })
     expect(result).toEqual({ ok: true })
     expect(deletes).toHaveLength(1)
+  })
+
+  it(`refuses to unlink the protected dogfood feedback workspace`, async () => {
+    await expect(
+      callerFor(`user-unlink`).github.unlink({
+        workspaceId: FEEDBACK_WS_ID,
+        installationId: 1,
+      })
+    ).rejects.toThrow(/dogfood GitHub connection is protected/)
+    expect(deletes).toHaveLength(0)
   })
 })
