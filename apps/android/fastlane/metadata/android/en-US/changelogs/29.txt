@@ -1,0 +1,7 @@
+• Newly created projects now appear instantly
+• The GitHub repo picker is scrollable
+• Issue lists no longer hide the last row behind the nav bar
+• Done lists show the latest completed issues first, with smarter sorting everywhere
+• Connect GitHub directly from workspace settings
+• New deep link scheme — older app versions must update to sign in
+• Smaller fixes and improvements

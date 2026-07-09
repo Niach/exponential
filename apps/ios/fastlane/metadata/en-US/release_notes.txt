@@ -1,6 +1,7 @@
-• Fixed an account-switching bug that could show the previous account's data after signing out and into a different account
-• All-new live agent sessions: a native activity feed with a single message bar replaces the terminal — watch Claude narrate its work and steer it with one tap
-• New Changes screen: per-file unified diffs with a summary header and PR link
-• Issue list rows now align perfectly and the layout is tighter
-• The filter bar's Clear button is always visible
+• Issue lists no longer hide the last row behind the tab bar
+• Done lists now show the latest completed issues first, with smarter sorting everywhere
+• Connect GitHub directly from workspace settings — no more web detour
+• Deleting your last workspace now recovers instantly instead of requiring a restart
+• Far fewer false "can't reach the server" banners
+• New deep link scheme — older app versions must update to sign in
 • Smaller fixes and performance improvements
