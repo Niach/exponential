@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
@@ -44,6 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,6 +78,7 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.share.SharePrefill
+import com.exponential.app.ui.share.WorkspaceProjects
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
@@ -94,11 +97,35 @@ fun CreateIssueScreen(
     onBack: () -> Unit,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
+    // Share mode (system "Share into Exponential"): the screen has no project
+    // route arg, so it renders an inline project selector at the bottom and
+    // re-points the ViewModel to the picked project. [shareGroups] are the
+    // account's workspaces→projects, [shareRecentProjectId] the last-used
+    // default.
+    shareMode: Boolean = false,
+    shareGroups: List<WorkspaceProjects> = emptyList(),
+    shareRecentProjectId: String? = null,
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
+
+    // In share mode the ViewModel starts with no project; track the chosen one
+    // locally and re-point the VM to it (setProject re-scopes labels/members/
+    // permissions and the create target).
+    var selectedProjectId by remember { mutableStateOf<String?>(null) }
+    // Seed the default once the project list arrives: last-used if it still
+    // exists, else the first project.
+    LaunchedEffect(shareGroups, shareRecentProjectId) {
+        if (!shareMode || selectedProjectId != null) return@LaunchedEffect
+        val allIds = shareGroups.flatMap { g -> g.projects.map { it.id } }
+        val default = shareRecentProjectId?.takeIf { it in allIds } ?: allIds.firstOrNull()
+        if (default != null) {
+            selectedProjectId = default
+            viewModel.setProject(default)
+        }
+    }
 
     var title by remember { mutableStateOf(sharePrefill?.title ?: "") }
     var description by remember { mutableStateOf(sharePrefill?.description ?: "") }
@@ -153,9 +180,12 @@ fun CreateIssueScreen(
         if (!isCreating) confirmDiscard = true
     }
 
+    // In share mode a project must be chosen before the create can target it.
+    val canSubmit = title.isNotBlank() && !isCreating && (!shareMode || selectedProjectId != null)
+
     val scope = rememberCoroutineScope()
     fun submit() {
-        if (title.isBlank() || isCreating) return
+        if (!canSubmit) return
         // Await the create on the screen's scope, then pop — popping cancels the
         // route's ViewModel scope, so a fire-and-forget create would be dropped.
         scope.launch {
@@ -212,7 +242,7 @@ fun CreateIssueScreen(
                         }
                     },
                     actions = {
-                        TextButton(onClick = ::submit, enabled = !isCreating && title.isNotBlank()) {
+                        TextButton(onClick = ::submit, enabled = canSubmit) {
                             Text(if (isCreating) "Creating…" else "Create")
                         }
                     },
@@ -392,16 +422,83 @@ fun CreateIssueScreen(
                     }
                 }
 
+                // Project selector — share mode only, rendered LAST (iOS
+                // ShareComposeView parity). Picking a project re-scopes the
+                // ViewModel (labels/permissions) and the create target.
+                if (shareMode) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                        Text(
+                            "Project",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Column(modifier = Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                            var first = true
+                            shareGroups.forEach { group ->
+                                group.projects.forEach { project ->
+                                    if (!first) MetaDivider()
+                                    first = false
+                                    val selected = project.id == selectedProjectId
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                if (project.id != selectedProjectId) {
+                                                    selectedProjectId = project.id
+                                                    viewModel.setProject(project.id)
+                                                }
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    ) {
+                                        Box(modifier = Modifier.size(10.dp).background(parseColor(project.color), CircleShape))
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                project.name,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                group.workspace.name,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        if (selected) {
+                                            Icon(
+                                                Icons.Filled.Check,
+                                                contentDescription = "Selected",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (state.error != null) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Create more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    Switch(checked = createMore, onCheckedChange = { createMore = it })
+                // "Create more" is a batch-entry affordance for in-app creation;
+                // a system share is a one-shot, so it's hidden in share mode.
+                if (!shareMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Create more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Switch(checked = createMore, onCheckedChange = { createMore = it })
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
             }

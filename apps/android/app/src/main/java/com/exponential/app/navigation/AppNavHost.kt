@@ -44,7 +44,7 @@ import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.WorkspaceSettingsScreen
-import com.exponential.app.ui.share.ShareTargetPickerScreen
+import com.exponential.app.ui.share.ShareTargetPickerViewModel
 import com.exponential.app.ui.share.buildSharePrefill
 import com.exponential.app.ui.theme.AppBackground
 import dagger.hilt.android.EntryPointAccessors
@@ -82,10 +82,10 @@ fun AppNavHost() {
             is DeepLinkBus.Target.Invite ->
                 navController.navigate("invite/${target.token}") { launchSingleTop = true }
             is DeepLinkBus.Target.ShareContent -> {
-                // Stash the shared content for the project route to consume, then
-                // route to the project picker.
+                // Stash the shared content for the single-screen share composer
+                // to consume (it carries its own inline project selector).
                 workspaceSelection.setPendingShare(target)
-                navController.navigate("share-pick") { launchSingleTop = true }
+                navController.navigate("share-compose") { launchSingleTop = true }
             }
             is DeepLinkBus.Target.GithubConnected ->
                 // Not a navigation target — the open GithubRepoPicker sheet
@@ -333,21 +333,24 @@ private fun AuthenticatedNav(
         composable("workspace-settings") {
             WorkspaceSettingsScreen(onBack = { navController.popBackStack() })
         }
-        composable("share-pick") {
-            ShareTargetPickerScreen(
-                onPicked = { projectId ->
-                    // Land on the project list, then push the prefilled create
-                    // screen on top so backing out returns to the list.
-                    navController.navigate("project/$projectId") {
-                        popUpTo("share-pick") { inclusive = true }
-                    }
-                    navController.navigate("project/$projectId/new")
-                },
-                onCancel = {
-                    // Drop the pending share so it doesn't prefill the next project opened.
-                    workspaceSelection.consumePendingShare()
-                    navController.popBackStack()
-                },
+        composable("share-compose") {
+            // Single-screen share composer (iOS ShareComposeView parity): the
+            // prefilled create form with an inline project selector at the
+            // bottom. The pending share lives in the WorkspaceSelection
+            // singleton (not route state) so backing out and re-entering
+            // re-fills the form; it's consumed exactly once — on a successful
+            // create or an explicit discard.
+            val pendingShare by workspaceSelection.pendingShare.collectAsStateWithLifecycle()
+            val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
+            val shareVm: ShareTargetPickerViewModel = hiltViewModel()
+            val shareState by shareVm.state.collectAsStateWithLifecycle()
+            CreateIssueScreen(
+                onBack = { navController.popBackStack() },
+                sharePrefill = sharePrefill,
+                onSharePrefillConsumed = { workspaceSelection.consumePendingShare() },
+                shareMode = true,
+                shareGroups = shareState.groups,
+                shareRecentProjectId = shareState.recentProjectId,
             )
         }
         composable("project/{projectId}") { entry ->

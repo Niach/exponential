@@ -17,27 +17,35 @@ data class SharePrefill(
 )
 
 /**
- * Map a shared payload onto a [SharePrefill]:
- *  - title = subject, else the first line of shared text, else "Shared image".
- *  - description = the shared text (full when subject supplied the title, else
- *    the remainder after the first line), with each shared image appended as a
- *    `![](draft://…)` block so the existing image-upload pipeline picks it up.
+ * Map a shared payload onto a [SharePrefill] (iOS ShareItemExtractor parity):
+ *  - title = the first line of shared text/URL (max 120 chars), else the
+ *    subject for text/link shares, else EMPTY — an image/file-only share never
+ *    prefills a filename as the title (EXTRA_SUBJECT is dropped when the payload
+ *    is images only).
+ *  - description = the shared text (full when the subject supplied the title,
+ *    else the remainder after the title line), with each shared image appended
+ *    as a `![](draft://…)` block so the existing image-upload pipeline picks it
+ *    up.
  */
 fun buildSharePrefill(share: DeepLinkBus.Target.ShareContent): SharePrefill {
     val text = share.text?.trim().orEmpty()
     val subject = share.subject?.trim().orEmpty()
 
-    // Image-only shares get an empty title so the user types their own.
+    // The subject (a link's page title) is only a sensible title for shares that
+    // carry text/URL content — for image/file-only shares it's the filename, so
+    // drop it and leave the title empty for the user to type.
+    val useSubject = subject.isNotBlank() && share.imageUris.isEmpty()
     val title = when {
-        subject.isNotBlank() -> subject
         text.isNotBlank() -> text.lineSequence().firstOrNull()?.trim()?.take(120).orEmpty()
+        useSubject -> subject.take(120)
         else -> ""
     }
 
     val baseDescription = when {
-        subject.isNotBlank() -> text
-        text.contains('\n') -> text.substringAfter('\n').trim()
-        else -> ""
+        text.isBlank() || text == title -> ""
+        // The title took the first line — keep the rest as the description.
+        text.startsWith(title) -> text.removePrefix(title).trim()
+        else -> text
     }
 
     val pendingImages = LinkedHashMap<String, Uri>()
