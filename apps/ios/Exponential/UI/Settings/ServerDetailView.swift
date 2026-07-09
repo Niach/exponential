@@ -157,12 +157,18 @@ struct ServerDetailView: View {
 
                     Button {
                         Task {
+                            // Capture the URL BEFORE removeAccount — `account` is
+                            // a computed lookup that returns nil once removed.
+                            let url = account?.instanceUrl
                             await deps.syncManager.signOut(accountId: accountId)
                             deps.auth.removeAccount(id: accountId)
-                            // Re-add the URL so the user can re-auth via the
-                            // login flow without losing the entry. Better-auth
-                            // expects a fresh session anyway.
-                            if let url = account?.instanceUrl {
+                            // Delete the local DB so a signed-out account leaves
+                            // no user data at rest (mirrors the Remove-server path).
+                            deps.db.closePool(forAccountId: accountId)
+                            DatabaseManager.deleteFiles(forAccountId: accountId)
+                            // Re-add the URL so the user can re-auth via the login
+                            // flow without losing the entry.
+                            if let url {
                                 deps.auth.setInstanceUrl(url)
                             }
                             dismiss()

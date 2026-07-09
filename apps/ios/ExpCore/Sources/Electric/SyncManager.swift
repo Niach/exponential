@@ -218,59 +218,59 @@ public final class SyncManager: @unchecked Sendable {
         var tasks: [Task<Void, Never>] = []
         tasks.append(makeShapeTask(
             name: "workspaces", path: "/api/shapes/workspaces", table: "workspaces",
-            type: WorkspaceEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: WorkspaceEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "projects", path: "/api/shapes/projects", table: "projects",
-            type: ProjectEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: ProjectEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "issues", path: "/api/shapes/issues", table: "issues",
-            type: IssueEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "labels", path: "/api/shapes/labels", table: "labels",
-            type: LabelEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: LabelEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "issue-labels", path: "/api/shapes/issue-labels", table: "issue_labels",
-            type: IssueLabelEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueLabelEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "users", path: "/api/shapes/users", table: "users",
-            type: UserEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: UserEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "workspace-members", path: "/api/shapes/workspace-members", table: "workspace_members",
-            type: WorkspaceMemberEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: WorkspaceMemberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "workspace-invites", path: "/api/shapes/workspace-invites", table: "workspace_invites",
-            type: WorkspaceInviteEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: WorkspaceInviteEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "comments", path: "/api/shapes/comments", table: "comments",
-            type: CommentEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: CommentEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "attachments", path: "/api/shapes/attachments", table: "attachments",
-            type: AttachmentEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: AttachmentEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "notifications", path: "/api/shapes/notifications", table: "notifications",
-            type: NotificationEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: NotificationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "issue-events", path: "/api/shapes/issue-events", table: "issue_events",
-            type: IssueEventEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueEventEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "issue-subscribers", path: "/api/shapes/issue-subscribers", table: "issue_subscribers",
-            type: IssueSubscriberEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: IssueSubscriberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
         tasks.append(makeShapeTask(
             name: "coding-sessions", path: "/api/shapes/coding-sessions", table: "coding_sessions",
-            type: CodingSessionEntity.self, pool: pool, baseUrl: baseUrl, token: token
+            type: CodingSessionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token
         ))
 
         lock.withLock { pipelines[accountId] = tasks }
@@ -278,6 +278,7 @@ public final class SyncManager: @unchecked Sendable {
 
     private func makeShapeTask<T: Codable & FetchableRecord & PersistableRecord & Sendable>(
         name: String, path: String, table: String, type: T.Type,
+        accountId: String,
         pool: DatabasePool,
         baseUrl: @escaping @Sendable () -> String?,
         token: @escaping @Sendable () -> String?
@@ -285,6 +286,7 @@ public final class SyncManager: @unchecked Sendable {
         let client = ShapeClient<T>(
             shapeName: name,
             urlPath: path,
+            accountId: accountId,
             baseUrlProvider: baseUrl,
             tokenProvider: token,
             pool: pool,

@@ -144,6 +144,23 @@ struct MainNavigator: View {
         .onChange(of: deps.auth.accounts) { _, _ in
             projectLoader?.refresh()
         }
+        // Defense-in-depth against a split binding. `.id(activeAccountId)` on
+        // this navigator (AppNavigator) normally recreates the whole view on an
+        // account switch, resetting @State and re-running startObserving(). If
+        // that recreation is ever skipped (e.g. an account activated while a
+        // cover is presented), the environment accountId + tRPC re-reads flip to
+        // the new account while these observations keep streaming the OLD
+        // account's pool — the "wrong account's data" bug. Rebind explicitly:
+        // cancel, clear state, re-observe the new active pool, re-resolve.
+        .onChange(of: deps.auth.activeAccountId) { _, _ in
+            stopObserving()
+            workspaceState.workspaces = []
+            workspaceState.projects = []
+            workspaceState.activeWorkspaceId = nil
+            currentProject = nil
+            startObserving()
+            resolveCurrentProject()
+        }
         // Any change to the available (signed-in, non-archived) projects
         // re-validates the Issues tab's current project.
         .onChange(of: availableProjectKeys) { _, _ in
@@ -246,7 +263,9 @@ struct MainNavigator: View {
     /// Thin status banner when live sync is degraded (offline / expired session).
     @ViewBuilder
     private var syncBanner: some View {
-        let health = SyncDebug.shared.health
+        // Only the ACTIVE account's health — a signed-out/failing OTHER account
+        // must never flash the banner while the active account syncs fine.
+        let health = SyncDebug.shared.health(forAccountId: deps.auth.activeAccountId)
         if health != .ok {
             HStack(spacing: 6) {
                 Image(systemName: health == .unauthorized ? "person.crop.circle.badge.exclamationmark" : "wifi.slash")

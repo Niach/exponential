@@ -12,6 +12,9 @@ struct SettingsView: View {
     @State private var workspaceLoader: MultiAccountWorkspaceLoader?
     @State private var pendingWorkspace: WorkspaceNavTarget?
     @State private var showAddServer = false
+    // The account that was active before Add-server opened, so a cancelled /
+    // incomplete add can be rolled back off the tokenless pending account.
+    @State private var previousActiveAccountId: String?
     @State private var showFeedbackGate = false
     @State private var pendingFeedbackBoard: FeedbackBoardTarget?
 
@@ -50,6 +53,24 @@ struct SettingsView: View {
         }
         .fullScreenCover(isPresented: $showAddServer) {
             InstanceView(showCancel: true) {
+                // Add-server activates a tokenless pending account the moment a
+                // URL is entered (setInstanceUrl → upsertAndActivate). If the
+                // user backs out before login resolves a token, remove that
+                // half-added pending and roll back to the account that was
+                // active before — so the app is never left pointed at a
+                // tokenless server, and a cancelled add leaves no phantom entry
+                // (which would also wrongly mark the cloud as already-added).
+                // (The core wrong-account symptom is separately covered by
+                // MainNavigator's activeAccountId rebind; fully decoupling
+                // activation from setInstanceUrl would require threading the URL
+                // through resolveActiveAccount — deferred.)
+                if deps.auth.token == nil,
+                   let prev = previousActiveAccountId,
+                   let stranded = deps.auth.activeAccountId,
+                   stranded != prev {
+                    deps.auth.removeAccount(id: stranded)
+                    deps.auth.switchAccount(id: prev)
+                }
                 showAddServer = false
             }
         }
@@ -78,6 +99,7 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
                 Button {
+                    previousActiveAccountId = deps.auth.activeAccountId
                     showAddServer = true
                 } label: {
                     HStack(spacing: 12) {

@@ -34,6 +34,7 @@ final class ShapeClientTests: XCTestCase {
         ShapeClient<Row>(
             shapeName: "test",
             urlPath: "/api/shapes/test",
+            accountId: "test-account",
             baseUrlProvider: { nil },
             tokenProvider: { nil },
             pool: pool,

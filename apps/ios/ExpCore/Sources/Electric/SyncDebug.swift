@@ -6,6 +6,14 @@ public enum RecoveryState: Sendable, Equatable {
     case recovered
 }
 
+/// Per-account aggregate sync health (drives the offline/expired banner).
+public struct AccountHealth: Sendable {
+    public var lastSuccessAt: Date?
+    public var lastErrorAt: Date?
+    public var lastErrorWasUnauthorized = false
+    public init() {}
+}
+
 public struct ShapeStatus: Sendable {
     public var lastHttpStatus: Int = 0
     public var requestCount: Int = 0
@@ -54,12 +62,12 @@ public final class SyncDebug: @unchecked Sendable {
     // (shape|sorted-columns) keys already logged, so a repeating dropped-column
     // partial is logged once per run instead of on every poll. Main-actor only.
     @ObservationIgnored private var reportedDroppedColumnSets: Set<String> = []
-    // Aggregate health for the UI's sync banner: any 2xx response counts as a
-    // success; transport failures (no HTTP response at all) and non-2xx mark
-    // the last error. Healthy = the most recent signal was a success.
-    public var lastSuccessAt: Date?
-    public var lastErrorAt: Date?
-    public var lastErrorWasUnauthorized = false
+    // Per-account health for the UI's sync banner: any 2xx counts as a success;
+    // transport failures (no HTTP response) and non-2xx mark the last error.
+    // Keyed by accountId — every signed-in account's ShapeClients report here,
+    // so the banner must read only the ACTIVE account's entry (one account's
+    // outage must never alarm while the active account syncs fine).
+    public private(set) var accountHealth: [String: AccountHealth] = [:]
     // A hard, non-transient failure that stops sync from ever starting for an
     // account: DB pool open / GRDB migration failure, or a resync that can't
     // relaunch (no token, pool throws). Surfaced prominently in SyncDebugView
@@ -76,13 +84,14 @@ public final class SyncDebug: @unchecked Sendable {
         case unauthorized
     }
 
-    public var health: Health {
-        guard let err = lastErrorAt else { return .ok }
-        if let ok = lastSuccessAt, ok > err { return .ok }
+    /// Health for one account's pipelines (the active account drives the banner).
+    public func health(forAccountId accountId: String?) -> Health {
+        guard let accountId, let h = accountHealth[accountId], let err = h.lastErrorAt else { return .ok }
+        if let ok = h.lastSuccessAt, ok > err { return .ok }
         // Require a few seconds of sustained failure before alarming.
         guard Date().timeIntervalSince(err) < 300 else { return .ok }
-        if let ok = lastSuccessAt, Date().timeIntervalSince(ok) < 8 { return .ok }
-        return lastErrorWasUnauthorized ? .unauthorized : .offline
+        if let ok = h.lastSuccessAt, Date().timeIntervalSince(ok) < 8 { return .ok }
+        return h.lastErrorWasUnauthorized ? .unauthorized : .offline
     }
 
     /// Record a hard failure that prevents sync from starting for an account.
@@ -111,29 +120,36 @@ public final class SyncDebug: @unchecked Sendable {
         }
     }
 
-    public func reportShape(name: String, httpStatus: Int, isLive: Bool) {
+    public func reportShape(name: String, httpStatus: Int, isLive: Bool, accountId: String) {
         Task { @MainActor in
             var status = self.shapes[name] ?? ShapeStatus()
             status.lastHttpStatus = httpStatus
             status.requestCount += 1
             status.lastActivityAt = .now
             status.isLive = isLive
-            if (200...299).contains(httpStatus) {
-                self.lastSuccessAt = .now
-            } else {
+            if !(200...299).contains(httpStatus) {
                 status.errorCount += 1
-                self.lastErrorAt = .now
-                self.lastErrorWasUnauthorized = httpStatus == 401
             }
             self.shapes[name] = status
+
+            var h = self.accountHealth[accountId] ?? AccountHealth()
+            if (200...299).contains(httpStatus) {
+                h.lastSuccessAt = .now
+            } else {
+                h.lastErrorAt = .now
+                h.lastErrorWasUnauthorized = httpStatus == 401
+            }
+            self.accountHealth[accountId] = h
         }
     }
 
     /// A request that never produced an HTTP response (network down, DNS, TLS).
-    public func reportTransportError(name _: String) {
+    public func reportTransportError(name _: String, accountId: String) {
         Task { @MainActor in
-            self.lastErrorAt = .now
-            self.lastErrorWasUnauthorized = false
+            var h = self.accountHealth[accountId] ?? AccountHealth()
+            h.lastErrorAt = .now
+            h.lastErrorWasUnauthorized = false
+            self.accountHealth[accountId] = h
         }
     }
 

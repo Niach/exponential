@@ -104,6 +104,29 @@ public final class DatabaseManager: @unchecked Sendable {
         }
     }
 
+    /// Delete every canonical (`-v4`) DB file whose account id isn't in
+    /// `accountIds` — orphans left behind by the id re-key migrations (widening
+    /// 4-byte ids to 8-byte). One-shot cleanup; a full resync of the surviving
+    /// accounts follows naturally.
+    public static func deleteOrphanDatabaseFiles(keeping accountIds: Set<String>) {
+        let fm = FileManager.default
+        // Any accountId resolves the shared directory; the id itself is unused.
+        guard let dir = try? fileURL(for: "x").deletingLastPathComponent(),
+              let entries = try? fm.contentsOfDirectory(atPath: dir.path) else { return }
+        let prefix = "exponential-"
+        let suffix = "-v4.sqlite"
+        for name in entries where name.hasPrefix(prefix) && name.hasSuffix(suffix) {
+            let id = String(name.dropFirst(prefix.count).dropLast(suffix.count))
+            guard !id.isEmpty, !accountIds.contains(id) else { continue }
+            for sideSuffix in ["", "-wal", "-shm"] {
+                let target = dir.appendingPathComponent(name + sideSuffix)
+                if fm.fileExists(atPath: target.path) {
+                    try? fm.removeItem(at: target)
+                }
+            }
+        }
+    }
+
     public static func fileURL(for accountId: String) throws -> URL {
         let fm = FileManager.default
         let appSupportDir = try fm.url(

@@ -4,6 +4,8 @@ private let keyAccounts = "accounts"
 private let keyActiveAccountId = "active_account_id"
 // One-shot flag: URL-keyed accounts have been re-keyed to per-user ids.
 private let keyPerUserMigrationDone = "peruser_migration_v1"
+// One-shot flag: 4-byte account ids have been widened to 8-byte ids.
+private let keyPerUserMigrationV2Done = "peruser_migration_v2"
 
 // Legacy single-account keys, migrated on first launch.
 private let legacyKeyInstanceUrl = "instance_url"
@@ -25,6 +27,7 @@ public final class AccountStore: @unchecked Sendable {
         self.cachedActiveId = keychain.get(keyActiveAccountId)
         AccountStore.migrateLegacyIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
         AccountStore.migratePerUserIdsIfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
+        AccountStore.migratePerUserIdsV2IfNeeded(store: keychain, accounts: &self.cached, activeId: &self.cachedActiveId)
         persist()
     }
 
@@ -286,5 +289,37 @@ public final class AccountStore: @unchecked Sendable {
             }
         }
         store.set(keyPerUserMigrationDone, value: "true")
+    }
+
+    // One-shot widening of account ids from 4 bytes (8 hex chars) to 8 bytes
+    // (16 hex chars) — the id doubles as the DB filename, so the wider space
+    // makes a collision (which would share a DB file) astronomically unlikely.
+    // Re-keys every legacy short id to the widened form for the same (url,
+    // userId) or url. The old DB files are wiped app-side (AppDependencies) — a
+    // full resync is acceptable (only TestFlight users exist). Guarded by a
+    // persisted flag; idempotent (a widened 16-char id is skipped). Runs AFTER
+    // the v1 re-key so it sees the post-v1 id shapes.
+    static func migratePerUserIdsV2IfNeeded(
+        store: any KeychainStoring,
+        accounts: inout [ServerAccount],
+        activeId: inout String?
+    ) {
+        guard store.get(keyPerUserMigrationV2Done) != "true" else { return }
+        for idx in accounts.indices {
+            let account = accounts[idx]
+            // Widened ids are 16 hex chars; only touch shorter (legacy) ids.
+            guard account.id.count < 16 else { continue }
+            let newId: String
+            if let userId = account.userId, !userId.isEmpty {
+                newId = ServerAccount.makeId(instanceUrl: account.instanceUrl, userId: userId)
+            } else {
+                newId = ServerAccount.makeId(for: account.instanceUrl)
+            }
+            if newId != account.id {
+                if activeId == account.id { activeId = newId }
+                accounts[idx].id = newId
+            }
+        }
+        store.set(keyPerUserMigrationV2Done, value: "true")
     }
 }

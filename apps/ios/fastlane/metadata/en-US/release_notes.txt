@@ -1,5 +1,5 @@
-• Sync is now tolerant of newer server versions — updates keep flowing instead of stalling, and stuck shapes recover automatically
-• Multiple accounts on the same server now keep fully separate local data
-• Fixed a crash when opening issues with certain comments
-• Owner-only settings are hidden for members, and destructive actions now ask for confirmation
-• Clearer error messages and general polish throughout
+• Fixed switching accounts mid-session showing the previous account's data
+• Signing out now removes that account's local data from the device
+• The offline banner now reflects only the active account's connection
+• The Exponential feedback board is protected — no delete controls anywhere
+• Sync tolerance, separate per-account data, and crash fixes from 0.9.2

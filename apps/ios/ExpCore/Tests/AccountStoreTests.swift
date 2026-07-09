@@ -11,6 +11,8 @@ final class AccountStoreTests: XCTestCase {
     // Mirrors AccountStore's private keychain keys (stable persisted names).
     private let keyAccounts = "accounts"
     private let keyActiveAccountId = "active_account_id"
+    private let keyMigrationV1 = "peruser_migration_v1"
+    private let keyMigrationV2 = "peruser_migration_v2"
 
     private final class FakeKeychain: KeychainStoring, @unchecked Sendable {
         private let lock = NSLock()
@@ -133,5 +135,63 @@ final class AccountStoreTests: XCTestCase {
         XCTAssertEqual(store.accounts.count, 1)
         XCTAssertEqual(store.accounts.first?.id, legacyId, "no userId → id unchanged")
         XCTAssertNil(store.accounts.first?.token, "token must be cleared to force re-login")
+    }
+
+    // v2 widening: a post-v1 install with a 4-byte (8 hex char) per-user id
+    // re-keys to the widened 8-byte (16 hex char) id, keeping its token.
+    func testMigrationV2WidensPerUserId() throws {
+        let fake = FakeKeychain()
+        let shortId = "abcd1234" // 8 hex chars = the legacy 4-byte width
+        let account = ServerAccount(
+            id: shortId, instanceUrl: url, token: "tok", userEmail: "a@x.com",
+            userName: "A", userId: "A", isAdmin: false, lastUsedAt: Date()
+        )
+        fake.set(keyAccounts, value: String(data: try JSONEncoder().encode([account]), encoding: .utf8))
+        fake.set(keyActiveAccountId, value: shortId)
+        fake.set(keyMigrationV1, value: "true") // v1 already ran on 0.9.2
+
+        let store = AccountStore(keychain: fake)
+        let widened = ServerAccount.makeId(instanceUrl: url, userId: "A")
+        XCTAssertEqual(widened.count, 16, "widened ids are 8 bytes / 16 hex chars")
+        XCTAssertEqual(store.accounts.first?.id, widened)
+        XCTAssertEqual(store.activeAccountId, widened)
+        XCTAssertEqual(store.accounts.first?.token, "tok")
+    }
+
+    // v2 widening: a legacy pending (url-only) short id widens to the url-only
+    // 8-byte id.
+    func testMigrationV2WidensPendingId() throws {
+        let fake = FakeKeychain()
+        let shortId = "0011eeff"
+        let account = ServerAccount(
+            id: shortId, instanceUrl: url, token: nil, userEmail: nil,
+            userName: nil, userId: nil, isAdmin: false, lastUsedAt: Date()
+        )
+        fake.set(keyAccounts, value: String(data: try JSONEncoder().encode([account]), encoding: .utf8))
+        fake.set(keyActiveAccountId, value: shortId)
+        fake.set(keyMigrationV1, value: "true")
+
+        let store = AccountStore(keychain: fake)
+        XCTAssertEqual(store.accounts.first?.id, ServerAccount.makeId(for: url))
+        XCTAssertEqual(store.activeAccountId, ServerAccount.makeId(for: url))
+    }
+
+    // v2 is idempotent: an already-widened 16-char id is left untouched.
+    func testMigrationV2LeavesWidenedIdsUntouched() throws {
+        let fake = FakeKeychain()
+        let widened = ServerAccount.makeId(instanceUrl: url, userId: "A")
+        let account = ServerAccount(
+            id: widened, instanceUrl: url, token: "tok", userEmail: "a@x.com",
+            userName: "A", userId: "A", isAdmin: false, lastUsedAt: Date()
+        )
+        fake.set(keyAccounts, value: String(data: try JSONEncoder().encode([account]), encoding: .utf8))
+        fake.set(keyActiveAccountId, value: widened)
+        fake.set(keyMigrationV1, value: "true")
+        // keyMigrationV2 unset → v2 runs but must no-op on the 16-char id.
+
+        let store = AccountStore(keychain: fake)
+        XCTAssertEqual(store.accounts.count, 1)
+        XCTAssertEqual(store.accounts.first?.id, widened)
+        XCTAssertEqual(store.activeAccountId, widened)
     }
 }

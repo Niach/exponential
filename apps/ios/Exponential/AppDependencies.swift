@@ -61,6 +61,15 @@ final class AppDependencies: @unchecked Sendable {
             }
             UserDefaults.standard.set(true, forKey: dbCleanupFlag)
         }
+        // One-shot: after the 4→8 byte id widening (AccountStore v2 re-key ran
+        // in AccountStore.init above, so auth.accounts already carry the widened
+        // ids), the old short-id DB files are orphaned. Sweep every -v4 file that
+        // no current account claims. Full resync of the survivors follows.
+        let dbCleanupV2Flag = "peruser_db_cleanup_v2"
+        if !UserDefaults.standard.bool(forKey: dbCleanupV2Flag) {
+            DatabaseManager.deleteOrphanDatabaseFiles(keeping: Set(auth.accounts.map(\.id)))
+            UserDefaults.standard.set(true, forKey: dbCleanupV2Flag)
+        }
         // Open a pool for every signed-in account so SyncManager can launch
         // parallel shape pipelines on first tick and the UI can bind
         // ValueObservations to any account's pool without a race. The order is

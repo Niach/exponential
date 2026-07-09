@@ -9,6 +9,9 @@ private let logger = Logger(subsystem: "at.exponential", category: "ShapeClient"
 public final class ShapeClient<T: Codable & Sendable>: Sendable {
     private let shapeName: String
     private let urlPath: String
+    // The owning account — reports are keyed by it so the offline banner only
+    // reflects the ACTIVE account's health.
+    private let accountId: String
     private let baseUrlProvider: @Sendable () -> String?
     private let tokenProvider: @Sendable () -> String?
     private let pool: DatabasePool
@@ -19,6 +22,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
     public init(
         shapeName: String,
         urlPath: String,
+        accountId: String,
         baseUrlProvider: @escaping @Sendable () -> String?,
         tokenProvider: @escaping @Sendable () -> String?,
         pool: DatabasePool,
@@ -26,6 +30,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
     ) {
         self.shapeName = shapeName
         self.urlPath = urlPath
+        self.accountId = accountId
         self.baseUrlProvider = baseUrlProvider
         self.tokenProvider = tokenProvider
         self.pool = pool
@@ -97,7 +102,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                 // HTTP-level failures already went through reportShape; this
                 // also catches transport errors so the sync banner can react.
                 if !(error is ShapeError) {
-                    SyncDebug.shared.reportTransportError(name: shapeName)
+                    SyncDebug.shared.reportTransportError(name: shapeName, accountId: accountId)
                 }
                 if isSchema {
                     consecutiveSchemaErrors += 1
@@ -191,7 +196,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         logger.info("[\(self.shapeName)] HTTP \(httpResponse.statusCode), \(data.count) bytes, live=\(wasLive), refetch=\(refetching)")
         SyncDebug.shared.log("[\(shapeName)] HTTP \(httpResponse.statusCode), \(data.count)B")
-        SyncDebug.shared.reportShape(name: shapeName, httpStatus: httpResponse.statusCode, isLive: wasLive)
+        SyncDebug.shared.reportShape(name: shapeName, httpStatus: httpResponse.statusCode, isLive: wasLive, accountId: accountId)
 
         if httpResponse.statusCode == 409 {
             // The shape rotated. Electric sends the replacement handle in the
