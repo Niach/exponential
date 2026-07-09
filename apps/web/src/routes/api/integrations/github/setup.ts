@@ -2,12 +2,17 @@ import { createFileRoute } from "@tanstack/react-router"
 import { db } from "@/db/connection"
 import { githubInstallationLinks, githubInstallations } from "@/db/schema"
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
-import { getInstallation } from "@/lib/integrations/github-app"
+import {
+  getInstallation,
+  githubOAuthAuthorizeUrl,
+  githubOAuthConfigured,
+} from "@/lib/integrations/github-app"
 import { mobileConnectedResponse } from "@/lib/integrations/github-return-page"
 import {
   consumeGithubSetupState,
   githubSetupStateWantsDialog,
   githubSetupStateWantsMobile,
+  mintGithubSetupState,
 } from "@/lib/integrations/github-setup-state"
 import {
   assertCanManageRepos,
@@ -23,7 +28,7 @@ import {
 // instances without the App's OAuth client secret; the primary claim path is
 // the OAuth callback (./callback.ts). Token minting itself doesn't need any of
 // this — the App JWT finds a repo's installation on demand.
-async function handleSetup(request: Request): Promise<Response> {
+export async function handleSetup(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const installationId = Number(url.searchParams.get(`installation_id`))
   const state = url.searchParams.get(`state`)
@@ -74,28 +79,68 @@ async function handleSetup(request: Request): Promise<Response> {
         })
         .returning({ id: githubInstallations.id })
 
+      // SECURITY (cross-account repo leak): the URL `installation_id` is
+      // attacker-controlled and UNVERIFIED. A valid signed `state` proves only
+      // that the caller launched a connect flow for THEIR OWN workspace — it is
+      // minted before any installation exists, so it binds user + nonce +
+      // workspace and NEVER binds an installation id. The old code here trusted
+      // the URL id anyway, so any signed-in user could hand-craft
+      // /api/integrations/github/setup?installation_id=<guessable>&state=<their
+      // own> and link a stranger's installation to their workspace, then read
+      // its private repos through the installation token. (GitHub does NOT sign
+      // this redirect, so "it came from GitHub's install page" cannot be
+      // assumed.)
+      //
+      // The only proof of GitHub *account* control is the OAuth
+      // `/user/installations` enumeration (the ./callback route), which links
+      // exactly the installations GitHub says the user can access. So whenever
+      // OAuth is configured — all of cloud, and any multi-tenant instance — we
+      // NEVER link from this redirect; we hand the caller into that OAuth claim
+      // to prove control. The direct link survives ONLY as the self-hosted
+      // fallback for instances with no OAuth client secret (single-tenant,
+      // trusted), which have no other link path.
       if (claim?.workspaceId && sessionUserId && row) {
-        // The round-trip proves control of the GitHub account (GitHub only
-        // lets account/org admins reach the install page), the state proves
-        // workspace intent — but the claimer must still be allowed to manage
-        // this workspace's repos. A failed check skips the link, never the
-        // installation recording.
-        try {
-          await assertCanManageRepos(sessionUserId, claim.workspaceId)
-          await db
-            .insert(githubInstallationLinks)
-            .values({
+        if (githubOAuthConfigured()) {
+          // Refresh caches for any workspace already legitimately linked to
+          // this installation (setup_action=update grants/revokes repos), then
+          // bounce into the proof-of-control OAuth flow instead of linking.
+          await invalidateRepoCacheForInstallation(installationId)
+          const oauthUrl = githubOAuthAuthorizeUrl(
+            mintGithubSetupState(sessionUserId, {
+              dialog: fromDialog,
+              mobile: fromMobile,
               workspaceId: claim.workspaceId,
-              githubInstallationId: row.id,
-              createdByUserId: sessionUserId,
+              oauth: true,
             })
-            .onConflictDoNothing()
-          invalidateRepoCache(claim.workspaceId)
-        } catch (err) {
-          console.warn(
-            `[github-setup] link skipped (cannot manage workspace ${claim.workspaceId}):`,
-            err
           )
+          if (oauthUrl) {
+            return new Response(null, {
+              status: 302,
+              headers: { location: oauthUrl },
+            })
+          }
+          // Falls through to `ok` if the URL couldn't be minted — installation
+          // stays recorded but unlinked (claimable later via the OAuth flow).
+        } else {
+          // Self-hosted fallback (no OAuth client secret ⇒ no proof-of-control
+          // path exists). Single-tenant/trusted only.
+          try {
+            await assertCanManageRepos(sessionUserId, claim.workspaceId)
+            await db
+              .insert(githubInstallationLinks)
+              .values({
+                workspaceId: claim.workspaceId,
+                githubInstallationId: row.id,
+                createdByUserId: sessionUserId,
+              })
+              .onConflictDoNothing()
+            invalidateRepoCache(claim.workspaceId)
+          } catch (err) {
+            console.warn(
+              `[github-setup] link skipped (cannot manage workspace ${claim.workspaceId}):`,
+              err
+            )
+          }
         }
       }
 
