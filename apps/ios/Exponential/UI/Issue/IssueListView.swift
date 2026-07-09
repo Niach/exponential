@@ -136,10 +136,17 @@ struct IssueListView: View {
             // 16pt listRowInsets alone govern the gutter (Android parity) — the
             // default extra margin made rows sit noticeably inboard of the bar.
             .contentMargins(.horizontal, 0, for: .scrollContent)
+            // …and the top margin: the default put ~40pt of dead space between
+            // the filter chips and the first section header (Android: 8dp bar
+            // padding + 3dp flow + the header's own 8dp = ~19dp total).
+            .contentMargins(.top, 0, for: .scrollContent)
             // Kill List's implicit 44pt minimum row height: Android rows are
             // content-hugging (~40dp) with 3dp gaps, and the floor made every
             // iOS row visibly chunkier than its Android twin (EXP-24 redux).
             .environment(\.defaultMinListRowHeight, 0)
+            // Sections flow like Android's single 3dp-spaced column — without
+            // this, plain List inserts its own inter-section band.
+            .listSectionSpacing(0)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .refreshable {
