@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { auth } from "@/lib/auth"
+import { oauthReturnDeepLink } from "@/lib/deep-link"
 
 const FAILED_REDIRECT = `/auth/login?error=mobile_oauth_failed`
-const APP_DEEP_LINK = `exp://oauth-return`
 const STATE_COOKIE_NAME = `exp_mobile_oauth_state`
 const CLEAR_STATE_COOKIE = `${STATE_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`
 
@@ -15,8 +15,8 @@ function readCookie(cookieHeader: string, name: string): string | null {
   return decodeURIComponent(entry.slice(name.length + 1))
 }
 
-// The final hop hands off to the native app via the `exp://` custom scheme.
-// A bare 302 to `exp://` leaves a real desktop browser tab spinning forever —
+// The final hop hands off to the native app via the `exponential://` custom
+// scheme. A bare 302 to it leaves a real desktop browser tab spinning forever —
 // the OS grabs the scheme but the browser can never "complete" the navigation.
 // So we serve a 200 HTML page that fires the deep link from JS (iOS's
 // ASWebAuthenticationSession and desktop's registered handler both intercept
@@ -124,18 +124,18 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           })
         }
 
-        // Carry the token in BOTH the query AND the fragment (EXP-21). The
-        // handoff is a client-side `window.location.href = "exp://…"`, and when
-        // a browser hands a custom scheme to the OS it drops the URL #fragment
-        // (a client-only construct) — so on Linux the desktop app's xdg handler
-        // received a tokenless `exp://oauth-return` and never signed in. The
-        // query survives that hop; the desktop parser reads it. iOS's
-        // ASWebAuthenticationSession keeps the whole URL and reads the fragment,
-        // so keep the fragment too rather than switching to query-only.
-        const enc = encodeURIComponent(token)
-        const target = `${APP_DEEP_LINK}?token=${enc}#token=${enc}`
-        // 200 HTML (not a 302 to exp://) so the browser tab renders a
-        // confirmation instead of spinning on an uncompletable navigation.
+        // The token rides in BOTH the query AND the fragment (EXP-21). The
+        // handoff is a client-side `window.location.href = "exponential://…"`,
+        // and when a browser hands a custom scheme to the OS it drops the URL
+        // #fragment (a client-only construct) — so on Linux the desktop app's
+        // xdg handler received a tokenless `exponential://oauth-return` and
+        // never signed in. The query survives that hop; the desktop parser
+        // reads it. iOS's ASWebAuthenticationSession keeps the whole URL and
+        // reads the fragment, so keep the fragment too rather than switching
+        // to query-only. (Both forms are built in lib/deep-link.ts.)
+        const target = oauthReturnDeepLink(token)
+        // 200 HTML (not a 302 to the custom scheme) so the browser tab renders
+        // a confirmation instead of spinning on an uncompletable navigation.
         return new Response(renderReturnPage(target), {
           status: 200,
           headers: {

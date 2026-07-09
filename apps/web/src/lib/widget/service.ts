@@ -10,8 +10,14 @@ import {
   projects,
   widgetConfigs,
   widgetSubmissions,
+  workspaces,
 } from "@/db/schema"
+import type { ProjectType } from "@/lib/domain"
 import { generateTxId } from "@/lib/trpc"
+import {
+  appBaseUrl,
+  buildIssueDeepLinkPath,
+} from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import {
   buildAttachmentStorageKey,
@@ -41,11 +47,15 @@ export class WidgetRequestError extends Error {
   }
 }
 
-// The widget config row plus the trash/archive state of its target project, so
-// the submit + config paths can treat a trashed board as unavailable.
+// The widget config row plus the trash/archive/publicness state of its target
+// project (and both slugs), so the submit + config paths can treat a trashed
+// board as unavailable and submit can mint the public issue URL (EXP-42a).
 export type WidgetConfigWithProject = typeof widgetConfigs.$inferSelect & {
+  projectSlug: string | null
+  projectType: ProjectType | null
   projectDeletedAt: Date | null
   projectArchivedAt: Date | null
+  workspaceSlug: string | null
 }
 
 export async function loadWidgetConfigByKey(
@@ -57,11 +67,15 @@ export async function loadWidgetConfigByKey(
   const [row] = await db
     .select({
       config: widgetConfigs,
+      projectSlug: projects.slug,
+      projectType: projects.type,
       projectDeletedAt: projects.deletedAt,
       projectArchivedAt: projects.archivedAt,
+      workspaceSlug: workspaces.slug,
     })
     .from(widgetConfigs)
     .leftJoin(projects, eq(projects.id, widgetConfigs.projectId))
+    .leftJoin(workspaces, eq(workspaces.id, widgetConfigs.workspaceId))
     .where(eq(widgetConfigs.publicKey, key))
     .limit(1)
   if (!row) {
@@ -69,8 +83,11 @@ export async function loadWidgetConfigByKey(
   }
   return {
     ...row.config,
+    projectSlug: row.projectSlug,
+    projectType: row.projectType,
     projectDeletedAt: row.projectDeletedAt,
     projectArchivedAt: row.projectArchivedAt,
+    workspaceSlug: row.workspaceSlug,
   }
 }
 
@@ -126,6 +143,10 @@ function parseJsonField(
 export interface WidgetSubmitResult {
   issueId: string
   identifier: string
+  // EXP-42a: absolute public issue URL when the target project is a live
+  // public feedback board; null otherwise. ADDITIVE — cached third-party
+  // widget bundles that predate the field simply ignore it.
+  url: string | null
 }
 
 // The whole submit pipeline past key/origin/rate gating (which the route owns
@@ -207,23 +228,29 @@ export async function createWidgetSubmission(args: {
     })
   }
 
+  // EXP-42b: user text + screenshot ONLY — reporter/page/env metadata stays in
+  // the widget_submissions row below (members-only via widgets.submissionForIssue).
   const description = buildWidgetDescription({
     userText: fields.data.description,
     screenshotAttachmentId: attachmentId,
-    widgetName: config.name,
-    reporterName: fields.data.name ?? null,
-    reporterEmail: fields.data.email ?? null,
-    meta: {
-      pageUrl: meta.data.url ?? null,
-      userAgent: args.userAgent,
-      viewportWidth: meta.data.viewportWidth ?? null,
-      viewportHeight: meta.data.viewportHeight ?? null,
-      screenWidth: meta.data.screenWidth ?? null,
-      screenHeight: meta.data.screenHeight ?? null,
-      devicePixelRatio: meta.data.devicePixelRatio ?? null,
-    },
-    customData,
   })
+
+  // EXP-42a: link the "Filed as EXP-n" confirmation to the public issue page
+  // when the target project is a live public feedback board. Soft-deleted
+  // projects were already rejected above. buildIssueDeepLinkPath encodes each
+  // segment — legacy prefixes predate the letter-led-alphanumeric floor, so
+  // identifiers can contain path-breaking characters like `#`.
+  const publicIssueUrl = (identifier: string): string | null =>
+    config.projectType === `feedback` &&
+    config.projectArchivedAt == null &&
+    config.workspaceSlug &&
+    config.projectSlug
+      ? `${appBaseUrl()}${buildIssueDeepLinkPath({
+          workspaceSlug: config.workspaceSlug,
+          projectSlug: config.projectSlug,
+          identifier,
+        })}`
+      : null
 
   try {
     // Direct insert with the attachment row in the SAME transaction: the
@@ -242,7 +269,9 @@ export async function createWidgetSubmission(args: {
           title: fields.data.title,
           status: `backlog`,
           priority: `none`,
-          description,
+          // Post-EXP-42b a text-less, screenshot-less submission has an empty
+          // description — store null like the tRPC mutations do.
+          description: description || null,
           creatorId: config.widgetUserId,
         })
         .returning({ id: issues.id, identifier: issues.identifier })
@@ -296,7 +325,11 @@ export async function createWidgetSubmission(args: {
         customData,
       })
 
-      return { issueId: issue.id, identifier: issue.identifier }
+      return {
+        issueId: issue.id,
+        identifier: issue.identifier,
+        url: publicIssueUrl(issue.identifier),
+      }
     })
   } catch (error) {
     if (storageKey) {

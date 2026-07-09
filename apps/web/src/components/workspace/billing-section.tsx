@@ -43,6 +43,16 @@ function formatStorage(mb: number): string {
   return `${Math.round(mb)} MB`
 }
 
+// Scroll the plan-comparison grid (`#plans` below) into view. A JS scroll
+// rather than an `<a href="#plans">` so repeat clicks keep working — hash
+// navigation is a no-op once the hash is already set. Also the target of the
+// repositories section's upgrade nudge (EXP-35).
+export function scrollToPlans() {
+  document
+    .getElementById(`plans`)
+    ?.scrollIntoView({ behavior: `smooth`, block: `start` })
+}
+
 function UsageBar({
   label,
   current,
@@ -196,7 +206,10 @@ export function WorkspaceBillingSection({
                       ? setShowSeatDialog(true)
                       : isPaid
                         ? handlePortal()
-                        : setShowPlans(true)
+                        : // Free plan: the comparison grid is always rendered
+                          // below — scroll it into view (EXP-35: the old
+                          // setShowPlans(true) was a no-op on this branch).
+                          scrollToPlans()
                   }
                   disabled={!canAdjustSeats && isPaid && portalLoading}
                 >
@@ -212,17 +225,22 @@ export function WorkspaceBillingSection({
         </CardContent>
       </Card>
 
+      {/* `plans` anchors the upgrade nudges (the seats-full button above and
+          the repositories section's plan-cap nudge). Only one branch renders,
+          so the id stays unique. */}
       {plan === `free` ? (
-        <PlanComparison
-          currentPlan={plan}
-          workspaceId={workspaceId}
-          proProductId={proProductId}
-          businessProductId={businessProductId}
-          businessYearlyProductId={businessYearlyProductId}
-          subscription={subscription}
-        />
+        <div id="plans" className="scroll-mt-6">
+          <PlanComparison
+            currentPlan={plan}
+            workspaceId={workspaceId}
+            proProductId={proProductId}
+            businessProductId={businessProductId}
+            businessYearlyProductId={businessYearlyProductId}
+            subscription={subscription}
+          />
+        </div>
       ) : (
-        <div>
+        <div id="plans" className="scroll-mt-6">
           <Button
             variant="ghost"
             size="sm"

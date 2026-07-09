@@ -1,11 +1,13 @@
+import { githubConnectedDeepLink } from "@/lib/deep-link"
+
 // Deep link a native client listens for after launching the GitHub install or
 // OAuth-claim flow in an external browser/Custom Tab. Fired from a 200 HTML
-// page (not a 302 to exp://) for the same reason as /api/mobile-oauth-return:
-// a bare redirect to a custom scheme leaves the browser tab spinning on an
-// uncompletable navigation, while a rendered page both fires the handoff from
-// JS and shows a confirmation the browser can display. Shared by the install
-// setup route and the OAuth claim callback.
-export const MOBILE_DEEP_LINK = `exp://github-connected`
+// page (not a 302 to exponential://) for the same reason as
+// /api/mobile-oauth-return: a bare redirect to a custom scheme leaves the
+// browser tab spinning on an uncompletable navigation, while a rendered page
+// both fires the handoff from JS and shows a confirmation the browser can
+// display. Shared by the install setup route and the OAuth claim callback.
+const MOBILE_DEEP_LINK = githubConnectedDeepLink()
 
 export function renderGithubConnectedPage(): string {
   return `<!doctype html>

@@ -67,7 +67,9 @@ export class TokenBucketLimiter {
   }
 }
 
-function envInt(name: string, fallback: number): number {
+// Also reused by the other public-write limiters (public-board issue create,
+// the /api/contact endpoint).
+export function envInt(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] ?? ``, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
@@ -90,10 +92,14 @@ export function getWidgetRateLimiters() {
   return { perKeyLimiter, perIpLimiter }
 }
 
-// First hop of x-forwarded-for: every deploy target (Caddy locally, Traefik
-// on Coolify) fronts the Bun server, so the direct peer address is the proxy.
+// LAST hop of x-forwarded-for: every deploy target (Caddy locally, Traefik
+// on Coolify) fronts the Bun server and APPENDS the real peer address to any
+// client-supplied x-forwarded-for, so the rightmost entry is the only
+// proxy-attested one. The leftmost is attacker-controlled — keying buckets on
+// it let a header-rotating client mint a fresh limit per request.
 export function clientIpFromRequest(request: Request): string {
   const forwarded = request.headers.get(`x-forwarded-for`)
-  const first = forwarded?.split(`,`)[0]?.trim()
-  return first || `unknown`
+  const hops = forwarded?.split(`,`) ?? []
+  const last = hops[hops.length - 1]?.trim()
+  return last || `unknown`
 }

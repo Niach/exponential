@@ -149,10 +149,16 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   ).toBeVisible()
   await expect(page.getByText(`Spam ${app.namespace}`)).toHaveCount(0)
 
-  // Open the issue: metadata block + reporter email + screenshot render.
+  // Open the issue: the user's text + screenshot render from the description,
+  // while reporter/page/env metadata lives ONLY in the members-only
+  // "Reported via widget" card (EXP-42b — no PII in descriptions).
   await page.getByText(`Widget report ${app.namespace}`).click()
+  await expect(page.getByText(`Steps: clicked the broken button`)).toBeVisible()
   await expect(page.getByText(`Reported via widget`)).toBeVisible()
-  await expect(page.getByText(`reporter@example.com`)).toBeVisible()
+  await expect(
+    page.getByText(`Rita Reporter <reporter@example.com>`)
+  ).toBeVisible()
+  await expect(page.getByText(`https://example.com/checkout`)).toBeVisible()
   await expect(
     page.locator(`img[src*="/api/attachments/"]`).first()
   ).toBeVisible()

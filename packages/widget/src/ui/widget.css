@@ -248,6 +248,18 @@
 .exp-success-title { font-size: 14px; font-weight: 600; }
 .exp-success-sub { font-size: 12.5px; color: var(--exp-muted-foreground); }
 
+/* Override the UA anchor defaults (blue/visited-purple) — the shadow root's
+   `:host { all: initial }` does not reset per-element UA styles. */
+.exp-success-link {
+  color: var(--exp-accent);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.exp-success-link:hover { filter: brightness(1.08); }
+.exp-success-link:focus-visible { outline: 2px solid var(--exp-foreground); outline-offset: 2px; }
+
 .exp-spinner {
   width: 14px;
   height: 14px;

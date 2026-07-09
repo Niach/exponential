@@ -1,13 +1,29 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
-import { Megaphone } from "lucide-react"
+import { Megaphone, Plus } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { TRPCClientError } from "@trpc/client"
-import { issueStatusOrder, type IssueStatus } from "@/lib/domain"
+import {
+  formatDateForMutation,
+  issueStatusOrder,
+  type IssueStatus,
+} from "@/lib/domain"
+import { compareIssuesForGroup } from "@/lib/project-board"
 import { getStatusConfig, StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { PriorityIcon } from "@/components/issue-properties/priority-dropdown"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { PoweredByFooter } from "@/components/workspace/powered-by-footer"
 import { PublicIssueView } from "./public-issue-view"
 
@@ -157,10 +173,14 @@ function PublicBoard({
       list.push(link)
       labelsByIssue.set(link.issueId, list)
     }
+    // EXP-38: same canonical in-group ordering as the member project board.
+    const today = formatDateForMutation(new Date()) ?? ``
     return issueStatusOrder
       .map((status) => ({
         status,
-        issues: data.issues.filter((issue) => issue.status === status),
+        issues: data.issues
+          .filter((issue) => issue.status === status)
+          .sort(compareIssuesForGroup(status, today)),
       }))
       .filter((group) => group.issues.length > 0)
       .map((group) => ({ ...group, labelsByIssue }))
@@ -179,12 +199,18 @@ function PublicBoard({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">{data.board.projectName}</h1>
-        <p className="text-sm text-muted-foreground">
-          {data.board.workspaceName} · {data.issues.length}{` `}
-          {data.issues.length === 1 ? `issue` : `issues`}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">{data.board.projectName}</h1>
+          <p className="text-sm text-muted-foreground">
+            {data.board.workspaceName} · {data.issues.length}{` `}
+            {data.issues.length === 1 ? `issue` : `issues`}
+          </p>
+        </div>
+        <PublicCreateIssueDialog
+          workspaceSlug={workspaceSlug}
+          projectSlug={data.board.projectSlug}
+        />
       </div>
 
       {grouped.map(({ status, issues: groupIssues, labelsByIssue }) => (
@@ -242,5 +268,181 @@ function PublicBoard({
         <p className="text-sm text-muted-foreground">No issues yet.</p>
       )}
     </div>
+  )
+}
+
+// EXP-42c: public "Create issue" — works for anonymous AND signed-in
+// non-member visitors (publicBoard.createIssue is a publicProcedure). On
+// success the dialog shows the new identifier as a link to the public issue
+// page; the board list itself is a one-shot query and refreshes on navigation.
+function PublicCreateIssueDialog({
+  workspaceSlug,
+  projectSlug,
+}: {
+  workspaceSlug: string
+  projectSlug: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState(``)
+  const [description, setDescription] = useState(``)
+  const [email, setEmail] = useState(``)
+  // Honeypot — visually hidden; real visitors never fill it.
+  const [website, setWebsite] = useState(``)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [createdIdentifier, setCreatedIdentifier] = useState<string | null>(
+    null
+  )
+
+  const reset = () => {
+    setTitle(``)
+    setDescription(``)
+    setEmail(``)
+    setWebsite(``)
+    setError(null)
+    setCreatedIdentifier(null)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!title.trim() || submitting) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const result = await trpc.publicBoard.createIssue.mutate({
+        workspaceSlug,
+        projectSlug,
+        title: title.trim(),
+        description,
+        email: email.trim() || undefined,
+        website: website || undefined,
+      })
+      setCreatedIdentifier(result.identifier)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to create issue`)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) reset()
+        setOpen(next)
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <Plus className="size-4" />
+          Create issue
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[26rem]">
+        <DialogHeader>
+          <DialogTitle>Create issue</DialogTitle>
+        </DialogHeader>
+        {createdIdentifier ? (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Thanks! Your issue was filed as{` `}
+              <Link
+                to="/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
+                params={{
+                  workspaceSlug,
+                  projectSlug,
+                  issueIdentifier: createdIdentifier,
+                }}
+                onClick={() => {
+                  reset()
+                  setOpen(false)
+                }}
+                className="font-mono text-foreground underline underline-offset-2"
+              >
+                {createdIdentifier}
+              </Link>
+              .
+            </p>
+            <DialogFooter>
+              <Button
+                onClick={() => {
+                  reset()
+                  setOpen(false)
+                }}
+              >
+                Done
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="public-issue-title">Title</Label>
+              <Input
+                id="public-issue-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="What's wrong or missing?"
+                maxLength={500}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="public-issue-description">Description</Label>
+              <Textarea
+                id="public-issue-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Add details (optional)"
+                maxLength={10_000}
+                rows={4}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="public-issue-email">
+                Email for updates (optional)
+              </Label>
+              <Input
+                id="public-issue-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                maxLength={320}
+              />
+            </div>
+            <div
+              className="absolute -left-[9999px] top-auto h-px w-px overflow-hidden"
+              aria-hidden="true"
+            >
+              <Input
+                name="website"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  reset()
+                  setOpen(false)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!title.trim() || submitting}>
+                {submitting ? `Creating...` : `Create issue`}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }

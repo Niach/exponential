@@ -10,6 +10,7 @@
     "migrate": "drizzle-kit migrate",
     "migrate:generate": "drizzle-kit generate",
     "backfill:default-branches": "bun scripts/backfill-default-branches.ts",
+    "backfill:widget-descriptions": "bun scripts/scrub-widget-descriptions.ts",
     "seed:screenshots": "bun scripts/seed-screenshots.ts",
     "psql": "dotenvx run -- sh -c 'psql \"$DATABASE_URL\"'",
     "serve": "vite preview",

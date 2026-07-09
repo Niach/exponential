@@ -23,6 +23,7 @@ import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oau
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedFeedbackRouteImport } from './routes/_authenticated/feedback'
@@ -136,6 +137,11 @@ const ApiMcpRoute = ApiMcpRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiContactRoute = ApiContactRouteImport.update({
+  id: '/api/contact',
+  path: '/api/contact',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
@@ -394,6 +400,7 @@ export interface FileRoutesByFullPath {
   '/feedback': typeof AuthenticatedFeedbackRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
+  '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -452,6 +459,7 @@ export interface FileRoutesByTo {
   '/feedback': typeof AuthenticatedFeedbackRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
+  '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -514,6 +522,7 @@ export interface FileRoutesById {
   '/_authenticated/feedback': typeof AuthenticatedFeedbackRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
+  '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
@@ -576,6 +585,7 @@ export interface FileRouteTypes {
     | '/feedback'
     | '/onboarding'
     | '/api/auth-config'
+    | '/api/contact'
     | '/api/health'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -634,6 +644,7 @@ export interface FileRouteTypes {
     | '/feedback'
     | '/onboarding'
     | '/api/auth-config'
+    | '/api/contact'
     | '/api/health'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -695,6 +706,7 @@ export interface FileRouteTypes {
     | '/_authenticated/feedback'
     | '/_authenticated/onboarding'
     | '/api/auth-config'
+    | '/api/contact'
     | '/api/health'
     | '/api/mcp'
     | '/api/mobile-oauth-return'
@@ -754,6 +766,7 @@ export interface RootRouteChildren {
   Char91DotwellKnownChar93OauthAuthorizationServerRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ApiAuthConfigRoute: typeof ApiAuthConfigRoute
+  ApiContactRoute: typeof ApiContactRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
@@ -888,6 +901,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/contact': {
+      id: '/api/contact'
+      path: '/api/contact'
+      fullPath: '/api/contact'
+      preLoaderRoute: typeof ApiContactRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth-config': {
@@ -1289,6 +1309,7 @@ const rootRouteChildren: RootRouteChildren = {
   Char91DotwellKnownChar93OauthProtectedResourceRoute:
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
   ApiAuthConfigRoute: ApiAuthConfigRoute,
+  ApiContactRoute: ApiContactRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,

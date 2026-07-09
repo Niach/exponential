@@ -16,7 +16,7 @@ type UiPhase =
   | { kind: `open` }
   | { kind: `annotating` }
   | { kind: `submitting` }
-  | { kind: `success`; identifier: string | null }
+  | { kind: `success`; identifier: string | null; url: string | null }
 
 export interface Screenshot {
   blob: Blob
@@ -168,12 +168,18 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       if (result.ok) {
         replaceBase(null)
         setCaptureFailed(false)
-        setPhase({ kind: `success`, identifier: result.identifier })
+        setPhase({
+          kind: `success`,
+          identifier: result.identifier,
+          url: result.url,
+        })
+        // Leave the success card up longer when it carries a link to the
+        // public issue, so the reporter has a chance to click through.
         window.setTimeout(() => {
           setPhase((current) =>
             current.kind === `success` ? { kind: `closed` } : current
           )
-        }, 2_500)
+        }, result.url ? 6_000 : 2_500)
         return null
       }
       setPhase({ kind: `open` })
@@ -243,6 +249,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           successIdentifier={
             phase.kind === `success` ? phase.identifier : null
           }
+          successUrl={phase.kind === `success` ? phase.url : null}
           position={position}
           screenshot={screenshot}
           captureFailed={captureFailed}

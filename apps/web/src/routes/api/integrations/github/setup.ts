@@ -38,7 +38,7 @@ export async function handleSetup(request: Request): Promise<Response> {
   // root — GitHub App management lives in workspace settings → Repositories,
   // which self-detects on focus. A mobile-marked state (native client launched
   // the install in an external browser) instead gets a 200 page that fires the
-  // exp://github-connected deep link to hand the user back to the app.
+  // exponential://github-connected deep link to hand the user back to the app.
   const fromMobile = githubSetupStateWantsMobile(state)
   const fromDialog = githubSetupStateWantsDialog(state)
   const okLocation = fromDialog ? `/integrations/github/installed` : `/`

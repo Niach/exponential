@@ -3,7 +3,7 @@ import type { EnvMeta } from "./env-meta"
 import { screenshotFilename } from "./capture/image"
 
 export type SubmitResult =
-  | { ok: true; identifier: string | null }
+  | { ok: true; identifier: string | null; url: string | null }
   | { ok: false; message: string }
 
 export async function submitFeedback(args: {
@@ -55,8 +55,15 @@ export async function submitFeedback(args: {
     }
     const body = (await response.json().catch(() => null)) as {
       identifier?: string
+      // Absolute public issue URL when the target project is a live public
+      // feedback board; null otherwise. Absent on older servers.
+      url?: string | null
     } | null
-    return { ok: true, identifier: body?.identifier ?? null }
+    return {
+      ok: true,
+      identifier: body?.identifier ?? null,
+      url: typeof body?.url === `string` ? body.url : null,
+    }
   } catch {
     return { ok: false, message: `Network error. Please try again.` }
   }

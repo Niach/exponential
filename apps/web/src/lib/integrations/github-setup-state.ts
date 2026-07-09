@@ -23,7 +23,7 @@ interface SetupStatePayload {
   w?: string // workspace the claim links the installation to
   o?: boolean // OAuth-claim purpose (consumed only by the OAuth callback)
   d?: boolean // launched from an in-app dialog → self-closing landing page
-  m?: boolean // launched from a native mobile client → exp:// deep-link page
+  m?: boolean // launched from a native mobile client → exponential:// deep-link page
   n: string // single-use nonce
   exp: number // unix ms expiry
 }
@@ -101,7 +101,8 @@ export function githubSetupStateWantsDialog(state: string | null): boolean {
 
 // Same landing-page-choice contract as the dialog flag: whether the install
 // was launched from a native mobile client, which wants a 200 page firing the
-// exp:// deep link instead of a web redirect. Never security-relevant — read
+// exponential:// deep link instead of a web redirect. Never security-relevant —
+// read
 // without requiring a valid signature so even an expired token still hands
 // the user back to the app.
 export function githubSetupStateWantsMobile(state: string | null): boolean {
@@ -160,7 +161,7 @@ export interface GithubClaimTicket {
   u: string // claiming user id
   w: string // workspace the links target
   ids: number[] // installation ids the OAuth enumeration proved control of
-  m?: boolean // mobile flow → claim page shows the exp:// return card
+  m?: boolean // mobile flow → claim page shows the exponential:// return card
   d?: boolean // dialog flow → claim page self-closes into the opener
   exp: number
 }

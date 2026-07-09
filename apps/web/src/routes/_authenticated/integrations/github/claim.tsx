@@ -12,6 +12,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { trpc } from "@/lib/trpc-client"
+import { githubConnectedDeepLink } from "@/lib/deep-link"
 
 // The OAuth claim flow's account picker: the callback verified (via GitHub's
 // /user/installations) which App installations the user controls; when there
@@ -19,13 +20,13 @@ import { trpc } from "@/lib/trpc-client"
 // GitHub accounts to connect to the workspace. Also the shared landing page
 // for the claim flow's error states (?error=…). Mirrors installed.tsx's
 // arrival modes: desktop popup (self-closes into the opener), mobile browser
-// tab (exp:// return card), plain tab (Continue link).
+// tab (exponential:// return card), plain tab (Continue link).
 interface ClaimSearch {
   ticket?: string
   error?: string
 }
 
-const MOBILE_DEEP_LINK = `exp://github-connected`
+const MOBILE_DEEP_LINK = githubConnectedDeepLink()
 
 const ERROR_COPY: Record<string, { title: string; body: string }> = {
   session: {

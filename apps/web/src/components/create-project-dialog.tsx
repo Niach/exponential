@@ -196,7 +196,13 @@ export function CreateProjectDialog({
               <Input
                 id="project-prefix"
                 value={prefix}
-                onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+                // Alphanumeric only — the server floor rejects symbol
+                // prefixes (EXP-46).
+                onChange={(e) =>
+                  setPrefix(
+                    e.target.value.replace(/[^A-Za-z0-9]/g, ``).toUpperCase()
+                  )
+                }
                 placeholder="e.g. API"
                 maxLength={10}
               />

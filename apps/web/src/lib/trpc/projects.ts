@@ -93,7 +93,18 @@ export const projectsRouter = router({
       z.object({
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
-        prefix: z.string().min(1).max(10),
+        // Identifiers are minted as `{PREFIX}-{number}` and the cross-client
+        // issue-ref token contract (lib/issue-refs.ts) only matches
+        // letter-led alphanumeric prefixes — reject whitespace/symbol
+        // prefixes at the door so a project can never mint unreferenceable
+        // identifiers (EXP-46 hardening; stored uppercased below).
+        prefix: z
+          .string()
+          .trim()
+          .regex(
+            /^[A-Za-z][A-Za-z0-9]{0,9}$/,
+            `Prefix must be 1-10 letters or digits, starting with a letter`
+          ),
         color: z
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
@@ -137,7 +148,11 @@ export const projectsRouter = router({
         await assertWorkspaceOwner(ctx.session.user.id, input.workspaceId)
       }
 
-      const slug = slugify(input.name)
+      // Symbol/emoji-only names slugify to `` — fall back to the (alphanumeric)
+      // prefix, then a generic root, mirroring workspaces' uniqueSlug fallback,
+      // so a project can never insert the unroutable slug '' (EXP-46).
+      const slug =
+        slugify(input.name) || slugify(input.prefix) || `project`
       let result
       try {
         result = await ctx.db.transaction(async (tx) => {

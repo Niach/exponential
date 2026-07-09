@@ -38,6 +38,7 @@ import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
+import { scrollToPlans } from "@/components/workspace/billing-section"
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type RepoRowData = RepoList[number]
@@ -274,9 +275,11 @@ export function WorkspaceRepositoriesSection({
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="min-w-0 flex-1">{limitError}</span>
-              <Button size="sm" variant="outline" asChild>
-                {/* Deep link to the billing / plan-comparison section above. */}
-                <a href="#billing">Upgrade</a>
+              {/* JS scroll to the plan-comparison grid in the billing section
+                  above (not an <a href="#…">) so repeat clicks always scroll
+                  even when the hash is already set (EXP-35). */}
+              <Button size="sm" variant="outline" onClick={scrollToPlans}>
+                Upgrade
               </Button>
             </div>
           )}

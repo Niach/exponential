@@ -16,21 +16,52 @@ const priorityRank: Record<IssuePriority, number> = {
   none: 4,
 }
 
-function isIssueOverdue(issue: Issue, today: string) {
-  return (
-    issue.dueDate !== null &&
-    issue.dueDate < today &&
-    issue.status !== `done` &&
-    issue.status !== `cancelled` &&
-    issue.status !== `duplicate`
-  )
+// The minimal shape the canonical comparator needs — `Issue` satisfies it, and
+// so do the public feedback board's tRPC rows (whose timestamps arrive as
+// strings rather than Dates).
+export interface SortableIssue {
+  priority: IssuePriority
+  dueDate: string | null
+  number: number
+  completedAt: Date | string | null
+  updatedAt: Date | string
 }
 
-function compareIssuesForGroup(today: string) {
-  return (a: Issue, b: Issue) => {
-    const aOverdue = isIssueOverdue(a, today)
-    const bOverdue = isIssueOverdue(b, today)
+// Electric rows carry real Dates, but tRPC-serialized rows (public board) and
+// optimistic upserts carry strings — Electric's `YYYY-MM-DD hh:mm:ss…+00`
+// vs ISO `…T…Z`. Normalize the space to `T` and pad a bare `±hh` offset to
+// `±hh:00` (JS Date rejects hour-only offsets) so mixed formats compare as
+// real instants (EXP-38 timestamp gotcha).
+function timestampMs(value: Date | string): number {
+  if (value instanceof Date) return value.getTime()
+  const iso = value.replace(` `, `T`).replace(/([+-]\d{2})$/, `$1:00`)
+  return new Date(iso).getTime()
+}
 
+// EXP-38 canonical in-group comparator — the cross-platform contract, mirrored
+// byte-identically on iOS, Android, and desktop (group ORDER itself stays
+// `issueStatusOrder`):
+// - backlog/todo/in_progress: overdue first (dueDate < today), then priority
+//   urgent(0) < high < medium < low < none(4), then dueDate asc with nulls
+//   LAST, then issue `number` asc NUMERICALLY (never the identifier string —
+//   "EXP-10" sorts before "EXP-9" lexicographically).
+// - done: (completedAt ?? updatedAt) DESC — latest completed first.
+// - cancelled/duplicate: updatedAt DESC.
+export function compareIssuesForGroup(status: IssueStatus, today: string) {
+  return (a: SortableIssue, b: SortableIssue): number => {
+    if (status === `done`) {
+      return (
+        timestampMs(b.completedAt ?? b.updatedAt) -
+        timestampMs(a.completedAt ?? a.updatedAt)
+      )
+    }
+
+    if (status === `cancelled` || status === `duplicate`) {
+      return timestampMs(b.updatedAt) - timestampMs(a.updatedAt)
+    }
+
+    const aOverdue = a.dueDate !== null && a.dueDate < today
+    const bOverdue = b.dueDate !== null && b.dueDate < today
     if (aOverdue !== bOverdue) {
       return aOverdue ? -1 : 1
     }
@@ -40,14 +71,14 @@ function compareIssuesForGroup(today: string) {
       return priorityDiff
     }
 
-    if (a.dueDate !== null && b.dueDate !== null) {
-      return a.dueDate.localeCompare(b.dueDate)
+    if (a.dueDate !== null && b.dueDate !== null && a.dueDate !== b.dueDate) {
+      // Safe as a string compare — `dueDate` is a plain DATE column.
+      return a.dueDate < b.dueDate ? -1 : 1
     }
+    if (a.dueDate !== null && b.dueDate === null) return -1
+    if (a.dueDate === null && b.dueDate !== null) return 1
 
-    if (a.dueDate !== null) return -1
-    if (b.dueDate !== null) return 1
-
-    return 0
+    return a.number - b.number
   }
 }
 
@@ -102,11 +133,12 @@ export function buildVisibleIssueGroups(
   statuses: IssueFilters[`statuses`]
 ) {
   const today = formatDateForMutation(new Date()) ?? ``
-  const compare = compareIssuesForGroup(today)
 
   const groups = issueStatusOrder.map((status) => ({
     status,
-    issues: issues.filter((issue) => issue.status === status).sort(compare),
+    issues: issues
+      .filter((issue) => issue.status === status)
+      .sort(compareIssuesForGroup(status, today)),
   }))
 
   if (statuses.length > 0) {

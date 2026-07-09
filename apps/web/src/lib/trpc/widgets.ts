@@ -5,7 +5,9 @@ import { router, authedProcedure } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { projects, users, widgetConfigs, widgetSubmissions } from "@/db/schema"
 import {
+  assertWorkspaceMember,
   assertWorkspaceOwner,
+  getIssueWorkspaceContext,
   getProjectWorkspaceId,
 } from "@/lib/workspace-membership"
 import { generateWidgetKey } from "@/lib/widget/key"
@@ -55,6 +57,24 @@ async function loadConfigForWorkspaceAdmin(
 }
 
 export const widgetsRouter = router({
+  // EXP-42b: the reporter/page/env metadata stripped from widget-issue
+  // descriptions lives only in widget_submissions — this read powers the
+  // members-only "Reported via widget" card on the issue detail view.
+  // MEMBER-gated on purpose (every member triages widget issues), unlike the
+  // rest of this router, which stays owner-only.
+  submissionForIssue: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const issueContext = await getIssueWorkspaceContext(input.issueId)
+      await assertWorkspaceMember(ctx.session.user.id, issueContext.workspaceId)
+      const [submission] = await ctx.db
+        .select()
+        .from(widgetSubmissions)
+        .where(eq(widgetSubmissions.issueId, input.issueId))
+        .limit(1)
+      return submission ?? null
+    }),
+
   list: authedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {

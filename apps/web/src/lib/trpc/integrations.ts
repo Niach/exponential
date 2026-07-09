@@ -41,7 +41,7 @@ export async function assertCanManageRepos(userId: string, workspaceId: string) 
 // signed state carries the target workspace, and the setup redirect links the
 // installation to it after the round-trip. `dialog: true` lands the redirect
 // on the self-closing /integrations/github/installed page; `mobile: true`
-// serves the exp://github-connected deep-link page instead.
+// serves the exponential://github-connected deep-link page instead.
 function installUrlFor(
   userId: string,
   workspaceId: string,

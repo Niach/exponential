@@ -45,6 +45,7 @@ import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueChangesTab } from "@/components/issue-changes-tab"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
+import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
 
 interface IssueDetailViewProps {
@@ -505,6 +506,12 @@ export function IssueDetailView({
     />
   ) : null
 
+  // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
+  // (the server gates it; anonymous viewers never even fetch).
+  const widgetCard = currentUserId ? (
+    <WidgetSubmissionCard issueId={issue.id} />
+  ) : null
+
   // Details · Changes segmented control (masterplan §4.8 / §5.4). Changes is
   // the single home of PR/branch diffs + the live steer viewer.
   const tabsBar = (
@@ -571,6 +578,7 @@ export function IssueDetailView({
               {titleField}
               {editor}
               {attachmentRail}
+              {widgetCard}
               {timeline}
             </>
           ) : (
@@ -595,6 +603,7 @@ export function IssueDetailView({
                 {titleField}
                 {editor}
                 {attachmentRail}
+                {widgetCard}
                 {timeline}
               </div>
             ) : (

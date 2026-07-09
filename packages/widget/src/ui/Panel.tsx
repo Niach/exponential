@@ -10,6 +10,9 @@ export function Panel(props: {
   // form fields survive.
   hidden?: boolean
   successIdentifier: string | null
+  // Absolute public issue URL — non-null only when the target project is a
+  // public feedback board (older servers never send it).
+  successUrl: string | null
   position: `bottom-right` | `bottom-left`
   screenshot: Screenshot | null
   captureFailed: boolean
@@ -48,7 +51,7 @@ export function Panel(props: {
       }
       if (event.key !== `Tab`) return
       const focusables = panel.querySelectorAll<HTMLElement>(
-        `button, input, textarea, [tabindex]:not([tabindex="-1"])`
+        `button, a[href], input, textarea, [tabindex]:not([tabindex="-1"])`
       )
       if (focusables.length === 0) return
       const first = focusables[0]
@@ -106,9 +109,26 @@ export function Panel(props: {
           />
           <div className="exp-success-title">Thanks for the report!</div>
           <div className="exp-success-sub">
-            {props.successIdentifier
-              ? `Filed as ${props.successIdentifier}.`
-              : `Your feedback has been sent.`}
+            {props.successIdentifier ? (
+              props.successUrl ? (
+                <>
+                  Filed as{` `}
+                  <a
+                    className="exp-success-link"
+                    href={props.successUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {props.successIdentifier}
+                  </a>
+                  .
+                </>
+              ) : (
+                `Filed as ${props.successIdentifier}.`
+              )
+            ) : (
+              `Your feedback has been sent.`
+            )}
           </div>
         </div>
       </div>

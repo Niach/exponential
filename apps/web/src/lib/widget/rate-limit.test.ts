@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { TokenBucketLimiter } from "./rate-limit"
+import { clientIpFromRequest, TokenBucketLimiter } from "./rate-limit"
 
 describe(`TokenBucketLimiter`, () => {
   it(`allows up to capacity as a burst, then rejects`, () => {
@@ -59,5 +59,29 @@ describe(`TokenBucketLimiter`, () => {
     // `a` and `b` are full again after a second (3600/h = 1/s); inserting a
     // third key triggers eviction and must still succeed.
     expect(limiter.tryTake(`c`, 5_000).ok).toBe(true)
+  })
+})
+
+describe(`clientIpFromRequest`, () => {
+  const withForwarded = (value: string | null) =>
+    new Request(`http://localhost/api/widget/submit`, {
+      headers: value == null ? {} : { "x-forwarded-for": value },
+    })
+
+  it(`returns the single hop the proxy appended`, () => {
+    expect(clientIpFromRequest(withForwarded(`203.0.113.7`))).toBe(
+      `203.0.113.7`
+    )
+  })
+
+  it(`takes the RIGHTMOST hop — client-supplied leftmost entries are spoofable`, () => {
+    expect(
+      clientIpFromRequest(withForwarded(`1.2.3.4, 5.6.7.8, 203.0.113.7`))
+    ).toBe(`203.0.113.7`)
+  })
+
+  it(`falls back to "unknown" without the header`, () => {
+    expect(clientIpFromRequest(withForwarded(null))).toBe(`unknown`)
+    expect(clientIpFromRequest(withForwarded(``))).toBe(`unknown`)
   })
 })

@@ -314,7 +314,15 @@ export function registerExponentialTools(
       inputSchema: {
         workspaceId: z.string().uuid(),
         name: z.string().min(1).max(255),
-        prefix: z.string().min(1).max(10),
+        // Mirrors projects.create's floor (EXP-46): letter-led alphanumeric,
+        // so identifiers stay `{PREFIX}-{number}` referenceable.
+        prefix: z
+          .string()
+          .trim()
+          .regex(
+            /^[A-Za-z][A-Za-z0-9]{0,9}$/,
+            `Prefix must be 1-10 letters or digits, starting with a letter`
+          ),
         color: z
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)

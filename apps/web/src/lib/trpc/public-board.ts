@@ -1,16 +1,31 @@
+import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull } from "drizzle-orm"
-import { router, publicProcedure } from "@/lib/trpc"
+import { router, publicProcedure, generateTxId } from "@/lib/trpc"
 import {
   codingSessions,
   comments,
   issueLabels,
   issues,
+  issueSubscribers,
   labels,
   projects,
+  users,
+  widgetConfigs,
+  widgetSubmissions,
+  workspaceMembers,
   workspaces,
 } from "@/db/schema"
+import {
+  clientIpFromRequest,
+  envInt,
+  TokenBucketLimiter,
+} from "@/lib/widget/rate-limit"
+import {
+  appBaseUrl,
+  buildIssueDeepLinkPath,
+} from "@/lib/notification-email-policy"
 
 // Read-only public surface of feedback boards, served over tRPC. This is what
 // the web app renders for every NON-member visitor — anonymous or signed-in.
@@ -25,6 +40,9 @@ import {
 const ISSUE_COLUMNS = {
   id: issues.id,
   identifier: issues.identifier,
+  // EXP-38: the canonical in-group comparator's final tie-break sorts by issue
+  // `number` numerically (never the identifier string).
+  number: issues.number,
   title: issues.title,
   description: issues.description,
   status: issues.status,
@@ -79,6 +97,102 @@ async function resolvePublicProject(
     throw new TRPCError({ code: `NOT_FOUND` })
   }
   return row
+}
+
+type Tx = Parameters<
+  Parameters<typeof import("@/db/connection").db.transaction>[0]
+>[0]
+
+// In-process token buckets for the anonymous create path — same per-replica
+// stance as the widget submit endpoint (single Coolify instance). Env-tunable.
+let createIpLimiter: TokenBucketLimiter | null = null
+let createProjectLimiter: TokenBucketLimiter | null = null
+
+function getCreateIssueLimiters() {
+  createIpLimiter ??= new TokenBucketLimiter({
+    capacity: envInt(`PUBLIC_BOARD_RATE_LIMIT_IP_BURST`, 5),
+    refillPerHour: envInt(`PUBLIC_BOARD_RATE_LIMIT_PER_IP_HOURLY`, 30),
+  })
+  createProjectLimiter ??= new TokenBucketLimiter({
+    capacity: envInt(`PUBLIC_BOARD_RATE_LIMIT_PROJECT_BURST`, 10),
+    refillPerHour: envInt(`PUBLIC_BOARD_RATE_LIMIT_PER_PROJECT_HOURLY`, 60),
+  })
+  return { createIpLimiter, createProjectLimiter }
+}
+
+// EXP-42a URL contract: absolute public issue URL on the app origin. The
+// board passed resolvePublicProject, so it is a live public feedback board.
+// Segments go through buildIssueDeepLinkPath (per-segment encoding): legacy
+// project prefixes predate the letter-led-alphanumeric floor, so identifiers
+// can contain characters like `#` that would otherwise truncate the path.
+function publicIssueUrl(
+  workspaceSlug: string,
+  projectSlug: string,
+  identifier: string
+): string {
+  return `${appBaseUrl()}${buildIssueDeepLinkPath({ workspaceSlug, projectSlug, identifier })}`
+}
+
+// Creator identity for public-board submissions: reuse the workspace's widget
+// bot when a widget config exists; otherwise get-or-create ONE per-workspace
+// feedback bot. The deterministic email keys an idempotent select-then-insert
+// (users.email is unique, so a concurrent create conflicts instead of
+// duplicating). Like widget users (lib/widget/widget-user.ts), the bot is
+// NEVER deletable — issues.creator_id cascades on user delete.
+async function resolvePublicReporterUserId(
+  tx: Tx,
+  workspaceId: string
+): Promise<string> {
+  const [config] = await tx
+    .select({ widgetUserId: widgetConfigs.widgetUserId })
+    .from(widgetConfigs)
+    .where(eq(widgetConfigs.workspaceId, workspaceId))
+    .orderBy(asc(widgetConfigs.createdAt))
+    .limit(1)
+  if (config) return config.widgetUserId
+
+  const botEmail = `feedback-bot-${workspaceId}@exponential.local`
+  const [existing] = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, botEmail))
+    .limit(1)
+  let botId = existing?.id
+  if (!botId) {
+    botId = randomUUID()
+    const now = new Date()
+    await tx
+      .insert(users)
+      .values({
+        id: botId,
+        name: `Public board`,
+        email: botEmail,
+        emailVerified: true,
+        image: null,
+        isAdmin: false,
+        // Keeps the bot out of subscriptions/notifications/@-mentions and
+        // seat counts, while a plain membership (below) lets clients resolve
+        // its display name.
+        isAgent: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+    // Lost a race on the unique email — adopt the winner's row.
+    const [row] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, botEmail))
+      .limit(1)
+    botId = row?.id ?? botId
+  }
+
+  await tx
+    .insert(workspaceMembers)
+    .values({ workspaceId, userId: botId, role: `member` })
+    .onConflictDoNothing()
+
+  return botId
 }
 
 export const publicBoardRouter = router({
@@ -266,5 +380,118 @@ export const publicBoardRouter = router({
             inArray(issues.id, input.issueIds)
           )
         )
+    }),
+
+  // EXP-42c: the ONLY public write on this router — "Create issue" on a
+  // public feedback board, for anonymous and signed-in non-member visitors
+  // alike. Deliberately narrow (no status/priority/label inputs — spam
+  // surface) and mirrors the widget submit pipeline: honeypot, in-process
+  // rate limits, synthetic bot creator, widget_reporter subscriber + a
+  // widget_submissions row (widgetConfigId null) so the resolution-email
+  // flow and the members-only "Reported via widget" card work identically.
+  // No notification fan-out — public-board triage is pull-based.
+  createIssue: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string().min(1).max(255),
+        projectSlug: z.string().min(1).max(255),
+        title: z.string().trim().min(1).max(500),
+        description: z.string().max(10_000).default(``),
+        email: z
+          .string()
+          .trim()
+          .email()
+          .max(320)
+          .optional()
+          .or(z.literal(``).transform(() => undefined)),
+        // Honeypot — real users never see or fill this field.
+        website: z.string().max(1024).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const board = await resolvePublicProject(
+        ctx.db,
+        input.workspaceSlug,
+        input.projectSlug
+      )
+
+      // Honeypot: pretend success (shape-identical, plausible identifier) so
+      // bots don't adapt; nothing is created.
+      if (input.website && input.website.length > 0) {
+        const fake = `${board.prefix}-${Math.floor(Math.random() * 900) + 100}`
+        return {
+          identifier: fake,
+          url: publicIssueUrl(board.workspaceSlug, board.projectSlug, fake),
+        }
+      }
+
+      const { createIpLimiter, createProjectLimiter } = getCreateIssueLimiters()
+      const ipLimit = createIpLimiter.tryTake(
+        `ip:${clientIpFromRequest(ctx.request)}`
+      )
+      const projectLimit = createProjectLimiter.tryTake(
+        `project:${board.projectId}`
+      )
+      if (!ipLimit.ok || !projectLimit.ok) {
+        throw new TRPCError({
+          code: `TOO_MANY_REQUESTS`,
+          message: `Too many submissions, try again later`,
+        })
+      }
+
+      // EXP-42b applies here too: the description is the visitor's text only,
+      // no metadata block.
+      const description = input.description.trim()
+
+      const issue = await ctx.db.transaction(async (tx) => {
+        await generateTxId(tx)
+        const creatorId = await resolvePublicReporterUserId(
+          tx,
+          board.workspaceId
+        )
+
+        const [created] = await tx
+          .insert(issues)
+          .values({
+            projectId: board.projectId,
+            title: input.title,
+            status: `backlog`,
+            priority: `none`,
+            description: description || null,
+            creatorId,
+          })
+          .returning({ id: issues.id, identifier: issues.identifier })
+
+        // One-way helpdesk: the reporter gets the clean resolution email when
+        // the issue closes; member fan-out ignores null-userId rows.
+        if (input.email) {
+          await tx.insert(issueSubscribers).values({
+            issueId: created.id,
+            userId: null,
+            email: input.email,
+            workspaceId: board.workspaceId,
+            projectId: board.projectId,
+            source: `widget_reporter`,
+            unsubscribed: false,
+          })
+        }
+
+        await tx.insert(widgetSubmissions).values({
+          widgetConfigId: null,
+          issueId: created.id,
+          reporterEmail: input.email ?? null,
+        })
+
+        return created
+      })
+
+      return {
+        identifier: issue.identifier,
+        url: publicIssueUrl(
+          board.workspaceSlug,
+          board.projectSlug,
+          issue.identifier
+        ),
+      }
     }),
 })
