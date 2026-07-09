@@ -513,6 +513,11 @@ internal fun IssueRow(
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             maxLines = 1,
+            overflow = TextOverflow.Clip,
+            // Constant-width identifier column (fits "EXP-9999" in the monospace
+            // labelMedium style) so the priority icon, identifier, status icon
+            // and title all line up across rows regardless of digit count.
+            modifier = Modifier.width(60.dp),
         )
         Spacer(Modifier.width(10.dp))
         StatusIcon(status, size = 16.dp)
