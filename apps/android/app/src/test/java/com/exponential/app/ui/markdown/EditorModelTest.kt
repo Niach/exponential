@@ -4,6 +4,7 @@ import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.ListType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -88,6 +89,24 @@ class EditorModelTest {
         assertEquals(2, list.size)
         assertTrue(list.all { it.attrs.listType == ListType.Bullet })
         assertEquals("", list.last().text)
+    }
+
+    @Test
+    fun enterHandsFocusAndCaretToTheNewRow() {
+        // EXP-25 regression: after a split the model must point BOTH the focus
+        // target and the desired caret at the newly-created last row, and the
+        // old row must not be able to consume the new row's caret seed.
+        val m = model("HelloWorld")
+        val oldRow = paras(m).first()
+        m.splitParagraphFrom(oldRow.id, "Hello\nWorld")
+        val newRow = paras(m).last()
+        assertEquals(newRow.id, m.focusedRowId)
+        assertEquals(newRow.id to 0, m.desiredSelection)
+        // Row-scoped consumption: the old row gets nothing, the new row gets
+        // caret 0 exactly once.
+        assertNull(m.consumeDesiredSelection(oldRow.id))
+        assertEquals(0, m.consumeDesiredSelection(newRow.id))
+        assertNull(m.consumeDesiredSelection(newRow.id))
     }
 
     @Test

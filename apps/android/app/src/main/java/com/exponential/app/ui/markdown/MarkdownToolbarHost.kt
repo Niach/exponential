@@ -1,9 +1,12 @@
 package com.exponential.app.ui.markdown
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.Composable
@@ -18,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import com.exponential.app.ui.theme.GlassTokens
 
 /**
  * Hosts the markdown formatting toolbar so it can float directly above the
@@ -66,7 +70,20 @@ private fun MarkdownToolbarOverlay(controller: MarkdownToolbarController, modifi
     // seats the bar directly on top of the keyboard and rides its animation.
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     if (model.focusedRowId == null || !imeVisible) return
-    Box(modifier.fillMaxWidth().imePadding()) {
+    // Near-opaque zinc surface + top hairline: the bar floats over arbitrary
+    // content, so a translucent fill left the pill nearly invisible (EXP-25).
+    Column(
+        modifier
+            .fillMaxWidth()
+            .imePadding()
+            .background(GlassTokens.BackgroundBottom.copy(alpha = 0.97f)),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(GlassTokens.Hairline)
+                .background(GlassTokens.StrokeSection),
+        )
         // key(model): the toolbar is a single hoisted instance reused across every
         // editor on the screen, so reset its internal state (e.g. the link dialog)
         // when the focused editor changes — otherwise a dialog opened for one

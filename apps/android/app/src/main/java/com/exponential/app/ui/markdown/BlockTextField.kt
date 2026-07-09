@@ -92,15 +92,27 @@ fun BlockTextField(
     }
 
     val focusRequester = remember { FocusRequester() }
+    // Whether THIS field currently holds OS focus. Two focus-handoff guards
+    // hang off it (EXP-25 — Enter left the caret in the old row):
+    //  - a freshly-composed row emits an initial focused=false event; without
+    //    the guard below that cleared the focusedRowId splitParagraphFrom had
+    //    just pointed at the new row, so its requestFocus loop never ran and
+    //    the old field kept focus.
+    //  - requestFocus() on a not-yet-placed node can no-op WITHOUT throwing,
+    //    so the retry loop must verify focus actually landed instead of
+    //    trusting the absence of an exception.
+    var hasOsFocus by remember(row.id) { mutableStateOf(false) }
     LaunchedEffect(model.focusedRowId) {
         if (model.focusedRowId == row.id) {
             // A freshly-created row (Enter/merge/insert) may not be laid out yet
-            // when this effect first runs; requestFocus() throws until the node
-            // is placed. Retry across frames so focus reliably lands on the new
-            // row instead of silently staying on the old one.
+            // when this effect first runs; requestFocus() throws (or silently
+            // does nothing) until the node is placed. Retry across frames until
+            // the focus change is actually observed, so focus deterministically
+            // lands on the new row instead of staying on the old one.
             var attempts = 0
-            while (attempts < 8 && model.focusedRowId == row.id) {
-                if (runCatching { focusRequester.requestFocus() }.isSuccess) break
+            while (attempts < 8 && model.focusedRowId == row.id && !hasOsFocus) {
+                runCatching { focusRequester.requestFocus() }
+                if (hasOsFocus) break
                 withFrameNanos { }
                 attempts++
             }
@@ -190,7 +202,16 @@ fun BlockTextField(
         modifier = modifier
             .focusRequester(focusRequester)
             .onFocusChanged { fs ->
-                if (fs.isFocused) model.setFocused(row.id) else model.clearFocusIfMatches(row.id)
+                if (fs.isFocused) {
+                    hasOsFocus = true
+                    model.setFocused(row.id)
+                } else {
+                    // Only a field that actually HELD focus may clear the model's
+                    // focus target — the initial focused=false of a row created
+                    // by splitParagraphFrom must not cancel its pending handoff.
+                    if (hasOsFocus) model.clearFocusIfMatches(row.id)
+                    hasOsFocus = false
+                }
             }
             .onPreviewKeyEvent { event ->
                 if (
