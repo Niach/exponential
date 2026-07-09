@@ -410,7 +410,7 @@ function PublicBoardDialog({
 
   return (
     <Dialog open={project !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[26rem]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Globe className="h-4 w-4" />
@@ -427,13 +427,13 @@ function PublicBoardDialog({
         </DialogHeader>
 
         <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1 truncate rounded-md border px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex h-9 min-w-0 flex-1 items-center truncate rounded-md border px-3 text-xs text-muted-foreground">
             {publicUrl}
           </div>
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8 shrink-0"
+            className="h-9 w-9 shrink-0"
             title="Copy public link"
             onClick={() => {
               void navigator.clipboard.writeText(publicUrl)
@@ -450,7 +450,7 @@ function PublicBoardDialog({
 
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <Label className="text-sm">Show comments</Label>
               <p className="text-xs text-muted-foreground">
                 Visitors see issue discussions (authors stay anonymized).
@@ -465,7 +465,7 @@ function PublicBoardDialog({
             />
           </div>
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <Label className="text-sm">Show activity</Label>
               <p className="text-xs text-muted-foreground">
                 Status and label changes appear on public issues.
@@ -480,7 +480,7 @@ function PublicBoardDialog({
             />
           </div>
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <Label className="text-sm">Show coding sessions</Label>
               <p className="text-xs text-muted-foreground">
                 Badge shows when someone is coding an issue; Live additionally
