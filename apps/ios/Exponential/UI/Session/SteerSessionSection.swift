@@ -63,7 +63,7 @@ struct SteerSessionSection: View {
             await refreshDevices()
         }
         .fullScreenCover(item: $watchingSession) { session in
-            SteerTerminalView(accountId: accountId, session: session)
+            AgentSessionView(accountId: accountId, session: session)
         }
     }
 

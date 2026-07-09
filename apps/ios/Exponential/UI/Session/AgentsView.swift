@@ -3,7 +3,7 @@ import ExpCore
 import SwiftUI
 
 /// The Agents tab: currently running coding sessions for the active account.
-/// Rows open the live steer terminal directly when the relay is configured
+/// Rows open the live agent session view directly when the relay is configured
 /// (the same viewer `SteerSessionSection` presents from an issue), else fall
 /// back to the issue detail; the trailing info affordance always goes to the
 /// issue detail.
@@ -44,7 +44,7 @@ struct AgentsView: View {
             viewModel?.stopObserving()
         }
         .fullScreenCover(item: $watchingSession) { session in
-            SteerTerminalView(accountId: accountId, session: session)
+            AgentSessionView(accountId: accountId, session: session)
         }
     }
 
@@ -88,8 +88,8 @@ struct AgentsView: View {
     private func sessionRow(_ row: AgentsViewModel.Row) -> some View {
         HStack(spacing: 12) {
             // With the relay configured, the row jumps straight into the live
-            // terminal; otherwise it opens the issue detail, where the session
-            // section shows whatever is available.
+            // agent session; otherwise it opens the issue detail, where the
+            // session section shows whatever is available.
             Group {
                 if steerEnabled {
                     Button {
