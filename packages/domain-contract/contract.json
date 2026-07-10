@@ -30,6 +30,7 @@
       "issue_comment",
       "issue_status_changed",
       "issue_mention",
+      "issue_created",
       "pr_opened",
       "pr_merged"
     ]

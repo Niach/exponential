@@ -13,7 +13,7 @@ public enum DomainContract {
     public static let projectTypeValues: [String] = ["dev", "tasks", "feedback"]
     public static let publicCodingVisibilityValues: [String] = ["off", "badge", "live"]
     public static let commentKindValues: [String] = ["regular"]
-    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "pr_opened", "pr_merged"]
+    public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "ended"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
@@ -33,6 +33,7 @@ public enum DomainContract {
     public static let notificationTypeIssueComment: String = "issue_comment"
     public static let notificationTypeIssueStatusChanged: String = "issue_status_changed"
     public static let notificationTypeIssueMention: String = "issue_mention"
+    public static let notificationTypeIssueCreated: String = "issue_created"
     public static let notificationTypePrOpened: String = "pr_opened"
     public static let notificationTypePrMerged: String = "pr_merged"
     public static let prStateOpen: String = "open"

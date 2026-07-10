@@ -61,6 +61,9 @@ export const notificationTypeValues = [
   `issue_comment`,
   `issue_status_changed`,
   `issue_mention`,
+  // New-issue broadcast to workspace members — currently fired only for
+  // feedback-widget submissions (external reporters have no other signal path).
+  `issue_created`,
   // PR lifecycle notifications — fan out to assignee + subscribers so the
   // away/phone flow gets "PR opened" and "it's merged" on every channel.
   `pr_opened`,

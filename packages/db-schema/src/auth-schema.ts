@@ -29,6 +29,11 @@ export const users = pgTable(`users`, {
   onboardingCompletedAt: timestamp(`onboarding_completed_at`, {
     withTimezone: true,
   }),
+  // One-shot dismissal of the "Get the desktop app" card on the web Agents
+  // view. SERVER-ONLY (users shape allowlist pins 7 columns; this never syncs).
+  desktopAppCardDismissedAt: timestamp(`desktop_app_card_dismissed_at`, {
+    withTimezone: true,
+  }),
   createdAt: timestamp(`created_at`)
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),

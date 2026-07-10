@@ -132,6 +132,10 @@ export const workspaces = pgTable(`workspaces`, {
   name: varchar({ length: 255 }).notNull(),
   slug: varchar({ length: 255 }).notNull().unique(),
   iconUrl: text(`icon_url`),
+  // Admin-granted complimentary tier ('pro' | 'business' | 'unlimited').
+  // SERVER-ONLY — must stay behind the workspaces shape columns allowlist.
+  // Honored by getWorkspacePlan as a floor over the Creem-derived tier.
+  compTier: text(`comp_tier`),
   ...timestamps,
 })
 
