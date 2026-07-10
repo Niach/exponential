@@ -328,8 +328,9 @@ test(`removes uploaded images from the inline hover control`, async ({
   const imageNode = editDialog.locator(`.editor-image-node`).first()
   await imageNode.hover()
   await imageNode
-    .getByRole(`button`, { name: `Remove image draft-image.png` })
+    .getByRole(`button`, { name: `Image options for draft-image.png` })
     .click()
+  await page.getByRole(`menuitem`, { name: `Delete` }).click()
 
   await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
   await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(

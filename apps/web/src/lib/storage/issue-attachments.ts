@@ -26,6 +26,43 @@ export function buildAttachmentUrl(attachmentId: string) {
   return `/api/attachments/${attachmentId}`
 }
 
+// Bounds for the editor image-resize `?w=` display-width param (EXP-52). The
+// param rides on the canonical attachment URL as plain GFM
+// (`![alt](/api/attachments/{id}?w=480)`); clients that don't understand it
+// simply ignore the query string.
+export const minAttachmentImageWidthParam = 40
+export const maxAttachmentImageWidthParam = 4000
+
+/**
+ * Extracts the sanitized `?w=` display width from an attachment image URL.
+ * Only a plain unsigned-integer `w` is honored (clamped to 40..4000); a
+ * missing or non-integer `w` yields null. Other query params never survive
+ * canonicalization.
+ */
+export function getAttachmentImageWidthFromUrl(value: string, origin: string) {
+  try {
+    const url = new URL(value, origin)
+    const raw = url.searchParams.get(`w`)
+
+    if (!raw || !/^\d+$/.test(raw)) {
+      return null
+    }
+
+    const parsed = Number.parseInt(raw, 10)
+
+    if (!Number.isFinite(parsed)) {
+      return null
+    }
+
+    return Math.min(
+      maxAttachmentImageWidthParam,
+      Math.max(minAttachmentImageWidthParam, parsed)
+    )
+  } catch {
+    return null
+  }
+}
+
 function sanitizeAttachmentFilename(filename: string) {
   const normalized = filename
     .normalize(`NFKD`)
@@ -290,13 +327,20 @@ export function hasMarkdownImages(text: string) {
  * canonical relative `/api/attachments/{id}` form. This makes stored markdown
  * client-agnostic (a client that submitted an absolute/proxied URL still ends
  * up relative) and removes the "resolved twice" class of bugs at the source.
+ *
+ * A whitelisted integer `?w=` display-width param (the editor's image-resize
+ * persistence, EXP-52) survives canonicalization — clamped into sane bounds —
+ * while every other query param (and any non-integer `w`) is stripped.
  */
 export function canonicalizeMarkdownImageUrls(text: string, origin: string) {
   return updateMarkdownImages(text, (match) => {
     const attachmentId = getAttachmentIdFromUrl(match.url, origin)
     if (!attachmentId) return undefined
 
-    const canonical = buildAttachmentUrl(attachmentId)
+    const width = getAttachmentImageWidthFromUrl(match.url, origin)
+    const canonical = width
+      ? `${buildAttachmentUrl(attachmentId)}?w=${width}`
+      : buildAttachmentUrl(attachmentId)
     if (match.url === canonical) return undefined
 
     return match.markdown.replace(match.url, canonical)

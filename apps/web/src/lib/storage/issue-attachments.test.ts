@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
   buildContentDispositionHeader,
+  canonicalizeMarkdownImageUrls,
   collectMarkdownImageUrls,
   collectReferencedAttachmentIds,
   extractMarkdownImageOccurrences,
   extractAttachmentIdsFromDescription,
   extractMarkdownImageUrls,
+  getAttachmentImageWidthFromUrl,
   getRemovedAttachmentIds,
   hasMarkdownImages,
   removeMarkdownImageByOccurrence,
@@ -204,6 +206,111 @@ describe(`issue attachment helpers`, () => {
         `![image](/api/attachments/11111111-1111-1111-1111-111111111111)`
       )
     ).toBe(true)
+  })
+})
+
+describe(`canonicalizeMarkdownImageUrls`, () => {
+  const origin = `https://app.test/api/trpc`
+  const id = `11111111-1111-1111-1111-111111111111`
+
+  it(`leaves the bare canonical url unchanged`, () => {
+    const text = `Before ![one](/api/attachments/${id}) after`
+    expect(canonicalizeMarkdownImageUrls(text, origin)).toBe(text)
+  })
+
+  it(`preserves an integer w display-width param`, () => {
+    const text = `![one](/api/attachments/${id}?w=480)`
+    expect(canonicalizeMarkdownImageUrls(text, origin)).toBe(text)
+  })
+
+  it(`strips every query param other than w`, () => {
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](/api/attachments/${id}?w=480&token=abc&h=200)`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id}?w=480)`)
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](/api/attachments/${id}?token=abc)`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id})`)
+  })
+
+  it(`drops a non-integer w`, () => {
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](/api/attachments/${id}?w=abc)`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id})`)
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](/api/attachments/${id}?w=48.5)`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id})`)
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](/api/attachments/${id}?w=-480)`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id})`)
+  })
+
+  it(`clamps w into sane bounds`, () => {
+    expect(
+      canonicalizeMarkdownImageUrls(`![one](/api/attachments/${id}?w=5)`, origin)
+    ).toBe(`![one](/api/attachments/${id}?w=40)`)
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](/api/attachments/${id}?w=99999)`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id}?w=4000)`)
+  })
+
+  it(`canonicalizes same-origin absolute urls to relative, preserving w`, () => {
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](https://app.test/api/attachments/${id}?w=480)`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id}?w=480)`)
+    expect(
+      canonicalizeMarkdownImageUrls(
+        `![one](https://app.test/api/attachments/${id})`,
+        origin
+      )
+    ).toBe(`![one](/api/attachments/${id})`)
+  })
+
+  it(`leaves external image urls untouched`, () => {
+    const text = `![cat](https://cdn.example.com/cat.png?w=480)`
+    expect(canonicalizeMarkdownImageUrls(text, origin)).toBe(text)
+  })
+})
+
+describe(`getAttachmentImageWidthFromUrl`, () => {
+  const origin = `https://app.test`
+
+  it(`returns the integer w param`, () => {
+    expect(getAttachmentImageWidthFromUrl(`/api/attachments/x?w=480`, origin)).toBe(
+      480
+    )
+  })
+
+  it(`returns null without a valid w`, () => {
+    expect(getAttachmentImageWidthFromUrl(`/api/attachments/x`, origin)).toBe(null)
+    expect(
+      getAttachmentImageWidthFromUrl(`/api/attachments/x?w=12px`, origin)
+    ).toBe(null)
+  })
+
+  it(`clamps to the 40..4000 bounds`, () => {
+    expect(getAttachmentImageWidthFromUrl(`/x?w=1`, origin)).toBe(40)
+    expect(getAttachmentImageWidthFromUrl(`/x?w=999999`, origin)).toBe(4000)
   })
 })
 

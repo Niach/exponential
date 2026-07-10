@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { createPortal } from "react-dom"
 import { type Editor, useEditor, EditorContent } from "@tiptap/react"
 import { StarterKit } from "@tiptap/starter-kit"
 import { Link } from "@tiptap/extension-link"
@@ -410,7 +411,7 @@ export const MarkdownEditor = forwardRef<
       useState<EditorAutocompleteActive | null>(null)
     const [activeIndex, setActiveIndex] = useState(0)
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
-    const wrapperRef = useRef<HTMLDivElement>(null)
+    const menuRef = useRef<HTMLDivElement | null>(null)
 
     const editor = useEditor({
       extensions: [
@@ -593,62 +594,105 @@ export const MarkdownEditor = forwardRef<
       return false
     }
 
-    // Anchor the menu under the trigger char, clamped inside the wrapper
-    // (`.tiptap-wrapper` is position:relative). Recomputed per keystroke —
-    // every doc change re-reports the token with fresh positions.
+    // Anchor the menu at the trigger char in VIEWPORT coordinates and portal
+    // it to document.body with position:fixed — inside the create-issue
+    // dialog the editor sits in an overflow-y-auto scroll region that used to
+    // clip the popup and inflate scrollHeight (EXP-54). Recomputed per
+    // keystroke — every doc change re-reports the token with fresh positions.
+    // Clamped to the viewport horizontally; flips above the caret when there
+    // is no room below.
     const menuStyle = (() => {
-      if (!editor || !autocomplete || !wrapperRef.current) return null
+      if (!editor || !autocomplete) return null
       if (candidateCount === 0) return null
       try {
         const coords = editor.view.coordsAtPos(autocomplete.from)
-        const wrapperRect = wrapperRef.current.getBoundingClientRect()
         const menuWidth = 288 // w-72
+        const viewportPad = 8
         const left = Math.max(
-          0,
-          Math.min(
-            coords.left - wrapperRect.left,
-            wrapperRect.width - menuWidth
-          )
+          viewportPad,
+          Math.min(coords.left, window.innerWidth - menuWidth - viewportPad)
         )
-        return { left, top: coords.bottom - wrapperRect.top + 4 }
+        const spaceBelow = window.innerHeight - coords.bottom - viewportPad
+        const spaceAbove = coords.top - viewportPad
+        // Above the dialog (shadcn DialogContent is z-50).
+        const base = { left, zIndex: 60 }
+        if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+          return {
+            ...base,
+            bottom: window.innerHeight - coords.top + 4,
+            maxHeight: Math.max(48, Math.min(spaceAbove - 4, 320)),
+          }
+        }
+        return {
+          ...base,
+          top: coords.bottom + 4,
+          maxHeight: Math.max(48, Math.min(spaceBelow - 4, 320)),
+        }
       } catch {
         return null
       }
     })()
 
+    // A fixed-position popup detaches from the caret the moment any ancestor
+    // scroll region moves (dialog body, page, sheet) — close it instead of
+    // chasing the caret. Scrolling inside the menu itself stays allowed.
+    const menuOpen = Boolean(editable && autocomplete && menuStyle)
+    useEffect(() => {
+      if (!menuOpen) return
+      const close = (event: Event) => {
+        if (
+          event.target instanceof Node &&
+          menuRef.current?.contains(event.target)
+        ) {
+          return
+        }
+        setAutocomplete(null)
+      }
+      window.addEventListener(`scroll`, close, true)
+      window.addEventListener(`resize`, close)
+      return () => {
+        window.removeEventListener(`scroll`, close, true)
+        window.removeEventListener(`resize`, close)
+      }
+    }, [menuOpen])
+
     return (
-      <div ref={wrapperRef} className="tiptap-wrapper">
+      <div className="tiptap-wrapper">
         {editable ? (
           <StaticToolbar editor={editor} imageUpload={imageUpload} />
         ) : null}
         <EditorContent editor={editor} />
-        {editable && autocomplete && menuStyle ? (
-          <div
-            className="absolute z-20 w-72 overflow-hidden rounded-md border bg-popover shadow-md"
-            style={menuStyle}
-          >
-            {autocomplete.kind === `mention` &&
-              mentionCandidates.map((user, i) => (
-                <UserCandidateRow
-                  key={user.id}
-                  user={user}
-                  active={i === activeIndex}
-                  onSelect={() => insertActive(i)}
-                  onHover={() => setActiveIndex(i)}
-                />
-              ))}
-            {autocomplete.kind === `issueRef` &&
-              issueCandidates.map((issue, i) => (
-                <IssueCandidateRow
-                  key={issue.id}
-                  issue={issue}
-                  active={i === activeIndex}
-                  onSelect={() => insertActive(i)}
-                  onHover={() => setActiveIndex(i)}
-                />
-              ))}
-          </div>
-        ) : null}
+        {editable && autocomplete && menuStyle
+          ? createPortal(
+              <div
+                ref={menuRef}
+                className="fixed w-72 overflow-y-auto rounded-md border bg-popover shadow-md"
+                style={menuStyle}
+              >
+                {autocomplete.kind === `mention` &&
+                  mentionCandidates.map((user, i) => (
+                    <UserCandidateRow
+                      key={user.id}
+                      user={user}
+                      active={i === activeIndex}
+                      onSelect={() => insertActive(i)}
+                      onHover={() => setActiveIndex(i)}
+                    />
+                  ))}
+                {autocomplete.kind === `issueRef` &&
+                  issueCandidates.map((issue, i) => (
+                    <IssueCandidateRow
+                      key={issue.id}
+                      issue={issue}
+                      active={i === activeIndex}
+                      onSelect={() => insertActive(i)}
+                      onHover={() => setActiveIndex(i)}
+                    />
+                  ))}
+              </div>,
+              document.body
+            )
+          : null}
       </div>
     )
   }

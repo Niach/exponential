@@ -458,6 +458,9 @@ html {
 .tiptap-content .editor-image-node {
   position: relative;
   display: block;
+  /* Hug the image so the hover controls/handles anchor to its edges, not the
+     full editor column. */
+  width: fit-content;
   max-width: 100%;
   margin: 0.75rem 0;
   line-height: 0;
@@ -474,26 +477,19 @@ html {
     0 0 0 4px color-mix(in oklab, var(--ring) 16%, transparent);
 }
 
-.editor-image-remove {
-  appearance: none;
+/* Hover overlay menu trigger (top-right of the image) — applied on top of the
+   shadcn ghost Button base. */
+.editor-image-menu-trigger {
   position: absolute;
   top: 0.6rem;
   right: 0.6rem;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 1.75rem;
   height: 1.75rem;
   border: 1px solid var(--border);
   border-radius: 9999px;
-  padding: 0;
   background: color-mix(in oklab, var(--popover) 94%, transparent);
   color: color-mix(in oklab, var(--popover-foreground) 85%, transparent);
-  line-height: 0;
-  text-decoration: none;
-  user-select: none;
-  -webkit-user-select: none;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow:
@@ -501,7 +497,6 @@ html {
     inset 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent);
   opacity: 0;
   pointer-events: none;
-  overflow: hidden;
   transform: translateY(-4px) scale(0.96);
   transition:
     opacity 120ms ease,
@@ -511,30 +506,59 @@ html {
     border-color 120ms ease;
 }
 
-.editor-image-remove > svg {
-  display: block;
-}
-
-.editor-image-node:hover .editor-image-remove,
-.editor-image-node.is-selected .editor-image-remove,
-.editor-image-node:focus-within .editor-image-remove {
+.editor-image-node:hover .editor-image-menu-trigger,
+.editor-image-node.is-selected .editor-image-menu-trigger,
+.editor-image-node:focus-within .editor-image-menu-trigger,
+.editor-image-menu-trigger[data-state="open"] {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);
 }
 
-.editor-image-remove:hover {
+.editor-image-menu-trigger:hover,
+.editor-image-menu-trigger[data-state="open"] {
   color: var(--foreground);
   background: var(--accent);
   border-color: color-mix(in oklab, var(--foreground) 16%, transparent);
 }
 
-.editor-image-remove:focus-visible {
-  outline: none;
-  box-shadow:
-    0 6px 18px -8px oklch(0 0 0 / 0.42),
-    inset 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent),
-    0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+/* Linear-style drag handles on the image's left/right edges (editable only). */
+.editor-image-handle {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 0.375rem;
+  height: 2.5rem;
+  max-height: 50%;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--background) 85%, transparent);
+  transform: translateY(-50%);
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.editor-image-handle.is-left {
+  left: 0.375rem;
+}
+
+.editor-image-handle.is-right {
+  right: 0.375rem;
+}
+
+.editor-image-node:hover .editor-image-handle,
+.editor-image-node.is-selected .editor-image-handle,
+.editor-image-node.is-resizing .editor-image-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.editor-image-node.is-resizing {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .tiptap-content s {
