@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 import { Route as projectsRoute } from "@/routes/api/shapes/projects"
 import { Route as usersRoute } from "@/routes/api/shapes/users"
+import { Route as workspaceInvitesRoute } from "@/routes/api/shapes/workspace-invites"
 
 const { resolveSession, prepareElectricUrl, proxyElectricRequest } = vi.hoisted(
   () => ({
@@ -276,5 +277,36 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).not.toContain(`onboarding_completed_at`)
     expect(columns).not.toContain(`is_admin`)
     expect(columns).not.toContain(`email_verified`)
+  })
+
+  it(`pins the workspace-invites columns and excludes the invite bearer token`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserWorkspaceIds.mockResolvedValue([`w-1`])
+
+    // A client attempting to widen the allowlist back to `token` must be
+    // overridden by the server pin — the token is a bearer secret (accept is
+    // not recipient-bound; a synced owner-role token would let any member
+    // escalate to owner).
+    await shapeHandler(workspaceInvitesRoute)({
+      request: new Request(
+        `https://example.com/api/shapes/workspace-invites?columns=token`,
+        { headers: { authorization: `Bearer t` } }
+      ),
+    })
+
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    expect(columns).toEqual([
+      `id`,
+      `workspace_id`,
+      `invited_by_id`,
+      `role`,
+      `accepted_at`,
+      `expires_at`,
+      `created_at`,
+      `updated_at`,
+    ])
+    expect(columns).not.toContain(`token`)
   })
 })

@@ -17,9 +17,14 @@ import Foundation
 /// plain string comparison is chronological (InboxViewModel precedent).
 public enum IssueSorting {
     /// Today's local calendar date as `yyyy-MM-dd` — the same string space as
-    /// `issues.due_date`, so plain string comparison is chronological.
+    /// `issues.due_date`, so plain string comparison is chronological. The
+    /// components are ALWAYS Gregorian (wire strings must never carry
+    /// Buddhist/Japanese device-calendar years); only `calendar`'s time zone
+    /// is honored — "today" means the local calendar day.
     public static func todayString(now: Date = Date(), calendar: Calendar = .current) -> String {
-        let c = calendar.dateComponents([.year, .month, .day], from: now)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let c = gregorian.dateComponents([.year, .month, .day], from: now)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 

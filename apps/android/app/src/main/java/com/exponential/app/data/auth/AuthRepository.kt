@@ -48,6 +48,27 @@ class AuthRepository @Inject constructor(
         _loginError.value = null
     }
 
+    // The PKCE verifier of the in-flight OAuth attempt (REV-13). In-memory
+    // only — never persisted: it lives exactly from the start-URL build (a
+    // Custom Tab launch) to the oauth-return deep link. Last-start-wins,
+    // mirroring the desktop's PendingOAuth: starting a new attempt replaces
+    // the old verifier, whose stale code could no longer be redeemed anyway.
+    private var pendingOauthVerifier: String? = null
+
+    /** Begin an OAuth attempt: mint + hold a verifier, return its S256 challenge. */
+    fun beginOauthAttempt(): String {
+        val verifier = OauthPkce.generateVerifier()
+        pendingOauthVerifier = verifier
+        return OauthPkce.challengeS256(verifier)
+    }
+
+    /** Read-and-clear the pending verifier (the code exchange is single-shot). */
+    fun consumeOauthVerifier(): String? {
+        val verifier = pendingOauthVerifier
+        pendingOauthVerifier = null
+        return verifier
+    }
+
     fun setInstanceUrl(url: String) {
         val normalized = normalizeBaseUrl(url)
         accountStore.upsertAndActivate(normalized)

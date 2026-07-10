@@ -15,6 +15,24 @@ async function assertCanManageMembers(userId: string, workspaceId: string) {
   await assertWorkspaceMember(userId, workspaceId, [`owner`])
 }
 
+// The invite `token` is a single-use BEARER SECRET: accept() is not
+// recipient-bound and grants membership at the invite's role, so whoever
+// reads a pending token can join (or escalate, for owner invites). It is
+// returned exactly once — from `create`, to the owner who minted it — and
+// never from `list` (member-visible; relayed verbatim by MCP
+// exponential_invites_list) nor from the Electric shape (columns allowlist
+// in routes/api/shapes/workspace-invites.ts).
+export const inviteListSelection = {
+  id: workspaceInvites.id,
+  workspaceId: workspaceInvites.workspaceId,
+  invitedById: workspaceInvites.invitedById,
+  role: workspaceInvites.role,
+  acceptedAt: workspaceInvites.acceptedAt,
+  expiresAt: workspaceInvites.expiresAt,
+  createdAt: workspaceInvites.createdAt,
+  updatedAt: workspaceInvites.updatedAt,
+} as const
+
 export const workspaceInvitesRouter = router({
   create: authedProcedure
     .input(
@@ -131,7 +149,7 @@ export const workspaceInvitesRouter = router({
       await assertWorkspaceMember(ctx.session.user.id, input.workspaceId)
 
       const invites = await ctx.db
-        .select()
+        .select(inviteListSelection)
         .from(workspaceInvites)
         .where(
           and(

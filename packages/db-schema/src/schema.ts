@@ -322,8 +322,30 @@ export const issues = pgTable(
     index(`idx_issues_project_status`).on(table.projectId, table.status),
     index(`idx_issues_assignee`).on(table.assigneeId),
     index(`idx_issues_due_date`).on(table.dueDate),
+    // Backstop under generate_issue_number()'s counter allocator (see
+    // issue_number_counters below): any residual allocation race fails loudly
+    // instead of committing two issues with the same identifier.
+    uniqueIndex(`uniq_issues_project_number`).on(table.projectId, table.number),
   ]
 )
+
+// Per-project monotonic issue-number allocator — server-only, NEVER
+// Electric-synced (no shape proxy; proxy count stays 14). The
+// generate_issue_number() trigger (custom trigger file, re-applied at every
+// boot by bootstrap-cloud applyCustomSql) increments this row under its row
+// lock: serializes concurrent inserts (no duplicate numbers) and never
+// decreases (deleting the top-numbered issue can't recycle its identifier —
+// #PREFIX-n mentions and exp/PREFIX-n branches stay unambiguous). Keyed 1:1 by
+// project on purpose (deliberate deviation from the uuid-surrogate-PK
+// convention). No zod/insert-schema exports — no TS code queries it; only the
+// trigger touches it.
+export const issueNumberCounters = pgTable(`issue_number_counters`, {
+  projectId: uuid(`project_id`)
+    .primaryKey()
+    .references(() => projects.id, { onDelete: `cascade` }),
+  counter: integer().notNull(),
+  ...timestamps,
+})
 
 export const labels = pgTable(`labels`, {
   id: uuidPk(),

@@ -21,6 +21,29 @@ pub(crate) fn percent_encode(input: &str) -> String {
     out
 }
 
+/// Base64url without padding (RFC 4648 §5) — hand-rolled like the percent
+/// codec above; used for the PKCE verifier/challenge encoding (REV-13).
+pub(crate) fn base64url_nopad(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[(triple >> 18) as usize & 0x3F] as char);
+        out.push(ALPHABET[(triple >> 12) as usize & 0x3F] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[(triple >> 6) as usize & 0x3F] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[triple as usize & 0x3F] as char);
+        }
+    }
+    out
+}
+
 /// Percent-decode `input`. Invalid escapes pass through verbatim (tolerant —
 /// used on OAuth callback fragments the OS hands us; never on secrets we
 /// wrote ourselves). Does NOT treat `+` as space (the server side uses
@@ -86,5 +109,18 @@ mod tests {
     #[test]
     fn decode_never_plus_as_space() {
         assert_eq!(percent_decode("a+b"), "a+b");
+    }
+
+    #[test]
+    fn base64url_nopad_encodes_rfc4648_vectors() {
+        assert_eq!(base64url_nopad(b""), "");
+        assert_eq!(base64url_nopad(b"f"), "Zg");
+        assert_eq!(base64url_nopad(b"fo"), "Zm8");
+        assert_eq!(base64url_nopad(b"foo"), "Zm9v");
+        assert_eq!(base64url_nopad(b"foob"), "Zm9vYg");
+        assert_eq!(base64url_nopad(b"fooba"), "Zm9vYmE");
+        assert_eq!(base64url_nopad(b"foobar"), "Zm9vYmFy");
+        // URL-safe alphabet: 0xFB 0xFF hits `-` and `_` (std base64: `+/`).
+        assert_eq!(base64url_nopad(&[0xFB, 0xFF]), "-_8");
     }
 }

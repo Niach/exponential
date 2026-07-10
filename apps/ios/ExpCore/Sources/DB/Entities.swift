@@ -598,7 +598,10 @@ public struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord
     public let id: String
     public let workspaceId: String
     public let role: String
-    public let token: String
+    // No longer synced (server columns allowlist — the invite token is a
+    // bearer secret; owners get it once from the create mutation). Kept
+    // nullable for pre-fix local rows.
+    public let token: String?
     public let expiresAt: String
     public let acceptedAt: String?
     public let createdAt: String
@@ -608,7 +611,7 @@ public struct WorkspaceInviteEntity: Codable, FetchableRecord, PersistableRecord
         id: String,
         workspaceId: String,
         role: String,
-        token: String,
+        token: String?,
         expiresAt: String,
         acceptedAt: String?,
         createdAt: String,

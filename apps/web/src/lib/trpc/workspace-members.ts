@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
-import { workspaceMembers } from "@/db/schema"
+import { issueSubscribers, workspaceMembers } from "@/db/schema"
 import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertWorkspaceMember } from "@/lib/workspace-membership"
@@ -111,9 +111,26 @@ export const workspaceMembersRouter = router({
         }
       }
 
-      await ctx.db
-        .delete(workspaceMembers)
-        .where(eq(workspaceMembers.id, input.memberId))
+      // Membership end = subscription end: also drop the user's
+      // issue_subscribers rows in this workspace so notification fan-out and
+      // the workspace-scoped issue-subscribers shape stop referencing an
+      // ex-member. Manual-unsubscribe tombstones go too — a re-invited user
+      // starts with a clean slate. (deliver() additionally re-checks live
+      // membership, so rows left behind by pre-fix removals are already inert
+      // for delivery.)
+      await ctx.db.transaction(async (tx) => {
+        await tx
+          .delete(workspaceMembers)
+          .where(eq(workspaceMembers.id, input.memberId))
+        await tx
+          .delete(issueSubscribers)
+          .where(
+            and(
+              eq(issueSubscribers.workspaceId, target.workspaceId),
+              eq(issueSubscribers.userId, target.userId)
+            )
+          )
+      })
 
       return { ok: true }
     }),

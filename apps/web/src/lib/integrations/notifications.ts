@@ -7,6 +7,7 @@ import {
   projects,
   users,
   widgetSubmissions,
+  workspaceMembers,
   workspaces,
 } from "@/db/schema"
 import { sendToUser } from "@/lib/integrations/fcm"
@@ -61,21 +62,36 @@ async function actorName(actorUserId: string): Promise<string> {
   return actor?.name || actor?.email || `Someone`
 }
 
-// Drop bot users from a recipient set — the widget-helpdesk bot (users.isAgent)
-// has no inbox.
-async function withoutBots(userIds: string[]): Promise<string[]> {
+// Keep only recipients who are CURRENT members of the issue's workspace and
+// not agents (the widget-helpdesk bot has no inbox). The membership check is
+// the security boundary: subscriber/assignee rows can be stale after a member
+// is removed, and private issue content must never fan out to an ex-member.
+// Exported for tests.
+export async function deliverableRecipients(
+  workspaceId: string,
+  userIds: string[]
+): Promise<string[]> {
   if (userIds.length === 0) return []
   const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(inArray(users.id, userIds), eq(users.isAgent, true)))
-  const bots = new Set(rows.map((r) => r.id))
-  return userIds.filter((id) => !bots.has(id))
+    .select({ id: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        inArray(workspaceMembers.userId, userIds),
+        eq(users.isAgent, false)
+      )
+    )
+  const allowed = new Set(rows.map((r) => r.id))
+  return userIds.filter((id) => allowed.has(id))
 }
 
 // The active (non-unsubscribed) subscribers of an issue, minus the actor.
 // Widget-reporter rows (null userId + email) are excluded here — they receive
-// the one-way resolution email, not in-app/push notifications.
+// the one-way resolution email, not in-app/push notifications. Rows can be
+// stale (a removed member's subscriptions); membership is enforced downstream
+// in deliver(), the single chokepoint for every fan-out path.
 async function subscriberRecipients(
   issueId: string,
   actorUserId: string | null
@@ -101,7 +117,8 @@ async function subscriberRecipients(
 // (lib/notification-email-digest.ts) bundles whatever is still unread ~1h
 // later into one email per user, so a notification read in time (the push did
 // its job) never produces an email. Push and email are free delivery channels
-// — neither is plan-gated. Recipients are de-duped and bot-filtered.
+// — neither is plan-gated. Recipients are de-duped, filtered to CURRENT
+// workspace members, and bot-filtered.
 //
 // Idempotency: the fire-and-forget callers can run twice for one logical event
 // (e.g. concurrent comment creations fanning out to the same subscribers), and
@@ -125,7 +142,9 @@ async function deliver(args: {
   title: string
   body: string | null
 }): Promise<void> {
-  const recipients = await withoutBots([...new Set(args.recipientIds)])
+  const recipients = await deliverableRecipients(args.issue.workspaceId, [
+    ...new Set(args.recipientIds),
+  ])
   if (recipients.length === 0) return
 
   const now = new Date()

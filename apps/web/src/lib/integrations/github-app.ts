@@ -133,20 +133,43 @@ export async function installationIdForRepo(
   return data.id
 }
 
-// Per-installation token cache (GitHub installation tokens last 1h).
-const tokenCache = new Map<number, { token: string; expiresAt: number }>()
+// Minted-token cache (GitHub installation tokens last 1h). Keyed by
+// installation + scope: repo-scoped tokens live under `${id}#owner/name`, the
+// (server-internal-only) installation-wide token under `${id}` — a scoped
+// token must never be served from, or poison, the wide slot.
+const tokenCache = new Map<string, { token: string; expiresAt: number }>()
 
-async function installationToken(installationId: number): Promise<string> {
-  const cached = tokenCache.get(installationId)
+// Mint an installation access token. When `repo` ("owner/name") is given the
+// mint body pins `repositories: [<bare name>]` so the token reaches EXACTLY
+// that repo — the invariant behind repositories.installationToken (a workspace
+// member must never receive a token covering the rest of the installation;
+// see the 2026-07-09 installation-id-leak incident). GitHub's `repositories`
+// field takes bare repo names — the owner is implied by the installation.
+// Omitting `repo` mints installation-wide: allowed ONLY for server-internal
+// enumeration (listInstallationRepos); never hand that token to a client.
+async function installationToken(
+  installationId: number,
+  repo?: string
+): Promise<string> {
+  const cacheKey = repo ? `${installationId}#${repo}` : `${installationId}`
+  const cached = tokenCache.get(cacheKey)
   if (cached && cached.expiresAt - 60_000 > Date.now()) return cached.token
   const res = await ghApp(`/app/installations/${installationId}/access_tokens`, {
     method: `POST`,
+    ...(repo
+      ? {
+          headers: { "content-type": `application/json` },
+          body: JSON.stringify({ repositories: [repo.split(`/`)[1] ?? repo] }),
+        }
+      : {}),
   })
   if (!res.ok) {
-    throw new Error(`GitHub installation token failed (${res.status})`)
+    throw new Error(
+      `GitHub installation token failed (${res.status})${repo ? ` for ${repo}` : ``}`
+    )
   }
   const data = (await res.json()) as { token: string; expires_at: string }
-  tokenCache.set(installationId, {
+  tokenCache.set(cacheKey, {
     token: data.token,
     expiresAt: new Date(data.expires_at).getTime(),
   })
@@ -162,7 +185,11 @@ export interface RepoInstallationToken {
 
 // The main entry: a short-lived, repo-scoped token that can clone/push/open PRs
 // on `repo` ("owner/name"). Null when the App isn't configured or the repo
-// can't be resolved to any installation the App can mint a token for.
+// can't be resolved to any installation the App can mint a token for. Scoping
+// is enforced at MINT time (`repositories: [name]` in the token request body),
+// so even the client-facing repositories.installationToken can only ever hand
+// out a token confined to the requested repo — never the installation's whole
+// selection.
 //
 // `fallbackInstallationId` is the installation persisted on the `repositories`
 // row at connect time (`repositories.installation_id`, verified authoritative
@@ -173,11 +200,13 @@ export interface RepoInstallationToken {
 // login differs from the account the visible install is attributed to. Observed
 // in prod: workspace settings shows the repo connected, yet the desktop token
 // mint 412s. When the live lookup misses we mint against the stored
-// installation id and VERIFY the token can actually reach the repo — an
-// installation token is scoped to exactly its installation's repo set, so the
-// probe distinguishes the flaky live-404 (repo still covered → token works)
-// from a real removal (repo dropped from the installation's selection → the
-// caller's actionable "reconnect/re-grant" 412).
+// installation id and VERIFY the token can actually reach the repo. A repo
+// genuinely dropped from the installation's selection now usually fails at the
+// scoped MINT itself (GitHub 422 → the swallowed fallback throw → null → the
+// caller's actionable "reconnect/re-grant" 412); the verify probe stays as
+// defense-in-depth for any GitHub inconsistency between mint validation and
+// repo access, distinguishing the flaky live-404 (repo still covered → token
+// works) from a real removal.
 export async function resolveRepoInstallationToken(
   repo: string,
   opts?: { fallbackInstallationId?: number | null }
@@ -194,7 +223,9 @@ export async function resolveRepoInstallationTokenInfo(
   if (!githubAppConfigured()) return null
   return resolveInstallationTokenWith(repo, opts?.fallbackInstallationId, {
     resolveId: installationIdForRepo,
-    mintToken: installationToken,
+    // Bind the repo here so EVERY minted token in this funnel is repo-scoped
+    // — the pure resolver's injected-ops signature stays repo-agnostic.
+    mintToken: (installationId) => installationToken(installationId, repo),
     verifyRepo: verifyRepoAccessible,
   })
 }
@@ -449,6 +480,9 @@ export async function listInstallationRepos(
   perPage = 100
 ): Promise<{ repos: InstallationRepo[]; hasMore: boolean }> {
   if (!githubAppConfigured()) return { repos: [], hasMore: false }
+  // Installation-WIDE token (no repo scope) — deliberate: this enumerates the
+  // installation's whole selection, and the token never leaves the server
+  // process.
   const token = await installationToken(installationId)
   const res = await fetch(
     `https://api.github.com/installation/repositories?per_page=${perPage}&page=${page}`,

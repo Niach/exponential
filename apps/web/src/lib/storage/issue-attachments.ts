@@ -45,6 +45,64 @@ export function buildAttachmentStorageKey(
   return `issues/${issueId}/${attachmentId}-${sanitizeAttachmentFilename(filename)}`
 }
 
+/**
+ * Write-path sanitizer for the stored `attachments.filename` display value.
+ * Preserves Unicode (display names stay human-readable — header safety is the
+ * read path's job via buildContentDispositionHeader) but strips C0/C1 control
+ * characters and DEL, and clamps to 255 characters so any browser-supplied
+ * name fits the varchar column.
+ */
+export function sanitizeUploadFilename(filename: string, fallback = `file`) {
+  const sanitized = filename
+    .replace(/[\x00-\x1F\x7F-\x9F]/g, ``)
+    .trim()
+    .slice(0, 255)
+    .trim()
+
+  return sanitized || fallback
+}
+
+function encodeRfc5987ValueChars(value: string) {
+  // encodeURIComponent leaves `'()*` raw, but RFC 5987 attr-char excludes
+  // them; `!-._~` are attr-chars and correctly stay raw.
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  )
+}
+
+/**
+ * Builds an RFC 6266/5987 Content-Disposition value that is safe for ANY
+ * stored filename (legacy unsanitized rows included): the output never
+ * contains control characters or non-Latin-1 code points, so `new Headers()`
+ * can never throw on it. Plain-ASCII names get the simple quoted form;
+ * anything else gets a `?`-mangled ASCII fallback plus the UTF-8 `filename*`
+ * form that modern clients prefer.
+ */
+export function buildContentDispositionHeader(
+  disposition: `inline` | `attachment`,
+  filename: string
+) {
+  const stripped = filename.replace(/[\x00-\x1F\x7F-\x9F]/g, ``).trim()
+  const asciiFallback =
+    stripped
+      .replace(/[^\x20-\x7E]/g, `?`)
+      .replace(/["\\]/g, `'`)
+      .trim() || `file`
+
+  if (!stripped || asciiFallback === stripped) {
+    return `${disposition}; filename="${asciiFallback}"`
+  }
+
+  try {
+    return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987ValueChars(stripped)}`
+  } catch {
+    // Lone surrogates make encodeURIComponent throw a URIError — serve the
+    // ASCII fallback rather than failing the whole response.
+    return `${disposition}; filename="${asciiFallback}"`
+  }
+}
+
 export function isAcceptedImageContentType(contentType: string) {
   return acceptedImageContentTypes.includes(
     contentType as (typeof acceptedImageContentTypes)[number]
@@ -199,6 +257,28 @@ export function extractAttachmentIdsFromDescription(
     attachmentIds: [...attachmentIds],
     invalidUrls: [...invalidUrls],
   }
+}
+
+/**
+ * Unions the attachment ids referenced across multiple markdown texts (e.g.
+ * all of an issue's comment bodies, optionally plus its description). URLs
+ * that don't resolve to a same-origin attachment are ignored — this is a
+ * liveness scan, not validation.
+ */
+export function collectReferencedAttachmentIds(
+  texts: Iterable<string>,
+  origin: string
+): Set<string> {
+  const attachmentIds = new Set<string>()
+
+  for (const text of texts) {
+    for (const attachmentId of extractAttachmentIdsFromDescription(text, origin)
+      .attachmentIds) {
+      attachmentIds.add(attachmentId)
+    }
+  }
+
+  return attachmentIds
 }
 
 export function hasMarkdownImages(text: string) {

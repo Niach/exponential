@@ -243,7 +243,10 @@ pub struct WorkspaceMember {
     pub updated_at: Option<String>,
 }
 
-/// `workspace_invites` shape row (requireAuth shape, §5.9).
+/// `workspace_invites` shape row (requireAuth shape, §5.9). The server's
+/// columns allowlist excludes the bearer `token` from the shape (REV-4/14) —
+/// the invite link is built once from the create mutation's response, never
+/// from synced rows.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct WorkspaceInvite {
     pub id: String,
@@ -252,8 +255,6 @@ pub struct WorkspaceInvite {
     pub invited_by_id: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
-    #[serde(default)]
-    pub token: Option<String>,
     #[serde(default)]
     pub accepted_at: Option<String>,
     #[serde(default)]

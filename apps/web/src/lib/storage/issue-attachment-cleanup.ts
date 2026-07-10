@@ -1,7 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { attachments } from "@/db/schema"
+import { attachments, comments } from "@/db/schema"
 import { deleteObject } from "@/lib/storage"
 import {
+  collectReferencedAttachmentIds,
   extractAttachmentIdsFromDescription,
   getRemovedAttachmentIds,
 } from "@/lib/storage/issue-attachments"
@@ -29,6 +30,26 @@ export async function deleteStorageObjects(keys: string[]): Promise<void> {
   )
 }
 
+// Attachment ids referenced from ANY of the issue's comment bodies are live:
+// comment-embedded images are a supported flow (the MCP upload tool tells
+// callers to embed in "the issue's description or a comment") and no writer
+// sets attachments.commentId, so the bodies are the only reference signal.
+async function collectCommentReferencedAttachmentIdsInTx(
+  tx: Tx,
+  issueId: string,
+  requestUrl: string
+): Promise<Set<string>> {
+  const commentRows = await tx
+    .select({ body: comments.body })
+    .from(comments)
+    .where(eq(comments.issueId, issueId))
+
+  return collectReferencedAttachmentIds(
+    commentRows.map((row) => row.body),
+    requestUrl
+  )
+}
+
 export async function collectAndDeleteRemovedAttachmentsInTx(
   tx: Tx,
   issueId: string,
@@ -44,6 +65,17 @@ export async function collectAndDeleteRemovedAttachmentsInTx(
 
   if (removedAttachmentIds.length === 0) return []
 
+  const commentReferencedIds = await collectCommentReferencedAttachmentIdsInTx(
+    tx,
+    issueId,
+    requestUrl
+  )
+  const deletableAttachmentIds = removedAttachmentIds.filter(
+    (attachmentId) => !commentReferencedIds.has(attachmentId)
+  )
+
+  if (deletableAttachmentIds.length === 0) return []
+
   const removedAttachments = await tx
     .select({
       id: attachments.id,
@@ -53,7 +85,7 @@ export async function collectAndDeleteRemovedAttachmentsInTx(
     .where(
       and(
         eq(attachments.issueId, issueId),
-        inArray(attachments.id, removedAttachmentIds)
+        inArray(attachments.id, deletableAttachmentIds)
       )
     )
 
@@ -74,8 +106,9 @@ export async function collectAndDeleteRemovedAttachmentsInTx(
 
 /**
  * Reclaims attachments that belong to an issue but are no longer (or were never)
- * referenced by its current description, once they are older than the grace
- * window. This complements {@link collectAndDeleteRemovedAttachmentsInTx} (which
+ * referenced by its current description OR any of its comment bodies, once they
+ * are older than the grace window.
+ * This complements {@link collectAndDeleteRemovedAttachmentsInTx} (which
  * only handles images removed from a *saved* description) by also catching
  * never-referenced uploads left behind by an abandoned or interrupted edit.
  * Piggy-backs on issues.update so no separate cron is required.
@@ -101,8 +134,18 @@ export async function collectAndDeleteUnreferencedAttachmentsInTx(
     .from(attachments)
     .where(eq(attachments.issueId, issueId))
 
-  const orphans = rows.filter(
+  const candidateOrphans = rows.filter(
     (row) => !referencedIds.has(row.id) && row.createdAt < cutoff
+  )
+  if (candidateOrphans.length === 0) return []
+
+  const commentReferencedIds = await collectCommentReferencedAttachmentIdsInTx(
+    tx,
+    issueId,
+    requestUrl
+  )
+  const orphans = candidateOrphans.filter(
+    (row) => !commentReferencedIds.has(row.id)
   )
   if (orphans.length === 0) return []
 

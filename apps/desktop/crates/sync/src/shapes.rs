@@ -15,8 +15,11 @@
 //! PII rule (§5.4/§5.9): `issue_subscribers` must NOT model an `email` column
 //! — the proxy's columns allowlist excludes widget-reporter emails from sync,
 //! and the missing local column is the client-side belt to that server-side
-//! suspender. `users` is the opposite: co-member-scoped but full rows
-//! including `email`.
+//! suspender. Same for `workspace_invites.token` (REV-4/14): the proxy's
+//! allowlist excludes the invite bearer secret (accept is not recipient-bound,
+//! so a synced owner-role token would let any member escalate to owner);
+//! owners get the token once, from the create mutation. `users` is the
+//! opposite: co-member-scoped but full rows including `email`.
 
 /// Primary-key kind of a synced table (§5.9). `issue_labels` is the ONLY
 /// composite-PK, id-less table.
@@ -210,12 +213,15 @@ pub const SHAPES: [ShapeSpec; 14] = [
     ShapeSpec {
         name: "workspace_invites",
         path: "/api/shapes/workspace-invites",
+        // No `token`: the proxy's columns allowlist excludes the invite
+        // bearer secret from sync (see the module header). Pre-fix installs
+        // keep an orphaned local `token` column (heal_missing_columns is
+        // additive-only) — harmless; the allowlist drops the key on upsert.
         columns: &[
             "id",
             "workspace_id",
             "invited_by_id",
             "role",
-            "token",
             "accepted_at",
             "expires_at",
             "created_at",

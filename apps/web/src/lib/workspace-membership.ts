@@ -3,6 +3,7 @@
 
 export {
   assertWorkspaceAccess,
+  assertAssigneeInWorkspace,
   assertMatchingWorkspaceIds,
   getPublicProjectScope,
   getPublicLabelIds,

@@ -23,6 +23,7 @@ import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
   maxImageUploadBytes,
+  sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
@@ -216,7 +217,7 @@ export async function createWidgetSubmission(args: {
   let storageKey: string | null = null
   let dimensions: { width: number; height: number } | null = null
   if (screenshot && attachmentId) {
-    const filename = screenshot.name || `screenshot.png`
+    const filename = sanitizeUploadFilename(screenshot.name, `screenshot.png`)
     storageKey = buildAttachmentStorageKey(issueId, attachmentId, filename)
     const body = new Uint8Array(await screenshot.arrayBuffer())
     dimensions = getImageDimensions(body)
@@ -283,7 +284,7 @@ export async function createWidgetSubmission(args: {
           projectId: config.projectId,
           issueId,
           uploaderId: config.widgetUserId,
-          filename: screenshot.name || `screenshot.png`,
+          filename: sanitizeUploadFilename(screenshot.name, `screenshot.png`),
           contentType: screenshot.type,
           sizeBytes: screenshot.size,
           storageKey,

@@ -1,14 +1,19 @@
 //! OAuth browser round-trip (masterplan-v3 §5.7, wired by the §4.2 login
 //! view).
 //!
-//! Flow: [`start`] records the pending instance URL and opens the system
-//! browser (through the `api::opener` chain — never a raw `xdg-open`) at
-//! `/api/mobile-oauth-start?...`. The server runs the OAuth dance and
-//! redirects to `/api/mobile-oauth-return`, which deep-links back as
-//! `exponential://oauth-return#token=<session-token>`. The app shell's
+//! Flow: [`start`] records the pending instance URL + PKCE verifier and opens
+//! the system browser (through the `api::opener` chain — never a raw
+//! `xdg-open`) at `/api/mobile-oauth-start?...&code_challenge=…`. The server
+//! runs the OAuth dance and redirects to `/api/mobile-oauth-return`, which
+//! deep-links back as `exponential://oauth-return?code=…#code=…` — a
+//! single-use short-TTL code, NOT the session token (REV-13: xdg/HKCU scheme
+//! dispatch is hijackable by any other registered handler, so the deep link
+//! must carry nothing redeemable without in-app state). The app shell's
 //! `on_open_urls` channel delivers that URL to [`handle_open_urls`], which
-//! parses the token app-locally (it lives in the URL *fragment*) and adopts
-//! it exactly like a password sign-in.
+//! exchanges the code + held verifier for the session token over TLS
+//! (`POST /api/mobile-oauth-exchange`) and adopts it exactly like a password
+//! sign-in. Legacy pre-PKCE servers (self-hosted lag) still deep-link
+//! `#token=<session-token>`; that path is kept for compatibility.
 //!
 //! RESIDUAL (§5.7 fallback): the `127.0.0.1` loopback capture needs a NEW
 //! server-side `redirect=` param on `/api/mobile-oauth-return`
@@ -19,6 +24,7 @@
 
 use std::sync::Arc;
 
+use api::login::OAuthCallback;
 use gpui::{App, Global};
 use sync::{SessionPhase, Store};
 
@@ -26,19 +32,30 @@ use crate::session::{connect_account, AuthContext};
 
 /// The in-flight OAuth attempt (one at a time — starting a new one replaces
 /// the old, whose late callback would then be adopted against the newer
-/// instance URL; both point at the URL the user last chose).
+/// instance URL; both point at the URL the user last chose). The PKCE
+/// verifier lives here in memory only (never persisted) and pairs with the
+/// code_challenge the start URL carried (REV-13).
 #[derive(Default)]
 struct PendingOAuth {
     instance_url: Option<String>,
+    verifier: Option<String>,
 }
 
 impl Global for PendingOAuth {}
 
-/// Open the browser for an OAuth start URL. `Err(url)` = the ENTIRE opener
+/// Open the browser for an OAuth start URL. `verifier` is the PKCE verifier
+/// whose challenge is baked into `start_url`. `Err(url)` = the ENTIRE opener
 /// chain failed: the caller must surface the URL copyably — a broken
 /// opener degrades to copy-paste, never a dead end.
-pub(crate) fn start(instance_url: String, start_url: String, cx: &mut App) -> Result<(), String> {
-    cx.default_global::<PendingOAuth>().instance_url = Some(instance_url);
+pub(crate) fn start(
+    instance_url: String,
+    start_url: String,
+    verifier: String,
+    cx: &mut App,
+) -> Result<(), String> {
+    let pending = cx.default_global::<PendingOAuth>();
+    pending.instance_url = Some(instance_url);
+    pending.verifier = Some(verifier);
     match api::opener::open_in_browser(&start_url) {
         Ok(()) => Ok(()),
         Err(err) => {
@@ -53,8 +70,8 @@ pub(crate) fn start(instance_url: String, start_url: String, cx: &mut App) -> Re
 /// EXP-4 `exponential://issue/<IDENTIFIER>` deep link; anything else is ignored.
 pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     for url in urls {
-        if let Some(token) = api::login::parse_oauth_callback(&url) {
-            complete(token, cx);
+        if let Some(callback) = api::login::parse_oauth_callback(&url) {
+            complete(callback, cx);
             continue;
         }
         if let Some(token) = crate::join_workspace::parse_invite_deep_link(&url) {
@@ -118,9 +135,11 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
     }
 }
 
-/// Adopt an OAuth callback token: validate it via `get-session`, persist the
-/// account, connect sync — the same path as a password sign-in (§5.7 step 4).
-fn complete(token: String, cx: &mut App) {
+/// Adopt an OAuth callback: for a PKCE code, first redeem it via
+/// `POST /api/mobile-oauth-exchange` with the held verifier (REV-13); then
+/// validate the token via `get-session`, persist the account, connect sync —
+/// the same path as a password sign-in (§5.7 step 4).
+fn complete(callback: OAuthCallback, cx: &mut App) {
     let store = Store::global(cx).clone();
     if matches!(store.session(cx), SessionPhase::Synced { .. }) {
         log::info!("[ui] oauth: callback while already signed in — ignored");
@@ -133,16 +152,41 @@ fn complete(token: String, cx: &mut App) {
         log::warn!("[ui] oauth: callback with no pending attempt — ignored");
         return;
     };
+    let verifier = cx
+        .try_global::<PendingOAuth>()
+        .and_then(|pending| pending.verifier.clone());
+    if matches!(callback, OAuthCallback::Code(_)) && verifier.is_none() {
+        // A code arrived without an attempt this process started (out-of-band
+        // or replay) — nothing to redeem it with; mirror the
+        // no-pending-attempt branch above.
+        log::warn!("[ui] oauth: code callback with no held PKCE verifier — ignored");
+        return;
+    }
 
     let auth = AuthContext::global(cx).clone();
     store.begin_sign_in(cx);
 
     cx.spawn(async move |cx| {
         let client = Arc::clone(&auth.client);
-        let (server_bg, token_bg) = (instance_url.clone(), token.clone());
+        let (server_bg, callback_bg, verifier_bg) =
+            (instance_url.clone(), callback, verifier.clone());
+        // Result<(token, session user), ApiError> — the token comes straight
+        // from a legacy callback, or from the code exchange (checked above:
+        // a Code always has a verifier here).
         let result = cx
             .background_executor()
-            .spawn(async move { client.fetch_session(&server_bg, &token_bg) })
+            .spawn(async move {
+                let token = match callback_bg {
+                    OAuthCallback::Token(token) => token,
+                    OAuthCallback::Code(code) => client.exchange_oauth_code(
+                        &server_bg,
+                        &code,
+                        verifier_bg.as_deref().unwrap_or_default(),
+                    )?,
+                };
+                let user = client.fetch_session(&server_bg, &token)?;
+                Ok::<_, api::ApiError>((token, user))
+            })
             .await;
 
         cx.update(|cx| {
@@ -151,9 +195,12 @@ fn complete(token: String, cx: &mut App) {
             }
             let store = Store::global(cx).clone();
             match result {
-                Ok(Some(user)) => match auth.auth.sign_in(&instance_url, &token, &user) {
+                Ok((token, Some(user))) => match auth.auth.sign_in(&instance_url, &token, &user)
+                {
                     Ok(account) => {
-                        cx.default_global::<PendingOAuth>().instance_url = None;
+                        let pending = cx.default_global::<PendingOAuth>();
+                        pending.instance_url = None;
+                        pending.verifier = None;
                         connect_account(&account, cx);
                     }
                     Err(err) => {
@@ -161,12 +208,12 @@ fn complete(token: String, cx: &mut App) {
                         store.abort_sign_in(cx);
                     }
                 },
-                Ok(None) => {
+                Ok((_, None)) => {
                     log::warn!("[ui] oauth: callback token does not resolve — login stays");
                     store.abort_sign_in(cx);
                 }
                 Err(err) => {
-                    log::warn!("[ui] oauth: session validation failed: {err}");
+                    log::warn!("[ui] oauth: sign-in completion failed: {err}");
                     store.abort_sign_in(cx);
                 }
             }

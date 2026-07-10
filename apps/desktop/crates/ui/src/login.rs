@@ -237,14 +237,19 @@ impl LoginView {
 
     // -- OAuth (§5.7) -------------------------------------------------
 
+    // Each attempt mints a PKCE pair (REV-13): the S256 challenge rides the
+    // start URL, the verifier is held by crate::oauth::PendingOAuth (memory
+    // only, last-start-wins) for the code exchange on the callback.
+
     fn sign_in_with_google(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(instance) = self.effective_instance(cx) else {
             self.error = Some("Enter your server URL first.".into());
             cx.notify();
             return;
         };
-        let url = api::login::google_oauth_start_url(&instance);
-        self.launch_oauth("google", instance, url, cx);
+        let pkce = api::login::generate_pkce();
+        let url = api::login::google_oauth_start_url(&instance, &pkce.challenge);
+        self.launch_oauth("google", instance, url, pkce.verifier, cx);
     }
 
     fn sign_in_with_apple(&mut self, cx: &mut gpui::Context<Self>) {
@@ -253,8 +258,9 @@ impl LoginView {
             cx.notify();
             return;
         };
-        let url = api::login::apple_oauth_start_url(&instance);
-        self.launch_oauth("apple", instance, url, cx);
+        let pkce = api::login::generate_pkce();
+        let url = api::login::apple_oauth_start_url(&instance, &pkce.challenge);
+        self.launch_oauth("apple", instance, url, pkce.verifier, cx);
     }
 
     fn sign_in_with_oidc(&mut self, provider_id: String, cx: &mut gpui::Context<Self>) {
@@ -263,8 +269,9 @@ impl LoginView {
             cx.notify();
             return;
         };
-        let url = api::login::oidc_oauth_start_url(&instance, &provider_id);
-        self.launch_oauth(&provider_id, instance, url, cx);
+        let pkce = api::login::generate_pkce();
+        let url = api::login::oidc_oauth_start_url(&instance, &provider_id, &pkce.challenge);
+        self.launch_oauth(&provider_id, instance, url, pkce.verifier, cx);
     }
 
     fn launch_oauth(
@@ -272,16 +279,19 @@ impl LoginView {
         provider: &str,
         instance: String,
         url: String,
+        verifier: String,
         cx: &mut gpui::Context<Self>,
     ) {
         self.error = None;
         self.copy_url = None;
         self.pending_provider = Some(provider.to_string());
-        match crate::oauth::start(instance, url, cx) {
+        match crate::oauth::start(instance, url, verifier, cx) {
             Ok(()) => {}
             Err(url) => {
                 // The whole opener chain failed — degrade to a
-                // copyable URL, never a dead end.
+                // copyable URL, never a dead end. The pending attempt (incl.
+                // the PKCE verifier) is already recorded, so the copied link
+                // still completes in this process.
                 self.pending_provider = None;
                 self.copy_url = Some(url.into());
                 self.error =

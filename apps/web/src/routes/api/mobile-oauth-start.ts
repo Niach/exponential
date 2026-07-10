@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { randomBytes } from "crypto"
 import { auth } from "@/lib/auth"
+import { isValidCodeChallenge } from "@/lib/auth/mobile-oauth-code"
 
 // Custom Tabs only emit GETs, but Better Auth's /sign-in/oauth2 and
 // /sign-in/social are POST-only. Bridge: client opens this GET endpoint,
@@ -21,6 +22,19 @@ async function handle({ request }: { request: Request }) {
 
   if (!providerId && !social) {
     return new Response(`Missing providerId or provider`, { status: 400 })
+  }
+
+  // PKCE (REV-13): new clients present an S256 code_challenge here; the
+  // return page then mints a one-time code instead of leaking the raw session
+  // token into the deep link. Absent challenge = legacy token flow (old
+  // installed builds).
+  const codeChallenge = url.searchParams.get(`code_challenge`)
+  const codeChallengeMethod = url.searchParams.get(`code_challenge_method`)
+  if (codeChallenge !== null && !isValidCodeChallenge(codeChallenge)) {
+    return new Response(`Invalid code_challenge`, { status: 400 })
+  }
+  if (codeChallengeMethod !== null && codeChallengeMethod !== `S256`) {
+    return new Response(`Unsupported code_challenge_method`, { status: 400 })
   }
 
   const callbackURL = `${originForRequest(request)}/api/mobile-oauth-return`
@@ -63,10 +77,15 @@ async function handle({ request }: { request: Request }) {
     // OAuth callback. Overwriting it breaks Google's signInSocial flow (the
     // callback handler fails CSRF, falls back to the default redirect, and
     // the user lands on the web app instead of being deep-linked back).
+    // When the client presented a PKCE challenge, ride it in the same cookie
+    // as `<state>.<challenge>` — `.` is unambiguous (hex and base64url
+    // contain no dot) — so the return page knows to mint a code deep link
+    // bound to that challenge.
     const state = randomBytes(32).toString(`hex`)
+    const cookieValue = codeChallenge ? `${state}.${codeChallenge}` : state
     headers.append(
       `Set-Cookie`,
-      `${STATE_COOKIE_NAME}=${state}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
+      `${STATE_COOKIE_NAME}=${cookieValue}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
     )
     headers.set(`Location`, data.url)
     headers.delete(`Content-Type`)

@@ -159,4 +159,17 @@ final class IssueSortingTests: XCTestCase {
         let date = Date(timeIntervalSince1970: 1_772_000_000) // 2026-02-25 UTC
         XCTAssertEqual(IssueSorting.todayString(now: date, calendar: calendar), "2026-02-25")
     }
+
+    // QA1480 regression: a Buddhist-calendar device (Thailand default) must not
+    // produce "2569-…" in the yyyy-MM-dd wire string space — that would mark
+    // every synced due date overdue.
+    func testTodayStringIsGregorianOnNonGregorianDeviceCalendar() {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = TimeZone(identifier: "UTC")!
+        let date = Date(timeIntervalSince1970: 1_772_000_000) // 2026-02-25 UTC
+        XCTAssertEqual(IssueSorting.todayString(now: date, calendar: buddhist), "2026-02-25")
+        var japanese = Calendar(identifier: .japanese)
+        japanese.timeZone = TimeZone(identifier: "UTC")!
+        XCTAssertEqual(IssueSorting.todayString(now: date, calendar: japanese), "2026-02-25")
+    }
 }

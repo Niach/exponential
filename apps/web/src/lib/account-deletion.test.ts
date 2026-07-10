@@ -13,9 +13,10 @@ const USER = `user-1`
 function m(
   workspaceId: string,
   userId: string,
-  role: `owner` | `member`
+  role: `owner` | `member`,
+  isAgent = false
 ): MembershipRow {
-  return { workspaceId, userId, role }
+  return { workspaceId, userId, role, isAgent }
 }
 
 describe(`classifyWorkspacesForUserDeletion`, () => {
@@ -97,6 +98,51 @@ describe(`classifyWorkspacesForUserDeletion`, () => {
     expect(classifyWorkspacesForUserDeletion([], USER)).toEqual({
       stranded: [],
       solo: [],
+    })
+  })
+
+  it(`ignores the synthetic widget bot — a widget-owning personal workspace stays solo (REV-6)`, () => {
+    // createWidgetUser adds an isAgent role=member row that widgets.delete
+    // intentionally retains; it must never block account deletion.
+    const rows = [
+      m(`ws-p`, USER, `owner`),
+      m(`ws-p`, `widget-bot`, `member`, true),
+    ]
+    expect(classifyWorkspacesForUserDeletion(rows, USER)).toEqual({
+      stranded: [],
+      solo: [`ws-p`],
+    })
+  })
+
+  it(`still flags a workspace as stranded when a real member exists alongside a bot`, () => {
+    const rows = [
+      m(`ws-t`, USER, `owner`),
+      m(`ws-t`, `widget-bot`, `member`, true),
+      m(`ws-t`, `user-2`, `member`),
+    ]
+    expect(classifyWorkspacesForUserDeletion(rows, USER)).toEqual({
+      stranded: [`ws-t`],
+      solo: [],
+    })
+  })
+
+  it(`never counts an agent as another owner (defensive)`, () => {
+    const rows = [
+      m(`ws-t`, USER, `owner`),
+      m(`ws-t`, `bot`, `owner`, true),
+      m(`ws-t`, `user-2`, `member`),
+    ]
+    expect(classifyWorkspacesForUserDeletion(rows, USER)).toEqual({
+      stranded: [`ws-t`],
+      solo: [],
+    })
+  })
+
+  it(`counts the target's own rows even when the target is an agent (admin deleting a bot)`, () => {
+    const rows = [m(`ws-x`, USER, `member`, true)]
+    expect(classifyWorkspacesForUserDeletion(rows, USER)).toEqual({
+      stranded: [],
+      solo: [`ws-x`],
     })
   })
 })

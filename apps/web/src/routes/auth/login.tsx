@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { authClient } from "@/lib/auth/client"
 import { getAuthConfig } from "@/lib/auth/config"
 import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
+import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -25,7 +26,7 @@ export const Route = createFileRoute(`/auth/login`)({
     search: Record<string, unknown>
   ): { redirect?: string } & Record<string, unknown> => ({
     ...search,
-    redirect: (search.redirect as string) || undefined,
+    redirect: sanitizeRedirectPath(search.redirect),
   }),
 })
 
@@ -39,7 +40,10 @@ function LoginPage() {
     appleLoginEnabled,
   } = Route.useLoaderData()
   const [oauthResumeUrl] = useState(captureOAuthResumeUrl)
-  const destination = oauthResumeUrl || redirectTo
+  // oauthResumeUrl is the separately-guarded MCP OAuth resume path (an
+  // internally composed relative URL) — only the router-provided redirect
+  // needs the same-origin-path clamp (re-applied here as sink-side defense).
+  const destination = oauthResumeUrl || sanitizeRedirectPath(redirectTo)
   const [email, setEmail] = useState(``)
   const [password, setPassword] = useState(``)
   const [isLoading, setIsLoading] = useState(false)

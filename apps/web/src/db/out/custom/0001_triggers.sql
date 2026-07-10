@@ -31,17 +31,38 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_configs FOR 
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_submissions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installation_repo_grants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- 2. Auto-generate issue number and identifier per project
+-- 2. Auto-generate issue number and identifier per project, allocated from the
+--    per-project monotonic counter table issue_number_counters (migration
+--    0013). The ON CONFLICT row lock serializes concurrent same-project
+--    inserts — the old unlocked SELECT MAX(number)+1 raced under READ
+--    COMMITTED and let two inserts commit the same identifier. The counter
+--    only ever grows, so deleting the top-numbered issue can never recycle its
+--    identifier (old #PREFIX-n mentions and exp/PREFIX-n branches stay
+--    unambiguous). The GREATEST clamp self-heals a missing/stale counter row
+--    (fresh project, or rows inserted by the pre-counter trigger between
+--    `migrate` running and this file being re-applied at boot). The unique
+--    index uniq_issues_project_number (migration 0013) is the loud backstop:
+--    any residual race fails the insert instead of committing a duplicate.
+--    Aborted inserts roll the counter back transactionally — a never-committed
+--    number being reused is fine.
 CREATE OR REPLACE FUNCTION generate_issue_number()
 RETURNS TRIGGER AS $$
 DECLARE
   next_number integer;
+  current_max integer;
   project_prefix text;
 BEGIN
-  SELECT COALESCE(MAX(number), 0) + 1 INTO next_number
+  SELECT COALESCE(MAX(number), 0) INTO current_max
   FROM issues
   WHERE project_id = NEW.project_id;
+
+  INSERT INTO issue_number_counters AS c (project_id, counter)
+  VALUES (NEW.project_id, current_max + 1)
+  ON CONFLICT (project_id) DO UPDATE
+    SET counter = GREATEST(c.counter, current_max) + 1
+  RETURNING counter INTO next_number;
 
   SELECT prefix INTO project_prefix
   FROM projects

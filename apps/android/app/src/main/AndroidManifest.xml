@@ -28,6 +28,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- OAuth return (REV-13): a custom scheme can never be an App Link
+                 (autoVerify only works for http/https), so any co-installed app
+                 declaring this same scheme+host filter can win the implicit-intent
+                 resolution. That is safe because the link carries only a
+                 single-use, short-TTL PKCE code — useless without the in-app
+                 code_verifier that /api/mobile-oauth-exchange requires — never
+                 the session token. (Pre-PKCE servers still send a raw token;
+                 that legacy path is deprecated server-side.) -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

@@ -74,9 +74,10 @@ fun InstanceScreen(
     // Set the instance to the cloud, then hand off to a Custom Tab preselecting
     // the provider (mobile-oauth-start honors ?provider=). onContinue also
     // routes to the full login screen so a cancelled browser tab lands there.
+    // The view model builds the URL so each tap mints a fresh PKCE attempt.
     fun startCloudOAuth(provider: String) {
         onContinue(AppConstants.PUBLIC_CLOUD_URL)
-        val url = "${AppConstants.PUBLIC_CLOUD_URL}/api/mobile-oauth-start?provider=$provider"
+        val url = viewModel.cloudStartUrl(provider)
         CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
     }
 

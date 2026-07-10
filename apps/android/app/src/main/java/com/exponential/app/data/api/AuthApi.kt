@@ -15,6 +15,7 @@ import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -43,6 +44,15 @@ data class SessionInfo(
     val isAdmin: Boolean,
     val onboardingCompletedAt: String? = null,
 )
+
+@Serializable
+data class OauthExchangeRequest(
+    val code: String,
+    @SerialName("code_verifier") val codeVerifier: String,
+)
+
+@Serializable
+data class OauthExchangeResponse(val token: String? = null)
 
 sealed interface SignInResult {
     data class Success(val token: String, val email: String) : SignInResult
@@ -103,6 +113,25 @@ class AuthApi @Inject constructor(
             }
         } catch (e: Exception) {
             SignInResult.Failure(e.message ?: "Network error")
+        }
+    }
+
+    // Redeem an oauth-return PKCE code for the session token (REV-13):
+    // POST /api/mobile-oauth-exchange with the code from the deep link and the
+    // in-memory verifier the attempt started with. Null on any failure
+    // (unknown/expired/replayed code, wrong verifier, network) — the caller
+    // surfaces a login error.
+    suspend fun exchangeOauthCode(baseUrl: String, code: String, codeVerifier: String): String? {
+        return try {
+            val response = client.post("$baseUrl/api/mobile-oauth-exchange") {
+                contentType(ContentType.Application.Json)
+                setBody(OauthExchangeRequest(code = code, codeVerifier = codeVerifier))
+            }
+            if (!response.status.isSuccess()) return null
+            val parsed: OauthExchangeResponse = json.decodeFromString(response.bodyAsText())
+            parsed.token
+        } catch (e: Exception) {
+            null
         }
     }
 

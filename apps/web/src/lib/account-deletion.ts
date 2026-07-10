@@ -1,6 +1,12 @@
 import { TRPCError } from "@trpc/server"
 import { eq, inArray, or } from "drizzle-orm"
-import { attachments, issues, workspaces, workspaceMembers } from "@/db/schema"
+import {
+  attachments,
+  issues,
+  users,
+  workspaces,
+  workspaceMembers,
+} from "@/db/schema"
 import type { db as Database } from "@/db/connection"
 import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
 
@@ -13,6 +19,7 @@ export type MembershipRow = {
   workspaceId: string
   userId: string
   role: string
+  isAgent: boolean
 }
 
 /**
@@ -28,13 +35,27 @@ export type MembershipRow = {
  *   solo workspaces). These are deleted along with the account so no orphaned
  *   data survives — the privacy policy promises deletion of "all associated
  *   data".
+ * - Agent members (users.isAgent — the synthetic widget bot) are ignored: a
+ *   workspace whose only non-agent member is the user classifies `solo` and
+ *   is deleted with the account.
  */
 export function classifyWorkspacesForUserDeletion(
   memberships: MembershipRow[],
   userId: string
 ): { stranded: string[]; solo: string[] } {
+  // Synthetic agent users (the widget bot) never count as "other members":
+  // they hold no owner powers, every member-list surface hides them, and
+  // billing/seat counts already exclude them (lib/billing.ts). Counting one
+  // here would permanently classify a widget-owning personal workspace as
+  // stranded — blocking self-service account deletion with an error that
+  // points at an invisible member. The user being deleted always counts as
+  // themselves, whatever their own flag (admin-deleting a retained bot must
+  // still solo-classify a workspace where the bot is the entire membership).
+  const humanRows = memberships.filter(
+    (r) => r.userId === userId || !r.isAgent
+  )
   const byWorkspace = new Map<string, MembershipRow[]>()
-  for (const row of memberships) {
+  for (const row of humanRows) {
     const list = byWorkspace.get(row.workspaceId) ?? []
     list.push(row)
     byWorkspace.set(row.workspaceId, list)
@@ -89,8 +110,10 @@ export async function guardAndCleanupWorkspacesForUserDeletion(
       workspaceId: workspaceMembers.workspaceId,
       userId: workspaceMembers.userId,
       role: workspaceMembers.role,
+      isAgent: users.isAgent,
     })
     .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
     .where(inArray(workspaceMembers.workspaceId, myWorkspaceIds))
 
   const { stranded, solo } = classifyWorkspacesForUserDeletion(

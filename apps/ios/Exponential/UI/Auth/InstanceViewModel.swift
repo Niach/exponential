@@ -21,6 +21,9 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
     private let authApi: AuthApi
     private let auth: AuthRepository
     private var webAuthSession: ASWebAuthenticationSession?
+    // The in-flight OAuth attempt's PKCE pair (REV-13). In-memory only —
+    // never persisted; last-start-wins (a new attempt replaces the old).
+    private var pendingPkce: Pkce?
 
     init(authApi: AuthApi, auth: AuthRepository) {
         self.authApi = authApi
@@ -42,18 +45,22 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
     // MARK: - Cloud OAuth (provider preselected via mobile-oauth-start)
 
     func startCloudGoogle() {
-        guard let url = authApi.googleStartUrl(instanceUrl: AppConstants.defaultCloudUrl) else {
+        let pkce = Pkce.generate()
+        guard let url = authApi.googleStartUrl(instanceUrl: AppConstants.defaultCloudUrl, codeChallenge: pkce.challenge) else {
             error = "Could not build Google OAuth URL"
             return
         }
+        pendingPkce = pkce
         launchWebAuth(url: url)
     }
 
     func startCloudApple() {
-        guard let url = authApi.appleStartUrl(instanceUrl: AppConstants.defaultCloudUrl) else {
+        let pkce = Pkce.generate()
+        guard let url = authApi.appleStartUrl(instanceUrl: AppConstants.defaultCloudUrl, codeChallenge: pkce.challenge) else {
             error = "Could not build Apple OAuth URL"
             return
         }
+        pendingPkce = pkce
         launchWebAuth(url: url)
     }
 
@@ -127,19 +134,36 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
 
                 logger.info("Cloud OAuth callback: \(callbackURL.absoluteString)")
 
-                if let fragment = callbackURL.fragment {
-                    let params = fragment.split(separator: "&").reduce(into: [String: String]()) { dict, pair in
-                        let parts = pair.split(separator: "=", maxSplits: 1)
-                        if parts.count == 2 {
-                            dict[String(parts[0])] = String(parts[1])
-                        }
-                    }
-                    if let token = params["token"] {
-                        self.error = nil
-                        await self.applyCloudLogin(token: token)
+                let params = LoginViewModel.callbackParams(callbackURL)
+
+                // PKCE code (REV-13): redeem via /api/mobile-oauth-exchange
+                // with the in-memory verifier — never a raw token on the wire.
+                if let code = params["code"] {
+                    guard let pkce = self.pendingPkce else {
+                        self.error = "Couldn't verify your sign-in. Please try again."
                         self.webAuthSession = nil
                         return
                     }
+                    self.pendingPkce = nil
+                    guard let token = await self.authApi.exchangeOauthCode(
+                        instanceUrl: AppConstants.defaultCloudUrl, code: code, codeVerifier: pkce.verifier
+                    ) else {
+                        self.error = "Couldn't verify your sign-in. Please try again."
+                        self.webAuthSession = nil
+                        return
+                    }
+                    self.error = nil
+                    await self.applyCloudLogin(token: token)
+                    self.webAuthSession = nil
+                    return
+                }
+
+                // Legacy raw-token form (pre-PKCE servers, self-hosted lag).
+                if let token = params["token"] {
+                    self.error = nil
+                    await self.applyCloudLogin(token: token)
+                    self.webAuthSession = nil
+                    return
                 }
 
                 self.error = "No token in callback: \(callbackURL.absoluteString)"

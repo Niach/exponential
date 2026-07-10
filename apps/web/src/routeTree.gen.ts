@@ -21,6 +21,7 @@ import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-pas
 import { Route as AuthConsentRouteImport } from './routes/auth/consent'
 import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
+import { Route as ApiMobileOauthExchangeRouteImport } from './routes/api/mobile-oauth-exchange'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
@@ -127,6 +128,11 @@ const ApiMobileOauthStartRoute = ApiMobileOauthStartRouteImport.update({
 const ApiMobileOauthReturnRoute = ApiMobileOauthReturnRouteImport.update({
   id: '/api/mobile-oauth-return',
   path: '/api/mobile-oauth-return',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileOauthExchangeRoute = ApiMobileOauthExchangeRouteImport.update({
+  id: '/api/mobile-oauth-exchange',
+  path: '/api/mobile-oauth-exchange',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMcpRoute = ApiMcpRouteImport.update({
@@ -403,6 +409,7 @@ export interface FileRoutesByFullPath {
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
+  '/api/mobile-oauth-exchange': typeof ApiMobileOauthExchangeRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/auth/consent': typeof AuthConsentRoute
@@ -462,6 +469,7 @@ export interface FileRoutesByTo {
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
+  '/api/mobile-oauth-exchange': typeof ApiMobileOauthExchangeRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/auth/consent': typeof AuthConsentRoute
@@ -525,6 +533,7 @@ export interface FileRoutesById {
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
+  '/api/mobile-oauth-exchange': typeof ApiMobileOauthExchangeRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
   '/auth/consent': typeof AuthConsentRoute
@@ -588,6 +597,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/health'
     | '/api/mcp'
+    | '/api/mobile-oauth-exchange'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
     | '/auth/consent'
@@ -647,6 +657,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/health'
     | '/api/mcp'
+    | '/api/mobile-oauth-exchange'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
     | '/auth/consent'
@@ -709,6 +720,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/health'
     | '/api/mcp'
+    | '/api/mobile-oauth-exchange'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
     | '/auth/consent'
@@ -769,6 +781,7 @@ export interface RootRouteChildren {
   ApiContactRoute: typeof ApiContactRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpRoute: typeof ApiMcpRoute
+  ApiMobileOauthExchangeRoute: typeof ApiMobileOauthExchangeRoute
   ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
   ApiMobileOauthStartRoute: typeof ApiMobileOauthStartRoute
   AuthConsentRoute: typeof AuthConsentRoute
@@ -887,6 +900,13 @@ declare module '@tanstack/react-router' {
       path: '/api/mobile-oauth-return'
       fullPath: '/api/mobile-oauth-return'
       preLoaderRoute: typeof ApiMobileOauthReturnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile-oauth-exchange': {
+      id: '/api/mobile-oauth-exchange'
+      path: '/api/mobile-oauth-exchange'
+      fullPath: '/api/mobile-oauth-exchange'
+      preLoaderRoute: typeof ApiMobileOauthExchangeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/mcp': {
@@ -1312,6 +1332,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiContactRoute: ApiContactRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpRoute: ApiMcpRoute,
+  ApiMobileOauthExchangeRoute: ApiMobileOauthExchangeRoute,
   ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,
   ApiMobileOauthStartRoute: ApiMobileOauthStartRoute,
   AuthConsentRoute: AuthConsentRoute,

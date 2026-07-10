@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { auth } from "@/lib/auth"
-import { oauthReturnDeepLink } from "@/lib/deep-link"
+import { oauthReturnCodeDeepLink, oauthReturnDeepLink } from "@/lib/deep-link"
+import {
+  isValidCodeChallenge,
+  mintMobileOauthCode,
+} from "@/lib/auth/mobile-oauth-code"
 
 const FAILED_REDIRECT = `/auth/login?error=mobile_oauth_failed`
 const STATE_COOKIE_NAME = `exp_mobile_oauth_state`
@@ -95,6 +99,21 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           })
         }
 
+        // PKCE (REV-13): /api/mobile-oauth-start appends the client's S256
+        // code_challenge to the state cookie as `<state>.<challenge>`. Its
+        // presence flips this page to the code deep link; a malformed second
+        // segment is rejected like a missing cookie.
+        const [, codeChallenge] = stateCookie.split(`.`)
+        if (codeChallenge !== undefined && !isValidCodeChallenge(codeChallenge)) {
+          console.warn(
+            `[mobile-oauth-return] malformed code_challenge in ${STATE_COOKIE_NAME} cookie — rejecting`
+          )
+          return new Response(`Invalid OAuth state`, {
+            status: 400,
+            headers: { "Set-Cookie": CLEAR_STATE_COOKIE },
+          })
+        }
+
         const session = await auth.api.getSession({ headers: request.headers })
         if (!session?.session) {
           console.warn(`[mobile-oauth-return] no session — falling back to ${FAILED_REDIRECT}`)
@@ -124,16 +143,27 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           })
         }
 
-        // The token rides in BOTH the query AND the fragment (EXP-21). The
-        // handoff is a client-side `window.location.href = "exponential://…"`,
-        // and when a browser hands a custom scheme to the OS it drops the URL
+        // Two deep-link forms (both built in lib/deep-link.ts), each riding
+        // its payload in BOTH the query AND the fragment (EXP-21): the handoff
+        // is a client-side `window.location.href = "exponential://…"`, and
+        // when a browser hands a custom scheme to the OS it drops the URL
         // #fragment (a client-only construct) — so on Linux the desktop app's
-        // xdg handler received a tokenless `exponential://oauth-return` and
+        // xdg handler received a payloadless `exponential://oauth-return` and
         // never signed in. The query survives that hop; the desktop parser
         // reads it. iOS's ASWebAuthenticationSession keeps the whole URL and
         // reads the fragment, so keep the fragment too rather than switching
-        // to query-only. (Both forms are built in lib/deep-link.ts.)
-        const target = oauthReturnDeepLink(token)
+        // to query-only.
+        //
+        // - `?code=…#code=…` (REV-13, when the client presented a PKCE
+        //   challenge at /api/mobile-oauth-start): a single-use short-TTL
+        //   code the app redeems via POST /api/mobile-oauth-exchange with its
+        //   code_verifier — the raw session token never rides the deep link.
+        // - `?token=…#token=…` (DEPRECATED legacy, challenge-less starts
+        //   only): the raw session token, kept so old installed builds keep
+        //   signing in until the deprecation window closes.
+        const target = codeChallenge
+          ? oauthReturnCodeDeepLink(mintMobileOauthCode(token, codeChallenge))
+          : oauthReturnDeepLink(token)
         // 200 HTML (not a 302 to the custom scheme) so the browser tab renders
         // a confirmation instead of spinning on an uncompletable navigation.
         return new Response(renderReturnPage(target), {

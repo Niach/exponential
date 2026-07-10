@@ -8,10 +8,13 @@
 //!   when the JSON token is absent, iOS-parity).
 //! - `GET  /api/auth/get-session` — bearer session validation.
 //! - `POST /api/auth/sign-out` — best-effort server-side revocation.
-//! - OAuth via the system browser: start URLs for `/api/mobile-oauth-start`,
-//!   plus the callback capture surfaces — the `exponential://oauth-return#token=…`
-//!   deep-link parser (PRIMARY; token in the URL *fragment*) and the
-//!   `127.0.0.1` loopback listener (FALLBACK; token as `?token=` query).
+//! - OAuth via the system browser: start URLs for `/api/mobile-oauth-start`
+//!   (carrying a PKCE S256 `code_challenge`, REV-13), plus the callback
+//!   capture surfaces — the `exponential://oauth-return?code=…#code=…`
+//!   deep-link parser (PRIMARY; a single-use code redeemed via
+//!   `POST /api/mobile-oauth-exchange` with the in-memory verifier — legacy
+//!   pre-PKCE servers still send `#token=…` with the raw session token) and
+//!   the `127.0.0.1` loopback listener (FALLBACK; token as `?token=` query).
 //!
 //! The login *view* (cloud button first) is §4/Phase-3 UI
 //! territory; this module owns only the mechanics.
@@ -23,7 +26,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::encode::{percent_decode, percent_encode};
+use crate::encode::{base64url_nopad, percent_decode, percent_encode};
 use crate::error::{from_ureq_unauthed, ApiError};
 
 /// Which auth methods the server offers (`GET /api/auth-config`, mirrors
@@ -215,6 +218,47 @@ impl AuthClient {
         Ok(session.and_then(|s| s.user))
     }
 
+    /// `POST /api/mobile-oauth-exchange` — redeem an oauth-return PKCE code
+    /// for the session token (REV-13). Unauthenticated; the code + verifier
+    /// ARE the credentials. The server answers 400 `invalid_grant` for an
+    /// unknown/expired/replayed code or a wrong verifier.
+    pub fn exchange_oauth_code(
+        &self,
+        instance_url: &str,
+        code: &str,
+        code_verifier: &str,
+    ) -> Result<String, ApiError> {
+        #[derive(Deserialize)]
+        struct ExchangeResponse {
+            token: Option<String>,
+        }
+
+        let base = normalize_instance_url(instance_url);
+        let payload = serde_json::json!({ "code": code, "code_verifier": code_verifier });
+        let response = self
+            .agent
+            .post(&format!("{base}/api/mobile-oauth-exchange"))
+            .set("Accept", "application/json")
+            .set("Content-Type", "application/json")
+            .send_string(&payload.to_string())
+            .map_err(|e| match e {
+                // invalid_grant — the code is single-use and short-TTL, so a
+                // late/replayed callback lands here; not a transport problem.
+                ureq::Error::Status(400, _) => {
+                    ApiError::Decode("invalid or expired sign-in code".to_string())
+                }
+                other => from_ureq_unauthed(other),
+            })?;
+        let body = response
+            .into_string()
+            .map_err(|e| ApiError::Transport(e.to_string()))?;
+        let parsed: ExchangeResponse = serde_json::from_str(&body)
+            .map_err(|e| ApiError::Decode(format!("oauth-exchange response: {e}")))?;
+        parsed
+            .token
+            .ok_or_else(|| ApiError::Decode("oauth-exchange returned no token".to_string()))
+    }
+
     /// `POST /api/auth/sign-out` — best-effort server-side revocation. Local
     /// sign-out ([`crate::AuthStore::sign_out`]) must proceed even when this
     /// fails (offline sign-out is legal).
@@ -249,19 +293,25 @@ pub fn normalize_instance_url(input: &str) -> String {
 
 // ---- OAuth via the system browser (§5.7) ----
 //
-// Flow: open the system browser at one of the start URLs below
-// (crate::opener::open_in_browser). The server runs the OAuth dance and
-// redirects to /api/mobile-oauth-return, which deep-links back as
-// `exponential://oauth-return#token=<session-token>`. The app shell's on_open_urls
-// channel (Phase 1, §3.6) delivers that URL to a foreground drain, which
-// calls [`parse_oauth_callback`] and then signs the account in.
+// Flow: [`generate_pkce`] mints a verifier/challenge pair, then open the
+// system browser at one of the start URLs below
+// (crate::opener::open_in_browser) with the challenge attached. The server
+// runs the OAuth dance and redirects to /api/mobile-oauth-return, which
+// deep-links back as `exponential://oauth-return?code=…#code=…` — a
+// single-use short-TTL code (REV-13; the raw session token never rides the
+// deep link, so another app hijacking the xdg/HKCU scheme registration
+// intercepts nothing usable). The app shell's on_open_urls channel (Phase 1,
+// §3.6) delivers that URL to a foreground drain, which calls
+// [`parse_oauth_callback`] and redeems the code via
+// [`AuthClient::exchange_oauth_code`] with the held verifier. Legacy pre-PKCE
+// servers (self-hosted lag) still deep-link `#token=<session-token>`; the
+// parser surfaces both forms as [`OAuthCallback`].
 //
-// TODO(v3 §5.7 / Phase 3): the full Google/OIDC login flow (browser round
-// trip wired into the login view) lands with the Phase-3 auth UI. The
-// loopback FALLBACK additionally needs a NEW server-side `redirect=` param on
-// /api/mobile-oauth-return (127.0.0.1-bound, single-use, short-lived token as
-// `?token=` query) — a coordinated server change that has not landed yet;
-// [`LoopbackListener`] below is the ready client half.
+// TODO(v3 §5.7 / Phase 3): the loopback FALLBACK additionally needs a NEW
+// server-side `redirect=` param on /api/mobile-oauth-return (127.0.0.1-bound,
+// single-use, short-lived token as `?token=` query) — a coordinated server
+// change that has not landed yet; [`LoopbackListener`] below is the ready
+// client half.
 
 /// The custom URL scheme the app registers (macOS `CFBundleURLTypes`, Linux
 /// `.desktop` `MimeType=x-scheme-handler/exponential;`, Windows
@@ -272,56 +322,109 @@ pub fn normalize_instance_url(input: &str) -> String {
 /// links with.
 pub const OAUTH_CALLBACK_SCHEME: &str = "exponential";
 
+/// A PKCE verifier/challenge pair for one OAuth attempt (REV-13). The
+/// verifier stays in memory (never persisted); the challenge rides the start
+/// URL.
+pub struct PkcePair {
+    pub verifier: String,
+    pub challenge: String,
+}
+
+/// RFC 7636 §4.2: `challenge = base64url_no_pad(SHA-256(ASCII(verifier)))`.
+pub fn pkce_challenge(verifier: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(verifier.as_bytes());
+    base64url_nopad(&digest)
+}
+
+/// Mint a fresh PKCE attempt. The verifier is two concatenated v4 UUIDs in
+/// simple form — 64 hex chars, a valid RFC 7636 §4.1 charset/length (uuid is
+/// already in the tree; no extra RNG dependency).
+pub fn generate_pkce() -> PkcePair {
+    let verifier = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let challenge = pkce_challenge(&verifier);
+    PkcePair {
+        verifier,
+        challenge,
+    }
+}
+
 /// Browser start URL for Google sign-in (`provider=google` → Better Auth
-/// `signInSocial`).
-pub fn google_oauth_start_url(instance_url: &str) -> String {
+/// `signInSocial`). `code_challenge` is base64url — URL-safe as-is.
+pub fn google_oauth_start_url(instance_url: &str, code_challenge: &str) -> String {
     format!(
-        "{}/api/mobile-oauth-start?provider=google",
+        "{}/api/mobile-oauth-start?provider=google&code_challenge={code_challenge}",
         normalize_instance_url(instance_url)
     )
 }
 
 /// Browser start URL for Apple sign-in (`provider=apple` → Better Auth
 /// `signInSocial`).
-pub fn apple_oauth_start_url(instance_url: &str) -> String {
+pub fn apple_oauth_start_url(instance_url: &str, code_challenge: &str) -> String {
     format!(
-        "{}/api/mobile-oauth-start?provider=apple",
+        "{}/api/mobile-oauth-start?provider=apple&code_challenge={code_challenge}",
         normalize_instance_url(instance_url)
     )
 }
 
 /// Browser start URL for a generic OIDC provider (`providerId=…` → Better
 /// Auth `signInWithOAuth2`).
-pub fn oidc_oauth_start_url(instance_url: &str, provider_id: &str) -> String {
+pub fn oidc_oauth_start_url(instance_url: &str, provider_id: &str, code_challenge: &str) -> String {
     format!(
-        "{}/api/mobile-oauth-start?providerId={}",
+        "{}/api/mobile-oauth-start?providerId={}&code_challenge={code_challenge}",
         normalize_instance_url(instance_url),
         percent_encode(provider_id)
     )
 }
 
-/// Extract the session token from an OAuth callback URL. Handles both
-/// capture mechanisms of §5.7:
+/// What an OAuth callback URL carried (REV-13).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OAuthCallback {
+    /// A single-use PKCE code — redeem via [`AuthClient::exchange_oauth_code`]
+    /// with the verifier held from [`generate_pkce`].
+    Code(String),
+    /// The raw session token (DEPRECATED legacy form — pre-PKCE servers, and
+    /// the loopback listener until its server half lands).
+    Token(String),
+}
+
+/// Extract the payload from an OAuth callback URL. Handles both capture
+/// mechanisms of §5.7 — for each param the URL **fragment** wins over the
+/// query (the fragment never leaves the client; the query survives the
+/// browser→OS custom-scheme hop, EXP-21) — and both payload forms, `code`
+/// (new PKCE flow) winning over `token` (legacy):
 ///
-/// - PRIMARY custom scheme: `exponential://oauth-return#token=<t>` — the token is in
-///   the URL **fragment** (never sent to any server; parsed app-locally).
-/// - FALLBACK loopback: `http://127.0.0.1:<port>/cb?token=<t>` — the token is
-///   a **query** param (fragments are never sent to servers, so the loopback
-///   listener could not see one).
+/// - PRIMARY custom scheme: `exponential://oauth-return?code=<c>#code=<c>`
+///   (or legacy `…?token=<t>#token=<t>`).
+/// - FALLBACK loopback: `http://127.0.0.1:<port>/cb?token=<t>` — query only
+///   (fragments are never sent to servers, so the loopback listener could
+///   not see one).
 ///
-/// The value is percent-decoded (the server `encodeURIComponent`s it).
-pub fn parse_oauth_callback(url: &str) -> Option<String> {
-    // Fragment first (primary form).
-    if let Some((_, fragment)) = url.split_once('#') {
-        if let Some(token) = find_param(fragment, "token") {
-            return Some(token);
-        }
-    }
-    // Query (loopback form) — everything between '?' and '#'.
-    let without_fragment = url.split('#').next().unwrap_or(url);
-    if let Some((_, query)) = without_fragment.split_once('?') {
-        if let Some(token) = find_param(query, "token") {
-            return Some(token);
+/// Values are percent-decoded (the server `encodeURIComponent`s them; a PKCE
+/// code is base64url and decode-inert).
+pub fn parse_oauth_callback(url: &str) -> Option<OAuthCallback> {
+    let fragment = url.split_once('#').map(|(_, fragment)| fragment);
+    // Everything between '?' and '#'.
+    let query = url
+        .split('#')
+        .next()
+        .unwrap_or(url)
+        .split_once('?')
+        .map(|(_, query)| query);
+
+    for key in ["code", "token"] {
+        let value = fragment
+            .and_then(|pairs| find_param(pairs, key))
+            .or_else(|| query.and_then(|pairs| find_param(pairs, key)));
+        if let Some(value) = value {
+            return Some(match key {
+                "code" => OAuthCallback::Code(value),
+                _ => OAuthCallback::Token(value),
+            });
         }
     }
     None
@@ -446,7 +549,14 @@ fn handle_loopback_connection(stream: TcpStream) -> Option<String> {
 
     // "GET /cb?token=abc HTTP/1.1"
     let path = request_line.split_whitespace().nth(1)?;
-    let token = parse_oauth_callback(path);
+    // Only the legacy `?token=` form for now: the loopback redirect's server
+    // half (`redirect=` param) hasn't landed, and when it does it should adopt
+    // the PKCE code form — until then a `code` here has no held verifier to
+    // pair with, so it is ignored rather than half-handled.
+    let token = match parse_oauth_callback(path) {
+        Some(OAuthCallback::Token(token)) => Some(token),
+        _ => None,
+    };
 
     let mut stream = reader.into_inner();
     let (status, body) = if token.is_some() {
@@ -490,53 +600,98 @@ mod tests {
     #[test]
     fn oauth_start_urls() {
         assert_eq!(
-            google_oauth_start_url("app.exponential.at"),
-            "https://app.exponential.at/api/mobile-oauth-start?provider=google"
+            google_oauth_start_url("app.exponential.at", "chal-1"),
+            "https://app.exponential.at/api/mobile-oauth-start?provider=google&code_challenge=chal-1"
         );
         assert_eq!(
-            apple_oauth_start_url("app.exponential.at"),
-            "https://app.exponential.at/api/mobile-oauth-start?provider=apple"
+            apple_oauth_start_url("app.exponential.at", "chal-2"),
+            "https://app.exponential.at/api/mobile-oauth-start?provider=apple&code_challenge=chal-2"
         );
         assert_eq!(
-            oidc_oauth_start_url("https://app.exponential.at/", "authentik prod"),
-            "https://app.exponential.at/api/mobile-oauth-start?providerId=authentik%20prod"
+            oidc_oauth_start_url("https://app.exponential.at/", "authentik prod", "chal-3"),
+            "https://app.exponential.at/api/mobile-oauth-start?providerId=authentik%20prod&code_challenge=chal-3"
+        );
+    }
+
+    #[test]
+    fn pkce_challenge_matches_rfc7636_vector() {
+        // RFC 7636 Appendix B — the same pair is asserted by the web, Android
+        // and iOS tests so all four implementations provably agree.
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+    }
+
+    #[test]
+    fn generated_pkce_is_valid_and_consistent() {
+        let pair = generate_pkce();
+        // 64 hex chars — valid RFC 7636 §4.1 charset/length.
+        assert_eq!(pair.verifier.len(), 64);
+        assert!(pair.verifier.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(pair.challenge, pkce_challenge(&pair.verifier));
+        assert_ne!(generate_pkce().verifier, pair.verifier);
+    }
+
+    #[test]
+    fn parses_custom_scheme_code_callback() {
+        // PRIMARY: single-use PKCE code, doubled into query + fragment.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?code=c-1#code=c-1"),
+            Some(OAuthCallback::Code("c-1".to_string()))
+        );
+        // Fragment-dropped hop (Linux xdg): the query alone still parses.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?code=c-2"),
+            Some(OAuthCallback::Code("c-2".to_string()))
         );
     }
 
     #[test]
     fn parses_custom_scheme_fragment_callback() {
-        // PRIMARY: token in the FRAGMENT, encodeURIComponent-encoded.
+        // LEGACY: token in the FRAGMENT, encodeURIComponent-encoded.
         assert_eq!(
-            parse_oauth_callback("exponential://oauth-return#token=abc123%2Edef").as_deref(),
-            Some("abc123.def")
+            parse_oauth_callback("exponential://oauth-return#token=abc123%2Edef"),
+            Some(OAuthCallback::Token("abc123.def".to_string()))
         );
     }
 
     #[test]
     fn parses_loopback_query_callback() {
         assert_eq!(
-            parse_oauth_callback("http://127.0.0.1:49152/cb?token=tok-1&x=y").as_deref(),
-            Some("tok-1")
+            parse_oauth_callback("http://127.0.0.1:49152/cb?token=tok-1&x=y"),
+            Some(OAuthCallback::Token("tok-1".to_string()))
         );
         // Bare path form (what the listener sees on the request line).
         assert_eq!(
-            parse_oauth_callback("/cb?token=tok-2").as_deref(),
-            Some("tok-2")
+            parse_oauth_callback("/cb?token=tok-2"),
+            Some(OAuthCallback::Token("tok-2".to_string()))
         );
     }
 
     #[test]
-    fn callback_without_token_is_none() {
+    fn callback_without_payload_is_none() {
         assert_eq!(parse_oauth_callback("exponential://oauth-return"), None);
         assert_eq!(parse_oauth_callback("exponential://oauth-return#token="), None);
+        assert_eq!(parse_oauth_callback("exponential://oauth-return?code="), None);
         assert_eq!(parse_oauth_callback("/favicon.ico"), None);
     }
 
     #[test]
     fn fragment_wins_over_query() {
         assert_eq!(
-            parse_oauth_callback("exponential://oauth-return?token=query#token=frag").as_deref(),
-            Some("frag")
+            parse_oauth_callback("exponential://oauth-return?token=query#token=frag"),
+            Some(OAuthCallback::Token("frag".to_string()))
+        );
+    }
+
+    #[test]
+    fn code_wins_over_token() {
+        // A mixed callback must never fall back to the raw-token path when a
+        // redeemable code is present.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?code=c#token=t"),
+            Some(OAuthCallback::Code("c".to_string()))
         );
     }
 

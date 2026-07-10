@@ -286,7 +286,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.primaryKey("id", .text)
                 t.column("workspace_id", .text).notNull().indexed()
                 t.column("role", .text).notNull()
-                t.column("token", .text).notNull().indexed()
+                // Nullable: the shape's server-side columns allowlist excludes
+                // the bearer token (REV-4/14) — synced rows never carry it.
+                t.column("token", .text).indexed()
                 t.column("expires_at", .text).notNull()
                 t.column("accepted_at", .text)
                 t.column("created_at", .text).notNull()
@@ -493,6 +495,47 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'projects'
+                    """)
+            }
+        }
+
+        // v6 (REV-4/14 invite-token leak): the workspace-invites shape now
+        // excludes the bearer `token` server-side (columns allowlist), so
+        // synced rows no longer carry it — but the legacy local column is
+        // NOT NULL, and inserting token-less rows would hit the constraint.
+        // SQLite can't drop NOT NULL in place, and the table is a pure sync
+        // cache, so drop + recreate (matching the now-nullable v1 create
+        // above) and force a refetch. The server-side columns change rotates
+        // the shape handle anyway, and the rebuild also purges any
+        // already-leaked plaintext tokens from the local cache.
+        migrator.registerMigration("v6_invite_token_nullable") { db in
+            // Same table-existence guard as v3-v5: migration-fixture DBs that
+            // carry only the minimal v1 (electric_offsets) don't have it.
+            guard try db.tableExists("workspace_invites") else { return }
+            // Fresh installs run the new nullable v1 create → no-op (the
+            // convergence rule: fresh and upgraded DBs end on one schema).
+            let tokenNotNull = try db.columns(in: "workspace_invites")
+                .contains { $0.name == "token" && $0.isNotNull }
+            guard tokenNotNull else { return }
+            try db.drop(table: "workspace_invites")
+            try db.create(table: "workspace_invites") { t in
+                t.primaryKey("id", .text)
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("role", .text).notNull()
+                t.column("token", .text).indexed()
+                t.column("expires_at", .text).notNull()
+                t.column("accepted_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            // Mirror the v5 offset reset (ShapeClient's must-refetch write) so
+            // the emptied table re-snapshots without a rollback loop. iOS
+            // offset rows are keyed by the makeShapeTask name — hyphenated.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'workspace-invites'
                     """)
             }
         }

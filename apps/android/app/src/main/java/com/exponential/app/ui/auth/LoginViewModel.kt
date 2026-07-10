@@ -92,22 +92,27 @@ class LoginViewModel @Inject constructor(
      * URL the Custom Tab opens to start the OIDC flow. Better Auth's
      * /sign-in/oauth2 is POST-only and Custom Tabs only emit GETs, so we
      * route through /api/mobile-oauth-start which POSTs server-side and
-     * 302s to the IdP. The flow ends at /api/mobile-oauth-return which
-     * deep-links back into the app via exponential://oauth-return#token=...
+     * 302s to the IdP. Each start mints a PKCE attempt (REV-13): the S256
+     * code_challenge rides the start URL (base64url — URL-safe as-is), the
+     * verifier stays in AuthRepository memory. The flow ends at
+     * /api/mobile-oauth-return, which deep-links back via
+     * exponential://oauth-return?code=…#code=… — a single-use code
+     * MainActivity redeems through /api/mobile-oauth-exchange with the
+     * verifier (pre-PKCE servers still deep-link the legacy #token=… form).
      */
     fun oidcStartUrl(providerId: String): String? {
         val baseUrl = auth.instanceUrl.value ?: return null
-        return "$baseUrl/api/mobile-oauth-start?providerId=${encode(providerId)}"
+        return "$baseUrl/api/mobile-oauth-start?providerId=${encode(providerId)}&code_challenge=${auth.beginOauthAttempt()}"
     }
 
     fun googleStartUrl(): String? {
         val baseUrl = auth.instanceUrl.value ?: return null
-        return "$baseUrl/api/mobile-oauth-start?provider=google"
+        return "$baseUrl/api/mobile-oauth-start?provider=google&code_challenge=${auth.beginOauthAttempt()}"
     }
 
     fun appleStartUrl(): String? {
         val baseUrl = auth.instanceUrl.value ?: return null
-        return "$baseUrl/api/mobile-oauth-start?provider=apple"
+        return "$baseUrl/api/mobile-oauth-start?provider=apple&code_challenge=${auth.beginOauthAttempt()}"
     }
 
     private fun encode(s: String): String =

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { errorToResponse } from "@/lib/http-errors"
 import { getObject, toResponseBody } from "@/lib/storage"
+import { buildContentDispositionHeader } from "@/lib/storage/issue-attachments"
 import {
   assertWorkspaceMember,
   getAttachmentWorkspaceContext,
@@ -65,7 +66,13 @@ async function getAttachment({
 
   const headers = new Headers({
     "Cache-Control": `private, max-age=3600`,
-    "Content-Disposition": `inline; filename="${attachment.filename.replace(/"/g, `'`)}"`,
+    // RFC 6266/5987-encoded: stored filenames may contain non-Latin-1 (or,
+    // pre-sanitization, control) characters that would make the Headers
+    // constructor throw and 500 every read of the attachment.
+    "Content-Disposition": buildContentDispositionHeader(
+      `inline`,
+      attachment.filename
+    ),
     "Content-Type": attachment.contentType,
   })
 

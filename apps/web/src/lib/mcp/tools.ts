@@ -35,6 +35,7 @@ import {
   buildAttachmentUrl,
   isAcceptedImageContentType,
   maxImageUploadBytes,
+  sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { assertWithinStorageLimit } from "@/lib/billing"
@@ -1679,8 +1680,17 @@ export function registerExponentialTools(
         alt: z.string().max(500).optional(),
       },
     },
-    async ({ issueId: issueIdInput, filename, contentType, dataBase64, alt }) => {
+    async ({
+      issueId: issueIdInput,
+      filename: filenameInput,
+      contentType,
+      dataBase64,
+      alt,
+    }) => {
       try {
+        // The zod schema only checks length — strip control chars (CRLF would
+        // otherwise poison the read path's Content-Disposition header).
+        const filename = sanitizeUploadFilename(filenameInput, `image`)
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         const issueCtx = await getIssueWorkspaceContext(issueId)
         assertProjectGranted(access, issueCtx.projectId, issueCtx.workspaceId)

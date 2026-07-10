@@ -159,17 +159,40 @@ public final class AuthApi: Sendable {
         return nil
     }
 
-    public func oauthStartUrl(instanceUrl: String, providerId: String) -> URL? {
+    // OAuth start URLs carry the attempt's PKCE S256 code_challenge (REV-13,
+    // base64url — URL-safe as-is): the server's return page then deep-links a
+    // single-use code instead of the raw session token; the view model redeems
+    // it via exchangeOauthCode with the in-memory verifier.
+
+    public func oauthStartUrl(instanceUrl: String, providerId: String, codeChallenge: String) -> URL? {
         let encoded = providerId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? providerId
-        return URL(string: "\(instanceUrl)/api/mobile-oauth-start?providerId=\(encoded)")
+        return URL(string: "\(instanceUrl)/api/mobile-oauth-start?providerId=\(encoded)&code_challenge=\(codeChallenge)")
     }
 
-    public func googleStartUrl(instanceUrl: String) -> URL? {
-        URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=google")
+    public func googleStartUrl(instanceUrl: String, codeChallenge: String) -> URL? {
+        URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=google&code_challenge=\(codeChallenge)")
     }
 
-    public func appleStartUrl(instanceUrl: String) -> URL? {
-        URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=apple")
+    public func appleStartUrl(instanceUrl: String, codeChallenge: String) -> URL? {
+        URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=apple&code_challenge=\(codeChallenge)")
+    }
+
+    /// Redeem an oauth-return PKCE code for the session token (REV-13):
+    /// POST /api/mobile-oauth-exchange with the code from the callback URL and
+    /// the in-memory verifier the attempt started with. Nil on any failure
+    /// (unknown/expired/replayed code, wrong verifier, network) — the caller
+    /// surfaces a login error.
+    public func exchangeOauthCode(instanceUrl: String, code: String, codeVerifier: String) async -> String? {
+        guard let url = URL(string: "\(instanceUrl)/api/mobile-oauth-exchange") else { return nil }
+        do {
+            let body = try JSONEncoder().encode(["code": code, "code_verifier": codeVerifier])
+            let (data, response) = try await httpClient.postUnauthenticated(url, body: body)
+            guard (200...299).contains(response.statusCode) else { return nil }
+            let parsed = try JSONDecoder().decode(OauthExchangeResponseBody.self, from: data)
+            return parsed.token
+        } catch {
+            return nil
+        }
     }
 }
 
@@ -182,4 +205,8 @@ private struct SignInResponseBody: Codable {
 
 private struct SessionResponse: Codable {
     let user: AuthUser?
+}
+
+private struct OauthExchangeResponseBody: Codable {
+    let token: String?
 }

@@ -25,6 +25,8 @@ rusqlite = { workspace = true }
 # §7.7 stable per-install deviceId (a UUID in the local config; shared by the
 # trust store and steer presence).
 uuid = { workspace = true }
+# PKCE S256 challenge for the OAuth deep-link code exchange (REV-13).
+sha2 = { workspace = true }
 
 # NOTE (locked decision 2026-07-03): secrets are ALWAYS file-based (0600/0700,
 # see token_store.rs) — never the OS keyring. The keyring crate was removed:

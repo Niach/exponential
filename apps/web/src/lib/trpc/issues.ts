@@ -5,6 +5,7 @@ import { attachments, issues, issueLabels, labels, projects } from "@/db/schema"
 import { eq, inArray, sql } from "drizzle-orm"
 import {
   resolveWorkspaceAccess,
+  assertAssigneeInWorkspace,
   assertIssueAccess,
   assertWorkspaceMember,
   getIssueWorkspaceContext,
@@ -105,6 +106,12 @@ export const issuesRouter = router({
         project.workspaceId,
         `create_issue`
       )
+
+      // The assignee is INPUT, not the actor — validate it against the
+      // issue's workspace or any member could push-notify arbitrary users.
+      if (input.assigneeId != null) {
+        await assertAssigneeInWorkspace(input.assigneeId, project.workspaceId)
+      }
 
       assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
 
@@ -224,6 +231,16 @@ export const issuesRouter = router({
         id,
         `write`
       )
+
+      // The assignee is INPUT, not the actor — validate it against the
+      // issue's workspace or any member could push-notify arbitrary users.
+      // null (unassign) and undefined (untouched) both skip the check.
+      if (updates.assigneeId != null) {
+        await assertAssigneeInWorkspace(
+          updates.assigneeId,
+          issueContext.workspaceId
+        )
+      }
 
       if (
         updates.recurrenceInterval !== undefined ||

@@ -261,7 +261,12 @@ final class IssueDetailViewModel {
         } else {
             input.description = markdown
         }
-        await update(input)
+        // Only baseline the editor when the server accepted the write: a failed
+        // save must leave isDirty true so the next autosave / onDisappear commit
+        // retries (the lastSavedMarkdown guard above stays open) and applyRemote
+        // stashes remote content behind the reload banner instead of clobbering
+        // the unsaved edit.
+        guard await update(input) else { return }
         editor.markSaved(markdown)
     }
 
@@ -458,11 +463,17 @@ final class IssueDetailViewModel {
         }
     }
 
-    private func update(_ input: UpdateIssueInput) async {
+    /// Runs the tRPC issue update. Returns false (and surfaces the error via
+    /// `self.error`) on failure so callers can keep local state dirty and retry
+    /// instead of treating the write as landed.
+    @discardableResult
+    private func update(_ input: UpdateIssueInput) async -> Bool {
         do {
             try await issuesApi.update(accountId: accountId, input)
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
 

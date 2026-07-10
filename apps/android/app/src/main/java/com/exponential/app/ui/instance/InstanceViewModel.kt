@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.AppConstants
 import com.exponential.app.data.api.AuthConfig
 import com.exponential.app.data.api.AuthConfigApi
+import com.exponential.app.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ data class InstanceState(
 @HiltViewModel
 class InstanceViewModel @Inject constructor(
     private val authConfigApi: AuthConfigApi,
+    private val auth: AuthRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(InstanceState())
     val state: StateFlow<InstanceState> = _state.asStateFlow()
@@ -42,4 +44,11 @@ class InstanceViewModel @Inject constructor(
             }
         }
     }
+
+    // Cloud OAuth start URL for the welcome screen's direct provider buttons.
+    // Mints a PKCE attempt per call (REV-13) — call ONLY from an onClick
+    // handler, never while composing, so the in-memory verifier isn't rotated
+    // under an in-flight attempt (last-start-wins).
+    fun cloudStartUrl(provider: String): String =
+        "${AppConstants.PUBLIC_CLOUD_URL}/api/mobile-oauth-start?provider=$provider&code_challenge=${auth.beginOauthAttempt()}"
 }

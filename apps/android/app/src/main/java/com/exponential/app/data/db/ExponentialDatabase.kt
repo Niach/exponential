@@ -50,9 +50,13 @@ import androidx.room.RoomDatabase
     //      project_id on issue_labels / comments / attachments / issue_events /
     //      coding_sessions and workspace_invites.invited_by_id (stops the
     //      tolerant-apply "dropped columns" diagnostics noise).
+    // v13: workspace_invites.token dropped from the shape server-side
+    //      (bearer-secret leak fix, REV-4/14) — entity field now nullable;
+    //      destructive fallback wipes + resyncs (also purging any previously
+    //      leaked plaintext tokens from the local cache).
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

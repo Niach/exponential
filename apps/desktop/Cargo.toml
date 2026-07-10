@@ -60,6 +60,9 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"
 # Persistent steer deviceId (§8.2) — uuid 1.x is already in the tree via gpui.
 uuid = { version = "1", features = ["v4"] }
+# PKCE S256 challenge for the OAuth deep-link code exchange (REV-13) — already
+# in the tree transitively (rustls et al.) at this exact minor; no new weight.
+sha2 = "0.10"
 # §7.5 stop semantics (SIGTERM → grace → SIGKILL): direct signal delivery —
 # portable-pty's ChildKiller only speaks SIGHUP. Already in the tree
 # transitively (portable-pty, gpui) at this exact major.

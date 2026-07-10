@@ -166,7 +166,10 @@ data class WorkspaceInviteEntity(
     // Who created the invite (synced with the shape; not rendered yet).
     @ColumnInfo(name = "invited_by_id") @SerialName("invited_by_id") @JsonNames("invitedById") val invitedById: String? = null,
     val role: String,
-    val token: String,
+    // No longer synced (server columns allowlist — the invite token is a
+    // bearer secret; owners get it once from the create mutation). Nullable
+    // default so token-less shape rows decode.
+    val token: String? = null,
     @ColumnInfo(name = "expires_at") @SerialName("expires_at") @JsonNames("expiresAt") val expiresAt: String,
     @ColumnInfo(name = "accepted_at") @SerialName("accepted_at") @JsonNames("acceptedAt") val acceptedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,

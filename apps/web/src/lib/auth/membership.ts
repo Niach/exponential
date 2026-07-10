@@ -239,6 +239,26 @@ export async function assertWorkspaceOwner(
   return assertWorkspaceMember(userId, workspaceId, [`owner`])
 }
 
+// Subject-side membership validation for issue assignment. Unlike
+// assertWorkspaceMember (ACTOR authorization -> FORBIDDEN), an invalid
+// assignee is bad INPUT -> BAD_REQUEST. Without this check any member could
+// push-notify and auto-subscribe arbitrary users of the instance by assigning
+// them issues in workspaces they don't belong to (cross-tenant notification
+// injection). The message is identical for "user does not exist" and "user is
+// not a member" so the endpoint cannot be used to enumerate account ids.
+export async function assertAssigneeInWorkspace(
+  assigneeId: string,
+  workspaceId: string
+): Promise<void> {
+  const member = await getWorkspaceMember(assigneeId, workspaceId)
+  if (!member) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Assignee must be a member of this workspace`,
+    })
+  }
+}
+
 export async function getProjectWorkspaceId(projectId: string) {
   const db = await getDb()
   const [project] = await db

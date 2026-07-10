@@ -1,3 +1,5 @@
+import crypto from "node:crypto"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -255,5 +257,148 @@ describe(`listUserInstallationRepos`, () => {
     await expect(listUserInstallationRepos(`bad-tok`, 7)).rejects.toThrow(
       /GitHub user installation repos failed \(401\)/
     )
+  })
+})
+
+// Installation-token minting: the security contract that a token minted for a
+// repo is confined to EXACTLY that repo (`repositories: [<bare name>]` in the
+// mint body) — repositories.installationToken hands the raw token to any
+// workspace member, so an unscoped mint would reach every repo in the
+// installation ("a collaborator on one repo must not discover/connect the rest
+// of the installation"). The module reads GITHUB_APP_* at load and signs a real
+// RS256 App JWT, so each case stubs the env with a throwaway RSA key and
+// re-imports a fresh module instance.
+describe(`installation token minting (repo scoping)`, () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  async function loadWithAppEnv() {
+    const { privateKey } = crypto.generateKeyPairSync(`rsa`, {
+      modulusLength: 2048,
+    })
+    const pem = privateKey.export({ type: `pkcs1`, format: `pem` }) as string
+    vi.stubEnv(`GITHUB_APP_ID`, `1234`)
+    vi.stubEnv(`GITHUB_APP_PRIVATE_KEY`, Buffer.from(pem).toString(`base64`))
+    vi.resetModules()
+    return import(`@/lib/integrations/github-app`)
+  }
+
+  function jsonResponse(body: unknown, status = 200) {
+    return { ok: status >= 200 && status < 300, status, json: async () => body }
+  }
+
+  function tokenResponse(token: string) {
+    return jsonResponse(
+      { token, expires_at: new Date(Date.now() + 3_600_000).toISOString() },
+      201
+    )
+  }
+
+  function mintCalls(fetchMock: ReturnType<typeof vi.fn>) {
+    return fetchMock.mock.calls.filter(([url]) =>
+      (url as string).includes(`access_tokens`)
+    ) as Array<[string, RequestInit]>
+  }
+
+  it(`resolveRepoInstallationTokenInfo mints a token scoped to exactly the requested repo`, async () => {
+    const mod = await loadWithAppEnv()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith(`/repos/acme/website/installation`)) {
+        return jsonResponse({ id: 42 })
+      }
+      if (url.endsWith(`/app/installations/42/access_tokens`)) {
+        return tokenResponse(`tok-scoped`)
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal(`fetch`, fetchMock)
+
+    const resolved = await mod.resolveRepoInstallationTokenInfo(`acme/website`)
+
+    expect(resolved).toEqual({ token: `tok-scoped`, installationId: 42 })
+    const [[, init]] = mintCalls(fetchMock)
+    expect(init.method).toBe(`POST`)
+    const headers = init.headers as Record<string, string>
+    expect(headers[`content-type`]).toBe(`application/json`)
+    // Bare repo name, NOT "acme/website" — GitHub's `repositories` field takes
+    // bare names; the owner is implied by the installation.
+    expect(JSON.parse(init.body as string)).toEqual({ repositories: [`website`] })
+  })
+
+  it(`caches per installation+repo, not per installation`, async () => {
+    const mod = await loadWithAppEnv()
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (/\/repos\/acme\/(website|api)\/installation$/.test(url)) {
+        return jsonResponse({ id: 42 })
+      }
+      if (url.endsWith(`/app/installations/42/access_tokens`)) {
+        const body = JSON.parse(init?.body as string) as {
+          repositories: string[]
+        }
+        return tokenResponse(`tok-${body.repositories[0]}`)
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal(`fetch`, fetchMock)
+
+    // Two repos of the SAME installation → two distinct scoped mints; a
+    // per-installation cache would hand acme/api the acme/website token.
+    const website = await mod.resolveRepoInstallationTokenInfo(`acme/website`)
+    const api = await mod.resolveRepoInstallationTokenInfo(`acme/api`)
+    expect(website?.token).toBe(`tok-website`)
+    expect(api?.token).toBe(`tok-api`)
+    expect(
+      mintCalls(fetchMock).map(([, init]) => JSON.parse(init.body as string))
+    ).toEqual([{ repositories: [`website`] }, { repositories: [`api`] }])
+
+    // Re-resolving a repo serves its own cache slot: the (uncached) per-repo
+    // installation lookup still fires, but no third mint happens.
+    const again = await mod.resolveRepoInstallationTokenInfo(`acme/website`)
+    expect(again?.token).toBe(`tok-website`)
+    expect(mintCalls(fetchMock)).toHaveLength(2)
+  })
+
+  it(`listInstallationRepos mints an installation-wide token (no repositories body)`, async () => {
+    const mod = await loadWithAppEnv()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith(`/app/installations/42/access_tokens`)) {
+        return tokenResponse(`tok-wide`)
+      }
+      if (url.includes(`/installation/repositories`)) {
+        return jsonResponse({
+          total_count: 1,
+          repositories: [
+            { full_name: `acme/website`, private: true, default_branch: `main` },
+          ],
+        })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal(`fetch`, fetchMock)
+
+    const result = await mod.listInstallationRepos(42)
+
+    expect(result).toEqual({
+      repos: [
+        {
+          fullName: `acme/website`,
+          private: true,
+          defaultBranch: `main`,
+          installationId: 42,
+        },
+      ],
+      hasMore: false,
+    })
+    // The server-internal enumeration path is the ONLY unscoped mint — the
+    // token never leaves the process, and its listing call uses it.
+    const [[, mintInit]] = mintCalls(fetchMock)
+    expect(mintInit.body).toBeUndefined()
+    const listCall = fetchMock.mock.calls.find(([url]) =>
+      (url as string).includes(`/installation/repositories`)
+    ) as unknown as [string, { headers: Record<string, string> }]
+    expect(listCall[1].headers.authorization).toBe(`Bearer tok-wide`)
   })
 })

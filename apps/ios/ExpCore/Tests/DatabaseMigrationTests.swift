@@ -42,7 +42,7 @@ final class DatabaseMigrationTests: XCTestCase {
     func testFreshInstallMigratesGreen() throws {
         let pool = try makePool("fresh")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 5)
+        XCTAssertEqual(try appliedMigrations(pool).count, 6)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
     }
 
@@ -59,7 +59,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 5)
+        XCTAssertEqual(try appliedMigrations(pool).count, 6)
         let offsetCols = try columnNames(pool, "electric_offsets")
         XCTAssertTrue(offsetCols.contains("needs_refetch"))
         XCTAssertTrue(offsetCols.contains("is_live"))
@@ -74,8 +74,58 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "electric_offsets").contains("is_live"))
 
         XCTAssertNoThrow(try migrator.migrate(pool))
-        XCTAssertEqual(try appliedMigrations(pool).count, 5)
+        XCTAssertEqual(try appliedMigrations(pool).count, 6)
         XCTAssertTrue(try columnNames(pool, "projects").contains("repository_id"))
+    }
+
+    // v6 (REV-4/14): a device whose workspace_invites table still declares the
+    // legacy NOT NULL `token` (the shape no longer syncs the bearer token) must
+    // get the table rebuilt nullable and its shape offset reset to refetch.
+    func testLegacyNotNullInviteTokenRebuilds() throws {
+        let pool = try makePool("invite-token")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v2_offset_refetch_state")
+        try pool.write { db in
+            // Hand-build the pre-v6 state: NOT NULL token + a live offset row.
+            try db.drop(table: "workspace_invites")
+            try db.create(table: "workspace_invites") { t in
+                t.primaryKey("id", .text)
+                t.column("workspace_id", .text).notNull().indexed()
+                t.column("role", .text).notNull()
+                t.column("token", .text).notNull().indexed()
+                t.column("expires_at", .text).notNull()
+                t.column("accepted_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('workspace-invites', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertEqual(try appliedMigrations(pool).count, 6)
+        let tokenColumn = try pool.read { db in
+            try db.columns(in: "workspace_invites").first { $0.name == "token" }
+        }
+        XCTAssertNotNil(tokenColumn)
+        XCTAssertFalse(tokenColumn?.isNotNull ?? true)
+        // The rebuild must force a refetch of the (now empty) invites shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "needs_refetch" FROM "electric_offsets"
+                    WHERE "shape" = 'workspace-invites'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(needsRefetch, true)
     }
 
     // Idempotency: running the full migrator twice on the same file is a no-op,
@@ -106,5 +156,12 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(projectCols.contains("public_show_coding"))
         // v5 protection flag.
         XCTAssertTrue(projectCols.contains("is_protected"))
+        // v6: the invite bearer token is no longer synced (server allowlist),
+        // so the local column must be nullable on every path.
+        let inviteToken = try pool.read { db in
+            try db.columns(in: "workspace_invites").first { $0.name == "token" }
+        }
+        XCTAssertNotNil(inviteToken)
+        XCTAssertFalse(inviteToken?.isNotNull ?? true)
     }
 }

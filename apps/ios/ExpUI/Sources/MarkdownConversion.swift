@@ -374,6 +374,12 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         if collector.currentText.length > 0, !collector.currentText.string.hasSuffix("\n") {
             collector.currentText.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))
         }
+        // The item boundary IS this "\n": clear any separator the previous
+        // item's paragraph left pending, or the paragraph handler inside THIS
+        // item fires it AFTER the baked prefix and splits the content onto its
+        // own line ("2. \nSecond") — which serializes back as an empty item
+        // plus a duplicate-index item instead of round-tripping byte-identical.
+        context.needsBlockSeparator = false
         let depth = context.listStack.last?.depth ?? 0
         let ordered = context.listStack.last?.ordered ?? false
         let index = context.listStack.last?.itemIndex ?? 1
@@ -566,13 +572,21 @@ private func extractInlineMarkdown(from attrStr: NSAttributedString, isHeading: 
     var effectiveRange = fullRange
 
     if stripListPrefix {
-        let prefixPattern = #"^[\u{2022}\u{2610}\u{2611}]\s?"#
-        if let range = string.range(of: prefixPattern, options: .regularExpression) {
-            // The prefix length must be an NSRange (UTF-16) location, not a
-            // Character distance — mixing the two lets `enumerateAttributes`
-            // receive an out-of-bounds range and raise NSRangeException. Clamp
-            // to the string length as a belt-and-suspenders guard.
-            let prefixUTF16 = String(string[..<range.upperBound]).utf16.count
+        // Must strip EVERY visual prefix the load path bakes as literal text
+        // (CMARK_NODE_ITEM branch): bullet "• ", checkbox "☐ "/"☑ ", and the
+        // ordered "<n>. " form from `prefix = "\(index). "`. The save path
+        // re-emits the marker itself from the list attributes, so any
+        // unstripped prefix duplicates on every save ("1. 1. First").
+        // Deliberately NOT a regex: `range(of:options:.regularExpression)` is
+        // backed by different engines across OS releases, and the alternation
+        // form `(?:[\u{2022}\u{2610}\u{2611}]|\d+\.)` silently stopped
+        // matching glyph prefixes on emoji-bearing strings on the iOS 26
+        // simulator — plain scalar inspection is deterministic everywhere.
+        // The length is UTF-16 (NSRange space — enumerateAttributes must never
+        // see an out-of-bounds range); every prefix scalar is BMP, so scalar
+        // count == UTF-16 count. Clamp as a belt-and-suspenders guard.
+        let prefixUTF16 = bakedListPrefixUTF16Length(of: string)
+        if prefixUTF16 > 0 {
             let loc = min(prefixUTF16, attrStr.length)
             effectiveRange = NSRange(location: loc, length: attrStr.length - loc)
             if effectiveRange.length <= 0 { return "" }
@@ -621,4 +635,33 @@ private func extractInlineMarkdown(from attrStr: NSAttributedString, isHeading: 
     }
 
     return markdown
+}
+
+/// UTF-16 length of the baked list-item prefix at the start of `string`:
+/// bullet `• `, checkbox `☐ `/`☑ `, or ordered `<digits>. `, each with one
+/// optional trailing space (the load path always bakes one; a mid-edit
+/// paragraph may have lost it). Returns 0 when no prefix is present.
+private func bakedListPrefixUTF16Length(of string: String) -> Int {
+    let scalars = string.unicodeScalars
+    var index = scalars.startIndex
+    guard index < scalars.endIndex else { return 0 }
+    var length: Int
+    let first = scalars[index].value
+    if first == 0x2022 || first == 0x2610 || first == 0x2611 { // • ☐ ☑
+        length = 1
+        index = scalars.index(after: index)
+    } else {
+        var digits = 0
+        while index < scalars.endIndex, (0x30...0x39).contains(scalars[index].value) {
+            digits += 1
+            index = scalars.index(after: index)
+        }
+        guard digits > 0, index < scalars.endIndex, scalars[index].value == 0x2E else { return 0 } // "."
+        length = digits + 1
+        index = scalars.index(after: index)
+    }
+    if index < scalars.endIndex, scalars[index].value == 0x20 { // " "
+        length += 1
+    }
+    return length
 }

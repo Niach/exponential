@@ -9,6 +9,7 @@ import {
   buildAttachmentUrl,
   isAcceptedImageContentType,
   maxImageUploadBytes,
+  sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
@@ -66,11 +67,14 @@ async function uploadIssueImage({
 
   await assertWithinStorageLimit(issueContext.workspaceId, file.size)
 
+  // Browser file names arrive verbatim — strip control chars and clamp so the
+  // stored display name is always header- and column-safe.
+  const filename = sanitizeUploadFilename(file.name, `image`)
   const attachmentId = crypto.randomUUID()
   const storageKey = buildAttachmentStorageKey(
     params.issueId,
     attachmentId,
-    file.name
+    filename
   )
   const url = buildAttachmentUrl(attachmentId)
   const body = new Uint8Array(await file.arrayBuffer())
@@ -92,7 +96,7 @@ async function uploadIssueImage({
       projectId: issueContext.projectId,
       issueId: params.issueId,
       uploaderId: session.user.id,
-      filename: file.name,
+      filename,
       contentType: file.type,
       sizeBytes: file.size,
       storageKey,
@@ -116,7 +120,7 @@ async function uploadIssueImage({
   return Response.json({
     id: attachmentId,
     url,
-    filename: file.name,
+    filename,
     contentType: file.type,
     sizeBytes: file.size,
     width: dimensions?.width ?? null,

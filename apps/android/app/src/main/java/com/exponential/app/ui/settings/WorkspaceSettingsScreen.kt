@@ -743,30 +743,29 @@ private fun InviteSection(
         if (state.invites.isNotEmpty()) {
             SectionHeader("Pending")
             Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                // No copy-link here: the bearer token is no longer synced
+                // (server columns allowlist — REV-4/14). The link's one-time
+                // surface is the freshly-minted create response above, matching
+                // iOS's inviteSection (role + expiry + revoke only).
                 state.invites.forEachIndexed { i, invite ->
                     if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-                    val link = inviteBase?.let { "$it/invite/${invite.token}" }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                link ?: invite.token,
+                                invite.role,
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                "${invite.role} · expires ${invite.expiresAt.substringBefore('T')}",
+                                "expires ${invite.expiresAt.substringBefore('T')}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             )
                         }
-                        TextButton(
-                            onClick = { link?.let { clipboard.setText(AnnotatedString(it)) } },
-                            enabled = link != null,
-                        ) { Text("Copy") }
                         IconButton(onClick = { onConfirm(SettingsConfirm.RevokeInvite(invite)) }) {
                             Icon(Icons.Filled.Delete, contentDescription = "Revoke invite")
                         }
