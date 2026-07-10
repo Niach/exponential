@@ -393,7 +393,7 @@ export function WorkspaceSidebar({
               <DropdownMenuContent side="top" align="start" className="w-56">
                 {isAdminUser(session?.user) && (
                   <DropdownMenuItem
-                    onClick={() => navigate({ to: `/admin/users` })}
+                    onClick={() => navigate({ to: `/admin` })}
                   >
                     <Shield className="mr-2 h-4 w-4" />
                     Admin

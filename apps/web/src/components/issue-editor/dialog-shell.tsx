@@ -17,6 +17,18 @@ import { Input } from "@/components/ui/input"
 
 export { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 
+// The editor's @/# autocomplete popup portals to document.body (EXP-54 — the
+// dialog's scroll region would clip it), so Radix sees interactions with it as
+// OUTSIDE the modal content and would close the dialog. Whitelist them.
+function isEditorAutocompleteInteraction(event: {
+  target: EventTarget | null
+}): boolean {
+  return (
+    event.target instanceof Element &&
+    event.target.closest(`[data-editor-autocomplete]`) !== null
+  )
+}
+
 interface PrimaryAction {
   disabled?: boolean
   onClick?: () => void
@@ -286,7 +298,7 @@ export function IssueEditorDialogShell({
             }
           }}
           onInteractOutside={(event) => {
-            if (closeBlocked) {
+            if (closeBlocked || isEditorAutocompleteInteraction(event)) {
               event.preventDefault()
             }
           }}
@@ -354,7 +366,7 @@ export function IssueEditorDialogShell({
           }
         }}
         onInteractOutside={(event) => {
-          if (closeBlocked) {
+          if (closeBlocked || isEditorAutocompleteInteraction(event)) {
             event.preventDefault()
           }
         }}

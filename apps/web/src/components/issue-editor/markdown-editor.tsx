@@ -666,7 +666,14 @@ export const MarkdownEditor = forwardRef<
           ? createPortal(
               <div
                 ref={menuRef}
-                className="fixed w-72 overflow-y-auto rounded-md border bg-popover shadow-md"
+                // Radix modal dialogs set pointer-events:none on <body> while
+                // open; this portal lives outside the DialogContent subtree,
+                // so it must re-enable pointer events itself or every click
+                // falls through to the dialog beneath (EXP-54). The data
+                // attribute lets dialog hosts whitelist interactions here in
+                // their onInteractOutside guards.
+                data-editor-autocomplete=""
+                className="pointer-events-auto fixed w-72 overflow-y-auto rounded-md border bg-popover shadow-md"
                 style={menuStyle}
               >
                 {autocomplete.kind === `mention` &&

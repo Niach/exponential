@@ -211,10 +211,12 @@ struct IssueListView: View {
                 }
             }
 
-            // Tabs + divider + Clear chip ALL scroll as one continuous unit
-            // (Android's FilterPills parity): pinning the Clear chip outside the
-            // scroller squeezed the viewport and left "Backlog" permanently
-            // clipped at the divider (EXP-47). Nothing is clipped mid-capsule now.
+            // Only the three tabs scroll here — they fit at rest on iPhone
+            // widths. The Clear affordance lives in the active-filter-pills
+            // row below as "Clear all" (web parity; appears exactly when
+            // filters are active). Both earlier EXP-47 layouts clipped a chip
+            // at rest: Clear pinned outside the scroller squeezed "Backlog",
+            // and Clear inside the scroller pushed itself off-screen.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(FilterTab.allCases) { tab in
@@ -228,27 +230,6 @@ struct IssueListView: View {
                                 .padding(.vertical, 8)
                         }
                         .glassButton(isActive: vm.activeTab == tab)
-                    }
-
-                    if !vm.filters.isEmpty {
-                        Divider()
-                            .frame(height: 20)
-                            .tint(.white.opacity(0.1))
-
-                        Button {
-                            vm.clearFilters()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("Clear")
-                                    .font(.caption)
-                                Image(systemName: "xmark")
-                                    .font(.caption2)
-                            }
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                        }
-                        .glassButton()
                     }
                 }
                 // Trailing content margin so the last chip's capsule stroke rests
@@ -279,6 +260,20 @@ struct IssueListView: View {
                         vm.toggleLabel(label.id)
                     }
                 }
+
+                // "Clear all" closes the pills row, mirroring the web's
+                // ActiveFilterPills — this row exists exactly when filters are
+                // active, so Clear needs no spot in the (space-tight) tab row.
+                Button {
+                    vm.clearFilters()
+                } label: {
+                    Text("Clear all")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                }
+                .glassButton()
             }
         }
     }

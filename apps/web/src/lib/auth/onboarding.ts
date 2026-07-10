@@ -42,3 +42,23 @@ export async function resolveOnboardingCompletedAt(user: {
     .where(and(eq(users.id, user.id), isNull(users.onboardingCompletedAt)))
   return completedAt
 }
+
+// The "Get the desktop app" card dismissal (EXP-51) must survive the session
+// cookie cache (5-min TTL): right after dismissing, the cached user snapshot
+// still carries null, so a reload inside the TTL would resurrect the card.
+// Dismissal is one-way — a cached non-null value is trusted as-is; a cached
+// null gets one cheap PK re-read on session resolution.
+export async function resolveDesktopAppCardDismissedAt(user: {
+  id: string
+  desktopAppCardDismissedAt?: Date | string | null
+}): Promise<Date | string | null> {
+  if (user.desktopAppCardDismissedAt != null) {
+    return user.desktopAppCardDismissedAt
+  }
+  const [row] = await db
+    .select({ dismissedAt: users.desktopAppCardDismissedAt })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1)
+  return row?.dismissedAt ?? null
+}

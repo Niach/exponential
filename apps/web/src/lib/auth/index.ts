@@ -18,7 +18,10 @@ import {
   sendVerificationEmail,
 } from "@/lib/email"
 import { isAdminUser } from "./app-user"
-import { resolveOnboardingCompletedAt } from "./onboarding"
+import {
+  resolveDesktopAppCardDismissedAt,
+  resolveOnboardingCompletedAt,
+} from "./onboarding"
 import {
   bindSubscriptionToWorkspace,
   bindingInputFromCheckout,
@@ -493,13 +496,19 @@ export const auth = betterAuth({
     // "show the first-run wizard?" from this session's onboardingCompletedAt,
     // so the rule lives server-side in resolveOnboardingCompletedAt — users
     // who already have a real project get the flag backfilled on read.
-    customSession(async ({ user, session }) => ({
-      user: {
-        ...user,
-        onboardingCompletedAt: await resolveOnboardingCompletedAt(user),
-      },
-      session,
-    })),
+    customSession(async ({ user, session }) => {
+      // Both flags out-live the 5-min session cookie cache via a fresh
+      // resolve on read (see their resolvers for the one-way semantics).
+      const [onboardingCompletedAt, desktopAppCardDismissedAt] =
+        await Promise.all([
+          resolveOnboardingCompletedAt(user),
+          resolveDesktopAppCardDismissedAt(user),
+        ])
+      return {
+        user: { ...user, onboardingCompletedAt, desktopAppCardDismissedAt },
+        session,
+      }
+    }),
     // Must be last so it can capture Set-Cookie from any plugin's hooks.after.
     tanstackStartCookies(),
   ],
