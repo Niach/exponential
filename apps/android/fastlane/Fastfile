@@ -14,6 +14,10 @@ default_platform(:android)
 # that ships to the public Play listing. gradle() concatenates flavor + build_type into
 # task names like `bundleProductionRelease` / `assembleProductionRelease`.
 PRODUCTION_FLAVOR = "Production".freeze
+# `staging` product flavor → the at.exponential.staging Play app (internal testing only,
+# co-installs next to production because of the `.staging` applicationId suffix).
+STAGING_FLAVOR = "Staging".freeze
+STAGING_PACKAGE = "at.exponential.staging".freeze
 
 platform :android do
   desc "Build a release App Bundle (.aab) + APK for the production flavor. " \
@@ -59,6 +63,30 @@ platform :android do
       release_status: "draft",
       skip_upload_apk: true,
       skip_upload_metadata: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Build + upload the STAGING flavor (.aab) to the at.exponential.staging Play " \
+       "INTERNAL testing track. The app record must already exist in the Play Console " \
+       "(the Play API cannot create apps) and the service account must have access. Signs " \
+       "from the RELEASE_* env like `build`; needs SUPPLY_JSON_KEY. Override the rollout " \
+       "state with PLAY_RELEASE_STATUS (default 'completed' = immediately live to testers)."
+  lane :internal do
+    unless ENV["RELEASE_STORE_FILE"]
+      UI.user_error!("RELEASE_STORE_FILE unset — the .aab must be signed to upload to Play.")
+    end
+    gradle(task: "bundle", flavor: STAGING_FLAVOR, build_type: "Release")
+    UI.success("Staging AAB: #{lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]}")
+    upload_to_play_store(
+      package_name: STAGING_PACKAGE,
+      track: "internal",
+      aab: lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
+      json_key: ENV.fetch("SUPPLY_JSON_KEY"),
+      release_status: ENV.fetch("PLAY_RELEASE_STATUS", "completed"),
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
       skip_upload_images: true,
       skip_upload_screenshots: true,
     )

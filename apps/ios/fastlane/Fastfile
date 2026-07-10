@@ -13,6 +13,11 @@ WORKSPACE = "Exponential.xcworkspace".freeze
 SCHEME = "Exponential".freeze # production target (bundle id at.exponential)
 IPA_PATH = "build/Exponential.ipa".freeze
 
+# Staging target — internal TestFlight only, co-installs under a distinct bundle id.
+STAGING_SCHEME = "Exponential-Staging".freeze
+STAGING_BUNDLE_ID = "at.exponential.staging".freeze
+STAGING_IPA_PATH = "build/Exponential-Staging.ipa".freeze
+
 def asc_api_key
   # App Store Connect API key (Users & Access → Integrations → App Store Connect API).
   app_store_connect_api_key(
@@ -93,6 +98,43 @@ platform :ios do
       )
     end
     pilot(**pilot_args)
+  end
+
+  desc "Build the Exponential-Staging scheme (bundle id at.exponential.staging) as a signed"
+  desc "App Store archive. Mirrors `build` but for the staging app / TestFlight internal."
+  lane :build_staging do
+    sh("cd .. && tuist generate --no-open")
+    auth_xcargs = [
+      "-allowProvisioningUpdates",
+      "-authenticationKeyPath #{File.expand_path(ENV.fetch('ASC_KEY_PATH'))}",
+      "-authenticationKeyID #{ENV.fetch('ASC_KEY_ID')}",
+      "-authenticationKeyIssuerID #{ENV.fetch('ASC_ISSUER_ID')}",
+    ].join(" ")
+    gym(
+      workspace: WORKSPACE,
+      scheme: STAGING_SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      clean: true,
+      output_directory: "build",
+      output_name: "Exponential-Staging.ipa",
+      xcargs: auth_xcargs,
+    )
+  end
+
+  desc "Build + upload the staging app to TestFlight INTERNAL testing (no external group, no"
+  desc "Beta App Review). Requires the ASC record for at.exponential.staging to exist first"
+  desc "(scripts/create-staging-app.sh) plus the ASC_* env. Internal testers install it via"
+  desc "TestFlight alongside production (distinct bundle id)."
+  lane :beta_staging do
+    build_staging
+    pilot(
+      api_key: asc_api_key,
+      ipa: STAGING_IPA_PATH,
+      app_identifier: STAGING_BUNDLE_ID,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+    )
   end
 
   desc "Distribute the LATEST already-uploaded build to External Testers + Beta App"
