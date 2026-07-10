@@ -31,6 +31,14 @@ Build a release App Bundle (.aab) + APK for the production flavor. Signed when R
 
 Build + upload the production .aab to the Play closed testing track.
 
+### android internal
+
+```sh
+[bundle exec] fastlane android internal
+```
+
+Build + upload the STAGING flavor (.aab) to the at.exponential.staging Play INTERNAL testing track. The app record must already exist in the Play Console (the Play API cannot create apps) and the service account must have access. Signs from the RELEASE_* env like `build`; needs SUPPLY_JSON_KEY. Override the rollout state with PLAY_RELEASE_STATUS (default 'completed' = immediately live to testers).
+
 ### android screenshots
 
 ```sh

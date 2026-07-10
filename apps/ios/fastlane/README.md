@@ -55,6 +55,30 @@ Beta App Review. The external group + TestFlight Test Information must already
 
 exist in App Store Connect (see docs/release-ios.md → External TestFlight).
 
+### ios build_staging
+
+```sh
+[bundle exec] fastlane ios build_staging
+```
+
+Build the Exponential-Staging scheme (bundle id at.exponential.staging) as a signed
+
+App Store archive. Mirrors `build` but for the staging app / TestFlight internal.
+
+### ios beta_staging
+
+```sh
+[bundle exec] fastlane ios beta_staging
+```
+
+Build + upload the staging app to TestFlight INTERNAL testing (no external group, no
+
+Beta App Review). Requires the ASC record for at.exponential.staging to exist first
+
+(scripts/create-staging-app.sh) plus the ASC_* env. Internal testers install it via
+
+TestFlight alongside production (distinct bundle id).
+
 ### ios beta_external
 
 ```sh
