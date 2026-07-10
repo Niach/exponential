@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { createFileRoute, useRouter } from "@tanstack/react-router"
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { MoreHorizontal, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
+import { PlanBadge, formatStorageMb } from "./-shared"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -90,26 +91,34 @@ function AdminWorkspaces() {
       )}
 
       <div className="rounded-md border">
-        <div className="hidden md:grid grid-cols-[1fr_80px_1fr_120px_120px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
+        <div className="hidden md:grid grid-cols-[1fr_110px_1fr_70px_70px_70px_80px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
           <div>Name</div>
           <div>Plan</div>
           <div>Owners</div>
           <div>Members</div>
           <div>Projects</div>
+          <div>Issues</div>
+          <div>Storage</div>
           <div />
         </div>
         {filteredWorkspaces.map((ws: AdminWorkspace) => (
           <div
             key={ws.id}
-            className="flex flex-col md:grid md:grid-cols-[1fr_80px_1fr_120px_120px_40px] md:items-center gap-2 md:gap-3 border-b px-4 py-3 last:border-b-0"
+            className="flex flex-col md:grid md:grid-cols-[1fr_110px_1fr_70px_70px_70px_80px_40px] md:items-center gap-2 md:gap-3 border-b px-4 py-3 last:border-b-0"
           >
             <div className="flex items-start gap-2 min-w-0">
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium truncate">{ws.name}</div>
+              <Link
+                to="/admin/workspaces/$workspaceId"
+                params={{ workspaceId: ws.id }}
+                className="min-w-0 flex-1 group"
+              >
+                <div className="text-sm font-medium truncate group-hover:underline">
+                  {ws.name}
+                </div>
                 <div className="text-xs text-muted-foreground truncate">
                   /{ws.slug}
                 </div>
-              </div>
+              </Link>
               <div className="md:hidden shrink-0">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -136,9 +145,7 @@ function AdminWorkspaces() {
             </div>
             {/* Mobile meta row */}
             <div className="flex md:hidden items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <Badge variant="outline" className="text-xs capitalize">
-                {ws.plan}
-              </Badge>
+              <PlanBadge plan={ws.plan} compApplied={ws.compApplied} />
               <span>
                 {ws.memberCount}{` `}
                 {ws.memberCount === 1 ? `member` : `members`}
@@ -147,6 +154,11 @@ function AdminWorkspaces() {
                 {ws.projectCount}{` `}
                 {ws.projectCount === 1 ? `project` : `projects`}
               </span>
+              <span>
+                {ws.issueCount}{` `}
+                {ws.issueCount === 1 ? `issue` : `issues`}
+              </span>
+              <span>{formatStorageMb(ws.storageMb)}</span>
               <div className="flex flex-wrap gap-1 w-full">
                 {ws.owners.length === 0 ? (
                   <span>No owners</span>
@@ -166,9 +178,7 @@ function AdminWorkspaces() {
             </div>
             {/* Desktop columns */}
             <div className="hidden md:block">
-              <Badge variant="outline" className="text-xs capitalize">
-                {ws.plan}
-              </Badge>
+              <PlanBadge plan={ws.plan} compApplied={ws.compApplied} />
             </div>
             <div className="hidden md:flex flex-wrap gap-1 min-w-0">
               {ws.owners.length === 0 ? (
@@ -193,6 +203,12 @@ function AdminWorkspaces() {
             </div>
             <div className="hidden md:block text-sm tabular-nums">
               {ws.projectCount}
+            </div>
+            <div className="hidden md:block text-sm tabular-nums">
+              {ws.issueCount}
+            </div>
+            <div className="hidden md:block text-xs text-muted-foreground tabular-nums">
+              {formatStorageMb(ws.storageMb)}
             </div>
             <div className="hidden md:block">
               <DropdownMenu>

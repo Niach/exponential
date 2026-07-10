@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { createFileRoute, useRouter } from "@tanstack/react-router"
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { MoreHorizontal, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { getInitials } from "@/lib/utils"
+import { formatRelative } from "./-shared"
 
 type AdminUser = Awaited<ReturnType<typeof trpc.admin.listUsers.query>>[number]
 
@@ -106,10 +107,11 @@ function AdminUsers() {
 
       <div className="rounded-md border">
         {/* Desktop column header */}
-        <div className="hidden md:grid grid-cols-[1fr_140px_120px_100px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
+        <div className="hidden md:grid grid-cols-[1fr_130px_90px_110px_70px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
           <div>User</div>
           <div>Providers</div>
           <div>Workspaces</div>
+          <div>Last active</div>
           <div>Admin</div>
           <div />
         </div>
@@ -118,28 +120,34 @@ function AdminUsers() {
           return (
             <div
               key={user.id}
-              className="flex flex-col md:grid md:grid-cols-[1fr_140px_120px_100px_40px] md:items-center gap-3 border-b px-4 py-3 last:border-b-0"
+              className="flex flex-col md:grid md:grid-cols-[1fr_130px_90px_110px_70px_40px] md:items-center gap-3 border-b px-4 py-3 last:border-b-0"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <Avatar className="h-8 w-8 shrink-0">
-                  {user.image && <AvatarImage src={user.image} />}
-                  <AvatarFallback className="text-xs">
-                    {getInitials(user.name || user.email)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">
-                    {user.name}
-                    {isSelf && (
-                      <span className="text-muted-foreground font-normal">
-                        {` (you)`}
-                      </span>
-                    )}
+                <Link
+                  to="/admin/users/$userId"
+                  params={{ userId: user.id }}
+                  className="flex items-center gap-3 min-w-0 flex-1 group"
+                >
+                  <Avatar className="h-8 w-8 shrink-0">
+                    {user.image && <AvatarImage src={user.image} />}
+                    <AvatarFallback className="text-xs">
+                      {getInitials(user.name || user.email)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate group-hover:underline">
+                      {user.name}
+                      {isSelf && (
+                        <span className="text-muted-foreground font-normal">
+                          {` (you)`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {user.email}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {user.email}
-                  </div>
-                </div>
+                </Link>
                 {/* Mobile: switch + menu on the right of the avatar row */}
                 <div className="flex items-center gap-1 md:hidden shrink-0">
                   <Switch
@@ -179,6 +187,8 @@ function AdminUsers() {
                   {user.workspaceCount === 1 ? `workspace` : `workspaces`}
                 </span>
                 <span aria-hidden>·</span>
+                <span>active {formatRelative(user.lastActiveAt)}</span>
+                <span aria-hidden>·</span>
                 <div className="flex flex-wrap gap-1">
                   {user.providers.length === 0 ? (
                     <span>password</span>
@@ -207,6 +217,12 @@ function AdminUsers() {
               </div>
               <div className="hidden md:block text-sm tabular-nums">
                 {user.workspaceCount}
+              </div>
+              <div
+                className="hidden md:block text-xs text-muted-foreground"
+                title={user.lastActiveAt ? new Date(user.lastActiveAt).toLocaleString() : undefined}
+              >
+                {formatRelative(user.lastActiveAt)}
               </div>
               <div className="hidden md:block">
                 <Switch

@@ -40,6 +40,8 @@ vi.mock(`@/lib/bootstrap-cloud`, () => ({
 import {
   getPlanLimits,
   planFromSubscription,
+  parseCompTier,
+  resolveEffectiveTier,
   assertSeatAvailable,
   assertWidgetCreatable,
   getWorkspacePlan,
@@ -168,9 +170,53 @@ describe(`assertWidgetCreatable — Pro+ widget gate`, () => {
   })
 })
 
+describe(`parseCompTier — defensive column parse`, () => {
+  it(`accepts the three grantable tiers`, () => {
+    expect(parseCompTier(`pro`)).toBe(`pro`)
+    expect(parseCompTier(`business`)).toBe(`business`)
+    expect(parseCompTier(`unlimited`)).toBe(`unlimited`)
+  })
+  it(`rejects null, undefined, free, and garbage strings`, () => {
+    expect(parseCompTier(null)).toBeNull()
+    expect(parseCompTier(undefined)).toBeNull()
+    expect(parseCompTier(`free`)).toBeNull()
+    expect(parseCompTier(`gold`)).toBeNull()
+    expect(parseCompTier(``)).toBeNull()
+  })
+})
+
+describe(`resolveEffectiveTier — comp floor (effective = max by rank)`, () => {
+  it(`comp lifts a lower creem tier`, () => {
+    expect(resolveEffectiveTier(`free`, `pro`)).toBe(`pro`)
+    expect(resolveEffectiveTier(`free`, `business`)).toBe(`business`)
+    expect(resolveEffectiveTier(`pro`, `business`)).toBe(`business`)
+    expect(resolveEffectiveTier(`free`, `unlimited`)).toBe(`unlimited`)
+  })
+  it(`never lowers: a comp below the creem tier is a no-op`, () => {
+    expect(resolveEffectiveTier(`business`, `pro`)).toBe(`business`)
+    expect(resolveEffectiveTier(`unlimited`, `business`)).toBe(`unlimited`)
+  })
+  it(`equal tiers keep the creem tier (purchased seats stay authoritative)`, () => {
+    expect(resolveEffectiveTier(`business`, `business`)).toBe(`business`)
+  })
+  it(`null / unknown comp values are ignored`, () => {
+    expect(resolveEffectiveTier(`free`, null)).toBe(`free`)
+    expect(resolveEffectiveTier(`pro`, undefined)).toBe(`pro`)
+    expect(resolveEffectiveTier(`free`, `gold`)).toBe(`free`)
+    expect(resolveEffectiveTier(`free`, `free`)).toBe(`free`)
+  })
+})
+
 describe(`getWorkspacePlan — workspace-bound lookup (no owner fan-out)`, () => {
+  // Promise.all order inside getWorkspacePlan: subscription select first,
+  // then the workspaces.comp_tier select.
+  function seedPlan(sub: unknown[], compTier: string | null) {
+    selectResults.push(sub)
+    selectResults.push([{ compTier }])
+  }
+
   it(`returns free when the workspace has no active subscription`, async () => {
-    selectResults.push([]) // sub lookup: none
+    seedPlan([], null) // sub lookup: none, no comp
     expect(await getWorkspacePlan(WS)).toEqual({
       plan: `free`,
       limits: getPlanLimits(`free`),
@@ -178,10 +224,52 @@ describe(`getWorkspacePlan — workspace-bound lookup (no owner fan-out)`, () =>
   })
 
   it(`resolves the plan + seats from the bound subscription row`, async () => {
-    selectResults.push([{ productId: PRO_ID, seats: 12 }])
+    seedPlan([{ productId: PRO_ID, seats: 12 }], null)
     const { plan, limits } = await getWorkspacePlan(WS)
     expect(plan).toBe(`pro`)
     expect(limits.seats).toBe(12)
+  })
+
+  it(`comp tier lifts a free workspace — limits follow the comped tier`, async () => {
+    seedPlan([], `business`)
+    const { plan, limits } = await getWorkspacePlan(WS)
+    expect(plan).toBe(`business`)
+    expect(limits.storageMb).toBe(51200)
+    expect(limits.widgetConfigs).toBe(Infinity)
+    // No purchased quantity behind a comp → seats are uncapped, never 1.
+    expect(limits.seats).toBe(Infinity)
+  })
+
+  it(`comp below the subscription tier changes nothing`, async () => {
+    seedPlan([{ productId: BUSINESS_ID, seats: 8 }], `pro`)
+    const { plan, limits } = await getWorkspacePlan(WS)
+    expect(plan).toBe(`business`)
+    expect(limits.seats).toBe(8)
+  })
+
+  it(`comp equal to the subscription tier keeps purchased seat gating`, async () => {
+    seedPlan([{ productId: PRO_ID, seats: 4 }], `pro`)
+    const { plan, limits } = await getWorkspacePlan(WS)
+    expect(plan).toBe(`pro`)
+    expect(limits.seats).toBe(4)
+  })
+
+  it(`comp above the subscription tier wins and lifts limits`, async () => {
+    seedPlan([{ productId: PRO_ID, seats: 4 }], `unlimited`)
+    const { plan, limits } = await getWorkspacePlan(WS)
+    expect(plan).toBe(`unlimited`)
+    expect(limits).toEqual(getPlanLimits(`unlimited`))
+  })
+
+  it(`garbage comp_tier values are ignored`, async () => {
+    seedPlan([], `platinum`)
+    expect((await getWorkspacePlan(WS)).plan).toBe(`free`)
+  })
+
+  it(`missing workspace row degrades to the creem tier alone`, async () => {
+    selectResults.push([]) // sub: none
+    selectResults.push([]) // workspace row: gone
+    expect((await getWorkspacePlan(WS)).plan).toBe(`free`)
   })
 
   it(`self-hosted short-circuits to unlimited without touching the db`, async () => {
@@ -222,10 +310,16 @@ describe(`getWorkspaceUsage — agent-excluded member count`, () => {
 })
 
 describe(`assertCanInviteMember — seat gate wired to workspace usage`, () => {
-  async function seed(sub: unknown[], members: number) {
+  async function seed(
+    sub: unknown[],
+    members: number,
+    compTier: string | null = null
+  ) {
     // Promise.all([getWorkspacePlan, getWorkspaceUsage]) → sub select first,
-    // then usage's three selects (members, storage, widgets).
+    // then the comp-tier select, then usage's three selects (members,
+    // storage, widgets).
     selectResults.push(sub) // getWorkspacePlan sub lookup
+    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
     selectResults.push([{ count: members }]) // usage members
     selectResults.push([{ totalBytes: `0` }]) // usage storage
     selectResults.push([{ count: 0 }]) // usage widgets
@@ -234,6 +328,11 @@ describe(`assertCanInviteMember — seat gate wired to workspace usage`, () => {
   it(`blocks the first invite on free (1 seat, owner already fills it)`, async () => {
     await seed([], 1)
     await expect(assertCanInviteMember(WS)).rejects.toThrow(TRPCError)
+  })
+
+  it(`a comped workspace is never seat-gated (no purchased quantity)`, async () => {
+    await seed([], 25, `pro`)
+    await expect(assertCanInviteMember(WS)).resolves.toBeUndefined()
   })
 
   it(`allows an invite when purchased seats exceed members`, async () => {
@@ -253,8 +352,13 @@ describe(`assertCanInviteMember — seat gate wired to workspace usage`, () => {
 })
 
 describe(`assertCanCreateWidget — server-side Pro gate`, () => {
-  async function seed(sub: unknown[], widgets: number) {
-    selectResults.push(sub) // getWorkspacePlan
+  async function seed(
+    sub: unknown[],
+    widgets: number,
+    compTier: string | null = null
+  ) {
+    selectResults.push(sub) // getWorkspacePlan sub lookup
+    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
     selectResults.push([{ totalBytes: `0` }]) // usage storage
     selectResults.push([{ count: widgets }]) // usage widgets
@@ -263,6 +367,11 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
   it(`free workspace cannot create a widget`, async () => {
     await seed([], 0)
     await expect(assertCanCreateWidget(WS)).rejects.toThrow(/Pro and Business/)
+  })
+
+  it(`a pro comp unlocks the widget (the comp floor lifts limits too)`, async () => {
+    await seed([], 0, `pro`)
+    await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
   })
 
   it(`pro workspace can create its first widget`, async () => {
@@ -282,8 +391,13 @@ describe(`assertCanCreateWidget — server-side Pro gate`, () => {
 })
 
 describe(`assertWithinStorageLimit — per-workspace storage budget`, () => {
-  async function seed(sub: unknown[], usedMb: number) {
-    selectResults.push(sub) // getWorkspacePlan
+  async function seed(
+    sub: unknown[],
+    usedMb: number,
+    compTier: string | null = null
+  ) {
+    selectResults.push(sub) // getWorkspacePlan sub lookup
+    selectResults.push([{ compTier }]) // getWorkspacePlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
     selectResults.push([{ totalBytes: `${usedMb * 1024 * 1024}` }]) // storage
     selectResults.push([{ count: 0 }]) // widgets
@@ -292,6 +406,11 @@ describe(`assertWithinStorageLimit — per-workspace storage budget`, () => {
   it(`free workspace blocked once an upload would exceed 250 MB`, async () => {
     await seed([], 250)
     await expect(assertWithinStorageLimit(WS, 1)).rejects.toThrow(TRPCError)
+  })
+
+  it(`a business comp lifts the storage budget past the free cap`, async () => {
+    await seed([], 250, `business`)
+    await expect(assertWithinStorageLimit(WS, 1024)).resolves.toBeUndefined()
   })
 
   it(`free workspace allows an upload that fits`, async () => {

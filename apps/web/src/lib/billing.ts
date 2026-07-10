@@ -86,6 +86,40 @@ function productIdToTier(productId: string): PlanTier {
 
 const ACTIVE_STATUSES = [`active`, `trialing`, `paid`]
 
+// Rank order for the comp-tier floor (EXP-49): an admin-granted complimentary
+// tier (workspaces.comp_tier) can only ever RAISE a workspace's effective
+// tier, never lower it.
+const TIER_RANK: Record<PlanTier, number> = {
+  free: 0,
+  pro: 1,
+  business: 2,
+  unlimited: 3,
+}
+
+// Defensive parse of the raw workspaces.comp_tier column value. `free` is not
+// a valid comp value (a floor of free is a no-op), and an unknown string must
+// be IGNORED rather than crash or distort plan resolution — the column is
+// plain text, not a Postgres enum.
+export function parseCompTier(
+  value: string | null | undefined
+): PlanTier | null {
+  if (value === `pro` || value === `business` || value === `unlimited`) {
+    return value
+  }
+  return null
+}
+
+// Pure comp-floor resolution: effective tier = max(Creem-derived tier, comp
+// tier) by rank. Exported so the floor logic can be unit-tested without a DB.
+export function resolveEffectiveTier(
+  creemTier: PlanTier,
+  compTier: string | null | undefined
+): PlanTier {
+  const comp = parseCompTier(compTier)
+  if (!comp) return creemTier
+  return TIER_RANK[comp] > TIER_RANK[creemTier] ? comp : creemTier
+}
+
 export type ActiveSubscription = { productId: string; seats: number }
 
 // Pure resolution: a workspace's plan + effective limits from its single active
@@ -111,6 +145,8 @@ export function planFromSubscription(subscription: ActiveSubscription | null): {
 // workspace (creem_subscriptions.workspaceId) — no owner fan-out. When a
 // workspace somehow carries more than one active subscription we take the one
 // with the most seats so a team is never accidentally under-provisioned.
+// An admin-granted comp tier (workspaces.comp_tier) acts as a FLOOR over the
+// Creem-derived tier — effective plan = max of the two by rank (EXP-49).
 export async function getWorkspacePlan(
   workspaceId: string
 ): Promise<{ plan: PlanTier; limits: PlanLimits }> {
@@ -118,22 +154,40 @@ export async function getWorkspacePlan(
     return { plan: `unlimited`, limits: PLAN_LIMITS.unlimited }
   }
 
-  const [sub] = await db
-    .select({
-      productId: creem_subscriptions.productId,
-      seats: creem_subscriptions.seats,
-    })
-    .from(creem_subscriptions)
-    .where(
-      and(
-        eq(creem_subscriptions.workspaceId, workspaceId),
-        inArray(creem_subscriptions.status, ACTIVE_STATUSES)
+  const [[sub], [ws]] = await Promise.all([
+    db
+      .select({
+        productId: creem_subscriptions.productId,
+        seats: creem_subscriptions.seats,
+      })
+      .from(creem_subscriptions)
+      .where(
+        and(
+          eq(creem_subscriptions.workspaceId, workspaceId),
+          inArray(creem_subscriptions.status, ACTIVE_STATUSES)
+        )
       )
-    )
-    .orderBy(desc(creem_subscriptions.seats))
-    .limit(1)
+      .orderBy(desc(creem_subscriptions.seats))
+      .limit(1),
+    db
+      .select({ compTier: workspaces.compTier })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .limit(1),
+  ])
 
-  return planFromSubscription(sub ?? null)
+  const base = planFromSubscription(sub ?? null)
+  const effective = resolveEffectiveTier(base.plan, ws?.compTier ?? null)
+  if (effective === base.plan) return base
+  // The comp floor won: limits follow the comped tier. There is no purchased
+  // seat quantity behind a comp (and the paid tiers' placeholder of 1 would
+  // strand a comped team unable to invite anyone), so comped seats are
+  // uncapped — comping is an admin trust decision. A subscription can only
+  // reclaim seat gating by outranking (or matching) the comp tier.
+  return {
+    plan: effective,
+    limits: { ...PLAN_LIMITS[effective], seats: Infinity },
+  }
 }
 
 // User-scoped entitlement: the best plan a user has personally purchased

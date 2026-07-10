@@ -68,6 +68,8 @@ import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/int
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
 import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
+import { Route as AuthenticatedAdminWorkspacesWorkspaceIdRouteImport } from './routes/_authenticated/admin/workspaces_.$workspaceId'
+import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as WWorkspaceSlugProjectsProjectSlugIndexRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/index'
 import { Route as WWorkspaceSlugProjectsProjectSlugIssuesIssueIdentifierRouteImport } from './routes/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier'
 
@@ -382,6 +384,18 @@ const AuthenticatedIntegrationsGithubClaimRoute =
     path: '/integrations/github/claim',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedAdminWorkspacesWorkspaceIdRoute =
+  AuthenticatedAdminWorkspacesWorkspaceIdRouteImport.update({
+    id: '/workspaces_/$workspaceId',
+    path: '/workspaces/$workspaceId',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
+const AuthenticatedAdminUsersUserIdRoute =
+  AuthenticatedAdminUsersUserIdRouteImport.update({
+    id: '/users_/$userId',
+    path: '/users/$userId',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
 const WWorkspaceSlugProjectsProjectSlugIndexRoute =
   WWorkspaceSlugProjectsProjectSlugIndexRouteImport.update({
     id: '/projects/$projectSlug/',
@@ -444,6 +458,8 @@ export interface FileRoutesByFullPath {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/admin/workspaces/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
@@ -504,6 +520,8 @@ export interface FileRoutesByTo {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugIndexRoute
+  '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/admin/workspaces/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
@@ -568,6 +586,8 @@ export interface FileRoutesById {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/w/$workspaceSlug/': typeof WWorkspaceSlugIndexRoute
+  '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/_authenticated/admin/workspaces_/$workspaceId': typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
   '/_authenticated/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
@@ -632,6 +652,8 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/admin/'
     | '/w/$workspaceSlug/'
+    | '/admin/users/$userId'
+    | '/admin/workspaces/$workspaceId'
     | '/integrations/github/claim'
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
@@ -692,6 +714,8 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/admin'
     | '/w/$workspaceSlug'
+    | '/admin/users/$userId'
+    | '/admin/workspaces/$workspaceId'
     | '/integrations/github/claim'
     | '/integrations/github/installed'
     | '/api/integrations/github/callback'
@@ -755,6 +779,8 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/_authenticated/admin/'
     | '/w/$workspaceSlug/'
+    | '/_authenticated/admin/users_/$userId'
+    | '/_authenticated/admin/workspaces_/$workspaceId'
     | '/_authenticated/integrations/github/claim'
     | '/_authenticated/integrations/github/installed'
     | '/api/integrations/github/callback'
@@ -1231,6 +1257,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIntegrationsGithubClaimRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin/workspaces_/$workspaceId': {
+      id: '/_authenticated/admin/workspaces_/$workspaceId'
+      path: '/workspaces/$workspaceId'
+      fullPath: '/admin/workspaces/$workspaceId'
+      preLoaderRoute: typeof AuthenticatedAdminWorkspacesWorkspaceIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/users_/$userId': {
+      id: '/_authenticated/admin/users_/$userId'
+      path: '/users/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
     '/w/$workspaceSlug/projects/$projectSlug/': {
       id: '/w/$workspaceSlug/projects/$projectSlug/'
       path: '/projects/$projectSlug'
@@ -1252,6 +1292,8 @@ interface AuthenticatedAdminRouteRouteChildren {
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
   AuthenticatedAdminWorkspacesRoute: typeof AuthenticatedAdminWorkspacesRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
+  AuthenticatedAdminUsersUserIdRoute: typeof AuthenticatedAdminUsersUserIdRoute
+  AuthenticatedAdminWorkspacesWorkspaceIdRoute: typeof AuthenticatedAdminWorkspacesWorkspaceIdRoute
 }
 
 const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
@@ -1259,6 +1301,9 @@ const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren
     AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
     AuthenticatedAdminWorkspacesRoute: AuthenticatedAdminWorkspacesRoute,
     AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
+    AuthenticatedAdminUsersUserIdRoute: AuthenticatedAdminUsersUserIdRoute,
+    AuthenticatedAdminWorkspacesWorkspaceIdRoute:
+      AuthenticatedAdminWorkspacesWorkspaceIdRoute,
   }
 
 const AuthenticatedAdminRouteRouteWithChildren =

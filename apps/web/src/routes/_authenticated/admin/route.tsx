@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
-import { ArrowLeft, Shield, Users, Building2 } from "lucide-react"
+import { ArrowLeft, LayoutDashboard, Shield, Users, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -30,6 +30,16 @@ function AdminLayout() {
           <span>Admin</span>
         </div>
         <nav className="flex items-center gap-1 ml-4">
+          <Button asChild variant="ghost" size="sm">
+            <Link
+              to="/admin"
+              activeOptions={{ exact: true }}
+              activeProps={{ className: `bg-accent` }}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              Overview
+            </Link>
+          </Button>
           <Button asChild variant="ghost" size="sm">
             <Link
               to="/admin/users"
