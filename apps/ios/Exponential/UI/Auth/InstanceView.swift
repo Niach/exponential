@@ -72,6 +72,8 @@ struct InstanceView: View {
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
+                                // Full-width hit target — .plain hit-tests only opaque pixels.
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -160,6 +162,8 @@ struct InstanceView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
+                    // Full-width hit target — .plain hit-tests only opaque pixels.
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("instance-self-host-link")

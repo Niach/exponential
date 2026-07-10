@@ -96,6 +96,8 @@ struct WorkspaceSettingsView: View {
                                 .foregroundStyle(.red)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
+                                // Full-capsule hit target — .plain hit-tests only opaque pixels.
+                                .contentShape(Rectangle())
                             }
                             .glassButton()
                             .buttonStyle(.plain)

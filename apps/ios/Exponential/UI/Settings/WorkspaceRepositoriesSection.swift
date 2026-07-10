@@ -231,6 +231,11 @@ struct WorkspaceRepositoriesSection: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
+                    // .plain buttons hit-test only opaque label pixels — the
+                    // stretched transparent frame ignored taps outside the
+                    // text (the glassButton background lives on the Button,
+                    // not the label). Cover the whole capsule.
+                    .contentShape(Rectangle())
                 }
                 .glassButton()
                 .buttonStyle(.plain)

@@ -201,6 +201,8 @@ struct WorkspaceMembersSection: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
+            // Full-capsule hit target — .plain hit-tests only opaque pixels.
+            .contentShape(Rectangle())
         }
         .glassButton()
         .disabled(generating)
