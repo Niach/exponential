@@ -1,4 +1,4 @@
-import { Download, Monitor } from "lucide-react"
+import { Download, Monitor, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 // Production desktop builds, always the latest GitHub release. The desktop IDE
@@ -27,10 +27,26 @@ const DESKTOP_DOWNLOADS: Array<{
 ]
 
 // Compact "Get the desktop app" strip for the Agents view: three per-OS
-// download buttons linking to the latest production release assets.
-export function DesktopDownloadCard() {
+// download buttons linking to the latest production release assets. Dismissable
+// via the corner X when `onDismiss` is provided.
+export function DesktopDownloadCard({
+  onDismiss,
+}: {
+  onDismiss?: () => void
+}) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-md border border-border/50 bg-muted/30 px-4 py-3">
+    <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-md border border-border/50 bg-muted/30 px-4 py-3 pr-10">
+      {onDismiss && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Dismiss desktop app card"
+          onClick={onDismiss}
+          className="absolute right-1.5 top-1.5 text-muted-foreground"
+        >
+          <X className="size-3.5" />
+        </Button>
+      )}
       <div className="min-w-0">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Monitor className="size-4 text-muted-foreground" />

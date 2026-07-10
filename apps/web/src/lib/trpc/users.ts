@@ -78,6 +78,18 @@ export const usersRouter = router({
     return { keys: rows }
   }),
 
+  // Dismiss the "Get the desktop app" card (Agents view). Sets a per-user
+  // timestamp flag (like onboardingCompletedAt) surfaced read-only on the
+  // session so the card stays hidden across reloads. The client also hides it
+  // immediately via local state — the session field is fetched once.
+  dismissDesktopAppCard: authedProcedure.mutation(async ({ ctx }) => {
+    await ctx.db
+      .update(users)
+      .set({ desktopAppCardDismissedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, ctx.session.user.id))
+    return { ok: true }
+  }),
+
   revokePersonalApiKey: authedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {

@@ -11,6 +11,8 @@ import { useSession } from "@/hooks/use-session"
 import { useWorkspaceBySlug } from "@/hooks/use-workspace-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 import { displayUserName } from "@/lib/user-display"
+import { hasDismissedDesktopAppCard } from "@/lib/auth/app-user"
+import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 
 // Workspace Agents view: every desktop coding session in the workspace,
@@ -141,6 +143,12 @@ function AgentsPage() {
   // each viewer holds a live relay socket).
   const [watchSessionId, setWatchSessionId] = useState<string | null>(null)
 
+  // "Get the desktop app" card dismissal. The session flag keeps it hidden on
+  // later loads (session is fetched once); local state hides it immediately.
+  const [cardDismissedLocally, setCardDismissedLocally] = useState(false)
+  const cardDismissed =
+    cardDismissedLocally || hasDismissedDesktopAppCard(session?.user)
+
   const currentUserId = session?.user?.id
   // Steer tickets require workspace membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the Watch
@@ -181,9 +189,16 @@ function AgentsPage() {
         </h1>
       </div>
 
-      <div className="mb-4">
-        <DesktopDownloadCard />
-      </div>
+      {!cardDismissed && (
+        <div className="mb-4">
+          <DesktopDownloadCard
+            onDismiss={() => {
+              setCardDismissedLocally(true)
+              void trpc.users.dismissDesktopAppCard.mutate()
+            }}
+          />
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (

@@ -196,6 +196,15 @@ export const auth = betterAuth({
         required: false,
         input: false,
       },
+      // When the user dismissed the "Get the desktop app" card in the Agents
+      // view (users.dismissDesktopAppCard). Surfaced read-only on the session
+      // so the card stays hidden on later loads; never client-settable.
+      desktopAppCardDismissedAt: {
+        type: `date`,
+        defaultValue: null,
+        required: false,
+        input: false,
+      },
     },
   },
   trustedOrigins: [

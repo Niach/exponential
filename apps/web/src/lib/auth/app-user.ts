@@ -9,6 +9,7 @@ export interface AppUserFields {
   isAdmin?: boolean | null
   isAgent?: boolean | null
   onboardingCompletedAt?: string | Date | null
+  desktopAppCardDismissedAt?: string | Date | null
   // Index signature so concrete Better Auth user objects (which carry many
   // other fields) are assignable here without tripping weak-type detection.
   [key: string]: unknown
@@ -29,4 +30,9 @@ export function isAgentUser(user: MaybeAppUser): boolean {
 /** Whether the user has finished onboarding. */
 export function hasCompletedOnboarding(user: MaybeAppUser): boolean {
   return user?.onboardingCompletedAt != null
+}
+
+/** Whether the user has dismissed the "Get the desktop app" card. */
+export function hasDismissedDesktopAppCard(user: MaybeAppUser): boolean {
+  return user?.desktopAppCardDismissedAt != null
 }
