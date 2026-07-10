@@ -211,6 +211,10 @@ struct IssueListView: View {
                 }
             }
 
+            // Tabs + divider + Clear chip ALL scroll as one continuous unit
+            // (Android's FilterPills parity): pinning the Clear chip outside the
+            // scroller squeezed the viewport and left "Backlog" permanently
+            // clipped at the divider (EXP-47). Nothing is clipped mid-capsule now.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(FilterTab.allCases) { tab in
@@ -225,33 +229,32 @@ struct IssueListView: View {
                         }
                         .glassButton(isActive: vm.activeTab == tab)
                     }
-                }
-                // Trailing content margin so the last tab's capsule stroke rests
-                // inside the scroll clip instead of being shaved by the edge.
-                .padding(.trailing, 4)
-            }
 
-            // Clear chip is pinned OUTSIDE the ScrollView so it's always visible
-            // at the trailing edge (tabs scroll under it) — never cut off (EXP-27).
-            if !vm.filters.isEmpty {
-                Divider()
-                    .frame(height: 20)
-                    .tint(.white.opacity(0.1))
+                    if !vm.filters.isEmpty {
+                        Divider()
+                            .frame(height: 20)
+                            .tint(.white.opacity(0.1))
 
-                Button {
-                    vm.clearFilters()
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("Clear")
-                            .font(.caption)
-                        Image(systemName: "xmark")
-                            .font(.caption2)
+                        Button {
+                            vm.clearFilters()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("Clear")
+                                    .font(.caption)
+                                Image(systemName: "xmark")
+                                    .font(.caption2)
+                            }
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                        }
+                        .glassButton()
                     }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
                 }
-                .glassButton()
+                // Trailing content margin so the last chip's capsule stroke rests
+                // fully inside the scroll clip (visible when scrolled to the end)
+                // instead of being shaved by the edge.
+                .padding(.trailing, 8)
             }
         }
     }
@@ -373,11 +376,13 @@ struct IssueListView: View {
                     .foregroundStyle(IssueStatus.from(issue.status).color)
                     .frame(width: 16)
 
-                // Title
+                // Title — the ONLY flexible element (Android parity): it
+                // truncates under pressure so the due date never wraps.
                 Text(issue.title)
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
+                    .layoutPriority(1)
 
                 Spacer()
 
@@ -391,14 +396,17 @@ struct IssueListView: View {
                     }
                 }
 
-                // Due date
+                // Due date — never wraps mid-word ("Tomor-row"); it holds its
+                // intrinsic width and the title truncates instead (EXP-55).
                 if let dueDate = issue.dueDate {
                     HStack(spacing: 3) {
                         Image(systemName: "calendar")
                             .font(.caption2)
                         Text(formatDueDate(dueDate))
                             .font(.caption)
+                            .lineLimit(1)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(dueDateColor(dueDate))
                 }
 
