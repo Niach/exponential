@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 import {
   Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Files,
   Link2,
   MoreHorizontal,
   Undo2,
 } from "lucide-react"
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Issue, User, Project } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -34,6 +36,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
+import type { IssueFilterSearch } from "@/lib/filters"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import {
@@ -48,6 +52,16 @@ import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 import { type RecurrenceValue } from "@/components/recurrence-editor"
 
+// Where the current issue sits in the board's filtered+sorted sequence — feeds
+// the header's "N / total" prev/next switcher. Null (or omitted) hides the
+// switcher, e.g. when the issue is filtered out of the carried board view.
+export interface IssueSwitcherPosition {
+  index: number
+  total: number
+  prevIdentifier: string | null
+  nextIdentifier: string | null
+}
+
 interface IssueDetailViewProps {
   issue: Issue
   issueLabelIds: string[]
@@ -57,6 +71,10 @@ interface IssueDetailViewProps {
   workspaceId: string
   readOnly?: boolean
   restrictModeration?: boolean
+  // Board filter params carried from the list view — preserved on prev/next
+  // navigation and on the breadcrumb's back-to-board link.
+  filterSearch?: IssueFilterSearch
+  position?: IssueSwitcherPosition | null
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -119,11 +137,81 @@ export function IssueDetailView({
   workspaceId,
   readOnly = false,
   restrictModeration = false,
+  filterSearch,
+  position = null,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
   const isAdmin = isAdminUser(session?.user)
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
+
+  // In-place hop to a sibling issue in the board sequence, preserving the
+  // carried filter params. Safe without unmount: the issue.id-keyed reset
+  // effect below re-seeds all local editor state.
+  const navigateToIssue = (identifier: string | null) => {
+    if (!identifier) return
+    void navigate({
+      to: `/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier`,
+      params: {
+        workspaceSlug,
+        projectSlug: project.slug,
+        issueIdentifier: identifier,
+      },
+      search: {
+        status: filterSearch?.status,
+        priority: filterSearch?.priority,
+        labels: filterSearch?.labels,
+      },
+    })
+  }
+
+  const prevIdentifier = position?.prevIdentifier ?? null
+  const nextIdentifier = position?.nextIdentifier ?? null
+
+  // J/K prev-next shortcuts (Linear parity), scoped to this view's lifetime.
+  // Ignored while typing (inputs / the TipTap contenteditable), while any
+  // dialog is open, or while a popper overlay (dropdown/popover/select) is up.
+  useEffect(() => {
+    if (!position) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const key = event.key.toLowerCase()
+      if (key !== `j` && key !== `k`) return
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === `INPUT` ||
+          target.tagName === `TEXTAREA` ||
+          target.isContentEditable ||
+          target.closest(`[contenteditable="true"]`))
+      ) {
+        return
+      }
+      if (
+        document.querySelector(
+          `[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper]`
+        )
+      ) {
+        return
+      }
+      const identifier = key === `j` ? nextIdentifier : prevIdentifier
+      if (!identifier) return
+      event.preventDefault()
+      navigateToIssue(identifier)
+    }
+    window.addEventListener(`keydown`, handleKeyDown)
+    return () => window.removeEventListener(`keydown`, handleKeyDown)
+  }, [
+    Boolean(position),
+    prevIdentifier,
+    nextIdentifier,
+    project.slug,
+    workspaceSlug,
+    filterSearch?.status,
+    filterSearch?.priority,
+    filterSearch?.labels,
+  ])
 
   const editorRef = useRef<MarkdownEditorRef>(null)
   const descriptionRef = useRef(getIssueDescriptionText(issue.description))
@@ -371,19 +459,56 @@ export function IssueDetailView({
       <Link
         to="/w/$workspaceSlug/projects/$projectSlug"
         params={{ workspaceSlug, projectSlug: project.slug }}
-        className="inline-flex items-center gap-1.5 hover:text-foreground"
+        // Link back to the board WITH the carried filters, so the round trip
+        // lands on the exact view the user navigated from.
+        search={{
+          status: filterSearch?.status,
+          priority: filterSearch?.priority,
+          labels: filterSearch?.labels,
+        }}
+        className="inline-flex shrink-0 items-center gap-1.5 hover:text-foreground"
       >
         <div
-          className="h-2.5 w-2.5 rounded-full"
+          className="h-2.5 w-2.5 shrink-0 rounded-full"
           style={{ backgroundColor: project.color }}
         />
         {project.name}
       </Link>
-      <ChevronRight className="size-3" />
-      <span className="font-mono">{issue.identifier}</span>
-      <ChevronRight className="size-3" />
-      <span className="truncate">{title}</span>
+      <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+      <span className="shrink-0 font-mono">{issue.identifier}</span>
+      <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+      <span className="truncate text-foreground">{title}</span>
       <div className="ml-auto flex items-center gap-1 shrink-0">
+        {position && (
+          <>
+            <span className="px-0.5 font-mono tabular-nums whitespace-nowrap">
+              {position.index} / {position.total}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-label="Previous issue (K)"
+              title="Previous issue (K)"
+              disabled={!position.prevIdentifier}
+              onClick={() => navigateToIssue(position.prevIdentifier)}
+            >
+              <ChevronUp className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-label="Next issue (J)"
+              title="Next issue (J)"
+              disabled={!position.nextIdentifier}
+              onClick={() => navigateToIssue(position.nextIdentifier)}
+            >
+              <ChevronDown className="size-4" />
+            </Button>
+            <Separator orientation="vertical" className="mx-1 !h-3.5" />
+          </>
+        )}
         <Button
           variant="ghost"
           size="icon-xs"

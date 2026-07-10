@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import {
@@ -9,7 +10,14 @@ import {
   useWorkspaceBySlug,
   useWorkspaceUsers,
 } from "@/hooks/use-workspace-data"
+import { useProjectBoardData } from "@/hooks/use-project-board-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
+import {
+  issueFiltersFromSearch,
+  parseIssueFilterSearch,
+  type IssueFilterSearch,
+} from "@/lib/filters"
+import { findIssuePosition } from "@/lib/project-board"
 import type { Issue, IssueLabel, Project } from "@/db/schema"
 import { IssueDetailView } from "@/components/issue-detail-view"
 
@@ -24,11 +32,21 @@ export const Route = createFileRoute(
   // lets signed-out visitors open the read-only detail page (masterplan §4.3,
   // L29). The view renders read-only via `permissions.canMutateIssue` (false
   // when unauthenticated) and the comment/timeline UI is hidden for anonymous.
+  //
+  // Optional ?status/priority/labels mirror the board route's filter params —
+  // navigating from a filtered board carries them here so the header's
+  // prev/next switcher walks the board's exact filtered+sorted sequence, and
+  // the project breadcrumb links back to the same filtered view. All params
+  // are optional: links from my-issues / inbox / search arrive bare and fall
+  // back to the unfiltered board ordering.
+  validateSearch: (search: Record<string, unknown>): IssueFilterSearch =>
+    parseIssueFilterSearch(search),
   component: IssueDetailPage,
 })
 
 function IssueDetailPage() {
   const { workspaceSlug, projectSlug, issueIdentifier } = Route.useParams()
+  const search = Route.useSearch()
   const workspace = useWorkspaceBySlug(workspaceSlug)
 
   const { data: projects } = useLiveQuery(
@@ -76,6 +94,28 @@ function IssueDetailPage() {
     (row) => row.labelId
   )
 
+  // Same pipeline the board renders from (buildFilteredIssues →
+  // buildVisibleIssueGroups over locally-synced rows — cheap), so the
+  // switcher's ordering can never drift from the list the user came from.
+  const filters = useMemo(
+    () => issueFiltersFromSearch(search),
+    [search.status, search.priority, search.labels]
+  )
+  const { visibleGroups } = useProjectBoardData({
+    filters,
+    projectSlug,
+    workspaceSlug,
+  })
+  const position = issue ? findIssuePosition(visibleGroups, issue.id) : null
+  const switcher = position
+    ? {
+        index: position.index,
+        total: position.total,
+        prevIdentifier: position.prev?.identifier ?? null,
+        nextIdentifier: position.next?.identifier ?? null,
+      }
+    : null
+
   const { users } = useWorkspaceUsers(workspace?.id)
   const permissions = useWorkspacePermissions(workspace)
 
@@ -112,6 +152,8 @@ function IssueDetailPage() {
       workspaceSlug={workspaceSlug}
       workspaceId={workspace.id}
       readOnly={!permissions.canMutateIssue(issue)}
+      filterSearch={search}
+      position={switcher}
     />
   )
 }

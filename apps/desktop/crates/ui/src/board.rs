@@ -84,6 +84,17 @@ impl BoardView {
         cx.notify();
     }
 
+    /// The board's current scope — read by the issue-detail prev/next
+    /// switcher (EXP-48) so it follows exactly the list this board shows.
+    pub fn query(&self) -> &IssueQuery {
+        &self.query
+    }
+
+    /// The board's active filters (same EXP-48 read as [`Self::query`]).
+    pub fn filters(&self) -> &IssueFilters {
+        &self.filters
+    }
+
     /// The single `onFiltersChange` sink (bar tabs, popover toggles, pills,
     /// clear-all all funnel here — web prop parity).
     fn apply_filters(&mut self, next: IssueFilters, cx: &mut gpui::Context<Self>) {

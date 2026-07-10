@@ -49,6 +49,12 @@ actions!(
         /// Open the Source Control tool + changes screen (branch chip menu,
         /// commit button).
         OpenSourceControl,
+        /// Issue detail (EXP-48): swap to the NEXT issue in the active
+        /// list's filtered ordering (`j`, scoped to the detail's key
+        /// context).
+        NextIssue,
+        /// Issue detail (EXP-48): swap to the PREVIOUS issue (`k`).
+        PrevIssue,
     ]
 );
 

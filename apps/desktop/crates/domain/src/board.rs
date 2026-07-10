@@ -183,6 +183,17 @@ pub fn build_visible_issue_groups(
     groups
 }
 
+/// Flatten visible groups into the single top-to-bottom issue order the list
+/// renders (group display order, issues in the EXP-38 per-status comparator
+/// order; empty groups contribute nothing). Feeds the issue-detail prev/next
+/// switcher — the desktop half of the EXP-48 "N / total" contract.
+pub fn flatten_group_issue_ids(groups: &[IssueGroup]) -> Vec<String> {
+    groups
+        .iter()
+        .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
+        .collect()
+}
+
 /// Web `formatDate` (`lib/utils.ts`): `YYYY-MM-DD` → `"Jul 3"` (en-US short
 /// month + numeric day). Returns the input unchanged when it does not parse.
 pub fn format_short_date(date: &str) -> String {
@@ -413,6 +424,36 @@ mod tests {
         let filtered = build_filtered_issues(issues, &map, &filters);
         let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["i-1"]);
+    }
+
+    #[test]
+    fn flatten_follows_group_order_and_skips_empty_groups() {
+        let issues = vec![
+            issue("done-1", "done", "none", None),
+            issue_n("todo-urgent", 2, "todo", "urgent", None),
+            issue_n("todo-low", 1, "todo", "low", None),
+            issue("wip", "in_progress", "none", None),
+        ];
+        // No status filter: empty groups (backlog/cancelled/duplicate) are
+        // already hidden; flatten preserves group display order + in-group
+        // comparator order.
+        let groups = build_visible_issue_groups(&issues, &[], TODAY);
+        assert_eq!(
+            flatten_group_issue_ids(&groups),
+            vec!["wip", "todo-urgent", "todo-low", "done-1"]
+        );
+
+        // Status-filtered boards keep selected-but-empty groups in the group
+        // list — flatten must contribute nothing for them.
+        let groups = build_visible_issue_groups(
+            &issues,
+            &[IssueStatus::Backlog, IssueStatus::Todo],
+            TODAY,
+        );
+        assert_eq!(
+            flatten_group_issue_ids(&groups),
+            vec!["todo-urgent", "todo-low"]
+        );
     }
 
     #[test]

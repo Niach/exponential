@@ -5,44 +5,22 @@ import { IssueFilterBar } from "@/components/issue-filter-bar"
 import { IssueList } from "@/components/issue-list"
 import { useProjectBoardData } from "@/hooks/use-project-board-data"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
-import { hasActiveFilters as filtersActive } from "@/lib/filters"
-import type { IssueFilters } from "@/lib/filters"
-import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
-import type { IssuePriority, IssueStatus } from "@/lib/domain"
+import {
+  hasActiveFilters as filtersActive,
+  issueFilterSearchFromFilters,
+  issueFiltersFromSearch,
+  parseIssueFilterSearch,
+} from "@/lib/filters"
+import type { IssueFilterSearch, IssueFilters } from "@/lib/filters"
+import type { IssueStatus } from "@/lib/domain"
 
 // Filters live in the URL so a filtered board is shareable and survives a
-// refresh. They are stored as clean comma-joined values (?status=todo,in_progress
-// &priority=high&labels=<id>,<id>); validateSearch drops anything unrecognised.
-type ProjectSearch = {
+// refresh (parse/serialize helpers shared with the issue-detail route in
+// lib/filters.ts); validateSearch drops anything unrecognised.
+type ProjectSearch = IssueFilterSearch & {
   description?: string
   new?: 1
   title?: string
-  status?: string
-  priority?: string
-  labels?: string
-}
-
-const STATUS_VALUES = issueStatusOptions.map((o) => o.value)
-const PRIORITY_VALUES = issuePriorityOptions.map((o) => o.value)
-
-// Coerce a raw search value (array or comma string) to a validated, comma-joined
-// string, or undefined when empty — so cleared filters drop out of the URL.
-function validatedCsv(
-  raw: unknown,
-  allowed?: readonly string[]
-): string | undefined {
-  let arr: string[]
-  if (Array.isArray(raw)) {
-    arr = raw.filter((v): v is string => typeof v === `string`)
-  } else if (typeof raw === `string` && raw.length > 0) {
-    arr = raw.split(`,`)
-  } else {
-    return undefined
-  }
-  const cleaned = allowed
-    ? arr.filter((v) => allowed.includes(v))
-    : arr.filter((v) => v.length > 0)
-  return cleaned.length ? cleaned.join(`,`) : undefined
 }
 
 export const Route = createFileRoute(
@@ -53,9 +31,7 @@ export const Route = createFileRoute(
     title: typeof search.title === `string` ? search.title : undefined,
     description:
       typeof search.description === `string` ? search.description : undefined,
-    status: validatedCsv(search.status, STATUS_VALUES),
-    priority: validatedCsv(search.priority, PRIORITY_VALUES),
-    labels: validatedCsv(search.labels),
+    ...parseIssueFilterSearch(search),
   }),
   component: ProjectPage,
 })
@@ -93,15 +69,7 @@ function ProjectPage() {
   }, [search.new, search.title, search.description, navigate, workspaceSlug, projectSlug])
 
   const filters = useMemo<IssueFilters>(
-    () => ({
-      statuses: search.status
-        ? (search.status.split(`,`) as IssueStatus[])
-        : [],
-      priorities: search.priority
-        ? (search.priority.split(`,`) as IssuePriority[])
-        : [],
-      labelIds: search.labels ? search.labels.split(`,`) : [],
-    }),
+    () => issueFiltersFromSearch(search),
     [search.status, search.priority, search.labels]
   )
 
@@ -111,11 +79,7 @@ function ProjectPage() {
       params: { workspaceSlug, projectSlug },
       search: (prev) => ({
         ...prev,
-        status: next.statuses.length ? next.statuses.join(`,`) : undefined,
-        priority: next.priorities.length
-          ? next.priorities.join(`,`)
-          : undefined,
-        labels: next.labelIds.length ? next.labelIds.join(`,`) : undefined,
+        ...issueFilterSearchFromFilters(next),
       }),
       replace: true,
     })
@@ -178,6 +142,13 @@ function ProjectPage() {
                 workspaceSlug,
                 projectSlug,
                 issueIdentifier: issue.identifier,
+              },
+              // Carry the board's active filters so the detail header's
+              // prev/next switcher walks the same filtered+sorted sequence.
+              search: {
+                status: search.status,
+                priority: search.priority,
+                labels: search.labels,
               },
             })
           }

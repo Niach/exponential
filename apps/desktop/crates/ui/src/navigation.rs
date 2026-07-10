@@ -67,6 +67,11 @@ pub struct Navigation {
     /// scope for [`active_project_id`] so the picker / files / git / run
     /// surfaces stay populated on every screen.
     last_project_id: Option<String>,
+    /// The screen the last [`replace_screen`] displaced (EXP-48 prev/next):
+    /// a pending marker the screens panel consumes to swap that tab's
+    /// identity in place instead of opening a new tab. Cleared by every
+    /// ordinary navigation.
+    replaced_screen: Option<Screen>,
 }
 
 impl Navigation {
@@ -83,6 +88,7 @@ impl Navigation {
                 .and_then(parse_dev_screen),
             back_stack: Vec::new(),
             last_project_id: None,
+            replaced_screen: None,
         }
     }
 
@@ -177,8 +183,33 @@ pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
             }
         }
         nav.screen = Some(screen);
+        nav.replaced_screen = None;
         cx.notify();
     });
+}
+
+/// Swap the current screen IN PLACE (EXP-48 prev/next issue switcher): no
+/// back-stack push, and the screens panel replaces the active tab's identity
+/// instead of opening a new tab (via the consumed [`take_replaced_screen`]
+/// marker). No-op when already on `screen`.
+pub fn replace_screen(window: &Window, cx: &mut App, screen: Screen) {
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    nav.update(cx, |nav, cx| {
+        if nav.screen.as_ref() == Some(&screen) {
+            return;
+        }
+        nav.replaced_screen = nav.screen.replace(screen);
+        cx.notify();
+    });
+}
+
+/// Consume the pending in-place-replacement marker (the screen the last
+/// [`replace_screen`] displaced). The screens panel calls this from its nav
+/// observer to swap that tab's identity instead of pushing a new tab.
+pub fn take_replaced_screen(nav: &Entity<Navigation>, cx: &mut App) -> Option<Screen> {
+    nav.update(cx, |nav, _| nav.replaced_screen.take())
 }
 
 /// Set the active tab DIRECTLY — no back-stack push. Tab clicks and
@@ -191,6 +222,7 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
     nav.update(cx, |nav, cx| {
         if nav.screen != screen {
             nav.screen = screen;
+            nav.replaced_screen = None;
             cx.notify();
         }
     });
@@ -219,6 +251,7 @@ pub fn go_back(window: &Window, cx: &mut App) {
     nav.update(cx, |nav, cx| {
         if let Some(previous) = nav.back_stack.pop() {
             nav.screen = Some(previous);
+            nav.replaced_screen = None;
             cx.notify();
         }
     });
@@ -239,6 +272,7 @@ pub fn switch_workspace(window: &Window, cx: &mut App, workspace_id: String) {
         nav.screen = None;
         nav.back_stack.clear();
         nav.last_project_id = None;
+        nav.replaced_screen = None;
         cx.notify();
     });
     persist_last_workspace(cx, workspace_id);

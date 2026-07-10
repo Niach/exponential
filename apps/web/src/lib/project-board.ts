@@ -147,3 +147,32 @@ export function buildVisibleIssueGroups(
 
   return groups.filter((group) => group.issues.length > 0)
 }
+
+export interface IssueListPosition {
+  // 1-based position of the issue in the flattened board sequence.
+  index: number
+  total: number
+  prev: Issue | null
+  next: Issue | null
+}
+
+// Flattens the board's visible groups (already in `issueStatusOrder` group
+// order, each pre-sorted by the EXP-38 comparator) into the single
+// user-visible sequence and locates one issue in it — powers the detail
+// header's "N / total" prev/next switcher. Returns null when the issue isn't
+// in the current view (e.g. its status is filtered out), in which case the
+// switcher hides.
+export function findIssuePosition(
+  groups: IssueGroup[],
+  issueId: string
+): IssueListPosition | null {
+  const sequence = groups.flatMap((group) => group.issues)
+  const index = sequence.findIndex((issue) => issue.id === issueId)
+  if (index === -1) return null
+  return {
+    index: index + 1,
+    total: sequence.length,
+    prev: index > 0 ? sequence[index - 1] : null,
+    next: index < sequence.length - 1 ? sequence[index + 1] : null,
+  }
+}

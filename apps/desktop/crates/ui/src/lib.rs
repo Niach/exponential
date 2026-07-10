@@ -93,6 +93,9 @@ pub fn init(cx: &mut App) {
     // ⌘K quick-open (§4.2 IssueSearchSheet): global OpenSearch handler +
     // keybinding.
     search_sheet::init(cx);
+    // EXP-48 issue switcher: J/K bindings scoped to the detail's key context
+    // (guarded against focused editables — see issue_detail::init).
+    issue_detail::init(cx);
     // Create-flow dialog actions (§4.2): NewIssue (board filter bar),
     // NewProject (sidebar `+`), CreateWorkspace (workspace picker).
     create_issue_dialog::init(cx);

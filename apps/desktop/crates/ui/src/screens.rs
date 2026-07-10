@@ -110,6 +110,10 @@ impl ScreensPanel {
     /// switch, open (or keep) a tab for the active screen, and re-point the
     /// shared views at it. Runs in observers (never mid-render).
     fn sync_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // EXP-48 prev/next: an in-place `replace_screen` marks the screen it
+        // displaced — consume the marker so that tab's identity swaps instead
+        // of a new tab opening per step.
+        let replaced = crate::navigation::take_replaced_screen(&self.nav, cx);
         let workspace = active_workspace_id(&self.nav, cx);
         if workspace != self.tabs_workspace {
             self.tabs_workspace = workspace;
@@ -119,7 +123,12 @@ impl ScreensPanel {
             return;
         };
         if !self.tabs.contains(&screen) {
-            self.tabs.push(screen.clone());
+            let replaced_ix = replaced
+                .and_then(|old| self.tabs.iter().position(|tab| *tab == old));
+            match replaced_ix {
+                Some(ix) => self.tabs[ix] = screen.clone(),
+                None => self.tabs.push(screen.clone()),
+            }
         }
         match screen {
             Screen::IssueDetail { issue_id } => {

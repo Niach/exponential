@@ -91,6 +91,13 @@ pub(crate) struct RailShared {
     /// stay live regardless of the visible screen.
     git_bar: Entity<GitBar>,
     file_tree: Entity<crate::file_tree::FileTreeView>,
+    /// The "All Issues" tool window's board (filter bar + grouped list,
+    /// scoped to the active project). Shared here — not on `SidebarPanel` —
+    /// so the issue detail's prev/next switcher (EXP-48) can read the same
+    /// query + filter state the visible list applies.
+    board_all: Entity<BoardView>,
+    /// The "My Issues" board (assignee == me across the workspace).
+    board_my: Entity<BoardView>,
     /// The branch whose HISTORY the Source Control screen shows — a sidebar
     /// branch row selects it WITHOUT checking out (`None` = the checked-out
     /// branch, working tree included).
@@ -106,6 +113,22 @@ impl RailShared {
     /// The Source Control screen's history scope (`None` = current branch).
     pub(crate) fn view_branch(&self) -> Option<&str> {
         self.view_branch.as_deref()
+    }
+
+    /// The issue list whose ordering the detail's prev/next switcher follows
+    /// (EXP-48): the My Issues board while that tool window is active, the
+    /// All Issues board otherwise (it is the window's persistent issue list).
+    pub(crate) fn active_issue_board(&self) -> &Entity<BoardView> {
+        match self.tool {
+            ToolWindow::MyIssues => &self.board_my,
+            _ => &self.board_all,
+        }
+    }
+
+    /// Both issue boards (the detail view observes them so the EXP-48
+    /// counter re-renders on filter changes).
+    pub(crate) fn issue_boards(&self) -> [&Entity<BoardView>; 2] {
+        [&self.board_all, &self.board_my]
     }
 }
 
@@ -142,11 +165,15 @@ pub(crate) fn rail_shared_for_window(
     }
     let git_bar = cx.new(|cx| GitBar::new(window, cx));
     let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
+    let board_all = cx.new(|cx| BoardView::new(window, cx));
+    let board_my = cx.new(|cx| BoardView::new(window, cx));
     let shared = cx.new(|_| RailShared {
         // Issues-first default: the All Issues list is the board.
         tool: ToolWindow::AllIssues,
         git_bar,
         file_tree,
+        board_all,
+        board_my,
         view_branch: None,
     });
     cx.default_global::<RailRegistry>()
@@ -539,8 +566,10 @@ pub struct SidebarPanel {
     /// The "All Issues" tool window — the full board (filter bar with
     /// All/Active/Backlog tabs + New Issue + the grouped virtualized list
     /// with inline status/priority menus), scoped to the active project.
+    /// Lives in [`RailShared`] (EXP-48 — the detail switcher reads it too).
     board_all: Entity<BoardView>,
-    /// The "My Issues" tool window — same board pinned to assignee == me.
+    /// The "My Issues" tool window — same board pinned to assignee == me
+    /// (also shared via [`RailShared`]).
     board_my: Entity<BoardView>,
     /// Two-click merge confirm: the armed row's issue id. Any other click or
     /// ~5s of inactivity disarms.
@@ -580,8 +609,8 @@ impl SidebarPanel {
         let nav = nav_for_window(window, cx);
         let shared = rail_shared_for_window(window, cx);
         let git_bar = shared.read(cx).git_bar.clone();
-        let board_all = cx.new(|cx| BoardView::new(window, cx));
-        let board_my = cx.new(|cx| BoardView::new(window, cx));
+        let board_all = shared.read(cx).board_all.clone();
+        let board_my = shared.read(cx).board_my.clone();
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             // Rail toggles swap the tool window.

@@ -30,8 +30,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    div, px, App, AppContext as _, Entity, Focusable as _, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    div, px, App, AppContext as _, Entity, FocusHandle, Focusable as _, FontWeight,
+    InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -48,14 +48,38 @@ use sync::Store;
 
 use domain::rows::Issue;
 
+use crate::actions::{NextIssue, PrevIssue};
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::ExpIcon;
 use crate::issue_changes::IssueChanges;
-use crate::navigation::{navigate, Screen};
+use crate::issue_list::IssueQuery;
+use crate::navigation::{navigate, replace_screen, Screen};
 use crate::properties_panel::{spawn_issue_update, PropertiesPanel};
 use crate::queries;
 use crate::timeline::IssueTimeline;
 use crate::{attachments_row, comments};
+
+/// The detail root's key context (terminal-dock pattern: `key_context` +
+/// `track_focus` + `on_action`, bindings scoped via [`init`]).
+const KEY_CONTEXT: &str = "IssueDetail";
+
+/// Register the EXP-48 J/K switcher bindings (call once from `ui::init`).
+///
+/// The predicate guards bare-letter keys against every editable surface that
+/// can hold focus INSIDE the detail subtree: the pinned gpui evaluates `!X`
+/// negations against the FULL focused dispatch path (`eval_inner` walks
+/// `all_contexts`), so a focused title `Input`, description `MarkdownEditor`
+/// or comment `MentionInput` disables the binding and the keystroke reaches
+/// the text input untouched. `!Terminal` is belt-and-braces — the terminal
+/// dock is a sibling panel whose focus path never contains `IssueDetail`.
+pub(crate) fn init(cx: &mut App) {
+    const SWITCHER_CONTEXT: &str =
+        "IssueDetail && !Input && !MarkdownEditor && !MentionInput && !Terminal";
+    cx.bind_keys([
+        KeyBinding::new("j", NextIssue, Some(SWITCHER_CONTEXT)),
+        KeyBinding::new("k", PrevIssue, Some(SWITCHER_CONTEXT)),
+    ]);
+}
 
 // ---------------------------------------------------------------------------
 // §4.5 editor seam
@@ -119,8 +143,25 @@ enum DetailTab {
     Changes,
 }
 
+/// EXP-48 switcher position: where the displayed issue sits in the active
+/// issue list's flattened visible ordering.
+struct SwitcherState {
+    /// 0-based index in the flattened list.
+    position: usize,
+    total: usize,
+    prev_id: Option<String>,
+    next_id: Option<String>,
+}
+
 pub struct IssueDetailView {
     issue_id: Option<String>,
+    /// Focus target of the detail root: holding it puts `IssueDetail` on the
+    /// dispatch path so the scoped J/K bindings fire (focused on
+    /// `set_issue`, re-acquired by clicking the body).
+    focus_handle: FocusHandle,
+    /// The window's shared rail state — the EXP-48 switcher reads the active
+    /// issue board's query + filters from it.
+    rail_shared: Entity<crate::sidebar::RailShared>,
     title_input: Entity<InputState>,
     /// Last title pushed from sync — guards the echo loop (web's
     /// title-sync effect).
@@ -182,9 +223,20 @@ impl IssueDetailView {
         subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.attachments, |_, _, cx| cx.notify()));
+        // EXP-48 switcher: the counter follows the ACTIVE issue list — tool
+        // swaps notify the shared rail state, filter changes notify the
+        // boards (issue reorders already ride the issues observer above).
+        let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
+        subscriptions.push(cx.observe(&rail_shared, |_, _, cx| cx.notify()));
+        let boards = rail_shared.read(cx).issue_boards().map(Clone::clone);
+        for board in boards {
+            subscriptions.push(cx.observe(&board, |_, _, cx| cx.notify()));
+        }
 
         Self {
             issue_id: None,
+            focus_handle: cx.focus_handle(),
+            rail_shared,
             title_input,
             synced_title: String::new(),
             editor: None,
@@ -238,6 +290,10 @@ impl IssueDetailView {
         });
 
         self.sync_from_issue(window, cx);
+        // Land keyboard focus on the detail root so the scoped J/K switcher
+        // bindings are live immediately (clicking into an editor moves focus
+        // and the guarded bindings go quiet — by design).
+        window.focus(&self.focus_handle, cx);
         cx.notify();
     }
 
@@ -392,6 +448,108 @@ impl IssueDetailView {
         .detach();
     }
 
+    // -- EXP-48 prev/next switcher ------------------------------------------------
+
+    /// Where this issue sits in the ACTIVE issue list's flattened visible
+    /// ordering (the sidebar's My Issues board while that tool is active,
+    /// the All Issues board otherwise) — same grouping, same EXP-38
+    /// comparator, same filters the list applies. `None` (hide the switcher)
+    /// when no list scope resolves or the issue isn't in the filtered list.
+    fn switcher_state(&self, issue: &Issue, cx: &App) -> Option<SwitcherState> {
+        let (query, filters) = {
+            let board = self.rail_shared.read(cx).active_issue_board().read(cx);
+            (board.query().clone(), board.filters().clone())
+        };
+        let data = match &query {
+            IssueQuery::None => return None,
+            IssueQuery::Project { project_id } => {
+                queries::project_board(cx, project_id, &filters)
+            }
+            IssueQuery::MyIssues {
+                workspace_id,
+                user_id,
+            } => queries::my_issues(cx, workspace_id, user_id, &filters),
+        };
+        let ids = domain::board::flatten_group_issue_ids(&data.groups);
+        let position = ids.iter().position(|id| *id == issue.id)?;
+        Some(SwitcherState {
+            position,
+            total: ids.len(),
+            prev_id: position.checked_sub(1).map(|ix| ids[ix].clone()),
+            next_id: ids.get(position + 1).cloned(),
+        })
+    }
+
+    /// Swap the displayed issue in place: `+1` = next in list order, `-1` =
+    /// previous. No wrap at the ends; a no-op when the current issue isn't
+    /// in the filtered list (matching the hidden switcher).
+    fn step_issue(&mut self, delta: i32, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(issue) = self.issue(cx) else {
+            return;
+        };
+        let Some(state) = self.switcher_state(&issue, cx) else {
+            return;
+        };
+        let target = if delta < 0 { state.prev_id } else { state.next_id };
+        if let Some(issue_id) = target {
+            replace_screen(window, cx, Screen::IssueDetail { issue_id });
+        }
+    }
+
+    /// The "N / total" counter + up/down chevrons for the action header's
+    /// right cluster. `None` hides the whole cluster segment.
+    fn render_switcher(
+        &mut self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let state = self.switcher_state(issue, cx)?;
+        Some(
+            h_flex()
+                .flex_shrink_0()
+                .gap_0p5()
+                .items_center()
+                .child(
+                    div()
+                        .whitespace_nowrap()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(format!(
+                            "{} / {}",
+                            state.position + 1,
+                            state.total
+                        ))),
+                )
+                .child(
+                    Button::new("issue-switch-prev")
+                        .ghost()
+                        .xsmall()
+                        .icon(
+                            Icon::new(IconName::ChevronUp)
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .disabled(state.prev_id.is_none())
+                        .tooltip("Previous issue (K)")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.step_issue(-1, window, cx)
+                        })),
+                )
+                .child(
+                    Button::new("issue-switch-next")
+                        .ghost()
+                        .xsmall()
+                        .icon(
+                            Icon::new(IconName::ChevronDown)
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .disabled(state.next_id.is_none())
+                        .tooltip("Next issue (J)")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.step_issue(1, window, cx)
+                        })),
+                ),
+        )
+    }
+
     // -- header pieces -----------------------------------------------------------
 
     /// The detail's slim action header. The breadcrumb trail lives in the
@@ -425,11 +583,14 @@ impl IssueDetailView {
             )
             .child(div().flex_1().min_w_0());
 
-        // Right cluster: Start-coding affordance (§7.1 — play, or
-        // "Coding…"+stop while OUR session runs), coding-now pill, subscribe
-        // toggle, actions menu. The pill is skipped while a LOCAL session
-        // runs — the control already shows the live indicator, and the synced
-        // pill would double it as soon as the Electric echo lands.
+        // Right cluster: the EXP-48 "N / total" prev/next switcher (hidden
+        // when the issue isn't in the active list's filtered ordering), then
+        // the Start-coding affordance (§7.1 — play, or "Coding…"+stop while
+        // OUR session runs), coding-now pill, subscribe toggle, actions
+        // menu. The pill is skipped while a LOCAL session runs — the control
+        // already shows the live indicator, and the synced pill would double
+        // it as soon as the Electric echo lands.
+        row = row.children(self.render_switcher(issue, cx));
         row = row.child(self.start_coding.clone());
         let local_running = LocalSessions::global(cx)
             .read(cx)
@@ -709,7 +870,19 @@ impl IssueDetailView {
 
 impl Render for IssueDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let base = v_flex().size_full().bg(cx.theme().colors.list);
+        // Terminal-dock pattern: key context + tracked focus + action
+        // handlers make the scoped J/K bindings (see [`init`]) land here.
+        let base = v_flex()
+            .size_full()
+            .bg(cx.theme().colors.list)
+            .key_context(KEY_CONTEXT)
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &NextIssue, window, cx| {
+                this.step_issue(1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &PrevIssue, window, cx| {
+                this.step_issue(-1, window, cx)
+            }));
 
         let Some(issue) = self.issue(cx) else {
             let issues_ready = Store::global(cx)
