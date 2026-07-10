@@ -31,7 +31,7 @@ upload key with Google support):
 ```bash
 keytool -genkeypair -v \
   -keystore exponential-upload.jks \
-  -alias exponential-upload \
+  -alias upload \
   -keyalg RSA -keysize 2048 -validity 10000 \
   -storetype JKS
 ```
@@ -52,7 +52,7 @@ before a keystore exists).
 |---------------------------|--------------------------------------|
 | `RELEASE_STORE_FILE`      | absolute path to the `.jks` keystore |
 | `RELEASE_STORE_PASSWORD`  | keystore (store) password            |
-| `RELEASE_KEY_ALIAS`       | key alias (`exponential-upload`)     |
+| `RELEASE_KEY_ALIAS`       | key alias (`upload`)                 |
 | `RELEASE_KEY_PASSWORD`    | key password                         |
 
 ### Local signed build
@@ -62,7 +62,7 @@ cd apps/android
 ./gradlew :app:bundleProductionRelease \
   -PRELEASE_STORE_FILE=$HOME/keys/exponential-upload.jks \
   -PRELEASE_STORE_PASSWORD=... \
-  -PRELEASE_KEY_ALIAS=exponential-upload \
+  -PRELEASE_KEY_ALIAS=upload \
   -PRELEASE_KEY_PASSWORD=...
 ```
 
@@ -73,7 +73,7 @@ and outside the repo — a good place for the local values):
 # ~/.gradle/gradle.properties  (NOT the repo's apps/android/gradle.properties)
 RELEASE_STORE_FILE=/Users/you/keys/exponential-upload.jks
 RELEASE_STORE_PASSWORD=...
-RELEASE_KEY_ALIAS=exponential-upload
+RELEASE_KEY_ALIAS=upload
 RELEASE_KEY_PASSWORD=...
 ```
 
