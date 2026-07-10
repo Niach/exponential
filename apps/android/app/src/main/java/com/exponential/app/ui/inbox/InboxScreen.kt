@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.MergeType
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Adjust
+import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -192,6 +193,7 @@ private fun notificationTypeIcon(type: String): ImageVector = when (type) {
     DomainContract.notificationTypeIssueMention,
     -> Icons.AutoMirrored.Filled.Chat
     DomainContract.notificationTypeIssueStatusChanged -> Icons.Filled.Adjust
+    DomainContract.notificationTypeIssueCreated -> Icons.Filled.Feedback
     DomainContract.notificationTypePrOpened -> Icons.Filled.AccountTree
     DomainContract.notificationTypePrMerged -> Icons.AutoMirrored.Filled.MergeType
     else -> Icons.Filled.Notifications

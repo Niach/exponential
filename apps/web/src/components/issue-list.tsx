@@ -86,6 +86,12 @@ export function IssueList({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
 
+  // Solo workspace (exactly one human member): render the assignee cell as a
+  // static avatar, not an interactive dropdown. `users` is the bot-excluded
+  // member list; length 0 means still loading (never a genuine empty), so a
+  // multi-member workspace never briefly reads as solo.
+  const isSolo = users.length === 1
+
   const toggleGroup = (status: IssueStatus) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev)
@@ -266,6 +272,7 @@ export function IssueList({
                           users={users}
                           userMap={userMap}
                           disabled={!moderatorRowCanMutate}
+                          readOnly={isSolo}
                         />
                       </div>
                       <div

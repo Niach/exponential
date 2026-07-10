@@ -231,6 +231,39 @@ export function fireAndForgetAssignmentNotify(args: {
 }
 
 /**
+ * Notify every human member of the issue's workspace that a new issue landed
+ * (EXP-53: widget feedback submissions). There is no actor to exclude — the
+ * creator is the isAgent widget-helpdesk bot, which deliver()'s membership
+ * filter drops anyway. Writes `issue_created` rows + push; email follows via
+ * the digest sweep like every other type.
+ */
+export function fireAndForgetNewIssueNotify(args: { issueId: string }): void {
+  void (async () => {
+    try {
+      const issue = await loadIssueMeta(args.issueId)
+      if (!issue) return
+
+      const memberRows = await db
+        .select({ userId: workspaceMembers.userId })
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, issue.workspaceId))
+      if (memberRows.length === 0) return
+
+      await deliver({
+        issue,
+        recipientIds: memberRows.map((row) => row.userId),
+        type: `issue_created`,
+        pushType: `issue_created`,
+        title: `New feedback: ${issue.identifier}`,
+        body: issue.title,
+      })
+    } catch (err) {
+      console.error(`[notify] new issue failed:`, err)
+    }
+  })()
+}
+
+/**
  * Notify on a new comment. Mentioned users (minus the actor) get an
  * `issue_mention`; the issue's other subscribers (minus the actor, minus the
  * mentioned) get an `issue_comment`. Mention wins so nobody is double-notified.

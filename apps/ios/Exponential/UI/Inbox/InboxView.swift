@@ -120,6 +120,8 @@ struct InboxView: View {
     /// Locked cross-platform type → icon mapping (SF Symbol column).
     private func typeIcon(_ type: String?) -> String {
         switch type {
+        case DomainContract.notificationTypeIssueCreated:
+            return "tray.and.arrow.down"
         case DomainContract.notificationTypeIssueAssigned:
             return "person.badge.plus"
         case DomainContract.notificationTypeIssueComment, DomainContract.notificationTypeIssueMention:

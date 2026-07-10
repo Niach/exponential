@@ -139,6 +139,11 @@ pub struct CreateIssueDialogView {
     status: IssueStatus,
     default_status: IssueStatus,
     priority: IssuePriority,
+    /// EXP-50: `Some(member)` when the workspace has exactly one human
+    /// member at dialog open — the assignee chip hides and `assignee_id`
+    /// defaults (and resets) to that member so the created issue is
+    /// optimistically correct.
+    solo_member_id: Option<String>,
     assignee_id: Option<String>,
     selected_label_ids: Vec<String>,
     due_date: Option<chrono::NaiveDate>,
@@ -232,6 +237,15 @@ impl CreateIssueDialogView {
         // editor change (pastes, deletions, chip removals).
         subscriptions.push(cx.observe(&description, |_, _, cx| cx.notify()));
 
+        // EXP-50: exactly one human member ⇒ no assignment choice — hide the
+        // chip and pre-assign them (0 members = membership not synced yet,
+        // keep the picker).
+        let members = queries::workspace_users(cx, &workspace_id);
+        let solo_member_id = match members.as_slice() {
+            [only] => Some(only.id.clone()),
+            _ => None,
+        };
+
         Self {
             project_id,
             workspace_id,
@@ -242,7 +256,8 @@ impl CreateIssueDialogView {
             status: IssueStatus::Backlog,
             default_status: IssueStatus::Backlog,
             priority: IssuePriority::None,
-            assignee_id: None,
+            assignee_id: solo_member_id.clone(),
+            solo_member_id,
             selected_label_ids: Vec::new(),
             due_date: None,
             due_calendar,
@@ -269,7 +284,8 @@ impl CreateIssueDialogView {
         });
         self.status = self.default_status;
         self.priority = IssuePriority::None;
-        self.assignee_id = None;
+        // EXP-50: the solo-member default survives "Create more" resets.
+        self.assignee_id = self.solo_member_id.clone();
         self.selected_label_ids.clear();
         self.due_date = None;
         self.due_calendar.update(cx, |state, cx| {
@@ -1119,7 +1135,11 @@ impl Render for CreateIssueDialogView {
             .border_color(cx.theme().border)
             .child(self.status_chip(cx))
             .child(self.priority_chip(cx))
-            .child(self.assignee_chip(cx))
+            // EXP-50: single-member workspaces have no assignment choice —
+            // the chip hides and the solo member is pre-assigned.
+            .when(self.solo_member_id.is_none(), |this| {
+                this.child(self.assignee_chip(cx))
+            })
             .child(self.labels_chip(cx))
             .when(self.recurrence.is_none(), |this| {
                 this.child(self.due_chip(cx))

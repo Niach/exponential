@@ -37,6 +37,9 @@ final class IssueDetailViewModel {
     // banner rather than silently rendering the issue read-only).
     var permissionsPending = false
     var isSubscribed = false
+    /// True when the issue's workspace has exactly one human member: the
+    /// assignee picker row is hidden (nothing to reassign to) — EXP-50.
+    var singleMemberWorkspace = false
 
     private let accountId: String
     private let issueId: String
@@ -163,6 +166,11 @@ final class IssueDetailViewModel {
             Task {
                 for try await users in userObs.values(in: pool) {
                     self.users = users
+                    // is_agent flips / member user rows arriving can change the
+                    // human-member count, which gates the assignee row (EXP-50).
+                    if let issue = self.issue {
+                        self.refreshPermissions(for: issue)
+                    }
                 }
             }
 
@@ -493,6 +501,14 @@ final class IssueDetailViewModel {
             dbPool: pool
         )
         permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
+        if let workspace {
+            let humanIds = (try? pool.read { db in
+                try humanWorkspaceMemberIds(workspaceId: workspace.id, db: db)
+            }) ?? []
+            singleMemberWorkspace = humanIds.count == 1
+        } else {
+            singleMemberWorkspace = false
+        }
     }
 
     // MARK: - Share

@@ -184,7 +184,10 @@ pub(crate) fn issue_workspace_id(cx: &App, issue_id: &str) -> Option<String> {
 }
 
 /// `use-workspace-data.ts` `useWorkspaceUsers`: `workspace_members` ⨝ `users`
-/// (name-sorted for deterministic pickers).
+/// (name-sorted for deterministic pickers). Synthetic `is_agent` users
+/// (widget creators) are excluded — every assignee/member picker wants the
+/// HUMAN members, matching the web's `people` filter (EXP-50 alignment: this
+/// query and the properties panel's member read now share the rule).
 pub fn workspace_users(cx: &App, workspace_id: &str) -> Vec<domain::rows::User> {
     let collections = Store::global(cx).collections();
     let members = collections.workspace_members.read(cx);
@@ -197,7 +200,7 @@ pub fn workspace_users(cx: &App, workspace_id: &str) -> Vec<domain::rows::User> 
         .users
         .read(cx)
         .iter()
-        .filter(|user| member_ids.contains(user.id.as_str()))
+        .filter(|user| member_ids.contains(user.id.as_str()) && user.is_agent != Some(true))
         .cloned()
         .collect();
     out.sort_by_key(|user| {

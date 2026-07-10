@@ -252,6 +252,12 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
 
   const moderationDisabled = disabled || restrictModeration
 
+  // Solo workspace (exactly one human member): hide the assignee control
+  // entirely — nobody else to assign to. `users` is the bot-excluded member
+  // list; length 0 means still loading (never a genuine empty), so multi-member
+  // workspaces never briefly read as solo.
+  const isSolo = users.length === 1
+
   const statusControl = (
     <OptionDropdownMenu
       value={status}
@@ -358,7 +364,9 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       <aside className="w-72 shrink-0 border-l border-border px-4 py-4 space-y-4 text-sm">
         <PropertyGroup label="Status">{statusControl}</PropertyGroup>
         <PropertyGroup label="Priority">{priorityControl}</PropertyGroup>
-        <PropertyGroup label="Assignee">{assigneeControl}</PropertyGroup>
+        {!isSolo && (
+          <PropertyGroup label="Assignee">{assigneeControl}</PropertyGroup>
+        )}
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
         <PropertyGroup label="Due date">
           <div className="flex flex-col items-start gap-1">
@@ -376,7 +384,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-border">
       {statusControl}
       {priorityControl}
-      {assigneeControl}
+      {!isSolo && assigneeControl}
       {labelControl}
       {dueDateControl}
       {recurrenceControl}

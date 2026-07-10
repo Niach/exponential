@@ -141,6 +141,18 @@ class IssueListViewModel @Inject constructor(
             else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
         }
 
+    // EXP-50: the target workspace's lone HUMAN member (agent users excluded)
+    // when it has exactly one — else null. A solo workspace hides the assignee
+    // picker and defaults new issues to that member (the server default-assigns
+    // anyway; the UI just stops offering a one-option choice).
+    val soloMemberId: StateFlow<String?> = combine(
+        membersForWorkspace,
+        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+    ) { members, users ->
+        val agentIds = users.filter { it.isAgent }.map { it.id }.toSet()
+        members.map { it.userId }.filter { it !in agentIds }.singleOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val permissions: StateFlow<WorkspacePermissions> = combine(
         workspaceForProject,
         membersForWorkspace,

@@ -100,6 +100,8 @@ fun IssueDetailScreen(
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
+    // EXP-50: solo workspaces (one human member) hide the assignee row.
+    val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val issue = state.issue
     var titleField by remember { mutableStateOf("") }
@@ -376,6 +378,7 @@ fun IssueDetailScreen(
                 workspaceLabels = state.workspaceLabels,
                 issueLabels = state.issueLabels,
                 isModerator = isModerator,
+                hideAssignee = soloMemberId != null,
                 onStatusClick = { statusMenuOpen = true },
                 onPriorityClick = { priorityMenuOpen = true },
                 onAssigneeClick = { assigneeMenuOpen = true },

@@ -25,6 +25,10 @@ struct CreateIssueSheet: View {
     @State private var labels: [LabelEntity] = []
     @State private var workspaceId: String?
     @State private var users: [UserEntity] = []
+    /// True when the selected workspace has exactly one human member (the
+    /// creator): the assignee picker is hidden and assigneeId is pre-set to
+    /// that member (EXP-50). Multi-member workspaces keep the picker.
+    @State private var singleMemberWorkspace = false
     @State private var createMore = false
     @State private var loading = false
     @State private var error: String?
@@ -96,18 +100,21 @@ struct CreateIssueSheet: View {
                                 .disabled(!permissions.isModerator)
                             }
 
-                            // Assignee
-                            metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
-                                Button {
-                                    showAssigneePicker = true
-                                } label: {
-                                    let assignee = users.first { $0.id == assigneeId }
-                                    Text(assignee?.name ?? assignee?.email ?? "Unassigned")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            // Assignee — hidden on solo workspaces, where the
+                            // sole member is pre-assigned (EXP-50).
+                            if !singleMemberWorkspace {
+                                metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
+                                    Button {
+                                        showAssigneePicker = true
+                                    } label: {
+                                        let assignee = users.first { $0.id == assigneeId }
+                                        Text(assignee?.name ?? assignee?.email ?? "Unassigned")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(!permissions.isModerator)
                                 }
-                                .buttonStyle(.plain)
-                                .disabled(!permissions.isModerator)
                             }
 
                             // Recurrence
@@ -270,6 +277,17 @@ struct CreateIssueSheet: View {
                         return try WorkspaceEntity.fetchOne(db, key: project.workspaceId)
                     })) ?? nil
                     workspaceId = workspace?.id
+                    // Solo-workspace assignee shortcut (EXP-50): when this
+                    // workspace has exactly one human member, hide the picker
+                    // and pre-assign the creator. Scoped to the selected
+                    // workspace — the pool can hold several.
+                    if let wsId = workspace?.id,
+                       let humanIds = try? await pool.read({ db in
+                           try humanWorkspaceMemberIds(workspaceId: wsId, db: db)
+                       }), humanIds.count == 1 {
+                        singleMemberWorkspace = true
+                        assigneeId = humanIds.first
+                    }
                     // Labels are workspace-scoped; a shared DB pool can hold more
                     // than one workspace, so filter to this project's workspace.
                     if let wsId = workspace?.id,

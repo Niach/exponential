@@ -62,6 +62,8 @@ fun IssueMetadataEditor(
     workspaceLabels: List<LabelEntity>,
     issueLabels: List<LabelEntity>,
     isModerator: Boolean,
+    // EXP-50: hide the assignee row in a solo workspace (one human member).
+    hideAssignee: Boolean = false,
     onStatusClick: () -> Unit,
     onPriorityClick: () -> Unit,
     onAssigneeClick: () -> Unit,
@@ -94,17 +96,19 @@ fun IssueMetadataEditor(
             Spacer(Modifier.width(6.dp))
             Text(priority.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         }
-        CardDivider()
-        DetailRow(label = "Assignee", enabled = isModerator, onClick = onAssigneeClick) {
-            Text(
-                if (issue.assigneeId != null) userDisplayName(assignee, issue.assigneeId) else "Unassigned",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (issue.assigneeId != null) TextEmphasis.Primary else TextEmphasis.Tertiary,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (!hideAssignee) {
+            CardDivider()
+            DetailRow(label = "Assignee", enabled = isModerator, onClick = onAssigneeClick) {
+                Text(
+                    if (issue.assigneeId != null) userDisplayName(assignee, issue.assigneeId) else "Unassigned",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (issue.assigneeId != null) TextEmphasis.Primary else TextEmphasis.Tertiary,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 

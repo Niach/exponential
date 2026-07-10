@@ -103,6 +103,17 @@ class IssueDetailViewModel @Inject constructor(
             else db.workspaceMemberDao().observeByWorkspace(project.workspaceId)
         }
 
+    // EXP-50: the workspace's lone HUMAN member (agent users excluded) when it
+    // has exactly one — else null. A solo workspace hides the assignee row in
+    // the detail editor (mirrors CreateIssueScreen).
+    val soloMemberId: StateFlow<String?> = combine(
+        membersForWorkspace,
+        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+    ) { members, users ->
+        val agentIds = users.filter { it.isAgent }.map { it.id }.toSet()
+        members.map { it.userId }.filter { it !in agentIds }.singleOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val permissions: StateFlow<WorkspacePermissions> = combine(
         workspaceForProject,
         membersForWorkspace,

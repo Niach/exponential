@@ -8,6 +8,7 @@ import {
   GitMerge,
   GitPullRequest,
   MessageSquare,
+  MessageSquarePlus,
   UserPlus,
 } from "lucide-react"
 import type { Issue, Notification, Project } from "@/db/schema"
@@ -23,6 +24,7 @@ import { Button } from "@/components/ui/button"
 
 const typeIcon: Record<string, typeof Bell> = {
   issue_assigned: UserPlus,
+  issue_created: MessageSquarePlus,
   issue_comment: MessageSquare,
   issue_mention: MessageSquare,
   issue_status_changed: CircleDot,

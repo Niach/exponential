@@ -169,25 +169,28 @@ struct IssueDetailView: View {
                                 .disabled(!vm.permissions.isModerator)
                             }
 
-                            Divider().background(Color.white.opacity(0.06))
+                            // Assignee — hidden on solo workspaces, where there's
+                            // no one else to reassign to (EXP-50).
+                            if !vm.singleMemberWorkspace {
+                                Divider().background(Color.white.opacity(0.06))
 
-                            // Assignee
-                            detailRow(label: "Assignee") {
-                                Button {
-                                    showAssigneePicker = true
-                                } label: {
-                                    if let assigneeId = vm.issue?.assigneeId {
-                                        Text(memberDisplayName(vm.assignee(), id: assigneeId))
-                                            .font(.subheadline)
-                                            .foregroundStyle(.white)
-                                    } else {
-                                        Text("Unassigned")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                detailRow(label: "Assignee") {
+                                    Button {
+                                        showAssigneePicker = true
+                                    } label: {
+                                        if let assigneeId = vm.issue?.assigneeId {
+                                            Text(memberDisplayName(vm.assignee(), id: assigneeId))
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white)
+                                        } else {
+                                            Text("Unassigned")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                        }
                                     }
+                                    .buttonStyle(.plain)
+                                    .disabled(!vm.permissions.isModerator)
                                 }
-                                .buttonStyle(.plain)
-                                .disabled(!vm.permissions.isModerator)
                             }
 
                         }

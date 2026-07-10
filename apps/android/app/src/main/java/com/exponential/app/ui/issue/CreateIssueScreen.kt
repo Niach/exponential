@@ -113,6 +113,10 @@ fun CreateIssueScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val isModerator = permissions.isModerator
+    // EXP-50: solo workspaces (one human member) hide the assignee picker and
+    // default the new issue to that member.
+    val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
+    val isSoloWorkspace = soloMemberId != null
 
     // In share mode the ViewModel starts with no project; track the chosen one
     // locally and re-point the VM to it (setProject re-scopes labels/members/
@@ -154,6 +158,12 @@ fun CreateIssueScreen(
     val initialPendingImages = remember { sharePrefill?.pendingImages ?: emptyMap() }
     val pendingImages = remember { mutableStateMapOf<String, Uri>().apply { putAll(initialPendingImages) } }
     val users = state.users
+    // In a solo workspace the picker is hidden, so seed (and keep) the assignee
+    // pinned to the lone member — including after a share-mode project switch
+    // re-scopes to another solo workspace.
+    LaunchedEffect(soloMemberId) {
+        if (soloMemberId != null) assigneeId = soloMemberId
+    }
     val assigneeUser = users.firstOrNull { it.id == assigneeId }
     val isCreating = state.isCreating
     var confirmDiscard by remember { mutableStateOf(false) }
@@ -312,17 +322,20 @@ fun CreateIssueScreen(
                         Spacer(Modifier.width(6.dp))
                         Text(priority.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
-                    MetaDivider()
-                    MetaRow(label = "Assignee", enabled = isModerator, onClick = { assigneeMenuOpen = true }) {
-                        Icon(Icons.Filled.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            assigneeUser?.name ?: assigneeUser?.email ?: "Unassigned",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    // EXP-50: hidden in a solo workspace (no one else to assign to).
+                    if (!isSoloWorkspace) {
+                        MetaDivider()
+                        MetaRow(label = "Assignee", enabled = isModerator, onClick = { assigneeMenuOpen = true }) {
+                            Icon(Icons.Filled.Person, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                assigneeUser?.name ?: assigneeUser?.email ?: "Unassigned",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                     MetaDivider()
                     MetaRow(label = "Repeat", enabled = isModerator, onClick = { recurrenceSheetOpen = true }) {

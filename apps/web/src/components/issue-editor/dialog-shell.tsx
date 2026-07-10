@@ -41,6 +41,7 @@ interface IssueEditorDialogShellProps {
   formProps?: ComponentPropsWithoutRef<`form`>
   headerContent: ReactNode
   chipRowExtras?: ReactNode
+  hideAssignee?: boolean
   hideDueDateChip?: boolean
   imageUpload?: MarkdownEditorImageUploadConfig
   overflowMenuItems?: ReactNode
@@ -85,6 +86,7 @@ export function IssueEditorDialogShell({
   footer,
   formProps,
   headerContent,
+  hideAssignee,
   hideDueDateChip,
   imageUpload,
   overflowMenuItems,
@@ -190,6 +192,7 @@ export function IssueEditorDialogShell({
       dueDate={dueDate}
       dueTime={dueTime}
       endTime={endTime}
+      hideAssignee={hideAssignee}
       hideDueDateChip={hideDueDateChip}
       disabled={disabled}
       moderationDisabled={moderationDisabled}

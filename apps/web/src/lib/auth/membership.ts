@@ -5,6 +5,7 @@ import {
   issueLabels,
   issues,
   projects,
+  users,
   workspaceMembers,
   workspaces,
 } from "@/db/schema"
@@ -257,6 +258,28 @@ export async function assertAssigneeInWorkspace(
       message: `Assignee must be a member of this workspace`,
     })
   }
+}
+
+// EXP-50: solo-workspace default assignment. Returns the user id of the
+// workspace's only human (non-agent) member, or null when the workspace has
+// zero or two-plus humans. Agents (widget-helpdesk bots) never count — a
+// personal workspace with a feedback widget still reads as "solo".
+export async function getSoleHumanMemberId(
+  workspaceId: string
+): Promise<string | null> {
+  const db = await getDb()
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(users.isAgent, false)
+      )
+    )
+    .limit(2)
+  return rows.length === 1 ? rows[0].userId : null
 }
 
 export async function getProjectWorkspaceId(projectId: string) {

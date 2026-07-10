@@ -108,6 +108,19 @@ export function CreateIssueDialog({
     }
   }, [])
 
+  // In a solo workspace (exactly one human member) the assignee control is
+  // hidden and new issues default to the sole member — mirrors the server's
+  // default assignment so optimistic UI + "Create more" resets stay correct.
+  // `users` is the bot-excluded workspace member list; length 0 means the list
+  // is still loading (never a genuine empty), so it never flags multi-member
+  // workspaces as solo.
+  const isSolo = users.length === 1
+  const soleMemberId = isSolo ? users[0].id : null
+
+  useEffect(() => {
+    if (soleMemberId) setAssigneeId(soleMemberId)
+  }, [soleMemberId])
+
   const setDescriptionValue = (nextDescription: string) => {
     descriptionRef.current = nextDescription
     setDescription(nextDescription)
@@ -146,7 +159,7 @@ export function CreateIssueDialog({
     editorRef.current?.setMarkdown(``)
     setStatus(defaultStatus ?? `backlog`)
     setPriority(`none`)
-    setAssigneeId(null)
+    setAssigneeId(soleMemberId)
     setSelectedLabelIds([])
     setDueDate(undefined)
     setDueTime(null)
@@ -448,6 +461,7 @@ export function CreateIssueDialog({
       users={users}
       assigneeId={assigneeId}
       onAssigneeChange={setAssigneeId}
+      hideAssignee={isSolo}
       dueDate={dueDate}
       onDueDateSelect={setDueDate}
       dueTime={dueTime}

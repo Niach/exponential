@@ -35,6 +35,11 @@ export const Route = createFileRoute(`/_authenticated/account/notifications`)({
 const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> =
   [
     {
+      type: `issue_created`,
+      label: `New feedback`,
+      hint: `A new issue is filed in your workspace via the feedback widget.`,
+    },
+    {
       type: `issue_assigned`,
       label: `Assigned to you`,
       hint: `Someone assigns an issue to you.`,

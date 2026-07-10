@@ -54,6 +54,9 @@ vi.mock(`@/lib/workspace-membership`, async (importOriginal) => {
       workspace: { id: `ws-1` },
       member: { role: `member`, userId: `actor`, workspaceId: `ws-1` },
     })),
+    // EXP-50 solo-workspace default-assign is covered by its own test file;
+    // here it must stay inert (the db mock can't serve its joined query).
+    getSoleHumanMemberId: vi.fn(async () => null),
     assertIssueAccess: vi.fn(async () => ({
       issueId: `issue-1`,
       projectId: `proj-1`,

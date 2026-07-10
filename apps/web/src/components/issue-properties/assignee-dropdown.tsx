@@ -25,6 +25,9 @@ interface AssigneeDropdownProps {
   users: User[]
   userMap: Map<string, User>
   disabled?: boolean
+  // Solo workspaces have no one else to assign to: render the avatar/placeholder
+  // as a static, non-interactive cell instead of a pointless dropdown.
+  readOnly?: boolean
 }
 
 export function AssigneeDropdown({
@@ -33,12 +36,36 @@ export function AssigneeDropdown({
   users,
   userMap,
   disabled,
+  readOnly,
 }: AssigneeDropdownProps) {
   const [open, setOpen] = useState(false)
   const assignee = assigneeId ? userMap.get(assigneeId) : undefined
 
   // Hide bot users (the widget helpdesk bot) from assignment.
   const people = users.filter((u) => !u.isAgent)
+
+  const avatarVisual = assignee ? (
+    <Avatar className="size-5">
+      {assignee.image && (
+        <AvatarImage src={assignee.image} alt={assignee.name} />
+      )}
+      <AvatarFallback className="text-[0.625rem]">
+        {getInitials(assignee.name)}
+      </AvatarFallback>
+    </Avatar>
+  ) : (
+    <div className="size-5 rounded-full border border-dashed border-border flex items-center justify-center">
+      <UserIcon className="size-2.5 text-muted-foreground/50" />
+    </div>
+  )
+
+  if (readOnly) {
+    return (
+      <div className="flex h-5 w-5 items-center justify-center">
+        {avatarVisual}
+      </div>
+    )
+  }
 
   const handleSelect = async (userId: string | null) => {
     setOpen(false)
@@ -70,20 +97,7 @@ export function AssigneeDropdown({
           className="h-5 w-5 p-0"
           disabled={disabled}
         >
-          {assignee ? (
-            <Avatar className="size-5">
-              {assignee.image && (
-                <AvatarImage src={assignee.image} alt={assignee.name} />
-              )}
-              <AvatarFallback className="text-[0.625rem]">
-                {getInitials(assignee.name)}
-              </AvatarFallback>
-            </Avatar>
-          ) : (
-            <div className="size-5 rounded-full border border-dashed border-border flex items-center justify-center">
-              <UserIcon className="size-2.5 text-muted-foreground/50" />
-            </div>
-          )}
+          {avatarVisual}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[14rem] p-0" align="end">

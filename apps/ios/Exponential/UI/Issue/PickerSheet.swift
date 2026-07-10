@@ -1,4 +1,5 @@
 import ExpCore
+import GRDB
 import SwiftUI
 
 /// A reusable bottom-sheet picker used by the issue editor surfaces in place
@@ -73,6 +74,29 @@ struct AssigneeOption: Identifiable, Hashable {
         userId: nil,
         displayName: "Unassigned"
     )
+}
+
+/// User ids of a workspace's HUMAN members (widget/agent bots excluded), from
+/// the synced `workspace_members ⋈ users` store. A member whose `users` row
+/// hasn't synced yet is counted as human — conservative, so we never wrongly
+/// hide the assignee picker on a workspace that actually has other people.
+///
+/// When this returns exactly one id the workspace is solo: both create + detail
+/// surfaces skip the assignee picker and auto-assign that sole member (EXP-50).
+func humanWorkspaceMemberIds(workspaceId: String, db: Database) throws -> [String] {
+    let members = try WorkspaceMemberEntity
+        .filter(Column("workspace_id") == workspaceId)
+        .fetchAll(db)
+    var ids: [String] = []
+    for member in members {
+        if let user = try UserEntity.fetchOne(db, key: member.userId) {
+            if !user.isAgent { ids.append(member.userId) }
+        } else {
+            // User row not synced yet → assume human rather than hide the picker.
+            ids.append(member.userId)
+        }
+    }
+    return ids
 }
 
 // Assignable members — the widget helpdesk bot (is_agent) is excluded.

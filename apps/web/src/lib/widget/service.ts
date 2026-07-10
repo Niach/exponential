@@ -27,6 +27,9 @@ import {
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
+import { getSoleHumanMemberId } from "@/lib/workspace-membership"
+import { ensureSubscribed } from "@/lib/integrations/subscriptions"
+import { fireAndForgetNewIssueNotify } from "@/lib/integrations/notifications"
 import { buildWidgetDescription } from "./metadata"
 import { isWidgetKeyFormat } from "./key"
 import { isOriginAllowed } from "./origin"
@@ -253,14 +256,19 @@ export async function createWidgetSubmission(args: {
         })}`
       : null
 
+  // EXP-50: a solo workspace (exactly one human member) auto-assigns widget
+  // feedback to that member — there is nobody else it could belong to.
+  const soleMemberId = await getSoleHumanMemberId(config.workspaceId)
+
   try {
     // Direct insert with the attachment row in the SAME transaction: the
     // tRPC create's "no images at create time" rule exists because client
     // uploads happen after create — here the attachment exists before commit,
     // so the embedded image URL is valid the moment the issue is visible.
-    // No ensureSubscribed / notification calls: the creator is an isAgent
-    // user (skipped anyway); widget triage is pull-based via the project view.
-    return await db.transaction(async (tx) => {
+    // The creator is an isAgent user (no subscription, no inbox); member
+    // fan-out happens AFTER commit via fireAndForgetNewIssueNotify (EXP-53) —
+    // every human workspace member gets an `issue_created` notification.
+    const result = await db.transaction(async (tx) => {
       await generateTxId(tx)
       const [issue] = await tx
         .insert(issues)
@@ -273,6 +281,7 @@ export async function createWidgetSubmission(args: {
           // Post-EXP-42b a text-less, screenshot-less submission has an empty
           // description — store null like the tRPC mutations do.
           description: description || null,
+          assigneeId: soleMemberId,
           creatorId: config.widgetUserId,
         })
         .returning({ id: issues.id, identifier: issues.identifier })
@@ -291,6 +300,19 @@ export async function createWidgetSubmission(args: {
           url: buildAttachmentUrl(attachmentId),
           width: dimensions?.width ?? null,
           height: dimensions?.height ?? null,
+        })
+      }
+
+      // EXP-50: subscribe the auto-assigned solo member like issues.create
+      // subscribes explicit assignees. NO assignment notification for this —
+      // the post-commit issue_created fan-out already reaches them, and a
+      // second "assigned you" row would double-notify.
+      if (soleMemberId) {
+        await ensureSubscribed(tx, {
+          issueId,
+          userId: soleMemberId,
+          workspaceId: config.workspaceId,
+          source: `assignee`,
         })
       }
 
@@ -332,6 +354,13 @@ export async function createWidgetSubmission(args: {
         url: publicIssueUrl(issue.identifier),
       }
     })
+
+    // EXP-53: after commit (the notification loads the issue row itself, so
+    // it must be visible), fan out `issue_created` to the workspace's human
+    // members. Fire-and-forget — never fails the submit.
+    fireAndForgetNewIssueNotify({ issueId: result.issueId })
+
+    return result
   } catch (error) {
     if (storageKey) {
       try {

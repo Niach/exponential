@@ -40,6 +40,7 @@ export interface IssueEditorChipsProps {
   dueDate: Date | undefined
   dueTime: string | null
   endTime: string | null
+  hideAssignee?: boolean
   hideDueDateChip?: boolean
   disabled?: boolean
   moderationDisabled?: boolean
@@ -64,6 +65,7 @@ export function IssueEditorChips({
   dueDate,
   dueTime,
   endTime,
+  hideAssignee,
   hideDueDateChip,
   disabled,
   moderationDisabled,
@@ -117,12 +119,14 @@ export function IssueEditorChips({
         )}
       />
 
-      <AssigneePicker
-        disabled={moderationDisabled}
-        users={users}
-        selectedUserId={assigneeId}
-        onSelect={onAssigneeChange}
-      />
+      {!hideAssignee && (
+        <AssigneePicker
+          disabled={moderationDisabled}
+          users={users}
+          selectedUserId={assigneeId}
+          onSelect={onAssigneeChange}
+        />
+      )}
 
       <LabelPicker
         disabled={disabled}

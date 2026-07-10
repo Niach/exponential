@@ -10,6 +10,7 @@ import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
   getProjectWorkspaceId,
+  getSoleHumanMemberId,
 } from "@/lib/workspace-membership"
 import {
   fetchPullFiles,
@@ -113,6 +114,13 @@ export const issuesRouter = router({
         await assertAssigneeInWorkspace(input.assigneeId, project.workspaceId)
       }
 
+      // EXP-50: in a solo workspace (exactly one human member) an unassigned
+      // issue can only ever be theirs — default-assign that member. An
+      // explicit assignee (validated above) always wins; multi-member
+      // workspaces keep the unassigned default.
+      const assigneeId =
+        input.assigneeId ?? (await getSoleHumanMemberId(project.workspaceId))
+
       assertRecurrencePair(input.recurrenceInterval, input.recurrenceUnit)
 
       if (input.description && hasMarkdownImages(input.description)) {
@@ -131,7 +139,7 @@ export const issuesRouter = router({
             title: input.title,
             status: input.status ?? `backlog`,
             priority: input.priority ?? `none`,
-            assigneeId: input.assigneeId ?? null,
+            assigneeId,
             description: input.description ?? null,
             dueDate: input.dueDate ?? null,
             dueTime: input.dueTime ?? null,

@@ -241,37 +241,20 @@ impl PropertiesPanel {
     // -- derived reads ----------------------------------------------------------
 
     /// Workspace members eligible as assignees (web passes the workspace's
-    /// member users; synthetic agent users are excluded).
+    /// member users; synthetic agent users are excluded). Resolves the
+    /// issue's workspace, then delegates to the shared
+    /// [`queries::workspace_users`] (EXP-50: one agent-excluding rule).
     fn member_users(&self, issue: &Issue, cx: &App) -> Vec<User> {
-        let collections = Store::global(cx).collections();
-        let Some(project) = collections.projects.read(cx).get(&issue.project_id).cloned()
+        let Some(project) = Store::global(cx)
+            .collections()
+            .projects
+            .read(cx)
+            .get(&issue.project_id)
+            .cloned()
         else {
             return Vec::new();
         };
-        let member_ids: std::collections::HashSet<String> = collections
-            .workspace_members
-            .read(cx)
-            .iter()
-            .filter(|member| member.workspace_id == project.workspace_id)
-            .map(|member| member.user_id.clone())
-            .collect();
-        let mut users: Vec<User> = collections
-            .users
-            .read(cx)
-            .iter()
-            .filter(|user| {
-                member_ids.contains(&user.id) && user.is_agent != Some(true)
-            })
-            .cloned()
-            .collect();
-        users.sort_by_key(|user| {
-            user.name
-                .clone()
-                .or_else(|| user.email.clone())
-                .unwrap_or_default()
-                .to_lowercase()
-        });
-        users
+        queries::workspace_users(cx, &project.workspace_id)
     }
 
     /// The workspace's labels, sort-order sorted (web LabelPicker query).
@@ -656,17 +639,25 @@ impl Render for PropertiesPanel {
             return base;
         };
 
+        // EXP-50: a workspace with exactly one human member has no assignment
+        // choice — hide the assignee control entirely (server-side default
+        // assignment keeps the data correct). Multi-member (and the not-yet-
+        // synced 0-member snapshot) keeps the picker.
+        let solo_workspace = self.member_users(&issue, cx).len() == 1;
+
         base.child(property_group("Status", self.status_control(&issue, cx), cx))
             .child(property_group(
                 "Priority",
                 self.priority_control(&issue, cx),
                 cx,
             ))
-            .child(property_group(
-                "Assignee",
-                self.assignee_control(&issue, cx),
-                cx,
-            ))
+            .when(!solo_workspace, |panel| {
+                panel.child(property_group(
+                    "Assignee",
+                    self.assignee_control(&issue, cx),
+                    cx,
+                ))
+            })
             .child(property_group("Labels", self.labels_control(&issue, cx), cx))
             .child(property_group(
                 "Due date",

@@ -13,6 +13,7 @@ export {
   getReadableUserIdsInWorkspaces,
   getUserWorkspaceIds,
   getUserProjectIds,
+  getSoleHumanMemberId,
   getWorkspaceMember,
   assertWorkspaceMember,
   assertWorkspaceOwner,
