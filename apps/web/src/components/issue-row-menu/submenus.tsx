@@ -1,5 +1,5 @@
-import { Flag, ListTodo, Tag, UserRound, X } from "lucide-react"
-import type { Issue, Label, User } from "@/db/schema"
+import { Flag, ListTodo, Rocket, Tag, UserRound, X } from "lucide-react"
+import type { Issue, Label, Release, User } from "@/db/schema"
 import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -163,6 +163,66 @@ export function PrioritySubmenu({
               </ContextMenuRadioItem>
             )
           })}
+        </ContextMenuRadioGroup>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  )
+}
+
+interface ReleaseSubmenuProps {
+  releaseId: Issue[`releaseId`]
+  // Workspace releases, already sorted by compareReleases. Kept a plain prop
+  // (no live query here) so this stays presentational like its siblings.
+  releases: Release[]
+  topLevelValueClass: string
+  onSelect: (releaseId: string | null) => void
+}
+
+export function ReleaseSubmenu({
+  releaseId,
+  releases,
+  topLevelValueClass,
+  onSelect,
+}: ReleaseSubmenuProps) {
+  const currentName = releaseId
+    ? releases.find((release) => release.id === releaseId)?.name
+    : undefined
+
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <Rocket className="size-4" />
+        Add to release
+        <ContextMenuShortcut className={topLevelValueClass}>
+          {currentName ?? `None`}
+        </ContextMenuShortcut>
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-[15rem]">
+        <ContextMenuRadioGroup value={releaseId ?? `__none__`}>
+          <ContextMenuRadioItem
+            value="__none__"
+            onSelect={() => onSelect(null)}
+          >
+            <X className="size-4 text-muted-foreground" />
+            No release
+          </ContextMenuRadioItem>
+
+          {releases.length === 0 ? (
+            <ContextMenuItem disabled inset>
+              No releases yet
+            </ContextMenuItem>
+          ) : (
+            releases.map((release) => (
+              <ContextMenuRadioItem
+                key={release.id}
+                value={release.id}
+                onSelect={() => onSelect(release.id)}
+              >
+                <Rocket className="size-4 text-muted-foreground" />
+                <span className="truncate">{release.name}</span>
+              </ContextMenuRadioItem>
+            ))
+          )}
         </ContextMenuRadioGroup>
       </ContextMenuSubContent>
     </ContextMenuSub>

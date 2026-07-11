@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   createFileRoute,
   Link,
@@ -144,10 +144,20 @@ function AddIssuesDialog({
     [open, projectIds.join(`,`)]
   )
 
+  // Closed statuses and archived issues are excluded — they have nothing
+  // left to ship. Issues living in ANOTHER release stay offered (Rocket
+  // badge below shows where).
   const candidates = useMemo(
     () =>
       ((issueRows ?? []) as Issue[])
-        .filter((issue) => issue.releaseId !== release.id)
+        .filter(
+          (issue) =>
+            issue.releaseId !== release.id &&
+            issue.archivedAt === null &&
+            issue.status !== `done` &&
+            issue.status !== `cancelled` &&
+            issue.status !== `duplicate`
+        )
         .sort((a, b) => a.identifier.localeCompare(b.identifier)),
     [issueRows, release.id]
   )
@@ -358,23 +368,35 @@ function ReleaseDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Last synced values, so each field resyncs ONLY when ITS OWN synced value
+  // changed — a name echo (or a teammate's rename) must never clobber an
+  // in-progress description draft, and vice versa.
+  const lastSyncedName = useRef(release?.name ?? ``)
+  const lastSyncedDescription = useRef(release?.description ?? ``)
+
   useEffect(() => {
     setName(release?.name ?? ``)
     setDescription(release?.description ?? ``)
+    lastSyncedName.current = release?.name ?? ``
+    lastSyncedDescription.current = release?.description ?? ``
   }, [release?.id])
 
   useEffect(() => {
-    if (release && release.name !== name && release.name !== name.trim()) {
-      setName(release.name)
+    if (!release) return
+    if (release.name !== lastSyncedName.current) {
+      lastSyncedName.current = release.name
+      if (release.name !== name && release.name !== name.trim()) {
+        setName(release.name)
+      }
     }
-  }, [release?.name])
-
-  useEffect(() => {
-    const incoming = release?.description ?? ``
-    if (release && incoming !== description.trim()) {
-      setDescription(incoming)
+    const incoming = release.description ?? ``
+    if (incoming !== lastSyncedDescription.current) {
+      lastSyncedDescription.current = incoming
+      if (incoming !== description.trim()) {
+        setDescription(incoming)
+      }
     }
-  }, [release?.description])
+  }, [release?.name, release?.description])
 
   const updateRelease = async (patch: {
     name?: string
@@ -592,10 +614,11 @@ function ReleaseDetailPage() {
             </div>
           </div>
 
-          {/* Issues section */}
+          {/* Issues section — the header button yields to the empty state's
+              own (exactly one add affordance visible at any time) */}
           <div className="flex items-center justify-between border-b border-border px-5 py-2">
             <span className="text-sm font-medium">Issues</span>
-            {canMutate && (
+            {canMutate && issues.length > 0 && (
               <Button
                 variant="outline"
                 size="xs"
@@ -643,6 +666,7 @@ function ReleaseDetailPage() {
               canCreate={false}
               canMutateIssue={permissions.canMutateIssue}
               canModerate={permissions.isModerator}
+              bulkWorkspaceId={workspace.id}
               isLoading={!issuesReady}
               hasAnyIssues={issues.length > 0}
               renderRowAction={

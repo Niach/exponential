@@ -1,12 +1,17 @@
-import { useState } from "react"
-import type { Issue, Label, User } from "@/db/schema"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { eq, useLiveQuery } from "@tanstack/react-db"
+import type { Issue, Label, Release, User } from "@/db/schema"
+import { releaseCollection } from "@/lib/collections"
+import { compareReleases } from "@/lib/releases"
 import { StatusDropdown, getStatusConfig } from "@/components/issue-properties/status-dropdown"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
 import { DueDateDropdown } from "@/components/issue-properties/due-date-dropdown"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
+import { BulkActionBar } from "@/components/bulk-action-bar"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import { Plus, ChevronRight, ListTodo, Repeat, SearchX } from "lucide-react"
@@ -46,6 +51,11 @@ interface IssueListProps {
   // Optional trailing per-row action cell (e.g. the release detail's
   // remove-from-release X). Rendered in its own click-isolated grid column.
   renderRowAction?: (issue: Issue) => React.ReactNode
+  // Enables bulk selection + the floating action bar (hover checkboxes on
+  // md+, shift-click ranges, Cmd/Ctrl+A, Esc) and the context menu's
+  // add-to-release submenu. The workspace scope feeds the release queries.
+  // Undefined = bulk select off. Selection also requires canModerate.
+  bulkWorkspaceId?: string
 }
 
 function IssueListSkeleton() {
@@ -86,14 +96,159 @@ export function IssueList({
   hasActiveFilters = false,
   onClearFilters,
   renderRowAction,
+  bulkWorkspaceId,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [anchorId, setAnchorId] = useState<string | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
+  const bulkEnabled = Boolean(bulkWorkspaceId) && canModerate
 
-  // The row grid grows a trailing action column when the caller renders one.
-  const rowGridClass = renderRowAction
-    ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
-    : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+  // Workspace releases feed the context menu's add-to-release submenu (kept
+  // out of the per-row menu component so its tests stay collection-free).
+  const { data: releaseRows } = useLiveQuery(
+    (query) =>
+      bulkWorkspaceId
+        ? query
+            .from({ releases: releaseCollection })
+            .where(({ releases }) => eq(releases.workspaceId, bulkWorkspaceId))
+        : undefined,
+    [bulkWorkspaceId]
+  )
+  const workspaceReleases = useMemo(
+    () =>
+      bulkWorkspaceId
+        ? [...((releaseRows ?? []) as Release[])].sort(compareReleases)
+        : undefined,
+    [releaseRows, bulkWorkspaceId]
+  )
+
+  // The range/select-all universe: filtered rows in render order, minus
+  // collapsed groups.
+  const visibleFlatIssues = useMemo(
+    () =>
+      groups
+        .filter(
+          (group) =>
+            group.issues.length > 0 && !collapsedGroups.has(group.status)
+        )
+        .flatMap((group) => group.issues),
+    [groups, collapsedGroups]
+  )
+
+  // Prune selected ids whose rows left the data set (filter change, delete
+  // elsewhere, sync). Collapsing a group hides rows but keeps them selected.
+  useEffect(() => {
+    const present = new Set(
+      groups.flatMap((group) => group.issues.map((issue) => issue.id))
+    )
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => present.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [groups])
+
+  const clearSelection = () => {
+    setSelectedIds(new Set())
+    setAnchorId(null)
+  }
+
+  const toggleSelect = (issueId: string, shiftKey: boolean) => {
+    const ids = visibleFlatIssues.map((issue) => issue.id)
+    const anchorIndex = anchorId ? ids.indexOf(anchorId) : -1
+    const targetIndex = ids.indexOf(issueId)
+    if (shiftKey && anchorIndex !== -1 && targetIndex !== -1) {
+      // Shift-click extends: ADD the contiguous visible slice between the
+      // anchor and the target (anchor stays put for further extensions).
+      const [from, to] =
+        anchorIndex < targetIndex
+          ? [anchorIndex, targetIndex]
+          : [targetIndex, anchorIndex]
+      const range = ids.slice(from, to + 1)
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        for (const id of range) next.add(id)
+        return next
+      })
+      return
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(issueId)) {
+        next.delete(issueId)
+      } else {
+        next.add(issueId)
+      }
+      return next
+    })
+    setAnchorId(issueId)
+  }
+
+  // Cmd/Ctrl+A selects everything visible under the current filters; Escape
+  // clears. Both keys are overlay-scoped: an Escape that dismisses a Radix
+  // menu/dialog/popover must NOT also wipe the selection (Linear closes only
+  // the menu), and select-all only fires with focus on the body or inside
+  // the list — never while an overlay is up or a field elsewhere has focus.
+  // Radix flushes its close via React batching AFTER this event finishes, so
+  // querying open overlays during the bubble phase still sees them.
+  useEffect(() => {
+    if (!bulkEnabled) return
+    const overlayOpen = () =>
+      document.querySelector(
+        `[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"]`
+      ) !== null
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === `a`) {
+        if (overlayOpen()) return
+        const active = document.activeElement
+        if (
+          active instanceof HTMLElement &&
+          (active instanceof HTMLInputElement ||
+            active instanceof HTMLTextAreaElement ||
+            active instanceof HTMLSelectElement ||
+            active.isContentEditable)
+        ) {
+          return
+        }
+        if (
+          active !== document.body &&
+          active !== null &&
+          !listRef.current?.contains(active)
+        ) {
+          return
+        }
+        event.preventDefault()
+        setSelectedIds(new Set(visibleFlatIssues.map((issue) => issue.id)))
+        return
+      }
+      if (event.key === `Escape`) {
+        if (overlayOpen()) return
+        setSelectedIds((prev) => (prev.size > 0 ? new Set<string>() : prev))
+      }
+    }
+    window.addEventListener(`keydown`, handleKeyDown)
+    return () => window.removeEventListener(`keydown`, handleKeyDown)
+  }, [bulkEnabled, visibleFlatIssues])
+
+  const selectedIssues = useMemo(
+    () =>
+      groups
+        .flatMap((group) => group.issues)
+        .filter((issue) => selectedIds.has(issue.id)),
+    [groups, selectedIds]
+  )
+
+  // The row grid grows a leading checkbox column (md+ when bulk select is on)
+  // and a trailing action column when the caller renders one.
+  const rowGridClass = bulkEnabled
+    ? renderRowAction
+      ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+      : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+    : renderRowAction
+      ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+      : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
 
   // Solo workspace (exactly one human member): render the assignee cell as a
   // static avatar, not an interactive dropdown. `users` is the bot-excluded
@@ -151,7 +306,7 @@ export function IssueList({
   }
 
   return (
-    <div>
+    <div ref={listRef}>
       {visibleGroups.map((group) => {
         const config = getStatusConfig(group.status)
         const Icon = config.icon
@@ -218,6 +373,7 @@ export function IssueList({
                     labels={labels}
                     users={users}
                     userMap={userMap}
+                    releases={workspaceReleases}
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
@@ -225,6 +381,26 @@ export function IssueList({
                       onClick={() => onIssueClick(issue)}
                       data-testid={`issue-row-${issue.identifier}`}
                     >
+                      {bulkEnabled && (
+                        <div
+                          className="hidden md:flex items-center"
+                          // Suppress the browser's shift-click text selection
+                          // so range-select doesn't highlight row text.
+                          onMouseDown={(e) => {
+                            if (e.shiftKey) e.preventDefault()
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleSelect(issue.id, e.shiftKey)
+                          }}
+                        >
+                          <Checkbox
+                            checked={selectedIds.has(issue.id)}
+                            aria-label={`Select ${issue.identifier}`}
+                            className={`transition-opacity ${selectedIds.size > 0 ? `opacity-100` : `opacity-0 group-hover/row:opacity-100`}`}
+                          />
+                        </div>
+                      )}
                       <div
                         className="flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
@@ -310,6 +486,17 @@ export function IssueList({
           </CollapsiblePrimitive.Root>
         )
       })}
+
+      {bulkEnabled && bulkWorkspaceId && selectedIssues.length > 0 && (
+        <BulkActionBar
+          workspaceId={bulkWorkspaceId}
+          issues={selectedIssues}
+          issueLabelMap={issueLabelMap}
+          labels={labels}
+          users={users}
+          onClear={clearSelection}
+        />
+      )}
     </div>
   )
 }

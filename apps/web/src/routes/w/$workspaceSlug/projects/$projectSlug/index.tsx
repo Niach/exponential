@@ -155,6 +155,7 @@ function ProjectPage() {
           canCreate={permissions.canCreate}
           canMutateIssue={permissions.canMutateIssue}
           canModerate={permissions.isModerator}
+          bulkWorkspaceId={workspace.id}
           isLoading={!issuesReady}
           hasAnyIssues={totalIssueCount > 0}
           hasActiveFilters={filtersActive(filters)}

@@ -4,13 +4,13 @@ import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { CalendarDays, Plus, Rocket } from "lucide-react"
 import type { Issue, Release } from "@/db/schema"
 import { issueCollection, releaseCollection } from "@/lib/collections"
+import { trpc } from "@/lib/trpc-client"
 import { compareReleases, releaseProgress } from "@/lib/releases"
 import { formatDate } from "@/lib/utils"
 import {
   useWorkspaceBySlug,
   useWorkspaceProjects,
 } from "@/hooks/use-workspace-data"
-import { CreateReleaseDialog } from "@/components/create-release-dialog"
 import { EmptyState } from "@/components/empty-state"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -115,7 +115,7 @@ function ReleasesPage() {
     () => projects.map((project) => project.id),
     [projects]
   )
-  const [createOpen, setCreateOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   const { data: releaseRows, isReady: releasesReady } = useLiveQuery(
     (query) =>
@@ -163,6 +163,23 @@ function ReleasesPage() {
     })
   }
 
+  // One-click create: the server auto-names sequentially ("Release N"); the
+  // detail page is where naming/dates happen (inline). Await the txId so the
+  // navigation lands on a synced row, never a not-found flash.
+  const handleCreate = async () => {
+    if (!workspace || creating) return
+    setCreating(true)
+    try {
+      const { txId, release } = await trpc.releases.create.mutate({
+        workspaceId: workspace.id,
+      })
+      await releaseCollection.utils.awaitTxId(txId)
+      openRelease(release.id)
+    } finally {
+      setCreating(false)
+    }
+  }
+
   if (!workspace) {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
   }
@@ -179,7 +196,11 @@ function ReleasesPage() {
             </span>
           )}
         </h1>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
+        <Button
+          size="sm"
+          onClick={() => void handleCreate()}
+          disabled={creating}
+        >
           <Plus className="size-4" />
           New release
         </Button>
@@ -194,7 +215,11 @@ function ReleasesPage() {
             title="No releases yet"
             description="Bundle issues into a release to track what ships together and when."
           >
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Button
+              size="sm"
+              onClick={() => void handleCreate()}
+              disabled={creating}
+            >
               <Plus className="mr-1.5 size-4" />
               New release
             </Button>
@@ -212,13 +237,6 @@ function ReleasesPage() {
           </div>
         )}
       </div>
-
-      <CreateReleaseDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        workspaceId={workspace.id}
-        onCreated={(releaseId) => openRelease(releaseId)}
-      />
     </div>
   )
 }
