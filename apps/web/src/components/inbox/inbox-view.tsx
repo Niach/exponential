@@ -11,13 +11,14 @@ import {
   MessageSquarePlus,
   UserPlus,
 } from "lucide-react"
-import type { Issue, Notification, Project } from "@/db/schema"
+import type { Issue, Notification, Project, Workspace } from "@/db/schema"
 import { EmptyState } from "@/components/empty-state"
 import { trpc } from "@/lib/trpc-client"
 import {
   issueCollection,
   notificationCollection,
   projectCollection,
+  workspaceCollection,
 } from "@/lib/collections"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -47,8 +48,10 @@ function relativeTime(value: Date | string): string {
 // latest notification's sentence (titles are already full human sentences —
 // no composition, no actor avatar). Reviewing open PRs moved to the
 // dedicated Reviews page.
-export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
-  // The notifications shape is already scoped to the current user.
+export function InboxView() {
+  // The notifications shape is scoped to the current user, NOT to a
+  // workspace — the stream spans all the user's workspaces (matching the
+  // user-wide sidebar unread badge and "Mark all read").
   const { data: notifications } = useLiveQuery((query) =>
     query
       .from({ n: notificationCollection })
@@ -60,6 +63,9 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
   const { data: projects } = useLiveQuery((query) =>
     query.from({ projects: projectCollection })
   )
+  const { data: workspaces } = useLiveQuery((query) =>
+    query.from({ workspaces: workspaceCollection })
+  )
 
   const issueMap = useMemo(
     () => new Map((issues ?? []).map((i) => [i.id, i as Issue])),
@@ -69,12 +75,25 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
     () => new Map((projects ?? []).map((p) => [p.id, p as Project])),
     [projects]
   )
+  const workspaceSlugMap = useMemo(
+    () =>
+      new Map((workspaces ?? []).map((w) => [w.id, (w as Workspace).slug])),
+    [workspaces]
+  )
 
-  // Group notifications by issue, newest first, tracking unread count.
+  // Group notifications by issue, newest first, tracking unread count. Each
+  // group links into the issue's OWN workspace — linking with the current
+  // route's slug would dead-end for issues from other workspaces.
   const groups = useMemo(() => {
     const byIssue = new Map<
       string,
-      { issue: Issue; project: Project; items: Notification[]; unread: number }
+      {
+        issue: Issue
+        project: Project
+        workspaceSlug: string
+        items: Notification[]
+        unread: number
+      }
     >()
     for (const n of (notifications ?? []) as Notification[]) {
       if (!n.issueId) continue
@@ -82,9 +101,11 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
       if (!issue) continue
       const project = projectMap.get(issue.projectId)
       if (!project) continue
+      const workspaceSlug = workspaceSlugMap.get(project.workspaceId)
+      if (!workspaceSlug) continue
       let g = byIssue.get(n.issueId)
       if (!g) {
-        g = { issue, project, items: [], unread: 0 }
+        g = { issue, project, workspaceSlug, items: [], unread: 0 }
         byIssue.set(n.issueId, g)
       }
       g.items.push(n)
@@ -95,7 +116,7 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
         new Date(b.items[0].createdAt).getTime() -
         new Date(a.items[0].createdAt).getTime()
     )
-  }, [notifications, issueMap, projectMap])
+  }, [notifications, issueMap, projectMap, workspaceSlugMap])
 
   const totalUnread = groups.reduce((sum, g) => sum + g.unread, 0)
 
@@ -141,7 +162,7 @@ export function InboxView({ workspaceSlug }: { workspaceSlug: string }) {
                 key={g.issue.id}
                 to="/w/$workspaceSlug/projects/$projectSlug/issues/$issueIdentifier"
                 params={{
-                  workspaceSlug,
+                  workspaceSlug: g.workspaceSlug,
                   projectSlug: g.project.slug,
                   issueIdentifier: g.issue.identifier,
                 }}
