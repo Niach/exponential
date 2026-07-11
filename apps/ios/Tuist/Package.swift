@@ -11,6 +11,15 @@ let packageSettings = PackageSettings(
     // dynamic framework: one shared copy linked by both.
     productTypes: [
         "GRDB": .framework,
+    ],
+    // MarkdownUI at -Onone even in Release: the optimizer emits a symbolic-
+    // reference mangled name for Markdown's opaque `Body` witness that the
+    // iOS 27 (beta) Swift runtime fails to demangle — opening any issue with
+    // comments aborted with "failed to demangle witness for associated type
+    // 'Body' in conformance 'MarkdownUI.Markdown: View'". Debug (-Onone)
+    // metadata resolves fine, so pin this one package to -Onone.
+    targetSettings: [
+        "MarkdownUI": ["SWIFT_OPTIMIZATION_LEVEL": "-Onone"],
     ]
 )
 #endif
