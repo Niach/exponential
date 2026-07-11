@@ -18,11 +18,16 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.ui.components.userDisplayName
+import kotlinx.serialization.json.contentOrNull
 
 // Compact Linear-style activity line for non-agent events (status/assignee/label).
 // Extracted from CommentThread.kt (pure move — no behavior change).
 @Composable
-internal fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
+internal fun EventRow(
+    event: IssueEventEntity,
+    actor: UserEntity?,
+    releaseNames: Map<String, String> = emptyMap(),
+) {
     val who = userDisplayName(actor, event.actorUserId)
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -31,7 +36,7 @@ internal fun EventRow(event: IssueEventEntity, actor: UserEntity?) {
     ) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(CommentMeta))
         Text(
-            "$who ${eventVerb(event.type)} · ${relativeTime(event.createdAt)}",
+            "$who ${eventPhrase(event, releaseNames)} · ${relativeTime(event.createdAt)}",
             style = MaterialTheme.typography.labelSmall,
             color = CommentMeta,
         )
@@ -48,5 +53,34 @@ internal fun eventVerb(type: String): String = when (type) {
     "label_removed" -> "removed a label"
     "pr_opened" -> "opened a pull request"
     "pr_merged" -> "merged the pull request"
+    "release_added" -> "added this to a release"
+    "release_removed" -> "removed this from a release"
     else -> type.replace('_', ' ')
+}
+
+// A richer phrase for release membership events: resolves the release name
+// from the payload's `releaseId` against the synced releases table. A deleted
+// release leaves no name behind — fall back to eventVerb's generic wording.
+internal fun eventPhrase(event: IssueEventEntity, releaseNames: Map<String, String>): String {
+    if (event.type != "release_added" && event.type != "release_removed") {
+        return eventVerb(event.type)
+    }
+    val name = eventPayloadField(event.payload, "releaseId")?.let { releaseNames[it] }
+        ?: return eventVerb(event.type)
+    return if (event.type == "release_added") {
+        "added this to release $name"
+    } else {
+        "removed this from release $name"
+    }
+}
+
+// Pull a string scalar out of an issue_event's JSON payload (stored as
+// stringified JSON). Null for missing/blank values or unparseable payloads.
+private fun eventPayloadField(payload: String?, key: String): String? {
+    if (payload.isNullOrBlank()) return null
+    return runCatching {
+        val obj = kotlinx.serialization.json.Json
+            .parseToJsonElement(payload) as? kotlinx.serialization.json.JsonObject
+        (obj?.get(key) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 }

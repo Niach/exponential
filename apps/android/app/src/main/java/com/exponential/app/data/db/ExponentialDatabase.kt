@@ -19,6 +19,7 @@ import androidx.room.RoomDatabase
         IssueSubscriberEntity::class,
         IssueEventEntity::class,
         CodingSessionEntity::class,
+        ReleaseEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -54,9 +55,12 @@ import androidx.room.RoomDatabase
     //      (bearer-secret leak fix, REV-4/14) — entity field now nullable;
     //      destructive fallback wipes + resyncs (also purging any previously
     //      leaked plaintext tokens from the local cache).
+    // v14: releases (EXP-56, the 15th shape) + issues.release_id +
+    //      coding_sessions.release_id (issue_id now nullable for
+    //      release-scoped orchestrator sessions).
     // No Migration object — DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -74,5 +78,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueSubscriberDao(): IssueSubscriberDao
     abstract fun issueEventDao(): IssueEventDao
     abstract fun codingSessionDao(): CodingSessionDao
+    abstract fun releaseDao(): ReleaseDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

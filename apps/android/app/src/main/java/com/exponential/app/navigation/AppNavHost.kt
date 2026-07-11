@@ -38,6 +38,8 @@ import com.exponential.app.ui.issue.IssueDetailScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.issue.ChangesScreen
+import com.exponential.app.ui.releases.ReleaseDetailScreen
+import com.exponential.app.ui.releases.ReleasesListScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.session.AgentsScreen
@@ -261,6 +263,21 @@ private fun AuthenticatedNav(
                 mode = IssueListMode.Root,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
+                onOpenReleases = { workspaceId -> navController.navigate("releases/$workspaceId") },
+            )
+        }
+        composable("releases/{workspaceId}") {
+            // Workspace releases (EXP-56) — pushed from the Issues screen's
+            // top-bar rocket action (the bottom bar is full).
+            ReleasesListScreen(
+                onOpenRelease = { releaseId -> navController.navigate("release/$releaseId") },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("release/{releaseId}") {
+            ReleaseDetailScreen(
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("search") {

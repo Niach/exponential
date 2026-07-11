@@ -29,6 +29,9 @@ data class CommentThreadState(
     val comments: List<CommentEntity> = emptyList(),
     val events: List<IssueEventEntity> = emptyList(),
     val usersById: Map<String, UserEntity> = emptyMap(),
+    // id -> name of every synced release, for release_added/release_removed
+    // timeline phrases (EXP-56).
+    val releaseNamesById: Map<String, String> = emptyMap(),
     val currentUserId: String? = null,
     val isAdmin: Boolean = false,
 )
@@ -64,21 +67,29 @@ class CommentThreadViewModel @Inject constructor(
             }
         }
 
+    // Users + releases pre-combined (same 5-arg-cap trick as commentsAndEvents);
+    // releases resolve release_added/release_removed timeline names.
+    private val usersAndReleases = combine(
+        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.releaseDao().observeAll() },
+    ) { users, releases -> users to releases }
+
     val state: StateFlow<CommentThreadState> = combine(
         combine(dbFlow, issueIdFlow) { db, id -> db to id }
             .flatMapLatest { (db, id) ->
                 if (db == null || id == null) flowOf(null) else db.issueDao().observeById(id)
             },
         commentsAndEvents,
-        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+        usersAndReleases,
         auth.userId,
         auth.isAdmin,
-    ) { issue, (comments, events), users, userId, isAdmin ->
+    ) { issue, (comments, events), (users, releases), userId, isAdmin ->
         CommentThreadState(
             issue = issue,
             comments = comments,
             events = events,
             usersById = users.associateBy { it.id },
+            releaseNamesById = releases.associate { it.id to it.name },
             currentUserId = userId,
             isAdmin = isAdmin,
         )

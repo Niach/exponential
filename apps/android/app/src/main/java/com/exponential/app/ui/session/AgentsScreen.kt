@@ -81,10 +81,11 @@ fun AgentsScreen(
                                 if (state.steerEnabled == true) {
                                     onOpenSteer(row.session.id)
                                 } else {
-                                    onOpenIssue(row.session.issueId)
+                                    // Release-scoped sessions carry no issue.
+                                    row.session.issueId?.let(onOpenIssue)
                                 }
                             },
-                            onInfo = { onOpenIssue(row.session.issueId) },
+                            onInfo = { row.session.issueId?.let(onOpenIssue) },
                         )
                     }
                 }

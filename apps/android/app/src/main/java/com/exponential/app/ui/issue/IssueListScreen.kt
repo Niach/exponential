@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.Badge
@@ -99,6 +100,8 @@ fun IssueListScreen(
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    // EXP-56: opens the current project's workspace releases (Root mode only).
+    onOpenReleases: (workspaceId: String) -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -154,6 +157,16 @@ fun IssueListScreen(
                             onClick = { showSwitcher = true },
                         )
                         Spacer(Modifier.weight(1f))
+                        // Releases (EXP-56): the bottom bar is full, so the
+                        // workspace's releases live behind a top-bar action.
+                        state.project?.workspaceId?.let { workspaceId ->
+                            CircleIconButton(
+                                Icons.Filled.RocketLaunch,
+                                "Releases",
+                                onClick = { onOpenReleases(workspaceId) },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
                         CircleIconButton(Icons.Filled.Settings, "Settings", onClick = onOpenSettings)
                     }
                 }

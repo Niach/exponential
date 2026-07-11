@@ -59,7 +59,9 @@ class AgentsViewModel @Inject constructor(
     ) { sessions, issues, steerEnabled ->
         val issuesById = issues.associateBy { it.id }
         AgentsState(
-            rows = sessions.map { AgentRow(session = it, issue = issuesById[it.issueId]) },
+            // issueId is null for release-scoped orchestrator sessions (EXP-56)
+            // — those rows render without an issue link.
+            rows = sessions.map { AgentRow(session = it, issue = it.issueId?.let(issuesById::get)) },
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())

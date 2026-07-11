@@ -15,6 +15,7 @@ import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.ProjectEntity
+import com.exponential.app.data.db.ReleaseEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.WorkspaceEntity
 import com.exponential.app.data.db.WorkspaceInviteEntity
@@ -33,7 +34,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
-/// Multi-account sync orchestrator. Maintains one set of 14 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 15 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -114,7 +115,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (14 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (15 shapes) for $accountId")
             }
         }
     }
@@ -166,6 +167,7 @@ class SyncManager @Inject constructor(
         val issueSubscriberDao = db.issueSubscriberDao()
         val issueEventDao = db.issueEventDao()
         val codingSessionDao = db.codingSessionDao()
+        val releaseDao = db.releaseDao()
 
         return listOf(
             launchShape(
@@ -307,6 +309,16 @@ class SyncManager @Inject constructor(
                 onUpdate = { codingSessionDao.upsert(it) },
                 onDelete = { codingSessionDao.deleteById(it.id) },
                 onRefetch = { codingSessionDao.clear() },
+            ),
+            launchShape(
+                shape = "releases", path = "/api/shapes/releases", tableName = "releases",
+                serializer = ReleaseEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("releases"),
+                onInsert = { releaseDao.upsert(it) },
+                onUpdate = { releaseDao.upsert(it) },
+                onDelete = { releaseDao.deleteById(it.id) },
+                onRefetch = { releaseDao.clear() },
             ),
         )
     }

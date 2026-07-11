@@ -110,7 +110,7 @@ fun CommentThread(
         timeline.forEach { item ->
             when (item) {
                 is TimelineItem.Event -> key(item.event.id) {
-                    EventRow(item.event, state.usersById[item.event.actorUserId])
+                    EventRow(item.event, state.usersById[item.event.actorUserId], state.releaseNamesById)
                 }
                 is TimelineItem.Comment -> {
                     val comment = item.comment
