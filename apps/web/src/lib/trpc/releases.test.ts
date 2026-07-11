@@ -89,8 +89,9 @@ const fakeDb = {
       return Promise.resolve()
     },
   }),
-  // generateTxId's `SELECT pg_current_xact_id()` probe.
-  execute: vi.fn(async () => ({ rows: [{ txid: `42` }] })),
+  // generateTxId's `SELECT pg_current_xact_id()` probe + create's advisory
+  // lock (the arg is captured so tests can inspect the lock's SQL params).
+  execute: vi.fn(async (..._args: unknown[]) => ({ rows: [{ txid: `42` }] })),
   transaction: vi.fn(
     async (fn: (tx: typeof fakeDb) => Promise<unknown>): Promise<unknown> =>
       fn(fakeDb)
@@ -131,6 +132,7 @@ beforeEach(() => {
   updates.length = 0
   deletes.length = 0
   select.mockClear()
+  fakeDb.execute.mockClear()
   fakeDb.transaction.mockClear()
   h.assertWorkspaceMember.mockClear()
   h.assertWorkspaceMember.mockResolvedValue({ role: `member` })
@@ -143,13 +145,8 @@ beforeEach(() => {
 })
 
 describe(`releases.create`, () => {
-  it(`asserts membership on input.workspaceId and inserts with createdBy = session user`, async () => {
-    const result = await caller.create({
-      workspaceId: WS,
-      name: `v1.0`,
-      description: `First cut`,
-      targetDate: `2026-08-01`,
-    })
+  it(`asserts membership on input.workspaceId and inserts an explicit name with createdBy = session user`, async () => {
+    const result = await caller.create({ workspaceId: WS, name: `v1.0` })
 
     expect(h.assertWorkspaceMember).toHaveBeenCalledWith(`actor`, WS)
     expect(inserts).toHaveLength(1)
@@ -157,19 +154,49 @@ describe(`releases.create`, () => {
     expect(inserts[0]!.values).toEqual({
       workspaceId: WS,
       name: `v1.0`,
-      description: `First cut`,
-      targetDate: `2026-08-01`,
       createdBy: `actor`,
     })
     expect(result.txId).toBe(42)
     expect(result.release).toMatchObject({ id: RELEASE_ID, name: `v1.0` })
   })
 
-  it(`nulls omitted description/targetDate`, async () => {
-    await caller.create({ workspaceId: WS, name: `bare` })
+  it(`an explicit name never reads existing releases (no auto-name select, no advisory lock)`, async () => {
+    await caller.create({ workspaceId: WS, name: `Kraken` })
 
-    expect(inserts[0]!.values.description).toBeNull()
-    expect(inserts[0]!.values.targetDate).toBeNull()
+    expect(select).not.toHaveBeenCalled()
+    // Only generateTxId's txid probe — no pg_advisory_xact_lock execute.
+    expect(fakeDb.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it(`auto-names from the max trailing "Release N" integer, gap-tolerant`, async () => {
+    selectQueue.push([
+      { name: `Release 3` },
+      { name: `Kraken` },
+      { name: `Release 12` },
+    ])
+
+    await caller.create({ workspaceId: WS })
+
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toEqual({
+      workspaceId: WS,
+      name: `Release 13`,
+      createdBy: `actor`,
+    })
+    // txid probe + the per-workspace advisory lock, keyed on the workspaceId
+    // (the sql template keeps raw interpolated values as chunks, not Params).
+    expect(fakeDb.execute).toHaveBeenCalledTimes(2)
+    const lockSql = fakeDb.execute.mock.calls[1]![0] as SQL
+    expect(is(lockSql, SQL)).toBe(true)
+    expect(lockSql.queryChunks).toContain(WS)
+  })
+
+  it(`auto-names "Release 1" in an empty workspace`, async () => {
+    selectQueue.push([])
+
+    await caller.create({ workspaceId: WS })
+
+    expect(inserts[0]!.values.name).toBe(`Release 1`)
   })
 
   it(`propagates a membership refusal before the transaction`, async () => {

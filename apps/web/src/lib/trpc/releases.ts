@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { db } from "@/db/connection"
 import { issues, projects, releases } from "@/db/schema"
@@ -21,13 +21,14 @@ import { recordIssueEvent } from "@/lib/integrations/activity"
 // exponential_release_pr_open MCP tool + the GitHub webhook/poller — never
 // from here.
 export const releasesRouter = router({
+  // One-click create: name is optional — when absent the server auto-names
+  // sequentially ("Release N", N = max existing trailing integer + 1).
+  // Description/targetDate are set post-create via `update` (inline editing).
   create: authedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
-        name: z.string().min(1).max(255),
-        description: z.string().max(60_000).optional(),
-        targetDate: dateOnlySchema.optional(),
+        name: z.string().min(1).max(255).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -35,13 +36,29 @@ export const releasesRouter = router({
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        let name = input.name
+        if (!name) {
+          // Serialize concurrent auto-names per workspace: without this lock
+          // two simultaneous creates both read the same max and insert a
+          // duplicate "Release N" (name has no unique constraint by design).
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${input.workspaceId}))`
+          )
+          const rows = await tx
+            .select({ name: releases.name })
+            .from(releases)
+            .where(eq(releases.workspaceId, input.workspaceId))
+          const max = rows.reduce((acc, row) => {
+            const match = /^Release (\d+)$/.exec(row.name)
+            return match ? Math.max(acc, Number(match[1])) : acc
+          }, 0)
+          name = `Release ${max + 1}`
+        }
         const [release] = await tx
           .insert(releases)
           .values({
             workspaceId: input.workspaceId,
-            name: input.name,
-            description: input.description ?? null,
-            targetDate: input.targetDate ?? null,
+            name,
             createdBy: ctx.session.user.id,
           })
           .returning()

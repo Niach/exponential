@@ -1,8 +1,15 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, issues, issueLabels, labels, projects } from "@/db/schema"
-import { eq, inArray, sql } from "drizzle-orm"
+import {
+  attachments,
+  issues,
+  issueLabels,
+  labels,
+  projects,
+  type Issue,
+} from "@/db/schema"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import {
   resolveWorkspaceAccess,
   assertAssigneeInWorkspace,
@@ -80,6 +87,158 @@ function assertRecurrencePair(
       code: `BAD_REQUEST`,
       message: `Recurrence interval and unit must be set together`,
     })
+  }
+}
+
+type Tx = Parameters<
+  // eslint-disable-next-line quotes
+  Parameters<typeof import("@/db/connection").db.transaction>[0]
+>[0]
+
+// Status-derived column management, shared by update and bulkUpdate.
+// Mutates setValues in place. Only applies the duplicate-clear rule when the
+// caller hasn't already decided duplicate linkage (setValues.duplicateOfId
+// === undefined) — update's duplicateOfId input block runs BEFORE this.
+function applyStatusDerivations(
+  setValues: Record<string, unknown>,
+  current: { duplicateOfId: string | null }
+): void {
+  if (
+    setValues.status !== undefined &&
+    setValues.status !== `duplicate` &&
+    current.duplicateOfId !== null &&
+    setValues.duplicateOfId === undefined
+  ) {
+    // Moving off 'duplicate' via a plain status change also unmarks.
+    setValues.duplicateOfId = null
+  }
+
+  const nextStatus = setValues.status as string | undefined
+  if (
+    nextStatus === `done` ||
+    nextStatus === `cancelled` ||
+    nextStatus === `duplicate`
+  ) {
+    setValues.completedAt = new Date()
+  } else if (nextStatus) {
+    setValues.completedAt = null
+  }
+}
+
+// The per-issue write core shared by update and bulkUpdate: persists
+// setValues, records status/assignee activity events (comparing the FINAL
+// persisted values), auto-subscribes a new assignee, and clones the next
+// occurrence of a recurring issue completed here. Post-commit side effects
+// (attachment object copies, notification fan-out) are returned to the
+// caller — never executed inside the transaction.
+async function finalizeIssueUpdateInTx(
+  tx: Tx,
+  args: {
+    issueId: string
+    workspaceId: string
+    actorUserId: string
+    requestUrl: string
+    current: {
+      status: string
+      projectId: string
+      title: string
+      priority: string
+      assigneeId: string | null
+      recurrenceInterval: number | null
+      recurrenceUnit: string | null
+    }
+    setValues: Record<string, unknown>
+  }
+): Promise<{
+  issue: typeof issues.$inferSelect
+  statusChange: { from: string; to: string } | null
+  previousAssigneeId: string | null
+  attachmentCopies: AttachmentCopyOp[]
+} | null> {
+  const { issueId, workspaceId, actorUserId, requestUrl, current, setValues } =
+    args
+
+  const [issue] = await tx
+    .update(issues)
+    .set(setValues)
+    .where(eq(issues.id, issueId))
+    .returning()
+  if (!issue) {
+    // Hard-deleted between the caller's eligibility read and this UPDATE —
+    // signal "row gone" instead of crashing the whole batch.
+    return null
+  }
+
+  let statusChange: { from: string; to: string } | null = null
+  if (current.status !== issue.status) {
+    statusChange = { from: current.status, to: issue.status }
+    await recordIssueEvent(tx, {
+      issueId,
+      workspaceId,
+      actorUserId,
+      type: `status_changed`,
+      payload: { from: current.status, to: issue.status },
+    })
+  }
+  if (current.assigneeId !== issue.assigneeId) {
+    await recordIssueEvent(tx, {
+      issueId,
+      workspaceId,
+      actorUserId,
+      type: `assignee_changed`,
+      payload: { from: current.assigneeId, to: issue.assigneeId },
+    })
+    if (issue.assigneeId) {
+      await ensureSubscribed(tx, {
+        issueId,
+        userId: issue.assigneeId,
+        workspaceId,
+        source: `assignee`,
+      })
+    }
+  }
+
+  const attachmentCopies: AttachmentCopyOp[] = []
+  const transitionedToDone =
+    issue.status === `done` && current.status !== `done`
+  const nextRecurrenceInterval =
+    setValues.recurrenceInterval !== undefined
+      ? (setValues.recurrenceInterval as number | null)
+      : current.recurrenceInterval
+  const nextRecurrenceUnit =
+    setValues.recurrenceUnit !== undefined
+      ? (setValues.recurrenceUnit as string | null)
+      : current.recurrenceUnit
+
+  if (
+    transitionedToDone &&
+    nextRecurrenceInterval !== null &&
+    nextRecurrenceUnit !== null
+  ) {
+    const { attachmentCopies: copies } = await cloneIssueForRecurrence(tx, {
+      sourceIssueId: issueId,
+      sourceProjectId: current.projectId,
+      sourceWorkspaceId: workspaceId,
+      sourceTitle: current.title,
+      sourcePriority: current.priority as Issue[`priority`],
+      sourceAssigneeId: current.assigneeId,
+      // Clone from the issue's final persisted description so it stays
+      // consistent with any attachment cleanup that ran in this same
+      // mutation (e.g. an image removed alongside completion).
+      sourceDescription: issue.description,
+      recurrenceInterval: nextRecurrenceInterval,
+      recurrenceUnit: nextRecurrenceUnit as NonNullable<Issue[`recurrenceUnit`]>,
+      creatorId: actorUserId,
+      requestUrl,
+    })
+    attachmentCopies.push(...copies)
+  }
+
+  return {
+    issue,
+    statusChange,
+    previousAssigneeId: current.assigneeId,
+    attachmentCopies,
   }
 }
 
@@ -295,7 +454,6 @@ export const issuesRouter = router({
       let previousAssigneeId: string | null = null
       let newlyMentionedUserIds: string[] = []
       const { issue, statusChange } = await ctx.db.transaction(async (tx) => {
-        let statusChange: { from: string; to: string } | null = null
         const [currentIssue] = await tx
           .select({
             description: issues.description,
@@ -354,25 +512,9 @@ export const issuesRouter = router({
             // stored, so restore the neutral default.
             setValues.status = `backlog`
           }
-        } else if (
-          updates.status !== undefined &&
-          updates.status !== `duplicate` &&
-          currentIssue.duplicateOfId !== null
-        ) {
-          // Moving off 'duplicate' via a plain status change also unmarks.
-          setValues.duplicateOfId = null
         }
 
-        const nextStatus = setValues.status as string | undefined
-        if (
-          nextStatus === `done` ||
-          nextStatus === `cancelled` ||
-          nextStatus === `duplicate`
-        ) {
-          setValues.completedAt = new Date()
-        } else if (nextStatus) {
-          setValues.completedAt = null
-        }
+        applyStatusDerivations(setValues, currentIssue)
 
         if (updates.description !== undefined) {
           const rawNextText = getIssueDescriptionText(updates.description)
@@ -471,86 +613,24 @@ export const issuesRouter = router({
             .limit(1)
           return {
             issue: existing!,
-            clonedIssue: null as typeof existing | null,
-            statusChange,
+            statusChange: null as { from: string; to: string } | null,
           }
         }
 
-        const [issue] = await tx
-          .update(issues)
-          .set(setValues)
-          .where(eq(issues.id, id))
-          .returning()
-
-        // Activity-log events for status / assignee changes (compare the final
-        // persisted values, so moderation-stripped updates don't emit events).
-        if (currentIssue.status !== issue.status) {
-          statusChange = { from: currentIssue.status, to: issue.status }
-          await recordIssueEvent(tx, {
-            issueId: id,
-            workspaceId: issueContext.workspaceId,
-            actorUserId: ctx.session.user.id,
-            type: `status_changed`,
-            payload: { from: currentIssue.status, to: issue.status },
-          })
+        const result = await finalizeIssueUpdateInTx(tx, {
+          issueId: id,
+          workspaceId: issueContext.workspaceId,
+          actorUserId: ctx.session.user.id,
+          requestUrl: ctx.request.url,
+          current: currentIssue,
+          setValues,
+        })
+        if (!result) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
         }
-        if (previousAssigneeId !== issue.assigneeId) {
-          await recordIssueEvent(tx, {
-            issueId: id,
-            workspaceId: issueContext.workspaceId,
-            actorUserId: ctx.session.user.id,
-            type: `assignee_changed`,
-            payload: { from: previousAssigneeId, to: issue.assigneeId },
-          })
-          if (issue.assigneeId) {
-            await ensureSubscribed(tx, {
-              issueId: id,
-              userId: issue.assigneeId,
-              workspaceId: issueContext.workspaceId,
-              source: `assignee`,
-            })
-          }
-        }
+        attachmentCopies.push(...result.attachmentCopies)
 
-        const transitionedToDone =
-          updates.status === `done` && currentIssue.status !== `done`
-        const nextRecurrenceInterval =
-          updates.recurrenceInterval !== undefined
-            ? updates.recurrenceInterval
-            : currentIssue.recurrenceInterval
-        const nextRecurrenceUnit =
-          updates.recurrenceUnit !== undefined
-            ? updates.recurrenceUnit
-            : currentIssue.recurrenceUnit
-
-        if (
-          transitionedToDone &&
-          nextRecurrenceInterval !== null &&
-          nextRecurrenceUnit !== null
-        ) {
-          const { issue: insertedClone, attachmentCopies: copies } =
-            await cloneIssueForRecurrence(tx, {
-              sourceIssueId: id,
-              sourceProjectId: currentIssue.projectId,
-              sourceWorkspaceId: issueContext.workspaceId,
-              sourceTitle: currentIssue.title,
-              sourcePriority: currentIssue.priority,
-              sourceAssigneeId: currentIssue.assigneeId,
-              // Clone from the issue's final persisted description so it stays
-              // consistent with any attachment cleanup that ran in this same
-              // mutation (e.g. an image removed alongside completion).
-              sourceDescription: issue.description,
-              recurrenceInterval: nextRecurrenceInterval,
-              recurrenceUnit: nextRecurrenceUnit,
-              creatorId: ctx.session.user.id,
-              requestUrl: ctx.request.url,
-            })
-          attachmentCopies.push(...copies)
-
-          return { issue, clonedIssue: insertedClone, statusChange }
-        }
-
-        return { issue, clonedIssue: null, statusChange }
+        return { issue: result.issue, statusChange: result.statusChange }
       })
 
       await deleteStorageObjects(deletedStorageKeys)
@@ -591,6 +671,191 @@ export const issuesRouter = router({
       }
 
       return { issue }
+    }),
+
+  // Bulk property write for the multi-select action bar (status / priority /
+  // assignee). One workspace per batch, one transaction, one txId — Electric
+  // awaitTxId covers every row version. Stale ids and issues in trashed
+  // projects are silently skipped (addIssues precedent); an empty survivor
+  // set is a hard error.
+  bulkUpdate: authedProcedure
+    .input(
+      z
+        .object({
+          ids: z.array(z.string().uuid()).min(1).max(200),
+          status: issueStatusSchema.optional(),
+          priority: issuePrioritySchema.optional(),
+          assigneeId: z.string().nullable().optional(),
+        })
+        .refine(
+          (i) =>
+            i.status !== undefined ||
+            i.priority !== undefined ||
+            i.assigneeId !== undefined,
+          { message: `Nothing to update` }
+        )
+        // Bulk duplicate-marking has no canonical-issue picker, and
+        // status='duplicate' with duplicateOfId=null breaks the pairing
+        // invariant every single-issue path intercepts.
+        .refine((i) => i.status !== `duplicate`, {
+          message: `Duplicate requires a canonical issue — mark issues individually`,
+        })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const eligible = await ctx.db
+        .select({
+          id: issues.id,
+          status: issues.status,
+          projectId: issues.projectId,
+          title: issues.title,
+          priority: issues.priority,
+          assigneeId: issues.assigneeId,
+          recurrenceInterval: issues.recurrenceInterval,
+          recurrenceUnit: issues.recurrenceUnit,
+          duplicateOfId: issues.duplicateOfId,
+          workspaceId: projects.workspaceId,
+        })
+        .from(issues)
+        .innerJoin(projects, eq(issues.projectId, projects.id))
+        .where(and(inArray(issues.id, input.ids), isNull(projects.deletedAt)))
+
+      if (eligible.length === 0) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `No updatable issues`,
+        })
+      }
+      const workspaceIds = new Set(eligible.map((row) => row.workspaceId))
+      if (workspaceIds.size > 1) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Issues must belong to one workspace`,
+        })
+      }
+      const workspaceId = eligible[0].workspaceId
+      await assertWorkspaceMember(ctx.session.user.id, workspaceId)
+
+      // The assignee is INPUT, not the actor — validate it against the
+      // batch's workspace or any member could push-notify arbitrary users.
+      if (input.assigneeId != null) {
+        await assertAssigneeInWorkspace(input.assigneeId, workspaceId)
+      }
+
+      const patch: Record<string, unknown> = {
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
+        ...(input.assigneeId !== undefined
+          ? { assigneeId: input.assigneeId }
+          : {}),
+      }
+
+      const { txId, results } = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const results: NonNullable<
+          Awaited<ReturnType<typeof finalizeIssueUpdateInTx>>
+        >[] = []
+        for (const row of eligible) {
+          const setValues: Record<string, unknown> = { ...patch }
+          applyStatusDerivations(setValues, row)
+          const result = await finalizeIssueUpdateInTx(tx, {
+            issueId: row.id,
+            workspaceId,
+            actorUserId: ctx.session.user.id,
+            requestUrl: ctx.request.url,
+            current: row,
+            setValues,
+          })
+          // Deleted in the window since the eligibility select — skip, keep
+          // the batch (the eligibility filter promises silent-skip semantics).
+          if (result) results.push(result)
+        }
+        return { txId, results }
+      })
+
+      await copyRecurrenceAttachments(
+        results.flatMap((result) => result.attachmentCopies)
+      )
+
+      // Fan-out cap: a 200-issue sweep must not fire hundreds of pushes —
+      // skip ALL per-issue notifications past 25 ids.
+      if (input.ids.length <= 25) {
+        for (const result of results) {
+          if (result.previousAssigneeId !== result.issue.assigneeId) {
+            fireAndForgetAssignmentNotify({
+              issueId: result.issue.id,
+              actorUserId: ctx.session.user.id,
+              newAssigneeId: result.issue.assigneeId,
+              previousAssigneeId: result.previousAssigneeId,
+            })
+          }
+          if (result.statusChange) {
+            fireAndForgetStatusChangeNotify({
+              issueId: result.issue.id,
+              actorUserId: ctx.session.user.id,
+              fromStatus: result.statusChange.from,
+              toStatus: result.statusChange.to,
+            })
+            fireAndForgetReporterResolution({
+              issueId: result.issue.id,
+              toStatus: result.statusChange.to,
+            })
+          }
+        }
+      }
+
+      return { txId, updated: results.length }
+    }),
+
+  // Bulk delete for the multi-select action bar. Same gates as bulkUpdate
+  // (write == delete == membership); attachment blobs are reclaimed from S3
+  // after commit like the single delete.
+  bulkDelete: authedProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const eligible = await ctx.db
+        .select({ id: issues.id, workspaceId: projects.workspaceId })
+        .from(issues)
+        .innerJoin(projects, eq(issues.projectId, projects.id))
+        .where(and(inArray(issues.id, input.ids), isNull(projects.deletedAt)))
+
+      if (eligible.length === 0) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `No deletable issues`,
+        })
+      }
+      const workspaceIds = new Set(eligible.map((row) => row.workspaceId))
+      if (workspaceIds.size > 1) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Issues must belong to one workspace`,
+        })
+      }
+      await assertWorkspaceMember(ctx.session.user.id, eligible[0].workspaceId)
+
+      const storageKeys: string[] = []
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        for (const row of eligible) {
+          storageKeys.push(
+            ...(await collectIssueAttachmentStorageKeysInTx(tx, row.id))
+          )
+        }
+        const deleted = await tx
+          .delete(issues)
+          .where(
+            inArray(
+              issues.id,
+              eligible.map((row) => row.id)
+            )
+          )
+          .returning({ id: issues.id })
+        return { txId, deleted: deleted.length }
+      })
+
+      await deleteStorageObjects(storageKeys)
+
+      return result
     }),
 
   // Squash-merge the issue's open PR via the GitHub App installation token
