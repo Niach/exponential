@@ -337,8 +337,13 @@ struct MainNavigator: View {
             ChangesView(issueId: issueId)
                 .environment(\.accountId, accountId)
         case let .releases(accountId, workspaceId):
-            ReleasesListView(workspaceId: workspaceId)
-                .environment(\.accountId, accountId)
+            ReleasesListView(
+                workspaceId: workspaceId,
+                onOpenRelease: { id in
+                    path.append(.releaseDetail(accountId: accountId, id: id))
+                }
+            )
+            .environment(\.accountId, accountId)
         case let .releaseDetail(accountId, id):
             ReleaseDetailView(releaseId: id)
                 .environment(\.accountId, accountId)

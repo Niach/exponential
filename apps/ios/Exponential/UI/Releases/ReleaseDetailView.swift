@@ -6,8 +6,9 @@ import GRDB
 /// Release detail (EXP-56): header (name, target date, shipped state, PR
 /// pill), ship/unship, delete (confirmed), and the release's issues grouped by
 /// status like the project board. Rows navigate to the issue detail; the
-/// swipe/context action unbundles a row (setIssueRelease null — issues
-/// survive). Mobile never launches coding — no run affordance here.
+/// toolbar "+" opens the multi-select add-issues sheet; the swipe/context
+/// action unbundles a row (setIssueRelease null — issues survive). Mobile
+/// never launches coding — no run affordance here.
 struct ReleaseDetailView: View {
     let releaseId: String
 
@@ -17,9 +18,11 @@ struct ReleaseDetailView: View {
     @State private var release: ReleaseEntity?
     @State private var issues: [IssueEntity] = []
     @State private var vanished = false
+    @State private var showAddIssues = false
     @State private var showDeleteConfirm = false
     @State private var error: String?
     @State private var observationTasks: [Task<Void, Never>] = []
+    @State private var vanishGraceTask: Task<Void, Never>?
 
     private var progress: ReleaseProgress {
         releaseProgress(issues: issues)
@@ -119,6 +122,14 @@ struct ReleaseDetailView: View {
             if let release {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        showAddIssues = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Add issues")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
                         Task { await toggleShipped(release) }
                     } label: {
                         Text(release.shippedAt == nil ? "Mark shipped" : "Unship")
@@ -135,6 +146,15 @@ struct ReleaseDetailView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showAddIssues) {
+            AddIssuesSheet(
+                loadCandidates: { await addCandidates() },
+                onConfirm: { ids in
+                    Task { await addIssues(ids) }
+                }
+            )
+            .presentationBackground(.ultraThinMaterial)
         }
         .alert("Delete Release", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
@@ -242,7 +262,7 @@ struct ReleaseDetailView: View {
             Text("No issues in this release")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Add issues from their detail page's Release picker.")
+            Text("Tap + to add issues to this release.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
@@ -344,6 +364,54 @@ struct ReleaseDetailView: View {
         }
     }
 
+    private func addIssues(_ ids: [String]) async {
+        guard !ids.isEmpty else { return }
+        do {
+            try await deps.releasesApi.addIssues(
+                accountId: accountId,
+                releaseId: releaseId,
+                issueIds: ids
+            )
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Candidates for the add-issues sheet: every non-archived workspace issue
+    /// whose status isn't done/cancelled/duplicate and that isn't already in
+    /// THIS release (other-release issues stay offered — the server records
+    /// both timeline sides). Archived issues are excluded to match Android's
+    /// DAO query AND this view's own rendering (issuesForStatus hides them —
+    /// adding one would look like a silent no-op). One-shot read — the sheet
+    /// is transient.
+    private func addCandidates() async -> [IssueEntity] {
+        guard let release, let pool = try? deps.db.pool(forAccountId: accountId) else { return [] }
+        let workspaceId = release.workspaceId
+        let releaseId = releaseId
+        let excludedStatuses: Set<String> = [
+            IssueStatus.done.rawValue,
+            IssueStatus.cancelled.rawValue,
+            IssueStatus.duplicate.rawValue,
+        ]
+        let result: [IssueEntity]? = try? await pool.read { db in
+            let workspaceProjectIds = try ProjectEntity
+                .filter(Column("workspace_id") == workspaceId)
+                .fetchAll(db)
+                .map(\.id)
+            return try IssueEntity
+                .filter(workspaceProjectIds.contains(Column("project_id")))
+                .fetchAll(db)
+                .filter {
+                    !excludedStatuses.contains($0.status)
+                        && $0.releaseId != releaseId
+                        && $0.archivedAt == nil
+                }
+                .sorted { $0.updatedAt > $1.updatedAt }
+        }
+        return result ?? []
+    }
+
     // MARK: - Observation
 
     private func startObserving() {
@@ -358,6 +426,8 @@ struct ReleaseDetailView: View {
             do {
                 for try await row in releaseObs.values(in: pool) {
                     if let row {
+                        vanishGraceTask?.cancel()
+                        vanishGraceTask = nil
                         release = row
                         vanished = false
                     } else if release != nil {
@@ -365,8 +435,17 @@ struct ReleaseDetailView: View {
                         // (possibly from another client).
                         release = nil
                         vanished = true
-                    } else {
-                        vanished = true
+                    } else if vanishGraceTask == nil {
+                        // Never synced yet: a just-created release can lag the
+                        // list's 5s poll on a slow link, and the creator must
+                        // see the spinner — not "Release not found". Flip only
+                        // after a grace window with still no row (self-heals
+                        // either way once the row lands).
+                        vanishGraceTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 8_000_000_000)
+                            guard !Task.isCancelled, release == nil else { return }
+                            vanished = true
+                        }
                     }
                 }
             } catch {}
@@ -391,5 +470,7 @@ struct ReleaseDetailView: View {
     private func stopObserving() {
         for task in observationTasks { task.cancel() }
         observationTasks = []
+        vanishGraceTask?.cancel()
+        vanishGraceTask = nil
     }
 }

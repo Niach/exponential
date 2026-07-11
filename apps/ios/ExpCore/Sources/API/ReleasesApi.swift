@@ -4,18 +4,12 @@ import Foundation
 // create, ship/unship, delete, and issue membership — reads come entirely from
 // the synced `releases` shape.
 
+/// Name is server-generated (sequential `Release N`) — creation is one tap.
 public struct CreateReleaseInput: Encodable, Sendable {
     public let workspaceId: String
-    public let name: String
-    public var description: String?
-    /// Plain `YYYY-MM-DD` date string (dateOnlySchema server-side).
-    public var targetDate: String?
 
-    public init(workspaceId: String, name: String, description: String? = nil, targetDate: String? = nil) {
+    public init(workspaceId: String) {
         self.workspaceId = workspaceId
-        self.name = name
-        self.description = description
-        self.targetDate = targetDate
     }
 }
 
@@ -56,12 +50,25 @@ public struct SetIssueReleaseInput: Encodable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(issueId, forKey: .issueId)
-        if let releaseId {
-            try container.encode(releaseId, forKey: .releaseId)
-        } else {
-            try container.encodeNil(forKey: .releaseId)
-        }
+        // Keyed `encode` of an Optional emits explicit JSON null for nil —
+        // only `encodeIfPresent`/synthesis drop the key.
+        try container.encode(releaseId, forKey: .releaseId)
     }
+}
+
+public struct AddReleaseIssuesInput: Encodable, Sendable {
+    public let releaseId: String
+    public let issueIds: [String]
+
+    public init(releaseId: String, issueIds: [String]) {
+        self.releaseId = releaseId
+        self.issueIds = issueIds
+    }
+}
+
+private struct CreateReleaseOutput: Decodable {
+    struct R: Decodable { let id: String }
+    let release: R
 }
 
 public final class ReleasesApi: Sendable {
@@ -71,8 +78,30 @@ public final class ReleasesApi: Sendable {
         self.trpc = trpc
     }
 
-    public func create(accountId: String, _ input: CreateReleaseInput) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "releases.create", input: input)
+    /// Create an auto-named release and return its id so the caller can wait
+    /// for the synced row and navigate straight to the detail.
+    public func create(accountId: String, workspaceId: String) async throws -> String {
+        let out: CreateReleaseOutput = try await trpc.mutation(
+            accountId: accountId,
+            path: "releases.create",
+            input: CreateReleaseInput(workspaceId: workspaceId)
+        )
+        return out.release.id
+    }
+
+    /// Bundle issues into a release (the add-issues sheet's confirm). The
+    /// server caps issueIds at 200 per call — chunk sequentially so any
+    /// selection size lands (wire contract: clients chunk >200 ids). The
+    /// issues shape echoes the release_id writes back into GRDB.
+    public func addIssues(accountId: String, releaseId: String, issueIds: [String]) async throws {
+        for start in stride(from: 0, to: issueIds.count, by: 200) {
+            let chunk = Array(issueIds[start..<min(start + 200, issueIds.count)])
+            try await trpc.mutationVoid(
+                accountId: accountId,
+                path: "releases.addIssues",
+                input: AddReleaseIssuesInput(releaseId: releaseId, issueIds: chunk)
+            )
+        }
     }
 
     public func markShipped(accountId: String, id: String, shipped: Bool) async throws {

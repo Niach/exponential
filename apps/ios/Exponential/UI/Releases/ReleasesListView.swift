@@ -10,12 +10,15 @@ import GRDB
 /// showing the current project's workspace.
 struct ReleasesListView: View {
     let workspaceId: String
+    /// Pushes the release detail after a one-tap create (AppNavigator owns
+    /// the path).
+    let onOpenRelease: (String) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var releases: [ReleaseEntity] = []
     @State private var issuesByRelease: [String: [IssueEntity]] = [:]
-    @State private var showCreate = false
+    @State private var creating = false
     @State private var error: String?
     @State private var observationTasks: [Task<Void, Never>] = []
 
@@ -53,7 +56,7 @@ struct ReleasesListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showCreate = true
+                    Task { await createRelease() }
                 } label: {
                     Image(systemName: "plus")
                         .font(.body)
@@ -61,15 +64,9 @@ struct ReleasesListView: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
                 }
+                .disabled(creating)
                 .accessibilityLabel("New release")
             }
-        }
-        .sheet(isPresented: $showCreate) {
-            CreateReleaseSheet { name, description in
-                Task { await createRelease(name: name, description: description) }
-            }
-            .presentationDetents([.medium])
-            .presentationBackground(.ultraThinMaterial)
         }
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
@@ -138,7 +135,7 @@ struct ReleasesListView: View {
                 .multilineTextAlignment(.center)
 
             Button {
-                showCreate = true
+                Task { await createRelease() }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "plus")
@@ -152,21 +149,40 @@ struct ReleasesListView: View {
                 .glassButton()
             }
             .buttonStyle(.plain)
+            .disabled(creating)
         }
         .padding(.horizontal, 40)
     }
 
     // MARK: - Mutations
 
-    private func createRelease(name: String, description: String?) async {
+    /// One-tap create: the server auto-names (`Release N`) and returns the id.
+    /// Poll GRDB for the Electric-synced row so the pushed detail doesn't
+    /// flash its "Release not found" branch, then navigate REGARDLESS — the
+    /// detail shows its loading state until sync lands.
+    private func createRelease() async {
+        guard !creating else { return }
+        creating = true
+        defer { creating = false }
         do {
-            try await deps.releasesApi.create(
-                accountId: accountId,
-                CreateReleaseInput(workspaceId: workspaceId, name: name, description: description)
-            )
+            let id = try await deps.releasesApi.create(accountId: accountId, workspaceId: workspaceId)
             error = nil
+            await waitForSyncedRelease(id: id)
+            onOpenRelease(id)
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func waitForSyncedRelease(id: String) async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        // 150ms × 33 ≈ 5s cap.
+        for _ in 0..<33 {
+            let row = try? await pool.read { db in
+                try ReleaseEntity.fetchOne(db, key: id)
+            }
+            if row != nil { return }
+            try? await Task.sleep(nanoseconds: 150_000_000)
         }
     }
 
@@ -201,9 +217,7 @@ struct ReleasesListView: View {
         let issueTask = Task { @MainActor in
             do {
                 for try await rows in issueObs.values(in: pool) {
-                    issuesByRelease = Dictionary(grouping: rows.filter { $0.releaseId != nil }) {
-                        $0.releaseId ?? ""
-                    }
+                    issuesByRelease = Dictionary(grouping: rows) { $0.releaseId ?? "" }
                 }
             } catch {}
         }
@@ -215,69 +229,4 @@ struct ReleasesListView: View {
         for task in observationTasks { task.cancel() }
         observationTasks = []
     }
-}
-
-// MARK: - Shared release display helpers
-
-/// "Shipped <date>" (emerald) when shipped_at is set; "Ready" (outline
-/// emerald) when all non-dropped issues are done and the release is unshipped;
-/// nothing otherwise. Mirrors the web's ReleaseStatePill.
-struct ReleaseStatePill: View {
-    let release: ReleaseEntity
-    let isComplete: Bool
-
-    var body: some View {
-        if release.shippedAt != nil {
-            pill(text: shippedText, filled: true)
-        } else if isComplete {
-            pill(text: "Ready", filled: false)
-        }
-    }
-
-    private var shippedText: String {
-        if let date = parseTimestamp(release.shippedAt) {
-            return "Shipped \(AppDateFormatters.MMMd.string(from: date))"
-        }
-        return "Shipped"
-    }
-
-    @ViewBuilder
-    private func pill(text: String, filled: Bool) -> some View {
-        Text(text)
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(DesignTokens.Semantic.green)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(
-                Capsule().fill(filled ? DesignTokens.Semantic.green.opacity(0.12) : .clear)
-            )
-            .overlay(
-                Capsule().strokeBorder(DesignTokens.Semantic.green.opacity(0.4), lineWidth: 1)
-            )
-    }
-}
-
-/// "N of M done" — denominator excludes cancelled + duplicate (§10.2).
-func progressText(_ progress: ReleaseProgress) -> String {
-    progress.total == 0
-        ? "No issues"
-        : "\(progress.done) of \(progress.denominator) done"
-}
-
-func formatReleaseTargetDate(_ dateString: String) -> String {
-    guard let date = AppDateFormatters.yyyyMMdd.date(from: dateString) else { return dateString }
-    return AppDateFormatters.MMMd.string(from: date)
-}
-
-/// Parse a synced ISO-8601 timestamp string (with or without fractional
-/// seconds, or the Postgres `yyyy-MM-dd HH:mm:ss+00` form).
-func parseTimestamp(_ s: String?) -> Date? {
-    guard let s else { return nil }
-    let withFractional = ISO8601DateFormatter()
-    withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = withFractional.date(from: s) { return date }
-    if let date = ISO8601DateFormatter().date(from: s) { return date }
-    // Postgres-style "yyyy-MM-dd HH:mm:ss+00" — normalize the space to a T.
-    let normalized = s.replacingOccurrences(of: " ", with: "T")
-    return withFractional.date(from: normalized) ?? ISO8601DateFormatter().date(from: normalized)
 }

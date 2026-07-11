@@ -79,6 +79,20 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE release_id IS NOT NULL AND archived_at IS NULL")
     fun observeAllInReleases(): Flow<List<IssueEntity>>
 
+    // Candidates for the release detail's add-issues sheet: workspace issues
+    // that are still actionable (not done/cancelled/duplicate) and not already
+    // in THIS release — issues in another release stay offered (the server
+    // records both timeline sides on the move).
+    @Query(
+        "SELECT i.* FROM issues i JOIN projects p ON p.id = i.project_id " +
+            "WHERE p.workspace_id = :workspaceId " +
+            "AND i.archived_at IS NULL " +
+            "AND i.status NOT IN ('done', 'cancelled', 'duplicate') " +
+            "AND (i.release_id IS NULL OR i.release_id != :releaseId) " +
+            "ORDER BY i.sort_order, i.created_at"
+    )
+    fun observeAddableForRelease(workspaceId: String, releaseId: String): Flow<List<IssueEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueEntity)
 

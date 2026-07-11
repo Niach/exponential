@@ -2,8 +2,8 @@ import ExpUI
 import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the five
-/// top-level destinations (Issues, Releases, Search, Agents — with a
-/// running-session dot — and Inbox — with an unread dot) plus a detached
+/// top-level destinations (Issues, Search, Agents — with a running-session
+/// dot — Inbox — with an unread dot — and Releases) plus a detached
 /// circular compose button on the right. Attached via
 /// `.overlay(alignment: .bottom)` so content scrolls underneath it; each
 /// bar-visible scrollable reserves clearance with `.tabBarBottomInset()`
@@ -36,8 +36,6 @@ struct MobileTabBar: View {
             HStack(spacing: 4) {
                 tab(glyph: .system("list.bullet"), label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
-                tab(glyph: .system("shippingbox"), label: "Releases", active: releasesActive, action: onReleases)
-                    .accessibilityIdentifier("tab-releases")
                 tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
                     .accessibilityIdentifier("tab-search")
                 tab(
@@ -58,6 +56,8 @@ struct MobileTabBar: View {
                     action: onInbox
                 )
                 .accessibilityIdentifier("tab-inbox")
+                tab(glyph: .system("shippingbox"), label: "Releases", active: releasesActive, action: onReleases)
+                    .accessibilityIdentifier("tab-releases")
             }
             .padding(5)
             .background(.ultraThinMaterial, in: Capsule())

@@ -22,7 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,17 +29,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,7 +45,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.CreateReleaseInput
 import com.exponential.app.data.api.ReleasesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -72,8 +64,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -115,14 +109,24 @@ class ReleasesListViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReleasesListState())
 
-    fun createRelease(name: String, description: String?) {
+    // In-flight guard: a double-tap must not create two releases (iOS parity —
+    // both entry buttons disable while true).
+    private val _creating = MutableStateFlow(false)
+    val creating: StateFlow<Boolean> = _creating.asStateFlow()
+
+    /**
+     * One-tap create: the server auto-names ("Release N") and returns the id;
+     * navigate immediately — the detail renders a loading state until sync.
+     */
+    fun createRelease(onCreated: (String) -> Unit) {
+        if (!_creating.compareAndSet(expect = false, update = true)) return
         viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                releasesApi.create(
-                    accountId,
-                    CreateReleaseInput(workspaceId = workspaceId, name = name, description = description),
-                )
+            try {
+                val accountId = auth.activeAccountId.value ?: return@launch
+                runCatching { releasesApi.create(accountId, workspaceId) }
+                    .onSuccess { onCreated(it) }
+            } finally {
+                _creating.value = false
             }
         }
     }
@@ -136,7 +140,7 @@ fun ReleasesListScreen(
     viewModel: ReleasesListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var createOpen by remember { mutableStateOf(false) }
+    val creating by viewModel.creating.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -149,7 +153,10 @@ fun ReleasesListScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { createOpen = true }) {
+                    IconButton(
+                        onClick = { viewModel.createRelease(onOpenRelease) },
+                        enabled = !creating,
+                    ) {
                         Icon(Icons.Filled.Add, contentDescription = "New release")
                     }
                 },
@@ -163,7 +170,10 @@ fun ReleasesListScreen(
                     message = "No releases yet. Bundle issues into a release to track what ships together and when.",
                     icon = Icons.Filled.RocketLaunch,
                     action = {
-                        Button(onClick = { createOpen = true }) { Text("New release") }
+                        Button(
+                            onClick = { viewModel.createRelease(onOpenRelease) },
+                            enabled = !creating,
+                        ) { Text("New release") }
                     },
                 )
             } else {
@@ -185,15 +195,6 @@ fun ReleasesListScreen(
         }
     }
 
-    if (createOpen) {
-        CreateReleaseSheet(
-            onCreate = { name, description ->
-                viewModel.createRelease(name, description)
-                createOpen = false
-            },
-            onDismiss = { createOpen = false },
-        )
-    }
 }
 
 @Composable
@@ -311,57 +312,5 @@ internal fun formatShippedDate(shippedAt: String?): String {
             java.time.LocalDate.parse(shippedAt.take(10))
                 .format(java.time.format.DateTimeFormatter.ofPattern("MMM d"))
         }.getOrDefault("")
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun CreateReleaseSheet(
-    onCreate: (name: String, description: String?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
-    ) {
-        Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-            Text("New release", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                placeholder = { Text("Release name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                placeholder = { Text("Description (optional)") },
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = {
-                    val trimmed = name.trim()
-                    if (trimmed.isNotEmpty()) {
-                        onCreate(trimmed, description.trim().ifEmpty { null })
-                    }
-                },
-                enabled = name.trim().isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Create release")
-            }
-            Spacer(Modifier.height(24.dp))
-        }
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -76,23 +77,30 @@ import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 // Release detail (EXP-56): header (name, target date, shipped state, PR pill
-// linking out), ship/unship, delete (confirmed), and the release's issues
-// grouped by status like the project board. Rows navigate to the issue
-// detail; the per-row X unbundles a row (setIssueRelease null — the issue
-// survives). Mobile never launches coding — no run affordance here.
+// linking out), ship/unship, delete (confirmed), the "+" add-issues sheet
+// (multi-select, releases.addIssues), and the release's issues grouped by
+// status like the project board. Rows navigate to the issue detail; the
+// per-row X unbundles a row (setIssueRelease null — the issue survives).
+// Mobile never launches coding — no run affordance here.
 
 data class ReleaseDetailState(
     val release: ReleaseEntity? = null,
     val issues: List<IssueEntity> = emptyList(),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ReleaseDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -105,12 +113,41 @@ class ReleaseDetailViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    private val releaseFlow =
+        dbFlow.scopedQuery<ReleaseEntity?>(null) { it.releaseDao().observeById(releaseId) }
+
     val state: StateFlow<ReleaseDetailState> = combine(
-        dbFlow.scopedQuery<ReleaseEntity?>(null) { it.releaseDao().observeById(releaseId) },
+        releaseFlow,
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeByRelease(releaseId) },
     ) { release, issues ->
         ReleaseDetailState(release = release, issues = issues)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReleaseDetailState())
+
+    // Candidates for the add-issues sheet, keyed off the release row's
+    // workspaceId (the release itself is the only workspace anchor here).
+    val addableIssues: StateFlow<List<IssueEntity>> = combine(
+        dbFlow, releaseFlow,
+    ) { db, release -> db to release }
+        .flatMapLatest { (db, release) ->
+            if (db == null || release == null) flowOf(emptyList())
+            else db.issueDao().observeAddableForRelease(release.workspaceId, releaseId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Mutation failures surface in the header card (iOS parity) — the sheet
+    // has already closed by the time the tRPC call settles.
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    fun addIssues(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { releasesApi.addIssues(accountId, releaseId, ids) }
+                .onSuccess { _error.value = null }
+                .onFailure { _error.value = "Couldn't add issues: ${it.message ?: "unknown error"}" }
+        }
+    }
 
     fun toggleShipped() {
         val release = state.value.release ?: return
@@ -145,9 +182,12 @@ fun ReleaseDetailScreen(
     viewModel: ReleaseDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val addableIssues by viewModel.addableIssues.collectAsStateWithLifecycle()
+    val mutationError by viewModel.error.collectAsStateWithLifecycle()
     val release = state.release
     var overflowOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var addIssuesOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -161,6 +201,9 @@ fun ReleaseDetailScreen(
                 },
                 actions = {
                     if (release != null) {
+                        IconButton(onClick = { addIssuesOpen = true }) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add issues")
+                        }
                         TextButton(onClick = { viewModel.toggleShipped() }) {
                             Text(if (release.shippedAt == null) "Mark shipped" else "Unship")
                         }
@@ -259,6 +302,15 @@ fun ReleaseDetailScreen(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             )
                         }
+                        val errorText = mutationError
+                        if (errorText != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                errorText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                 }
 
@@ -267,7 +319,7 @@ fun ReleaseDetailScreen(
                 if (state.issues.isEmpty()) {
                     item(key = "empty") {
                         EmptyState(
-                            message = "No issues in this release. Add issues from their detail page's Release picker.",
+                            message = "No issues in this release. Tap + to add issues.",
                             icon = Icons.Filled.RocketLaunch,
                             modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
                         )
@@ -296,6 +348,14 @@ fun ReleaseDetailScreen(
                 }
             }
         }
+    }
+
+    if (addIssuesOpen && release != null) {
+        AddIssuesSheet(
+            candidates = addableIssues,
+            onConfirm = { viewModel.addIssues(it) },
+            onDismiss = { addIssuesOpen = false },
+        )
     }
 
     if (confirmDelete && release != null) {

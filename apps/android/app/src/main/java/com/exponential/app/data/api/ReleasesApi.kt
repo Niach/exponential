@@ -6,6 +6,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 // tRPC surface for the releases router (EXP-56). Mobile is view/manage only:
@@ -13,14 +15,7 @@ import kotlinx.serialization.json.put
 // from the synced `releases` shape.
 
 @Serializable
-data class CreateReleaseInput(
-    val workspaceId: String,
-    val name: String,
-    // Optional; nulls are omitted by the shared Json (explicitNulls=false),
-    // matching the server's `.optional()` zod fields.
-    val description: String? = null,
-    val targetDate: String? = null,
-)
+data class CreateReleaseInput(val workspaceId: String)
 
 @Serializable
 data class MarkReleaseShippedInput(val id: String, val shipped: Boolean)
@@ -28,16 +23,28 @@ data class MarkReleaseShippedInput(val id: String, val shipped: Boolean)
 @Serializable
 data class DeleteReleaseInput(val id: String)
 
+@Serializable
+data class AddReleaseIssuesInput(val releaseId: String, val issueIds: List<String>)
+
 @Singleton
 class ReleasesApi @Inject constructor(private val trpc: TrpcClient) {
 
-    suspend fun create(accountId: String, input: CreateReleaseInput) {
-        trpc.mutationUnit(
+    /**
+     * One-tap create: no name is sent, so the server auto-names sequentially
+     * ("Release N"). Returns the new release's id so the caller can navigate
+     * straight to the detail (which renders a loading state until sync).
+     */
+    suspend fun create(accountId: String, workspaceId: String): String {
+        val result = trpc.mutation(
             accountId,
             path = "releases.create",
-            input = input,
+            input = CreateReleaseInput(workspaceId),
             inputSerializer = CreateReleaseInput.serializer(),
+            // Decode as a raw JsonObject: the full release row rides along and
+            // the shared strict Json must not choke on columns we don't model.
+            outputSerializer = JsonObject.serializer(),
         )
+        return result["release"]!!.jsonObject["id"]!!.jsonPrimitive.content
     }
 
     suspend fun markShipped(accountId: String, id: String, shipped: Boolean) {
@@ -56,6 +63,22 @@ class ReleasesApi @Inject constructor(private val trpc: TrpcClient) {
             input = DeleteReleaseInput(id),
             inputSerializer = DeleteReleaseInput.serializer(),
         )
+    }
+
+    /**
+     * Bulk-add issues to a release (the detail's add-issues sheet). The server
+     * caps issueIds at 200 per call — chunk sequentially so any selection size
+     * lands (wire contract: clients chunk >200 ids).
+     */
+    suspend fun addIssues(accountId: String, releaseId: String, issueIds: List<String>) {
+        for (chunk in issueIds.chunked(200)) {
+            trpc.mutationUnit(
+                accountId,
+                path = "releases.addIssues",
+                input = AddReleaseIssuesInput(releaseId, chunk),
+                inputSerializer = AddReleaseIssuesInput.serializer(),
+            )
+        }
     }
 
     /**

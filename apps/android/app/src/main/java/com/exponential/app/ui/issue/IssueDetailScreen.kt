@@ -499,7 +499,9 @@ fun IssueDetailScreen(
         )
     }
 
-    if (releaseMenuOpen && isModerator) {
+    // Plain membership, not isModerator: v7 collapses moderation to membership
+    // (matches web's isModerator = isMember and iOS's ungated picker).
+    if (releaseMenuOpen && permissions.isMember) {
         // Single-select release picker (EXP-56): "No release" clears, picking
         // the current one is a no-op server-side.
         val releaseItems: List<com.exponential.app.data.db.ReleaseEntity?> =
