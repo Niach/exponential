@@ -10,6 +10,8 @@ import {
   labels,
   notifications,
   projects,
+  releases,
+  repositories,
   runConfigs,
   users,
   workspaceInvites,
@@ -1045,6 +1047,97 @@ export function registerExponentialTools(
           type: `pr_opened`,
           actorUserId: user.id,
         })
+
+        return ok({ url: created.url, number: created.number })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_release_pr_open`,
+    {
+      title: `Open the release pull request`,
+      description: `Open the ONE pull request for a release coding run's integration branch and record it on the release. The SERVER opens the PR via the GitHub App — you don't need 'gh' or a token. 'head' is the pushed integration branch (e.g. 'exp/rel-<slug>'); 'base' defaults to the repository's default branch. This is IN ADDITION to the per-issue PRs (which keep using exponential_pr_open with base = the integration branch) — the release PR carries the combined diff, and merging it AUTO-SHIPS the release. Refuses when the release already has a linked PR (one release PR per release; a multi-repo release records only its first).`,
+      inputSchema: {
+        releaseId: z.string().uuid(),
+        repositoryId: z.string().uuid(),
+        title: z.string().min(1).max(255),
+        body: z.string().max(60_000).optional(),
+        head: z.string().min(1).max(255),
+        base: z.string().max(255).optional(),
+      },
+    },
+    async ({ releaseId, repositoryId, title, body, head, base }) => {
+      try {
+        const [release] = await db
+          .select({
+            id: releases.id,
+            workspaceId: releases.workspaceId,
+            prUrl: releases.prUrl,
+          })
+          .from(releases)
+          .where(eq(releases.id, releaseId))
+          .limit(1)
+        if (!release) throw new Error(`Release not found`)
+        // Workspace-level GitHub write: a project-scoped OAuth grant must not
+        // reach it (same posture as exponential_repositories_add — REV-27
+        // class). Personal keys/sessions have full access and pass.
+        assertWorkspaceFullyGranted(access, release.workspaceId)
+        await resolveWorkspaceAccess(user.id, release.workspaceId)
+
+        if (release.prUrl) {
+          throw new Error(
+            `This release already has a linked PR: ${release.prUrl}`
+          )
+        }
+
+        const [repo] = await db
+          .select({
+            id: repositories.id,
+            fullName: repositories.fullName,
+            defaultBranch: repositories.defaultBranch,
+            workspaceId: repositories.workspaceId,
+            archivedAt: repositories.archivedAt,
+          })
+          .from(repositories)
+          .where(eq(repositories.id, repositoryId))
+          .limit(1)
+        if (
+          !repo ||
+          repo.workspaceId !== release.workspaceId ||
+          repo.archivedAt
+        ) {
+          throw new Error(`Repository not found in this release's workspace`)
+        }
+
+        const token = await resolveRepoInstallationToken(repo.fullName)
+        if (!token) {
+          throw new Error(
+            `The Exponential GitHub App is not installed on ${repo.fullName}.`
+          )
+        }
+
+        const created = await createPullRequest({
+          repo: repo.fullName,
+          head,
+          base: base ?? repo.defaultBranch,
+          title,
+          body: body ?? ``,
+          token,
+        })
+
+        // Conditional on pr_url still being NULL: a concurrent link keeps the
+        // first writer (the PR opened here still exists on GitHub either way).
+        await db
+          .update(releases)
+          .set({
+            prUrl: created.url,
+            prNumber: created.number,
+            prState: `open`,
+          })
+          .where(and(eq(releases.id, releaseId), isNull(releases.prUrl)))
 
         return ok({ url: created.url, number: created.number })
       } catch (e) {

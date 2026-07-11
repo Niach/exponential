@@ -10,6 +10,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // pr_url, pr_number and branch are excluded from their columns allowlist.
 // pr_state + pr_merged_at stay so the board can show a "shipped" signal
 // without exposing where the code lives. Members sync full rows (no allowlist).
+// `release_id` is intentionally absent: releases are member-only (their shape
+// never syncs anonymously), so the FK would be a dangling internal id — do not
+// "helpfully" add it here.
 const ANONYMOUS_COLUMNS = [
   `id`,
   `project_id`,

@@ -31,8 +31,9 @@ export interface SortableIssue {
 // optimistic upserts carry strings — Electric's `YYYY-MM-DD hh:mm:ss…+00`
 // vs ISO `…T…Z`. Normalize the space to `T` and pad a bare `±hh` offset to
 // `±hh:00` (JS Date rejects hour-only offsets) so mixed formats compare as
-// real instants (EXP-38 timestamp gotcha).
-function timestampMs(value: Date | string): number {
+// real instants (EXP-38 timestamp gotcha). Exported for the release
+// comparator (`lib/releases.ts`), which sorts the same mixed formats.
+export function timestampMs(value: Date | string): number {
   if (value instanceof Date) return value.getTime()
   const iso = value.replace(` `, `T`).replace(/([+-]\d{2})$/, `$1:00`)
   return new Date(iso).getTime()

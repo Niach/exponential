@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Send } from "lucide-react"
-import type { Comment, Issue, IssueEvent, Label, User } from "@/db/schema"
+import type { Comment, Issue, IssueEvent, Label, Release, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
   commentCollection,
   issueEventCollection,
   labelCollection,
+  releaseCollection,
 } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
 import { MentionTextarea } from "@/components/mention-textarea"
@@ -50,10 +51,18 @@ export function IssueTimeline({
     query.from({ labels: labelCollection })
   )
 
+  const { data: releases } = useLiveQuery((query) =>
+    query.from({ releases: releaseCollection })
+  )
+
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
   const labelMap = useMemo(
     () => new Map((labels ?? []).map((l) => [l.id, l as Label])),
     [labels]
+  )
+  const releaseMap = useMemo(
+    () => new Map((releases ?? []).map((r) => [r.id, r as Release])),
+    [releases]
   )
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
@@ -130,6 +139,7 @@ export function IssueTimeline({
               event={item.event}
               userMap={userMap}
               labelMap={labelMap}
+              releaseMap={releaseMap}
             />
           )
         }

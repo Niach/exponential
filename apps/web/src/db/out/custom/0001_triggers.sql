@@ -32,6 +32,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_submissions 
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON github_installation_repo_grants FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON releases FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 2. Auto-generate issue number and identifier per project, allocated from the
 --    per-project monotonic counter table issue_number_counters (migration
@@ -123,13 +124,18 @@ CREATE OR REPLACE TRIGGER populate_issue_label_workspace_id
 --    (stable). issues have no direct workspace_id, so resolve it via
 --    issues → projects (NOT the issue_labels template which reads
 --    labels.workspace_id). A wrong source leaves workspace_id NULL → NOT NULL
---    violation.
+--    violation. Guarded on issue_id: release-scoped coding_sessions rows
+--    (EXP-56, issue_id NULL) carry an explicitly-written workspace_id that an
+--    unguarded SELECT-with-no-row would overwrite with NULL. Every other
+--    consumer has issue_id NOT NULL, so the guard is a no-op for them.
 CREATE OR REPLACE FUNCTION populate_issue_child_workspace_id()
 RETURNS TRIGGER AS $$
 BEGIN
-  SELECT p.workspace_id INTO NEW.workspace_id
-  FROM issues i JOIN projects p ON p.id = i.project_id
-  WHERE i.id = NEW.issue_id;
+  IF NEW.issue_id IS NOT NULL THEN
+    SELECT p.workspace_id INTO NEW.workspace_id
+    FROM issues i JOIN projects p ON p.id = i.project_id
+    WHERE i.id = NEW.issue_id;
+  END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -159,11 +165,16 @@ CREATE OR REPLACE TRIGGER populate_coding_session_workspace_id
 --    any explicitly-passed value with issue-derived truth, mirroring the
 --    workspace_id pattern. INSERT-only: issues never move between projects.
 --    issue_labels intentionally has BOTH triggers (workspace_id from the
---    label, project_id from the issue).
+--    label, project_id from the issue). Guarded on issue_id like the
+--    workspace_id populate: release-scoped coding_sessions rows (issue_id
+--    NULL) keep project_id NULL — they span projects and are never
+--    anonymous-visible.
 CREATE OR REPLACE FUNCTION populate_issue_child_project_id()
 RETURNS TRIGGER AS $$
 BEGIN
-  SELECT project_id INTO NEW.project_id FROM issues WHERE id = NEW.issue_id;
+  IF NEW.issue_id IS NOT NULL THEN
+    SELECT project_id INTO NEW.project_id FROM issues WHERE id = NEW.issue_id;
+  END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

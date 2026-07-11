@@ -43,6 +43,9 @@ interface IssueListProps {
   hasAnyIssues?: boolean
   hasActiveFilters?: boolean
   onClearFilters?: () => void
+  // Optional trailing per-row action cell (e.g. the release detail's
+  // remove-from-release X). Rendered in its own click-isolated grid column.
+  renderRowAction?: (issue: Issue) => React.ReactNode
 }
 
 function IssueListSkeleton() {
@@ -82,9 +85,15 @@ export function IssueList({
   hasAnyIssues = false,
   hasActiveFilters = false,
   onClearFilters,
+  renderRowAction,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const visibleGroups = groups.filter((g) => g.issues.length > 0)
+
+  // The row grid grows a trailing action column when the caller renders one.
+  const rowGridClass = renderRowAction
+    ? `grid-cols-[2rem_2rem_1fr_auto_2rem] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+    : `grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
 
   // Solo workspace (exactly one human member): render the assignee cell as a
   // static avatar, not an interactive dropdown. `users` is the bot-excluded
@@ -212,7 +221,7 @@ export function IssueList({
                     onOpenIssue={() => onIssueClick(issue)}
                   >
                     <div
-                      className="grid grid-cols-[2rem_2rem_1fr_auto] md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem] items-center h-12 md:h-10 px-3 md:px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer"
+                      className={`grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 hover:bg-accent/30 border-b border-border/30 group/row cursor-pointer`}
                       onClick={() => onIssueClick(issue)}
                       data-testid={`issue-row-${issue.identifier}`}
                     >
@@ -285,6 +294,14 @@ export function IssueList({
                           disabled={!moderatorRowCanMutate}
                         />
                       </div>
+                      {renderRowAction && (
+                        <div
+                          className="flex items-center justify-end"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {renderRowAction(issue)}
+                        </div>
+                      )}
                     </div>
                   </IssueRowContextMenu>
                 )

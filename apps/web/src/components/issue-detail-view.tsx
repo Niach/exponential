@@ -420,6 +420,17 @@ export function IssueDetailView({
         }
         await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
       }}
+      releaseId={issue.releaseId}
+      onReleaseChange={async (releaseId) => {
+        if (readOnly) return
+        // setIssueRelease writes the ISSUES table — await the issues
+        // collection txId (releases stay untouched).
+        const { txId } = await trpc.releases.setIssueRelease.mutate({
+          issueId: issue.id,
+          releaseId,
+        })
+        await issueCollection.utils.awaitTxId(txId)
+      }}
       dueDate={dueDate}
       dueTime={issue.dueTime ?? null}
       endTime={issue.endTime ?? null}

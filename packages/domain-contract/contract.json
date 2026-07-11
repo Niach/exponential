@@ -51,7 +51,9 @@
       "label_added",
       "label_removed",
       "pr_opened",
-      "pr_merged"
+      "pr_merged",
+      "release_added",
+      "release_removed"
     ]
   },
   "recurrenceIntervals": [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]

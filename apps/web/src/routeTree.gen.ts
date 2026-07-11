@@ -42,6 +42,7 @@ import { Route as ApiShapesWorkspacesRouteImport } from './routes/api/shapes/wor
 import { Route as ApiShapesWorkspaceMembersRouteImport } from './routes/api/shapes/workspace-members'
 import { Route as ApiShapesWorkspaceInvitesRouteImport } from './routes/api/shapes/workspace-invites'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
+import { Route as ApiShapesReleasesRouteImport } from './routes/api/shapes/releases'
 import { Route as ApiShapesProjectsRouteImport } from './routes/api/shapes/projects'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
@@ -60,9 +61,11 @@ import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
 import { Route as WWorkspaceSlugSettingsIndexRouteImport } from './routes/w/$workspaceSlug/settings/index'
 import { Route as WWorkspaceSlugReviewsIndexRouteImport } from './routes/w/$workspaceSlug/reviews/index'
+import { Route as WWorkspaceSlugReleasesIndexRouteImport } from './routes/w/$workspaceSlug/releases/index'
 import { Route as WWorkspaceSlugMyIssuesIndexRouteImport } from './routes/w/$workspaceSlug/my-issues/index'
 import { Route as WWorkspaceSlugInboxIndexRouteImport } from './routes/w/$workspaceSlug/inbox/index'
 import { Route as WWorkspaceSlugAgentsIndexRouteImport } from './routes/w/$workspaceSlug/agents/index'
+import { Route as WWorkspaceSlugReleasesReleaseIdRouteImport } from './routes/w/$workspaceSlug/releases/$releaseId'
 import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
@@ -241,6 +244,11 @@ const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
   path: '/api/shapes/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesReleasesRoute = ApiShapesReleasesRouteImport.update({
+  id: '/api/shapes/releases',
+  path: '/api/shapes/releases',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesProjectsRoute = ApiShapesProjectsRouteImport.update({
   id: '/api/shapes/projects',
   path: '/api/shapes/projects',
@@ -337,6 +345,12 @@ const WWorkspaceSlugReviewsIndexRoute =
     path: '/reviews/',
     getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
+const WWorkspaceSlugReleasesIndexRoute =
+  WWorkspaceSlugReleasesIndexRouteImport.update({
+    id: '/releases/',
+    path: '/releases/',
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
+  } as any)
 const WWorkspaceSlugMyIssuesIndexRoute =
   WWorkspaceSlugMyIssuesIndexRouteImport.update({
     id: '/my-issues/',
@@ -353,6 +367,12 @@ const WWorkspaceSlugAgentsIndexRoute =
   WWorkspaceSlugAgentsIndexRouteImport.update({
     id: '/agents/',
     path: '/agents/',
+    getParentRoute: () => WWorkspaceSlugRouteRoute,
+  } as any)
+const WWorkspaceSlugReleasesReleaseIdRoute =
+  WWorkspaceSlugReleasesReleaseIdRouteImport.update({
+    id: '/releases/$releaseId',
+    path: '/releases/$releaseId',
     getParentRoute: () => WWorkspaceSlugRouteRoute,
   } as any)
 const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
@@ -448,6 +468,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/projects': typeof ApiShapesProjectsRoute
+  '/api/shapes/releases': typeof ApiShapesReleasesRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
@@ -465,9 +486,11 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/releases/$releaseId': typeof WWorkspaceSlugReleasesReleaseIdRoute
   '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
+  '/w/$workspaceSlug/releases/': typeof WWorkspaceSlugReleasesIndexRoute
   '/w/$workspaceSlug/reviews/': typeof WWorkspaceSlugReviewsIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
@@ -510,6 +533,7 @@ export interface FileRoutesByTo {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/projects': typeof ApiShapesProjectsRoute
+  '/api/shapes/releases': typeof ApiShapesReleasesRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
@@ -527,9 +551,11 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/releases/$releaseId': typeof WWorkspaceSlugReleasesReleaseIdRoute
   '/w/$workspaceSlug/agents': typeof WWorkspaceSlugAgentsIndexRoute
   '/w/$workspaceSlug/inbox': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/my-issues': typeof WWorkspaceSlugMyIssuesIndexRoute
+  '/w/$workspaceSlug/releases': typeof WWorkspaceSlugReleasesIndexRoute
   '/w/$workspaceSlug/reviews': typeof WWorkspaceSlugReviewsIndexRoute
   '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
@@ -576,6 +602,7 @@ export interface FileRoutesById {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/projects': typeof ApiShapesProjectsRoute
+  '/api/shapes/releases': typeof ApiShapesReleasesRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/shapes/workspace-invites': typeof ApiShapesWorkspaceInvitesRoute
   '/api/shapes/workspace-members': typeof ApiShapesWorkspaceMembersRoute
@@ -593,9 +620,11 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
+  '/w/$workspaceSlug/releases/$releaseId': typeof WWorkspaceSlugReleasesReleaseIdRoute
   '/w/$workspaceSlug/agents/': typeof WWorkspaceSlugAgentsIndexRoute
   '/w/$workspaceSlug/inbox/': typeof WWorkspaceSlugInboxIndexRoute
   '/w/$workspaceSlug/my-issues/': typeof WWorkspaceSlugMyIssuesIndexRoute
+  '/w/$workspaceSlug/releases/': typeof WWorkspaceSlugReleasesIndexRoute
   '/w/$workspaceSlug/reviews/': typeof WWorkspaceSlugReviewsIndexRoute
   '/w/$workspaceSlug/settings/': typeof WWorkspaceSlugSettingsIndexRoute
   '/w/$workspaceSlug/projects/$projectSlug/': typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
@@ -642,6 +671,7 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
     | '/api/shapes/projects'
+    | '/api/shapes/releases'
     | '/api/shapes/users'
     | '/api/shapes/workspace-invites'
     | '/api/shapes/workspace-members'
@@ -659,9 +689,11 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/releases/$releaseId'
     | '/w/$workspaceSlug/agents/'
     | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/my-issues/'
+    | '/w/$workspaceSlug/releases/'
     | '/w/$workspaceSlug/reviews/'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
@@ -704,6 +736,7 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
     | '/api/shapes/projects'
+    | '/api/shapes/releases'
     | '/api/shapes/users'
     | '/api/shapes/workspace-invites'
     | '/api/shapes/workspace-members'
@@ -721,9 +754,11 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/releases/$releaseId'
     | '/w/$workspaceSlug/agents'
     | '/w/$workspaceSlug/inbox'
     | '/w/$workspaceSlug/my-issues'
+    | '/w/$workspaceSlug/releases'
     | '/w/$workspaceSlug/reviews'
     | '/w/$workspaceSlug/settings'
     | '/w/$workspaceSlug/projects/$projectSlug'
@@ -769,6 +804,7 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/notifications'
     | '/api/shapes/projects'
+    | '/api/shapes/releases'
     | '/api/shapes/users'
     | '/api/shapes/workspace-invites'
     | '/api/shapes/workspace-members'
@@ -786,9 +822,11 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/images'
+    | '/w/$workspaceSlug/releases/$releaseId'
     | '/w/$workspaceSlug/agents/'
     | '/w/$workspaceSlug/inbox/'
     | '/w/$workspaceSlug/my-issues/'
+    | '/w/$workspaceSlug/releases/'
     | '/w/$workspaceSlug/reviews/'
     | '/w/$workspaceSlug/settings/'
     | '/w/$workspaceSlug/projects/$projectSlug/'
@@ -829,6 +867,7 @@ export interface RootRouteChildren {
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
   ApiShapesProjectsRoute: typeof ApiShapesProjectsRoute
+  ApiShapesReleasesRoute: typeof ApiShapesReleasesRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
   ApiShapesWorkspaceInvitesRoute: typeof ApiShapesWorkspaceInvitesRoute
   ApiShapesWorkspaceMembersRoute: typeof ApiShapesWorkspaceMembersRoute
@@ -1075,6 +1114,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/releases': {
+      id: '/api/shapes/releases'
+      path: '/api/shapes/releases'
+      fullPath: '/api/shapes/releases'
+      preLoaderRoute: typeof ApiShapesReleasesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/projects': {
       id: '/api/shapes/projects'
       path: '/api/shapes/projects'
@@ -1201,6 +1247,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceSlugReviewsIndexRouteImport
       parentRoute: typeof WWorkspaceSlugRouteRoute
     }
+    '/w/$workspaceSlug/releases/': {
+      id: '/w/$workspaceSlug/releases/'
+      path: '/releases'
+      fullPath: '/w/$workspaceSlug/releases/'
+      preLoaderRoute: typeof WWorkspaceSlugReleasesIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
+    }
     '/w/$workspaceSlug/my-issues/': {
       id: '/w/$workspaceSlug/my-issues/'
       path: '/my-issues'
@@ -1220,6 +1273,13 @@ declare module '@tanstack/react-router' {
       path: '/agents'
       fullPath: '/w/$workspaceSlug/agents/'
       preLoaderRoute: typeof WWorkspaceSlugAgentsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRouteRoute
+    }
+    '/w/$workspaceSlug/releases/$releaseId': {
+      id: '/w/$workspaceSlug/releases/$releaseId'
+      path: '/releases/$releaseId'
+      fullPath: '/w/$workspaceSlug/releases/$releaseId'
+      preLoaderRoute: typeof WWorkspaceSlugReleasesReleaseIdRouteImport
       parentRoute: typeof WWorkspaceSlugRouteRoute
     }
     '/api/issues/$issueId/images': {
@@ -1338,9 +1398,11 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface WWorkspaceSlugRouteRouteChildren {
   WWorkspaceSlugIndexRoute: typeof WWorkspaceSlugIndexRoute
+  WWorkspaceSlugReleasesReleaseIdRoute: typeof WWorkspaceSlugReleasesReleaseIdRoute
   WWorkspaceSlugAgentsIndexRoute: typeof WWorkspaceSlugAgentsIndexRoute
   WWorkspaceSlugInboxIndexRoute: typeof WWorkspaceSlugInboxIndexRoute
   WWorkspaceSlugMyIssuesIndexRoute: typeof WWorkspaceSlugMyIssuesIndexRoute
+  WWorkspaceSlugReleasesIndexRoute: typeof WWorkspaceSlugReleasesIndexRoute
   WWorkspaceSlugReviewsIndexRoute: typeof WWorkspaceSlugReviewsIndexRoute
   WWorkspaceSlugSettingsIndexRoute: typeof WWorkspaceSlugSettingsIndexRoute
   WWorkspaceSlugProjectsProjectSlugIndexRoute: typeof WWorkspaceSlugProjectsProjectSlugIndexRoute
@@ -1349,9 +1411,11 @@ interface WWorkspaceSlugRouteRouteChildren {
 
 const WWorkspaceSlugRouteRouteChildren: WWorkspaceSlugRouteRouteChildren = {
   WWorkspaceSlugIndexRoute: WWorkspaceSlugIndexRoute,
+  WWorkspaceSlugReleasesReleaseIdRoute: WWorkspaceSlugReleasesReleaseIdRoute,
   WWorkspaceSlugAgentsIndexRoute: WWorkspaceSlugAgentsIndexRoute,
   WWorkspaceSlugInboxIndexRoute: WWorkspaceSlugInboxIndexRoute,
   WWorkspaceSlugMyIssuesIndexRoute: WWorkspaceSlugMyIssuesIndexRoute,
+  WWorkspaceSlugReleasesIndexRoute: WWorkspaceSlugReleasesIndexRoute,
   WWorkspaceSlugReviewsIndexRoute: WWorkspaceSlugReviewsIndexRoute,
   WWorkspaceSlugSettingsIndexRoute: WWorkspaceSlugSettingsIndexRoute,
   WWorkspaceSlugProjectsProjectSlugIndexRoute:
@@ -1399,6 +1463,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
   ApiShapesProjectsRoute: ApiShapesProjectsRoute,
+  ApiShapesReleasesRoute: ApiShapesReleasesRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
   ApiShapesWorkspaceInvitesRoute: ApiShapesWorkspaceInvitesRoute,
   ApiShapesWorkspaceMembersRoute: ApiShapesWorkspaceMembersRoute,

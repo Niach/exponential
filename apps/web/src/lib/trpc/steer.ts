@@ -140,6 +140,14 @@ export const steerRouter = router({
           message: `Session has ended`,
         })
       }
+      // Release-scoped sessions (EXP-56, project_id NULL) are member-only —
+      // they span projects, so no feedback-board live toggle can apply.
+      if (!session.projectId) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `This session is not publicly viewable`,
+        })
+      }
       const { db } = await import(`@/db/connection`)
       const [project] = await db
         .select({

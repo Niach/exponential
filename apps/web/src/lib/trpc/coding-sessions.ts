@@ -2,36 +2,76 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { codingSessions } from "@/db/schema"
+import { codingSessions, releases } from "@/db/schema"
 import {
   assertWorkspaceMember,
   getIssueWorkspaceContext,
 } from "@/lib/workspace-membership"
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
-// interactive session; synced to every client as the 14th Electric shape.
+// interactive session; synced to every client as an Electric shape.
+// Two subjects (EXP-56): issue-scoped (issueId) or release-scoped (releaseId —
+// the desktop release orchestrator; issue_id/project_id stay NULL, the
+// populate triggers no-op on NULL issue_id). Exactly one of the two.
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
 export const codingSessionsRouter = router({
   start: authedProcedure
     .input(
-      z.object({
-        issueId: z.string().uuid(),
-        deviceLabel: z.string().max(255).optional(),
-      })
+      z
+        .object({
+          issueId: z.string().uuid().optional(),
+          releaseId: z.string().uuid().optional(),
+          deviceLabel: z.string().max(255).optional(),
+        })
+        .refine((value) => Boolean(value.issueId) !== Boolean(value.releaseId), {
+          message: `Exactly one of issueId/releaseId is required`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueCtx = await getIssueWorkspaceContext(input.issueId)
-      await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
+      if (input.issueId) {
+        const issueCtx = await getIssueWorkspaceContext(input.issueId)
+        await assertWorkspaceMember(ctx.session.user.id, issueCtx.workspaceId)
+
+        const [session] = await ctx.db
+          .insert(codingSessions)
+          .values({
+            issueId: input.issueId,
+            // Set explicitly (also trigger-denormalized) so the row is valid even
+            // if the populate_* triggers aren't applied.
+            workspaceId: issueCtx.workspaceId,
+            projectId: issueCtx.projectId,
+            userId: ctx.session.user.id,
+            deviceLabel: input.deviceLabel ?? null,
+            status: `running`,
+          })
+          .returning()
+
+        return { session }
+      }
+
+      const [release] = await ctx.db
+        .select({ id: releases.id, workspaceId: releases.workspaceId })
+        .from(releases)
+        .where(eq(releases.id, input.releaseId!))
+        .limit(1)
+      if (!release) {
+        throw new TRPCError({
+          code: `NOT_FOUND`,
+          message: `Release not found`,
+        })
+      }
+      await assertWorkspaceMember(ctx.session.user.id, release.workspaceId)
 
       const [session] = await ctx.db
         .insert(codingSessions)
         .values({
-          issueId: input.issueId,
-          // Set explicitly (also trigger-denormalized) so the row is valid even
-          // if the populate_* triggers aren't applied.
-          workspaceId: issueCtx.workspaceId,
-          projectId: issueCtx.projectId,
+          releaseId: release.id,
+          // workspace_id written directly from the release (no issue to
+          // denormalize from); project_id stays NULL — a release run spans
+          // projects and must never surface through the anonymous
+          // project-scoped clause.
+          workspaceId: release.workspaceId,
           userId: ctx.session.user.id,
           deviceLabel: input.deviceLabel ?? null,
           status: `running`,

@@ -32,6 +32,17 @@ describe(`parseIssueIdentifierFromBranch`, () => {
     expect(parseIssueIdentifierFromBranch(`exp/MET-12-extra`)).toBeNull()
     expect(parseIssueIdentifierFromBranch(`exp/MET-12/sub`)).toBeNull()
   })
+
+  // EXP-56: release integration branches are exp/rel-<slug> with a LOWERCASE
+  // slug by construction — the desktop launcher lowercases it exactly so this
+  // parser can never mis-link a release PR to an issue. Release PRs resolve by
+  // exact pr_url only. If this contract changes, the desktop's
+  // release_branch_name guard test must change with it.
+  it(`never matches release integration branches (lowercase rel-<slug> tail)`, () => {
+    expect(parseIssueIdentifierFromBranch(`exp/rel-0-4`)).toBeNull()
+    expect(parseIssueIdentifierFromBranch(`exp/rel-july-wave`)).toBeNull()
+    expect(parseIssueIdentifierFromBranch(`exp/rel-v2`)).toBeNull()
+  })
 })
 
 // One issue = one PR: the merge/close writers must only act for the issue's

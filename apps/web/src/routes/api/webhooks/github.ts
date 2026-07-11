@@ -8,7 +8,11 @@ import {
   applyPrMergeState,
   applyPrOpenedState,
   applyPrReopenedState,
+  applyReleasePrClosedState,
+  applyReleasePrMergeState,
+  applyReleasePrReopenedState,
   findIssueIdByBranch,
+  findReleaseIdByPrUrl,
 } from "@/lib/integrations/pr-sync"
 import { invalidateRepoCacheForInstallation } from "@/lib/trpc/integrations"
 
@@ -211,16 +215,24 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     const headRef = pr.head?.ref
 
     // Merge: flip prState → merged, stamp prMergedAt, emit pr_merged (once).
+    // Release PRs (EXP-56) resolve by exact prUrl when no issue matches —
+    // merging one also AUTO-SHIPS the release (stamps shippedAt).
     if (payload.action === `closed` && pr.merged === true) {
-      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
-      if (!issueId) return jsonResponse(200, { ok: true })
       const mergedAt = pr.merged_at ? new Date(pr.merged_at) : new Date()
-      await applyPrMergeState({
-        issueId,
-        prUrl: htmlUrl,
-        mergedAt,
-        actorUserId: null,
-      })
+      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
+      if (issueId) {
+        await applyPrMergeState({
+          issueId,
+          prUrl: htmlUrl,
+          mergedAt,
+          actorUserId: null,
+        })
+        return jsonResponse(200, { ok: true })
+      }
+      const releaseId = await findReleaseIdByPrUrl(htmlUrl)
+      if (releaseId) {
+        await applyReleasePrMergeState({ releaseId, prUrl: htmlUrl, mergedAt })
+      }
       return jsonResponse(200, { ok: true })
     }
 
@@ -230,6 +242,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
       if (issueId) {
         await applyPrClosedState({ issueId, prUrl: htmlUrl })
+        return jsonResponse(200, { ok: true })
+      }
+      const releaseId = await findReleaseIdByPrUrl(htmlUrl)
+      if (releaseId) {
+        await applyReleasePrClosedState({ releaseId, prUrl: htmlUrl })
       }
       return jsonResponse(200, { ok: true })
     }
@@ -239,6 +256,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
       if (issueId) {
         await applyPrReopenedState({ issueId, prUrl: htmlUrl })
+        return jsonResponse(200, { ok: true })
+      }
+      const releaseId = await findReleaseIdByPrUrl(htmlUrl)
+      if (releaseId) {
+        await applyReleasePrReopenedState({ releaseId, prUrl: htmlUrl })
       }
       return jsonResponse(200, { ok: true })
     }

@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, projects, repositories } from "@/db/schema"
+import { issues, projects, releases, repositories } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
@@ -254,5 +254,106 @@ async function applyPrStateFlip(
       .update(issues)
       .set({ prState: to })
       .where(eq(issues.id, issueId))
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Release PRs (EXP-56). A release run's integration branch (`exp/rel-<slug>`)
+// gets ONE PR against the default branch, recorded on the releases row by the
+// exponential_release_pr_open MCP tool. Resolution is by EXACT pr_url only:
+// the integration branch is lowercase by construction, so
+// parseIssueIdentifierFromBranch can never mis-link it to an issue, and the
+// tool always writes pr_url before GitHub can deliver any event for it.
+// No events/notifications — releases have no activity stream (v1).
+// ---------------------------------------------------------------------------
+
+export async function findReleaseIdByPrUrl(
+  htmlUrl: string
+): Promise<string | null> {
+  const [release] = await db
+    .select({ id: releases.id })
+    .from(releases)
+    .where(eq(releases.prUrl, htmlUrl))
+    .limit(1)
+  return release?.id ?? null
+}
+
+// Merge of the linked release PR: flip pr_state → merged, stamp pr_merged_at,
+// and AUTO-SHIP — a release whose PR landed on the default branch is shipped
+// by definition (shipped_at stays untouched if a human already shipped it, and
+// markShipped can still unship afterwards). Idempotent via
+// prStateTransitionAllowed, same as the issue writer.
+export async function applyReleasePrMergeState(opts: {
+  releaseId: string
+  prUrl?: string
+  mergedAt?: Date | null
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    void txId
+
+    const [current] = await tx
+      .select({
+        prState: releases.prState,
+        prUrl: releases.prUrl,
+        shippedAt: releases.shippedAt,
+      })
+      .from(releases)
+      .where(eq(releases.id, opts.releaseId))
+      .limit(1)
+
+    if (!current) return
+    if (!prStateTransitionAllowed(current, { to: `merged`, prUrl: opts.prUrl })) {
+      return
+    }
+
+    const mergedAt = opts.mergedAt ?? new Date()
+    await tx
+      .update(releases)
+      .set({
+        prState: `merged`,
+        prMergedAt: mergedAt,
+        shippedAt: current.shippedAt ?? mergedAt,
+      })
+      .where(eq(releases.id, opts.releaseId))
+  })
+}
+
+export async function applyReleasePrClosedState(opts: {
+  releaseId: string
+  prUrl?: string
+}): Promise<void> {
+  await applyReleasePrStateFlip(opts.releaseId, opts.prUrl, `closed`)
+}
+
+export async function applyReleasePrReopenedState(opts: {
+  releaseId: string
+  prUrl?: string
+}): Promise<void> {
+  await applyReleasePrStateFlip(opts.releaseId, opts.prUrl, `open`)
+}
+
+async function applyReleasePrStateFlip(
+  releaseId: string,
+  prUrl: string | undefined,
+  to: `closed` | `open`
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    void txId
+
+    const [current] = await tx
+      .select({ prState: releases.prState, prUrl: releases.prUrl })
+      .from(releases)
+      .where(eq(releases.id, releaseId))
+      .limit(1)
+
+    if (!current) return
+    if (!prStateTransitionAllowed(current, { to, prUrl })) return
+
+    await tx
+      .update(releases)
+      .set({ prState: to })
+      .where(eq(releases.id, releaseId))
   })
 }

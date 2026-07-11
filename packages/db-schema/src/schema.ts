@@ -320,12 +320,19 @@ export const issues = pgTable(
     prState: prStateEnum(`pr_state`),
     branch: text(`branch`),
     prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
+    // Release membership (EXP-56): an issue ships in at most ONE release
+    // (1:N — no join table, no extra shape). Member-only: the anonymous
+    // issues columns allowlist deliberately omits it.
+    releaseId: uuid(`release_id`).references(() => releases.id, {
+      onDelete: `set null`,
+    }),
     ...timestamps,
   },
   (table) => [
     index(`idx_issues_project_status`).on(table.projectId, table.status),
     index(`idx_issues_assignee`).on(table.assigneeId),
     index(`idx_issues_due_date`).on(table.dueDate),
+    index(`idx_issues_release`).on(table.releaseId),
     // Backstop under generate_issue_number()'s counter allocator (see
     // issue_number_counters below): any residual allocation race fails loudly
     // instead of committing two issues with the same identifier.
@@ -420,27 +427,38 @@ export const comments = pgTable(
 )
 
 // The live "coding now" record — one row per interactive desktop coding
-// session (one ghostty terminal + one `claude` child in one worktree). SYNCED
-// as the 14th Electric shape so every coordination client shows the badge +
-// Watch/Steer button. No plan/approval state, no run history, no slot pool —
-// PR outcome lives on `issues` (prUrl/prNumber/prState/branch). `workspace_id`
-// is denormalized from issue→project by populate_coding_session_workspace_id
-// so the shape filter stays workspace-scoped (stable, no 409 churn).
+// session (one terminal tab + one `claude` child). SYNCED as an Electric shape
+// so every coordination client shows the badge + Watch/Steer button. No
+// plan/approval state, no run history, no slot pool — PR outcome lives on
+// `issues` (prUrl/prNumber/prState/branch). Two session subjects (EXP-56):
+// issue-scoped (`issue_id` set — one worktree, one issue) and release-scoped
+// (`release_id` set, `issue_id`/`project_id` NULL — the desktop release
+// orchestrator run). Exactly one of issue_id/release_id is set, enforced by
+// the tRPC writer. `workspace_id` is denormalized from issue→project by
+// trigger for issue rows and written directly from the release for release
+// rows (the populate triggers no-op when issue_id IS NULL).
 export const codingSessions = pgTable(
   `coding_sessions`,
   {
     id: uuidPk(),
-    issueId: uuid(`issue_id`)
-      .notNull()
-      .references(() => issues.id, { onDelete: `cascade` }),
+    // Nullable since EXP-56: NULL for release-scoped orchestrator sessions.
+    issueId: uuid(`issue_id`).references(() => issues.id, {
+      onDelete: `cascade`,
+    }),
+    // Set for release-scoped sessions; NULL for issue-scoped ones.
+    releaseId: uuid(`release_id`).references(() => releases.id, {
+      onDelete: `cascade`,
+    }),
     workspaceId: uuid(`workspace_id`)
       .notNull()
       .references(() => workspaces.id, { onDelete: `cascade` }),
     // Denormalized from issue→project (populate_issue_child_project_id) for
-    // project-scoped anonymous feedback-board shape filters.
-    projectId: uuid(`project_id`)
-      .notNull()
-      .references(() => projects.id, { onDelete: `cascade` }),
+    // project-scoped anonymous feedback-board shape filters. Nullable since
+    // EXP-56: a release-scoped session spans projects (never anonymous-visible
+    // — the anonymous project_id clause can't match NULL).
+    projectId: uuid(`project_id`).references(() => projects.id, {
+      onDelete: `cascade`,
+    }),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity.
     userId: text(`user_id`)
@@ -457,10 +475,51 @@ export const codingSessions = pgTable(
   },
   (table) => [
     index(`idx_coding_sessions_issue`).on(table.issueId),
+    index(`idx_coding_sessions_release`).on(table.releaseId),
     index(`idx_coding_sessions_workspace`).on(table.workspaceId),
     index(`idx_coding_sessions_project`).on(table.projectId),
     index(`idx_coding_sessions_user`).on(table.userId),
   ]
+)
+
+// Releases (EXP-56): workspace-level bundles of issues — the 15th Electric
+// shape, synced to all four clients (MEMBER-ONLY: the shape proxy's anonymous
+// clause is the impossible-match sentinel; releases never appear on public
+// feedback boards). No status enum: state derives from `shipped_at` plus the
+// member issues' progress (done / (total − cancelled − duplicate)). The
+// desktop release-coding orchestrator builds a pushed integration branch
+// `exp/rel-<slug>` per run, per-issue PRs target it, and ONE release PR
+// (integration → default) is recorded here via the `exponential_release_pr_open`
+// MCP tool; the GitHub webhook resolves release PRs by exact `pr_url` match
+// and AUTO-SHIPS (stamps shipped_at) when that PR merges. A multi-repo release
+// records only its first release PR (documented v1 limitation).
+export const releases = pgTable(
+  `releases`,
+  {
+    id: uuidPk(),
+    workspaceId: uuid(`workspace_id`)
+      .notNull()
+      .references(() => workspaces.id, { onDelete: `cascade` }),
+    name: varchar({ length: 255 }).notNull(),
+    // Plain GFM markdown, like issue descriptions.
+    description: text(),
+    targetDate: date(`target_date`),
+    // Non-null = shipped. Set manually (markShipped) or by the webhook when
+    // the release PR merges. Independent of progress — shipping early is fine.
+    shippedAt: timestamp(`shipped_at`, { withTimezone: true }),
+    // Audit only (mirrors issue_events.actor_user_id) — never authorization.
+    createdBy: text(`created_by`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    // The release PR (integration branch → default). Same shape as the issue
+    // PR fields; written by exponential_release_pr_open + the webhook/poller.
+    prUrl: text(`pr_url`),
+    prNumber: integer(`pr_number`),
+    prState: prStateEnum(`pr_state`),
+    prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [index(`idx_releases_workspace`).on(table.workspaceId)]
 )
 
 export const attachments = pgTable(
@@ -1042,6 +1101,15 @@ export const selectCodingSessionSchema = createSelectSchema(codingSessions, {
   status: codingSessionStatusSchema,
 })
 
+export const selectReleaseSchema = createSelectSchema(releases, {
+  prState: prStateSchema.nullable(),
+})
+export const createReleaseSchema = createInsertSchema(releases).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+})
+
 export const selectRepositorySchema = createSelectSchema(repositories)
 
 export const selectRunConfigSchema = createSelectSchema(runConfigs, {
@@ -1080,6 +1148,7 @@ export type Notification = InferSelectModel<typeof notifications>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
+export type Release = InferSelectModel<typeof releases>
 export type Repository = InferSelectModel<typeof repositories>
 export type RunConfig = InferSelectModel<typeof runConfigs>
 export type UserNotificationPrefs = InferSelectModel<

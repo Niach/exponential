@@ -1,10 +1,12 @@
 import { and, eq, isNotNull } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, projects } from "@/db/schema"
+import { issues, projects, releases } from "@/db/schema"
 import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
 import {
   applyPrClosedState,
   applyPrMergeState,
+  applyReleasePrClosedState,
+  applyReleasePrMergeState,
 } from "@/lib/integrations/pr-sync"
 
 const POLL_INTERVAL_MS = 3 * 60 * 1000 // every 3 minutes
@@ -74,6 +76,51 @@ async function pollOpenPrs(): Promise<void> {
       } catch (err) {
         // One repo failing must not abort the batch.
         console.error(`[pr-merge-poll] issue ${row.issueId}:`, err)
+      }
+    }
+
+    // Release PRs (EXP-56): same outbound check for open release PRs; merge
+    // auto-ships the release (applyReleasePrMergeState stamps shippedAt).
+    const releaseRows = await db
+      .select({
+        releaseId: releases.id,
+        prUrl: releases.prUrl,
+        prNumber: releases.prNumber,
+        workspaceId: releases.workspaceId,
+      })
+      .from(releases)
+      .where(
+        and(
+          eq(releases.prState, `open`),
+          isNotNull(releases.prNumber),
+          isNotNull(releases.prUrl)
+        )
+      )
+
+    for (const row of releaseRows) {
+      if (!row.prUrl || row.prNumber == null) continue
+      try {
+        const repo = parseRepoFromPrUrl(row.prUrl)
+        if (!repo) continue
+        const token = await resolveRepoToken({
+          workspaceId: row.workspaceId,
+          repo,
+        })
+        const state = await fetchPullState(repo, row.prNumber, token)
+        if (state.merged) {
+          await applyReleasePrMergeState({
+            releaseId: row.releaseId,
+            prUrl: row.prUrl,
+            mergedAt: new Date(),
+          })
+        } else if (state.state === `closed`) {
+          await applyReleasePrClosedState({
+            releaseId: row.releaseId,
+            prUrl: row.prUrl,
+          })
+        }
+      } catch (err) {
+        console.error(`[pr-merge-poll] release ${row.releaseId}:`, err)
       }
     }
   } catch (err) {

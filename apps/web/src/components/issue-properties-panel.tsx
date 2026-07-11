@@ -16,6 +16,7 @@ import { priorities, PriorityIcon } from "@/components/issue-properties/priority
 import { statuses, StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
+import { ReleasePicker } from "@/components/issue-properties/release-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -37,6 +38,11 @@ export interface IssuePropertiesPanelProps {
   workspaceId: string
   selectedLabelIds: string[]
   onToggleLabel: (labelId: string) => void | Promise<void>
+  // Release control (EXP-56). Optional: surfaces without a synced release
+  // context (e.g. the create-issue dialog) simply omit onReleaseChange and no
+  // control renders.
+  releaseId?: string | null
+  onReleaseChange?: (releaseId: string | null) => void | Promise<void>
   dueDate: Date | undefined
   dueTime: string | null
   endTime: string | null
@@ -326,6 +332,15 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     />
   )
 
+  const releaseControl = props.onReleaseChange ? (
+    <ReleasePicker
+      disabled={moderationDisabled}
+      workspaceId={workspaceId}
+      selectedReleaseId={props.releaseId ?? null}
+      onSelect={props.onReleaseChange}
+    />
+  ) : null
+
   const dueDateControl = (
     <DueDateControl
       layout={layout}
@@ -368,6 +383,9 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
           <PropertyGroup label="Assignee">{assigneeControl}</PropertyGroup>
         )}
         <PropertyGroup label="Labels">{labelControl}</PropertyGroup>
+        {releaseControl && (
+          <PropertyGroup label="Release">{releaseControl}</PropertyGroup>
+        )}
         <PropertyGroup label="Due date">
           <div className="flex flex-col items-start gap-1">
             {dueDateControl}
@@ -386,6 +404,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       {priorityControl}
       {!isSolo && assigneeControl}
       {labelControl}
+      {releaseControl}
       {dueDateControl}
       {recurrenceControl}
       {projectChip}

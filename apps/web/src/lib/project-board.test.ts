@@ -15,6 +15,7 @@ function makeIssue(overrides: Partial<Issue>): Issue {
   return {
     archivedAt: null,
     assigneeId: null,
+    releaseId: null,
     completedAt: null,
     createdAt: new Date(`2026-03-06T10:00:00.000Z`),
     creatorId: `user-1`,

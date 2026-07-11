@@ -14,11 +14,16 @@ import {
   LogIn,
   LogOut,
   Plus,
+  Rocket,
   Search,
   Settings,
   Shield,
 } from "lucide-react"
-import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import {
+  codingSessionCollection,
+  issueCollection,
+  releaseCollection,
+} from "@/lib/collections"
 import { ExponentialLogo } from "@/components/exponential-logo"
 import { getProjectTypeOption } from "@/lib/project-types"
 import { useSession } from "@/hooks/use-session"
@@ -113,6 +118,27 @@ function AgentsRunningBadge({ workspaceId }: { workspaceId?: string }) {
     [workspaceId]
   )
   const count = data?.length ?? 0
+  if (count === 0) return null
+  return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
+}
+
+// Live count of UNSHIPPED releases in the workspace, for the Releases entry.
+// Pure client-side counting over the already-synced releases shape (member-
+// only, workspace-scoped). shipped_at is filtered in JS — the live-query
+// operator set has no null check, and workspace release lists are tiny.
+function ReleasesUnshippedBadge({ workspaceId }: { workspaceId?: string }) {
+  const { data } = useLiveQuery(
+    (query) =>
+      workspaceId
+        ? query
+            .from({ releases: releaseCollection })
+            .where(({ releases }) => eq(releases.workspaceId, workspaceId))
+        : undefined,
+    [workspaceId]
+  )
+  const count = (data ?? []).filter(
+    (release) => release.shippedAt === null
+  ).length
   if (count === 0) return null
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }
@@ -310,6 +336,20 @@ export function WorkspaceSidebar({
                         </Link>
                       </SidebarMenuButton>
                       <AgentsRunningBadge workspaceId={workspace?.id} />
+                    </SidebarMenuItem>
+                  )}
+                  {isAuthed && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link
+                          to="/w/$workspaceSlug/releases"
+                          params={{ workspaceSlug }}
+                        >
+                          <Rocket className="h-4 w-4" />
+                          <span>Releases</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      <ReleasesUnshippedBadge workspaceId={workspace?.id} />
                     </SidebarMenuItem>
                   )}
                 </SidebarMenu>

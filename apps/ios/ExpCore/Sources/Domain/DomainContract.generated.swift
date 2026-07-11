@@ -17,7 +17,7 @@ public enum DomainContract {
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "ended"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
-    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged"]
+    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "release_added", "release_removed"]
     public static let recurrenceIntervals: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30]
 
     public static let workspaceRoleOwner: String = "owner"
@@ -54,4 +54,6 @@ public enum DomainContract {
     public static let issueEventTypeLabelRemoved: String = "label_removed"
     public static let issueEventTypePrOpened: String = "pr_opened"
     public static let issueEventTypePrMerged: String = "pr_merged"
+    public static let issueEventTypeReleaseAdded: String = "release_added"
+    public static let issueEventTypeReleaseRemoved: String = "release_removed"
 }
