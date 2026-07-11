@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Icon
@@ -33,9 +34,9 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
-// Linear-style floating bottom navigation: a dark pill with the four top-level
-// destinations (Issues, Search, Agents — with a green live dot — and Inbox —
-// with an unread dot) plus a detached circular compose button on the right.
+// Linear-style floating bottom navigation: a dark pill with the five top-level
+// destinations (Issues, Releases, Search, Agents — with a green live dot — and
+// Inbox — with an unread dot) plus a detached circular compose button on the right.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
 // instead of the iOS material.)
@@ -54,6 +55,7 @@ private val AgentsLiveGreen = Color(0xFF34D399)
 @Composable
 fun BottomNavBar(
     issuesActive: Boolean,
+    releasesActive: Boolean,
     searchActive: Boolean,
     agentsActive: Boolean,
     inboxActive: Boolean,
@@ -61,6 +63,7 @@ fun BottomNavBar(
     agentsRunning: Boolean,
     showsCompose: Boolean,
     onIssues: () -> Unit,
+    onReleases: () -> Unit,
     onSearch: () -> Unit,
     onAgents: () -> Unit,
     onInbox: () -> Unit,
@@ -87,6 +90,12 @@ fun BottomNavBar(
                 contentDescription = "Issues",
                 active = issuesActive,
                 onClick = onIssues,
+            )
+            TabItem(
+                icon = Icons.Filled.RocketLaunch,
+                contentDescription = "Releases",
+                active = releasesActive,
+                onClick = onReleases,
             )
             TabItem(
                 icon = Icons.Filled.Search,
@@ -145,7 +154,9 @@ private fun TabItem(
 ) {
     Box(
         modifier = Modifier
-            .width(56.dp)
+            // 48dp (Material minimum touch width) instead of the old 56dp:
+            // five tabs + the compose circle must fit a 360dp screen.
+            .width(48.dp)
             .height(42.dp)
             .clip(RoundedCornerShape(percent = 50))
             .background(if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent)

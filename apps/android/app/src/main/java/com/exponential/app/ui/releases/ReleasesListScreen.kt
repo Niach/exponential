@@ -63,6 +63,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.releaseComparator
 import com.exponential.app.domain.releaseProgress
 import com.exponential.app.domain.releaseProgressText
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.theme.DesignTokens
@@ -80,8 +81,8 @@ import kotlinx.coroutines.launch
 // Workspace Releases list (EXP-56): every release in the workspace, unshipped
 // first (by target date), then shipped (most recent first) — the shared
 // releaseComparator contract. Progress is pure client work over the synced
-// issues shape (issues.release_id). Pushed from the Issues screen's top-bar
-// rocket action (the bottom bar is full). Mobile never launches coding.
+// issues shape (issues.release_id). The root of the bottom bar's Releases tab,
+// targeting the current project's workspace. Mobile never launches coding.
 
 data class ReleasesListState(
     val releases: List<ReleaseEntity> = emptyList(),
@@ -168,7 +169,8 @@ fun ReleasesListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                    // A tab root now — the floating bar overlays the bottom (EXP-36).
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(state.releases, key = { it.id }) { release ->

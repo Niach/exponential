@@ -55,9 +55,9 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · Search · Agents · Inbox + compose FAB) overlaid on the
- * top-level routes. Replaces the inline graph + `MainScaffold` drawer shell
- * that used to live in MainActivity.
+ * pill (Issues · Releases · Search · Agents · Inbox + compose FAB) overlaid on
+ * the top-level routes. Replaces the inline graph + `MainScaffold` drawer
+ * shell that used to live in MainActivity.
  */
 @Composable
 fun AppNavHost() {
@@ -150,6 +150,7 @@ fun AppNavHost() {
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
             val currentProjectId by viewModel.currentProjectId.collectAsStateWithLifecycle()
+            val currentWorkspaceId by viewModel.currentWorkspaceId.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
                 cloudAlreadyAdded = cloudAlreadyAdded,
@@ -158,6 +159,7 @@ fun AppNavHost() {
                 unreadCount = unreadCount,
                 agentsRunning = agentsRunning,
                 currentProjectId = currentProjectId,
+                currentWorkspaceId = currentWorkspaceId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
             )
         }
@@ -203,6 +205,7 @@ private fun AuthenticatedNav(
     unreadCount: Int,
     agentsRunning: Boolean,
     currentProjectId: String?,
+    currentWorkspaceId: String?,
     onSetInstanceUrl: (String) -> Unit,
 ) {
     val workspaceSelection = applicationWorkspaceSelection()
@@ -228,7 +231,7 @@ private fun AuthenticatedNav(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
-        currentRoute in setOf("home", "search", "agents", "inbox", "project/{projectId}")
+        currentRoute in setOf("home", "releases/{workspaceId}", "search", "agents", "inbox", "project/{projectId}")
     // The single add-issue affordance: the FAB shows while a project is in
     // view — the Issues tab root (its resolved current project) or a pushed
     // project route — so it always targets the project on screen.
@@ -263,12 +266,11 @@ private fun AuthenticatedNav(
                 mode = IssueListMode.Root,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
-                onOpenReleases = { workspaceId -> navController.navigate("releases/$workspaceId") },
             )
         }
         composable("releases/{workspaceId}") {
-            // Workspace releases (EXP-56) — pushed from the Issues screen's
-            // top-bar rocket action (the bottom bar is full).
+            // Workspace releases (EXP-56) — the bottom bar's Releases tab,
+            // targeting the current project's workspace.
             ReleasesListScreen(
                 onOpenRelease = { releaseId -> navController.navigate("release/$releaseId") },
                 onBack = { navController.popBackStack() },
@@ -435,6 +437,7 @@ private fun AuthenticatedNav(
     if (barVisible) {
         BottomNavBar(
             issuesActive = currentRoute == "home",
+            releasesActive = currentRoute == "releases/{workspaceId}",
             searchActive = currentRoute == "search",
             agentsActive = currentRoute == "agents",
             inboxActive = currentRoute == "inbox",
@@ -442,6 +445,16 @@ private fun AuthenticatedNav(
             agentsRunning = agentsRunning,
             showsCompose = composeProjectId != null,
             onIssues = { navController.popBackStack("home", inclusive = false) },
+            onReleases = {
+                // No-op while no project (and thus no workspace) has resolved
+                // yet — mirrors the other tabs' current-route guard.
+                if (currentRoute != "releases/{workspaceId}" && currentWorkspaceId != null) {
+                    navController.navigate("releases/$currentWorkspaceId") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                }
+            },
             onSearch = {
                 if (currentRoute != "search") {
                     navController.navigate("search") {

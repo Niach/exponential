@@ -6,6 +6,7 @@ import com.exponential.app.data.WorkspaceSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.ProjectEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
@@ -125,7 +126,7 @@ class AppViewModel @Inject constructor(
     // lastProjectVersion counter re-runs the resolve after every last-used
     // write — that's what swaps the root list in place after a switcher pick.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val currentProjectId: StateFlow<String?> = combine(
+    private val currentProject: StateFlow<ProjectEntity?> = combine(
         accountDatabaseFlow(auth, databaseHolder),
         auth.activeAccountId,
         workspaceSelection.lastProjectVersion,
@@ -137,13 +138,23 @@ class AppViewModel @Inject constructor(
                 db.workspaceDao().observeAll(),
             ) { projects, workspaces ->
                 val lastUsed = workspaceSelection.lastProject(accountId)
-                projects.firstOrNull { it.id == lastUsed }?.id
+                projects.firstOrNull { it.id == lastUsed }
                     ?: workspaces.firstNotNullOfOrNull { ws ->
                         projects.firstOrNull { it.workspaceId == ws.id }
-                    }?.id
-                    ?: projects.firstOrNull()?.id
+                    }
+                    ?: projects.firstOrNull()
             }
         }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val currentProjectId: StateFlow<String?> = currentProject
+        .map { it?.id }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    // The current project's workspace — the bottom bar's Releases tab targets
+    // it (EXP-56), so it follows the exact same resolution as the Issues tab.
+    val currentWorkspaceId: StateFlow<String?> = currentProject
+        .map { it?.workspaceId }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun setInstanceUrl(url: String) {

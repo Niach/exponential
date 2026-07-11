@@ -13,8 +13,8 @@ enum AppRoute: Hashable {
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
     /// detail's Changes card.
     case changes(accountId: String, issueId: String)
-    /// Workspace releases (EXP-56) — pushed from the Issues screen's toolbar
-    /// (the tab bar is full, so releases live behind a nav-bar action).
+    /// Workspace releases (EXP-56) — the Releases tab, showing the current
+    /// project's workspace.
     case releases(accountId: String, workspaceId: String)
     case releaseDetail(accountId: String, id: String)
     case settings
@@ -213,6 +213,7 @@ struct MainNavigator: View {
             if showsTabBar {
                 MobileTabBar(
                     issuesActive: path.isEmpty,
+                    releasesActive: isOnReleases,
                     searchActive: isOnSearch,
                     agentsActive: isOnAgents,
                     inboxActive: isOnInbox,
@@ -220,6 +221,13 @@ struct MainNavigator: View {
                     agentsRunning: agentsRunning,
                     showsCompose: resolvedComposeTarget != nil,
                     onIssues: { path = [] },
+                    onReleases: {
+                        // No-op while no project (and thus no workspace) is
+                        // resolved yet — mirrors the disabled switcher.
+                        if !isOnReleases, let ref = currentWorkspaceRef {
+                            path = [.releases(accountId: ref.accountId, workspaceId: ref.workspaceId)]
+                        }
+                    },
                     onSearch: { if !isOnSearch { path = [.search] } },
                     onAgents: { if !isOnAgents { path = [.agents] } },
                     onInbox: { if !isOnInbox { path = [.inbox] } },
@@ -236,17 +244,22 @@ struct MainNavigator: View {
 
     // MARK: - Tab bar
 
-    /// The bar floats only over the top-level surfaces (Issues root, Search,
-    /// Agents, Inbox, pushed project lists); detail and settings screens get
-    /// the full height back.
+    /// The bar floats only over the top-level surfaces (Issues root, Releases,
+    /// Search, Agents, Inbox, pushed project lists); detail and settings
+    /// screens get the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         switch top {
-        case .search, .agents, .inbox, .project:
+        case .releases, .search, .agents, .inbox, .project:
             return true
         default:
             return false
         }
+    }
+
+    private var isOnReleases: Bool {
+        if case .releases = path.last { return true }
+        return false
     }
 
     private var isOnInbox: Bool {
@@ -427,6 +440,21 @@ struct MainNavigator: View {
                 block.projects.map { "\(group.accountId)/\($0.id)" }
             }
         }
+    }
+
+    /// (accountId, workspaceId) of the CURRENT project — the workspace whose
+    /// releases the Releases tab shows. Resolved from the loader tree (the
+    /// same tree the Issues tab's switcher uses), which spans every signed-in
+    /// server.
+    private var currentWorkspaceRef: (accountId: String, workspaceId: String)? {
+        guard let current = currentProject else { return nil }
+        for group in projectLoader?.groups ?? [] where group.accountId == current.accountId {
+            for block in group.workspaceBlocks
+            where block.projects.contains(where: { $0.id == current.projectId }) {
+                return (current.accountId, block.workspace.id)
+            }
+        }
+        return nil
     }
 
     /// Resolution order: keep a still-valid selection → last-used project →

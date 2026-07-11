@@ -1,14 +1,16 @@
 import ExpUI
 import SwiftUI
 
-/// Linear-style floating bottom navigation: a glass pill with the four
-/// top-level destinations (Issues, Search, Agents — with a running-session
-/// dot — and Inbox — with an unread dot) plus a detached circular compose
-/// button on the right. Attached via `.overlay(alignment: .bottom)` so content
-/// scrolls underneath it; each bar-visible scrollable reserves clearance with
-/// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
+/// Linear-style floating bottom navigation: a glass pill with the five
+/// top-level destinations (Issues, Releases, Search, Agents — with a
+/// running-session dot — and Inbox — with an unread dot) plus a detached
+/// circular compose button on the right. Attached via
+/// `.overlay(alignment: .bottom)` so content scrolls underneath it; each
+/// bar-visible scrollable reserves clearance with `.tabBarBottomInset()`
+/// (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
     let issuesActive: Bool
+    let releasesActive: Bool
     let searchActive: Bool
     let agentsActive: Bool
     let inboxActive: Bool
@@ -16,6 +18,7 @@ struct MobileTabBar: View {
     let agentsRunning: Bool
     let showsCompose: Bool
     let onIssues: () -> Void
+    let onReleases: () -> Void
     let onSearch: () -> Void
     let onAgents: () -> Void
     let onInbox: () -> Void
@@ -33,6 +36,8 @@ struct MobileTabBar: View {
             HStack(spacing: 4) {
                 tab(glyph: .system("list.bullet"), label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
+                tab(glyph: .system("shippingbox"), label: "Releases", active: releasesActive, action: onReleases)
+                    .accessibilityIdentifier("tab-releases")
                 tab(glyph: .system("magnifyingglass"), label: "Search", active: searchActive, action: onSearch)
                     .accessibilityIdentifier("tab-search")
                 tab(
@@ -95,13 +100,15 @@ struct MobileTabBar: View {
     ) -> some View {
         Button(action: action) {
             glyphImage(glyph, active: active)
-                .frame(width: 56, height: 42)
+                // 44pt (HIG minimum) instead of the old 56pt: five tabs + the
+                // compose circle must fit a 375pt screen (SE/mini).
+                .frame(width: 44, height: 42)
                 .overlay(alignment: .topTrailing) {
                     if badge {
                         Circle()
                             .fill(badgeColor)
                             .frame(width: 8, height: 8)
-                            .offset(x: -14, y: 8)
+                            .offset(x: -8, y: 8)
                     }
                 }
                 .background(active ? Color.white.opacity(0.12) : .clear, in: Capsule())

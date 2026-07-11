@@ -6,8 +6,8 @@ import GRDB
 /// Workspace Releases list (EXP-56): every release in the workspace, unshipped
 /// first (by target date), then shipped (most recent first) — the shared
 /// compareReleases contract. Progress is pure client work over the already-
-/// synced issues shape (issues.release_id). Pushed from the Issues screen's
-/// toolbar (the tab bar is full).
+/// synced issues shape (issues.release_id). The root of the Releases tab,
+/// showing the current project's workspace.
 struct ReleasesListView: View {
     let workspaceId: String
 
@@ -43,6 +43,8 @@ struct ReleasesListView: View {
                     }
                     .padding(16)
                 }
+                // A tab root now — the floating bar overlays the bottom (EXP-36).
+                .tabBarBottomInset()
             }
         }
         .navigationTitle("Releases")
