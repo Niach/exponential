@@ -121,10 +121,12 @@ bun dev
             user — that&apos;s your instance.
           </p>
 
-          <DocsCallout kind="note" title="Projects need a GitHub App">
-            Every project is backed by a GitHub repository, so creating
-            projects requires a configured GitHub App — the next section
-            walks through creating one.
+          <DocsCallout kind="note" title="GitHub App — only for dev projects">
+            Task and feedback boards work out of the box. Only dev projects
+            — the ones backed by a GitHub repository for coding sessions and
+            PRs — need a configured GitHub App; the next section walks
+            through creating one, and you can skip it if you just want
+            issue tracking.
           </DocsCallout>
 
           <h3>Connect the apps</h3>

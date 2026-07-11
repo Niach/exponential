@@ -483,6 +483,9 @@ export function registerExponentialTools(
         if (dueAfter) conditions.push(gte(issues.dueDate, dueAfter))
         if (dueBefore) conditions.push(lte(issues.dueDate, dueBefore))
         if (search) conditions.push(ilike(issues.title, `%${search}%`))
+        // Filter in SQL, not after — a post-limit JS filter under-fills
+        // pages and makes offset pagination skip live issues.
+        if (!includeArchived) conditions.push(isNull(issues.archivedAt))
 
         const rows = await db
           .select()
@@ -492,10 +495,7 @@ export function registerExponentialTools(
           .limit(limit)
           .offset(offset)
 
-        const filtered = includeArchived
-          ? rows
-          : rows.filter((r) => r.archivedAt == null)
-        return ok(filtered)
+        return ok(rows)
       } catch (e) {
         return err(e)
       }

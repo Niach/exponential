@@ -157,6 +157,14 @@ export const adminRouter = router({
           `admin`
         )
         storageKeys = cleanup.storageKeys
+        // Subscriptions bound to the deleted solo workspaces but purchased by
+        // SOMEONE ELSE (e.g. after an ownership hand-off) — invisible to the
+        // buyer-scoped capture above, yet their workspace just vanished.
+        for (const sub of cleanup.doomedWorkspaceSubscriptions) {
+          if (!doomedSubscriptions.some((s) => s.id === sub.id)) {
+            doomedSubscriptions.push(sub)
+          }
+        }
         await tx.delete(users).where(eq(users.id, input.userId))
       })
 

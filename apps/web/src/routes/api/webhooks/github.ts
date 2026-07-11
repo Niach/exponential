@@ -4,8 +4,10 @@ import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { githubInstallations, issues, repositories } from "@/db/schema"
 import {
+  applyPrClosedState,
   applyPrMergeState,
   applyPrOpenedState,
+  applyPrReopenedState,
   findIssueIdByBranch,
 } from "@/lib/integrations/pr-sync"
 import { invalidateRepoCacheForInstallation } from "@/lib/trpc/integrations"
@@ -56,7 +58,8 @@ async function resolveIssueForPr(args: {
 // `installation` `created`/`unsuspend`/`deleted`/`suspend` (keep
 // github_installations in sync), `installation_repositories` (repo-selection
 // changes → flag/heal `repositories.inaccessible_at`), `pull_request` `opened`
-// (link an out-of-band PR to its issue) and `closed`+`merged` (flip prState).
+// (link an out-of-band PR to its issue) and `closed` (flip prState to merged
+// or, when closed without merging, to closed).
 // Issues resolve by exact prUrl OR by the `exp/<IDENTIFIER>` head-branch
 // parse; everything else is acked and ignored.
 async function handleGithubWebhook(request: Request): Promise<Response> {
@@ -218,6 +221,25 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         mergedAt,
         actorUserId: null,
       })
+      return jsonResponse(200, { ok: true })
+    }
+
+    // Closed without merging: flip prState → closed so the issue leaves the
+    // Reviews open-PR surfaces (state-only; no pr_closed event type exists).
+    if (payload.action === `closed` && pr.merged !== true) {
+      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
+      if (issueId) {
+        await applyPrClosedState({ issueId, prUrl: htmlUrl })
+      }
+      return jsonResponse(200, { ok: true })
+    }
+
+    // Reopened after a close-without-merge: heal closed → open.
+    if (payload.action === `reopened`) {
+      const issueId = await resolveIssueForPr({ htmlUrl, repoFullName, headRef })
+      if (issueId) {
+        await applyPrReopenedState({ issueId, prUrl: htmlUrl })
+      }
       return jsonResponse(200, { ok: true })
     }
 

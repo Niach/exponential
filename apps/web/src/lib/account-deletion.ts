@@ -9,6 +9,10 @@ import {
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
 import { getFeedbackWorkspaceId } from "@/lib/bootstrap-cloud"
+import {
+  findActiveSubscriptionsForWorkspaces,
+  type CancellableSubscription,
+} from "@/lib/billing/creem-subscriptions"
 
 // Works over the root db or a transaction — structurally typed so the helper
 // can run inside the caller's delete transaction (nothing is removed when the
@@ -91,16 +95,24 @@ export function classifyWorkspacesForUserDeletion(
  * 2. Delete workspaces whose entire membership is just this user (the
  *    is_public check keeps the bootstrap feedback board untouchable).
  *
- * Returns the ids of the workspaces actually deleted so the caller can route
- * their Creem subscriptions through cancellation, plus every S3 storage key the
- * deletes (and the users-row cascade the caller runs next) will strand — the
- * caller reclaims them from S3 after commit (best-effort).
+ * Returns the ids of the workspaces actually deleted PLUS the active Creem
+ * subscriptions bound to them (captured in-tx BEFORE the delete — the
+ * workspace FK goes `set null` on delete, after which the rows are
+ * unfindable; a subscription bought by ANOTHER user for one of these
+ * workspaces is invisible to the caller's buyer-scoped capture and would
+ * keep charging), plus every S3 storage key the deletes (and the users-row
+ * cascade the caller runs next) will strand — the caller cancels the
+ * subscriptions and reclaims the keys from S3 after commit (best-effort).
  */
 export async function guardAndCleanupWorkspacesForUserDeletion(
   tx: DbOrTx,
   userId: string,
   who: `self` | `admin`
-): Promise<{ deletedWorkspaceIds: string[]; storageKeys: string[] }> {
+): Promise<{
+  deletedWorkspaceIds: string[]
+  doomedWorkspaceSubscriptions: CancellableSubscription[]
+  storageKeys: string[]
+}> {
   const myWorkspaceIds = tx
     .select({ id: workspaceMembers.workspaceId })
     .from(workspaceMembers)
@@ -168,11 +180,25 @@ export async function guardAndCleanupWorkspacesForUserDeletion(
   const storageKeys = [...new Set(keyRows.map((row) => row.storageKey))]
 
   if (soloToDelete.length === 0) {
-    return { deletedWorkspaceIds: [], storageKeys }
+    return {
+      deletedWorkspaceIds: [],
+      doomedWorkspaceSubscriptions: [],
+      storageKeys,
+    }
   }
+  // Captured BEFORE the delete: the workspace FK on creem_subscriptions is
+  // `set null`, so after the delete these rows can no longer be found by
+  // workspace — and the buyer-scoped capture the callers run misses
+  // subscriptions another user purchased for these workspaces.
+  const doomedWorkspaceSubscriptions =
+    await findActiveSubscriptionsForWorkspaces(soloToDelete, tx)
   const deleted = await tx
     .delete(workspaces)
     .where(inArray(workspaces.id, soloToDelete))
     .returning({ id: workspaces.id })
-  return { deletedWorkspaceIds: deleted.map((d) => d.id), storageKeys }
+  return {
+    deletedWorkspaceIds: deleted.map((d) => d.id),
+    doomedWorkspaceSubscriptions,
+    storageKeys,
+  }
 }

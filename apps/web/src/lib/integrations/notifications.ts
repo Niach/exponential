@@ -320,6 +320,42 @@ export function fireAndForgetCommentNotify(args: {
 }
 
 /**
+ * Notify members @-mentioned in an issue DESCRIPTION (create, or the newly
+ * added mentions of an edit — the caller diffs old vs new so re-saving a
+ * description never re-notifies). The description-side twin of the mention
+ * half of fireAndForgetCommentNotify: mention recipients only, no subscriber
+ * fan-out (editing a description is not a new comment).
+ */
+export function fireAndForgetIssueMentionNotify(args: {
+  issueId: string
+  actorUserId: string
+  mentionedUserIds: string[]
+}): void {
+  void (async () => {
+    try {
+      const mentioned = new Set(args.mentionedUserIds)
+      mentioned.delete(args.actorUserId)
+      if (mentioned.size === 0) return
+
+      const issue = await loadIssueMeta(args.issueId)
+      if (!issue) return
+
+      const name = await actorName(args.actorUserId)
+      await deliver({
+        issue,
+        recipientIds: [...mentioned],
+        type: `issue_mention`,
+        pushType: `issue_mention`,
+        title: `${name} mentioned you in ${issue.identifier}`,
+        body: issue.title,
+      })
+    } catch (err) {
+      console.error(`[notify] issue mention failed:`, err)
+    }
+  })()
+}
+
+/**
  * Notify subscribers (minus the actor) that an issue's status changed.
  */
 export function fireAndForgetStatusChangeNotify(args: {

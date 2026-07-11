@@ -2,7 +2,10 @@ import { and, eq, isNotNull } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues, projects } from "@/db/schema"
 import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
-import { applyPrMergeState } from "@/lib/integrations/pr-sync"
+import {
+  applyPrClosedState,
+  applyPrMergeState,
+} from "@/lib/integrations/pr-sync"
 
 const POLL_INTERVAL_MS = 3 * 60 * 1000 // every 3 minutes
 const INITIAL_DELAY_MS = 30 * 1000 // first run ~30s after boot
@@ -59,6 +62,13 @@ async function pollOpenPrs(): Promise<void> {
             prUrl: row.prUrl,
             mergedAt: new Date(),
             actorUserId: null,
+          })
+        } else if (state.state === `closed`) {
+          // Closed without merging — flip to closed, which also drops the
+          // row out of this poller's prState='open' re-fetch set.
+          await applyPrClosedState({
+            issueId: row.issueId,
+            prUrl: row.prUrl,
           })
         }
       } catch (err) {

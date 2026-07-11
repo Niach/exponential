@@ -55,6 +55,31 @@ export async function findIssueIdByBranch(
   return issue?.id ?? null
 }
 
+// Pure transition guard for the merge/close writers below. One issue = one
+// PR: only the LINKED PR may flip the issue's prState — the webhook's
+// branch-identifier fallback would otherwise let any second PR whose head
+// branch ends in the identifier (e.g. `backport/EXP-42`) falsely flip the
+// issue while its real PR is still open. Unit-tested in pr-sync.test.ts.
+export function prStateTransitionAllowed(
+  current: { prState: string | null; prUrl: string | null },
+  transition: { to: `merged` | `closed` | `open`; prUrl?: string }
+): boolean {
+  if (current.prUrl && transition.prUrl && current.prUrl !== transition.prUrl) {
+    return false
+  }
+  if (transition.to === `merged`) {
+    // Idempotent open→merged (a closed PR can be reopened+merged on GitHub,
+    // so merge is allowed from any state except merged itself).
+    return current.prState !== `merged`
+  }
+  if (transition.to === `open`) {
+    // Reopen only heals a closed PR (webhook `reopened`).
+    return current.prState === `closed`
+  }
+  // Close only applies to an open PR.
+  return current.prState === `open`
+}
+
 // Link a freshly-opened PR onto an issue that has none yet (webhook `opened`
 // fallback for out-of-band PRs). Idempotent: a no-op once the issue already
 // carries a prUrl, so a PR opened by the MCP open_pr tool (which already wrote
@@ -145,9 +170,12 @@ export async function applyPrMergeState(opts: {
       .where(eq(issues.id, opts.issueId))
       .limit(1)
 
-    // Unknown issue, or already merged → nothing to do (idempotent).
+    // Unknown issue, already merged, or a different (unlinked) PR → nothing
+    // to do (idempotent; see prStateTransitionAllowed).
     if (!current) return false
-    if (current.prState === `merged`) return false
+    if (!prStateTransitionAllowed(current, { to: `merged`, prUrl: opts.prUrl })) {
+      return false
+    }
 
     await tx
       .update(issues)
@@ -178,4 +206,53 @@ export async function applyPrMergeState(opts: {
       actorUserId: opts.actorUserId ?? null,
     })
   }
+}
+
+// PR closed WITHOUT merging (webhook `closed` with merged=false + the
+// self-hosted poller). Flips open→closed so the issue drops out of the
+// Reviews open-PR surfaces and the poller's re-fetch set. State-only: no
+// pr_closed event/notification type exists in the domain contract yet —
+// adding one is a four-client codegen change, deliberately out of scope.
+export async function applyPrClosedState(opts: {
+  issueId: string
+  prUrl?: string
+}): Promise<void> {
+  await applyPrStateFlip(opts.issueId, opts.prUrl, `closed`)
+}
+
+// PR reopened on GitHub after a close-without-merge (webhook `reopened`):
+// heal closed→open so the badge, the Reviews surfaces, and the tRPC mergePr
+// open-state precondition all track the PR again.
+export async function applyPrReopenedState(opts: {
+  issueId: string
+  prUrl?: string
+}): Promise<void> {
+  await applyPrStateFlip(opts.issueId, opts.prUrl, `open`)
+}
+
+async function applyPrStateFlip(
+  issueId: string,
+  prUrl: string | undefined,
+  to: `closed` | `open`
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    void txId
+
+    const [current] = await tx
+      .select({ prState: issues.prState, prUrl: issues.prUrl })
+      .from(issues)
+      .where(eq(issues.id, issueId))
+      .limit(1)
+
+    // Only the linked PR may flip the linked issue, and only along the
+    // open⇄closed lifecycle — see prStateTransitionAllowed.
+    if (!current) return
+    if (!prStateTransitionAllowed(current, { to, prUrl })) return
+
+    await tx
+      .update(issues)
+      .set({ prState: to })
+      .where(eq(issues.id, issueId))
+  })
 }

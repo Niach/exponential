@@ -10,13 +10,31 @@ describe(`handleUnsubscribe`, () => {
     expect(unsubscribe).not.toHaveBeenCalled()
   })
 
-  it(`flips the pref and confirms on a known token`, async () => {
+  it(`flips the pref and confirms on a known token (POST)`, async () => {
     const unsubscribe = vi.fn().mockResolvedValue(true)
-    const res = await handleUnsubscribe(`tok-1`, unsubscribe)
+    const res = await handleUnsubscribe(`tok-1`, unsubscribe, `POST`)
     expect(unsubscribe).toHaveBeenCalledWith(`tok-1`)
     expect(res.status).toBe(200)
     const html = await res.text()
     expect(html).toContain(`unsubscribed`)
+  })
+
+  it(`GET never mutates — renders a confirm form instead (scanner prefetch safety)`, async () => {
+    const unsubscribe = vi.fn()
+    const res = await handleUnsubscribe(`tok-1`, unsubscribe, `GET`)
+    expect(unsubscribe).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain(`method="post"`)
+    // The token stays in the query string — never embedded in the markup.
+    expect(html).not.toContain(`tok-1`)
+  })
+
+  it(`defaults to the mutating path when no method is given (RFC 8058 one-click compat)`, async () => {
+    const unsubscribe = vi.fn().mockResolvedValue(true)
+    const res = await handleUnsubscribe(`tok-1`, unsubscribe)
+    expect(unsubscribe).toHaveBeenCalledWith(`tok-1`)
+    expect(res.status).toBe(200)
   })
 
   it(`404s on an unknown token`, async () => {

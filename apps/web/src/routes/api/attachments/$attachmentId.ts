@@ -25,20 +25,24 @@ async function getAttachment({
 
   const attachment = await getAttachmentWorkspaceContext(params.attachmentId)
 
-  if (session?.user) {
-    await assertWorkspaceMember(session.user.id, attachment.workspaceId)
-  } else {
-    // Anonymous byte reads are allowed ONLY for public feedback boards
-    // (inline images in issue descriptions must load for logged-out
-    // visitors); comment attachments additionally require the board to show
-    // comments publicly. Same predicate as the attachments shape's anonymous
-    // where clause. 401 (not 404) to match the historic no-session behavior
-    // and avoid an existence oracle.
-    const publiclyReadable =
-      attachment.projectType === `feedback` &&
-      attachment.projectArchivedAt === null &&
-      (attachment.commentId === null || attachment.projectPublicShowComments)
-    if (!publiclyReadable) {
+  // Public-feedback-board byte reads are allowed for EVERY viewer — anonymous
+  // visitors and signed-in non-members alike (both render the same
+  // PublicWorkspaceView, and the browser always sends the session cookie, so
+  // gating this behind "no session" broke every inline image for signed-in
+  // visitors while the logged-out tab worked). Comment attachments
+  // additionally require the board to show comments publicly. Same predicate
+  // as the attachments shape's anonymous where clause.
+  const publiclyReadable =
+    attachment.projectType === `feedback` &&
+    attachment.projectArchivedAt === null &&
+    (attachment.commentId === null || attachment.projectPublicShowComments)
+
+  if (!publiclyReadable) {
+    if (session?.user) {
+      await assertWorkspaceMember(session.user.id, attachment.workspaceId)
+    } else {
+      // 401 (not 404) to match the historic no-session behavior and avoid an
+      // existence oracle.
       throw new TRPCError({
         code: `UNAUTHORIZED`,
         message: `Unauthorized`,

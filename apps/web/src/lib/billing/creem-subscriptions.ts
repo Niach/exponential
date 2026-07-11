@@ -185,12 +185,15 @@ export type CancellableSubscription = Pick<
 /**
  * Active subscription rows bound to any of the given workspaces. Capture
  * BEFORE deleting the workspaces (see the cancel-on-delete note above).
+ * Accepts an optional transaction so the user-deletion cascade can capture
+ * subscriptions for the solo workspaces it deletes in the same tx.
  */
 export async function findActiveSubscriptionsForWorkspaces(
-  workspaceIds: string[]
+  workspaceIds: string[],
+  executor: Pick<typeof db, `select`> = db
 ): Promise<CancellableSubscription[]> {
   if (!isCloudInstance() || workspaceIds.length === 0) return []
-  return await db
+  return await executor
     .select({
       id: creem_subscriptions.id,
       creemSubscriptionId: creem_subscriptions.creemSubscriptionId,

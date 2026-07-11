@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { router, publicProcedure, generateTxId } from "@/lib/trpc"
 import {
   codingSessions,
@@ -26,6 +26,11 @@ import {
   appBaseUrl,
   buildIssueDeepLinkPath,
 } from "@/lib/notification-email-policy"
+import {
+  extractMentionEmails,
+  replaceMentionTokens,
+} from "@/lib/mention-refs"
+import { anonymousUserLabel } from "@/lib/user-display"
 
 // Read-only public surface of feedback boards, served over tRPC. This is what
 // the web app renders for every NON-member visitor — anonymous or signed-in.
@@ -102,6 +107,45 @@ async function resolvePublicProject(
 type Tx = Parameters<
   Parameters<typeof import("@/db/connection").db.transaction>[0]
 >[0]
+
+// Member `@email` mentions in titles/descriptions/comment bodies would hand
+// real member emails to anonymous visitors — the one identity surface the
+// bare-id field discipline above doesn't cover, since mentions live INSIDE
+// the text. Swap every token that resolves to a workspace member for the same
+// deterministic "Member XXXX" handle clients derive from bare user ids, so a
+// mentioned member reads consistently with their comment attributions.
+// Unresolvable emails stay verbatim (plain text the author typed — the member
+// app renders those raw too). Every public read handler must route EVERY text
+// field it returns through this scrub.
+async function anonymizeMemberMentions(
+  dbc: { select: typeof import("@/db/connection").db.select },
+  workspaceId: string,
+  texts: Array<string | null>
+): Promise<Array<string | null>> {
+  const emails = [
+    ...new Set(texts.flatMap((t) => (t ? extractMentionEmails(t) : []))),
+  ]
+  if (emails.length === 0) return texts
+
+  const rows = await dbc
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        inArray(sql`lower(${users.email})`, emails)
+      )
+    )
+  if (rows.length === 0) return texts
+  const labelByEmail = new Map(
+    rows.map((r) => [r.email.toLowerCase(), anonymousUserLabel(r.id)])
+  )
+
+  return texts.map((t) =>
+    t ? replaceMentionTokens(t, (email) => labelByEmail.get(email) ?? null) : t
+  )
+}
 
 // In-process token buckets for the anonymous create path — same per-replica
 // stance as the widget submit endpoint (single Coolify instance). Env-tunable.
@@ -243,6 +287,15 @@ export const publicBoardRouter = router({
         )
         .orderBy(asc(issues.sortOrder))
 
+      const scrubbed = await anonymizeMemberMentions(ctx.db, board.workspaceId, [
+        ...issueRows.map((row) => row.title),
+        ...issueRows.map((row) => row.description),
+      ])
+      issueRows.forEach((row, i) => {
+        row.title = scrubbed[i] ?? row.title
+        row.description = scrubbed[issueRows.length + i]
+      })
+
       const labelLinks = await ctx.db
         .select({
           issueId: issueLabels.issueId,
@@ -308,6 +361,18 @@ export const publicBoardRouter = router({
             .orderBy(asc(comments.createdAt))
         : []
 
+      // Scrub member mention emails from every text surface in one pass.
+      const scrubbed = await anonymizeMemberMentions(ctx.db, board.workspaceId, [
+        issue.title,
+        issue.description,
+        ...commentRows.map((c) => c.body),
+      ])
+      issue.title = scrubbed[0] ?? issue.title
+      issue.description = scrubbed[1]
+      commentRows.forEach((c, i) => {
+        c.body = scrubbed[i + 2] ?? c.body
+      })
+
       // The public "coding now" surface, per the board's opt-in level: `badge`
       // exposes only that a session runs (+ device label); `live` additionally
       // lets the client mint a public activity ticket for it.
@@ -367,7 +432,7 @@ export const publicBoardRouter = router({
         input.workspaceSlug,
         input.projectSlug
       )
-      return await ctx.db
+      const refs = await ctx.db
         .select({
           id: issues.id,
           identifier: issues.identifier,
@@ -380,6 +445,15 @@ export const publicBoardRouter = router({
             inArray(issues.id, input.issueIds)
           )
         )
+      const scrubbedTitles = await anonymizeMemberMentions(
+        ctx.db,
+        board.workspaceId,
+        refs.map((r) => r.title)
+      )
+      refs.forEach((r, i) => {
+        r.title = scrubbedTitles[i] ?? r.title
+      })
+      return refs
     }),
 
   // EXP-42c: the ONLY public write on this router — "Create issue" on a

@@ -23,7 +23,6 @@ import {
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
 import { applyPrMergeState } from "@/lib/integrations/pr-sync"
-import { resolveProjectRepository } from "@/lib/trpc/repositories"
 import {
   dateOnlySchema,
   getIssueDescriptionText,
@@ -52,9 +51,11 @@ import {
 } from "@/lib/issue-recurrence"
 import {
   fireAndForgetAssignmentNotify,
+  fireAndForgetIssueMentionNotify,
   fireAndForgetReporterResolution,
   fireAndForgetStatusChangeNotify,
 } from "@/lib/integrations/notifications"
+import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 
@@ -193,7 +194,25 @@ export const issuesRouter = router({
           })
         }
 
-        return { issue, txId }
+        // Description @mentions get the same treatment as comment mentions:
+        // auto-subscribe here, issue_mention fan-out after commit.
+        const mentionedUserIds = issue.description
+          ? await resolveMentions(
+              tx,
+              getIssueDescriptionText(issue.description),
+              project.workspaceId
+            )
+          : []
+        for (const userId of mentionedUserIds) {
+          await ensureSubscribed(tx, {
+            issueId: issue.id,
+            userId,
+            workspaceId: project.workspaceId,
+            source: `mention`,
+          })
+        }
+
+        return { issue, txId, mentionedUserIds }
       })
 
       fireAndForgetAssignmentNotify({
@@ -201,6 +220,19 @@ export const issuesRouter = router({
         actorUserId: ctx.session.user.id,
         newAssigneeId: result.issue.assigneeId,
       })
+      // The assignee already gets issue_assigned — don't double-ping them
+      // for also being mentioned (same "mention wins once" stance as the
+      // comment fan-out, with assignment as the stronger signal here).
+      const mentionNotifyIds = result.mentionedUserIds.filter(
+        (userId) => userId !== result.issue.assigneeId
+      )
+      if (mentionNotifyIds.length > 0) {
+        fireAndForgetIssueMentionNotify({
+          issueId: result.issue.id,
+          actorUserId: ctx.session.user.id,
+          mentionedUserIds: mentionNotifyIds,
+        })
+      }
 
       return result
     }),
@@ -261,6 +293,7 @@ export const issuesRouter = router({
       const attachmentCopies: AttachmentCopyOp[] = []
 
       let previousAssigneeId: string | null = null
+      let newlyMentionedUserIds: string[] = []
       const { issue, statusChange } = await ctx.db.transaction(async (tx) => {
         let statusChange: { from: string; to: string } | null = null
         const [currentIssue] = await tx
@@ -405,6 +438,29 @@ export const issuesRouter = router({
             ctx.request.url
           )
           deletedStorageKeys.push(...orphanKeys)
+
+          // Description @mentions, delta-based: only members mentioned in the
+          // NEW text but not the old one are subscribed + notified, so
+          // re-saving a description never re-pings everyone already in it.
+          const previouslyMentioned = new Set(
+            await resolveMentions(tx, previousText, issueContext.workspaceId)
+          )
+          const nextMentioned = await resolveMentions(
+            tx,
+            nextText,
+            issueContext.workspaceId
+          )
+          newlyMentionedUserIds = nextMentioned.filter(
+            (userId) => !previouslyMentioned.has(userId)
+          )
+          for (const userId of newlyMentionedUserIds) {
+            await ensureSubscribed(tx, {
+              issueId: id,
+              userId,
+              workspaceId: issueContext.workspaceId,
+              source: `mention`,
+            })
+          }
         }
 
         if (Object.keys(setValues).length === 0) {
@@ -506,6 +562,19 @@ export const issuesRouter = router({
         newAssigneeId: issue.assigneeId,
         previousAssigneeId: previousAssigneeId,
       })
+      // A just-assigned user already gets issue_assigned — skip their
+      // mention ping when both happen in the same update.
+      const mentionNotifyIds =
+        previousAssigneeId !== issue.assigneeId
+          ? newlyMentionedUserIds.filter((userId) => userId !== issue.assigneeId)
+          : newlyMentionedUserIds
+      if (mentionNotifyIds.length > 0) {
+        fireAndForgetIssueMentionNotify({
+          issueId: issue.id,
+          actorUserId: ctx.session.user.id,
+          mentionedUserIds: mentionNotifyIds,
+        })
+      }
       if (statusChange) {
         fireAndForgetStatusChangeNotify({
           issueId: issue.id,
@@ -535,11 +604,7 @@ export const issuesRouter = router({
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       // Member-gated issue write (v7: every member is invited/trusted — the
       // old public-workspace moderator clamp is gone with self-service joins).
-      const { projectId } = await assertIssueAccess(
-        ctx.session.user.id,
-        input.issueId,
-        `write`
-      )
+      await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
 
       const [row] = await ctx.db
         .select({
@@ -573,11 +638,15 @@ export const issuesRouter = router({
         })
       }
 
-      const repo = await resolveProjectRepository(projectId)
-      if (!repo) {
+      // Merge against the repo the PR actually lives in — derived from prUrl,
+      // never the project's CURRENT repository: after a project repo
+      // retarget, prNumber would otherwise address an unrelated PR in the
+      // new repo (same derivation as prFiles below).
+      const repoFullName = repoFromPrUrl(row.prUrl)
+      if (!repoFullName) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `No repository is connected to this project`,
+          message: `The linked pull request URL is not a GitHub PR URL`,
         })
       }
       if (!githubAppConfigured()) {
@@ -586,17 +655,17 @@ export const issuesRouter = router({
           message: `GitHub App is not configured on this instance`,
         })
       }
-      const token = await resolveRepoInstallationToken(repo.fullName)
+      const token = await resolveRepoInstallationToken(repoFullName)
       if (!token) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `GitHub App is not installed on ${repo.fullName}`,
+          message: `GitHub App is not installed on ${repoFullName}`,
         })
       }
 
       try {
         await mergePullRequest({
-          repo: repo.fullName,
+          repo: repoFullName,
           prNumber: row.prNumber,
           token,
           commitTitle: `${row.identifier}: ${row.title} (#${row.prNumber})`,
