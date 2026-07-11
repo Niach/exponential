@@ -1,5 +1,4 @@
 • Releases: bundle issues into a release and track progress from the new Releases tab
 • New issues in solo workspaces are assigned to you automatically
 • Get notified when feedback arrives through your widget
-• Filter chips scroll as one row and due dates no longer wrap
 • Smaller fixes and improvements
