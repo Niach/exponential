@@ -115,19 +115,26 @@ jobs:
 
       # Windows → zip the bare exe. The exponential:// protocol handler + single
       # instance are self-registered at first launch (HKCU, no installer
-      # needed); a signed MSI/MSIX is future work.
+      # needed); a signed MSI/MSIX is future work. The raw `.exe` ships
+      # alongside the zip for the in-app self-updater (EXP-22): it swaps the
+      # running exe directly, so unzipping in-app would be wasted machinery
+      # (the zip stays — it's the marketing download link).
       - name: Package Windows zip
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Compress-Archive -Path apps/desktop/target/release/exp-desktop.exe `
             -DestinationPath "apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.zip"
+          Copy-Item apps/desktop/target/release/exp-desktop.exe `
+            "apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.exe"
       - name: Upload Windows artifact
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: exp-desktop-${{ matrix.channel }}-${{ matrix.target }}
-          path: apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.zip
+          path: |
+            apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.zip
+            apps/desktop/target/Exponential-${{ matrix.channel }}-x86_64-windows.exe
           if-no-files-found: error
 
       # macOS → assemble a proper .app bundle. The Info.plist declares the

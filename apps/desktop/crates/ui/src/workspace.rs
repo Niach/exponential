@@ -38,7 +38,7 @@ use sync::{SessionPhase, Store};
 use crate::{
     debug_board::DebugBoardPanel, login::LoginView, navigation, screens::ScreensPanel,
     sidebar::{RailView, SidebarPanel}, terminal_dock::TerminalDockPanel, top_bar::TopBar,
-    update::UpdateState,
+    update::{self, UpdatePhase, UpdateState},
 };
 
 /// Bump when the default layout shape changes so stale persisted layouts are
@@ -395,58 +395,133 @@ impl Render for Workspace {
 }
 
 impl Workspace {
-    /// The §11.2 "Update available — download" banner: a thin dismissible strip
-    /// above everything else, shown once the launch-time check found a newer
-    /// `desktop-v*` release. "Download" opens the release page in the browser;
-    /// the × dismisses it for the session (a fresh launch that still sees a
-    /// newer release shows it again).
+    /// The §11.2 update banner: a thin strip above everything else, shown once
+    /// the launch-time check found a newer `desktop-v*` release. Self-update
+    /// capable installs get an in-app "Update" pipeline (download progress →
+    /// "Restart to update"); everything else gets the original "Download"
+    /// browser link. The × dismisses it for the session (a fresh launch that
+    /// still sees a newer release shows it again); it is hidden while the
+    /// pipeline is actively downloading/installing.
     fn render_update_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let model = UpdateState::global_ref(cx)?;
-        let info = model.read(cx).banner()?.clone();
-        let label: SharedString =
-            format!("Update available — Exponential {} is out.", info.version).into();
+        let (info, phase) = {
+            let state = model.read(cx);
+            let (info, phase) = state.banner()?;
+            (info.clone(), phase.clone())
+        };
+        let version = info.version.clone();
         let url = info.url.clone();
 
-        Some(
-            h_flex()
-                .h(px(34.))
-                .w_full()
-                .flex_shrink_0()
-                .items_center()
-                .gap_2()
-                .px_3()
-                .border_b_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().info.opacity(0.14))
-                .child(Icon::new(IconName::Info).size_4().text_color(cx.theme().info))
-                .child(div().flex_1().text_sm().child(label))
-                .child(
-                    Button::new("update-download")
+        let label: SharedString = match &phase {
+            UpdatePhase::Available => {
+                format!("Update available — Exponential {version} is out.").into()
+            }
+            UpdatePhase::Downloading { received, total } => {
+                format!("Downloading Exponential {version}… {}", format_progress(*received, *total))
+                    .into()
+            }
+            UpdatePhase::Installing => format!("Installing Exponential {version}…").into(),
+            UpdatePhase::ReadyToRestart { .. } => {
+                format!("Exponential {version} is ready — restart to finish updating.").into()
+            }
+            UpdatePhase::Failed { message } => {
+                format!("Update to Exponential {version} failed: {message}").into()
+            }
+        };
+
+        let download_button = |id: &'static str, label: &'static str, url: String| {
+            Button::new(id).small().label(label).on_click(move |_: &ClickEvent, _, _| {
+                if let Err(err) = api::opener::open_in_browser(&url) {
+                    log::warn!("[ui] update: open release page failed: {err}");
+                }
+            })
+        };
+
+        let mut banner = h_flex()
+            .h(px(34.))
+            .w_full()
+            .flex_shrink_0()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().info.opacity(0.14))
+            .child(Icon::new(IconName::Info).size_4().text_color(cx.theme().info))
+            .child(div().flex_1().text_sm().child(label));
+
+        match &phase {
+            UpdatePhase::Available if info.plan.is_some() => {
+                banner = banner.child(
+                    Button::new("update-install").primary().small().label("Update").on_click(
+                        move |_: &ClickEvent, _, cx| {
+                            update::start_update(cx);
+                        },
+                    ),
+                );
+            }
+            UpdatePhase::Available => {
+                banner =
+                    banner.child(download_button("update-download", "Download", url).primary());
+            }
+            UpdatePhase::Downloading { .. } | UpdatePhase::Installing => {}
+            UpdatePhase::ReadyToRestart { restart_path } => {
+                let restart_path = restart_path.clone();
+                banner = banner.child(
+                    Button::new("update-restart")
                         .primary()
                         .small()
-                        .label("Download")
-                        .on_click(move |_: &ClickEvent, _, _| {
-                            if let Err(err) = api::opener::open_in_browser(&url) {
-                                log::warn!("[ui] update: open release page failed: {err}");
+                        .label("Restart to update")
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            if let Some(path) = restart_path.clone() {
+                                cx.set_restart_path(path);
                             }
+                            cx.restart();
                         }),
-                )
-                .child(
-                    Button::new("update-dismiss")
-                        .ghost()
-                        .small()
-                        .icon(IconName::Close)
-                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
-                            if let Some(model) = UpdateState::global_ref(cx) {
-                                model.update(cx, |state, cx| {
-                                    state.dismiss();
-                                    cx.notify();
-                                });
-                            }
-                        })),
-                )
-                .into_any_element(),
-        )
+                );
+            }
+            UpdatePhase::Failed { .. } => {
+                if info.plan.is_some() {
+                    banner = banner.child(
+                        Button::new("update-retry").primary().small().label("Retry").on_click(
+                            move |_: &ClickEvent, _, cx| {
+                                update::start_update(cx);
+                            },
+                        ),
+                    );
+                }
+                banner = banner.child(download_button("update-download", "Download", url));
+            }
+        }
+
+        // Dismissible except mid-pipeline: a hidden banner with a running
+        // download would leave the user no signal of what's happening.
+        if !matches!(phase, UpdatePhase::Downloading { .. } | UpdatePhase::Installing) {
+            banner = banner.child(
+                Button::new("update-dismiss")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Close)
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                        if let Some(model) = UpdateState::global_ref(cx) {
+                            model.update(cx, |state, cx| {
+                                state.dismiss();
+                                cx.notify();
+                            });
+                        }
+                    })),
+            );
+        }
+
+        Some(banner.into_any_element())
+    }
+}
+
+/// Human progress: percent when the size is known, transferred MB otherwise.
+fn format_progress(received: u64, total: Option<u64>) -> String {
+    match total {
+        Some(total) if total > 0 => format!("{}%", received * 100 / total),
+        _ => format!("{:.1} MB", received as f64 / (1024.0 * 1024.0)),
     }
 }
 
